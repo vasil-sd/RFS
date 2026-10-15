@@ -1,0 +1,1 @@
+prop bounded_response : always (input_is(Packet) -> bounded_eventually[5] (output_has(Small))) ;

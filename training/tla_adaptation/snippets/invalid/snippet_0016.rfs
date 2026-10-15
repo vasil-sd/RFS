@@ -1,0 +1,11 @@
+transition Red on Tick {
+  next Green;
+}
+
+transition Green on Tick {
+  next Yellow;
+}
+
+transition Yellow on Tick {
+  next Red;
+}

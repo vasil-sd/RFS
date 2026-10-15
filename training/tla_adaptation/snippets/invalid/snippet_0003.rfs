@@ -1,0 +1,2 @@
+enum State { N0, N1, N2 }
+initial N0

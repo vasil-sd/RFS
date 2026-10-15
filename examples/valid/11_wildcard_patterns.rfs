@@ -1,0 +1,19 @@
+# rfs 1.0
+module wildcard_patterns {
+  enum State { S }
+  initial S
+
+  event Packet(Frame(len: bit<8>, kind: bit<4>))
+  output Small
+  output Large
+
+  transition S on Packet(Frame(len, _)) where len < 10 {
+    next S;
+    emit Small;
+  }
+
+  transition S on Packet(Frame(len, _)) where len >= 10 {
+    next S;
+    emit Large;
+  }
+}

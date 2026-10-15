@@ -1,0 +1,18 @@
+# rfs 1.0
+module guard_complex {
+  enum State { S }
+  initial S
+
+  var a: bit<8> init 1
+  var b: bit<8> init 9
+
+  event Update(Payload(x: bit<8>, y: bit<8>))
+  output Match
+
+  transition S on Update(Payload(x, y)) where (a < 10 && b > 5) || (x == y) {
+    next S;
+    emit Match;
+    set a = x;
+    set b = y;
+  }
+}

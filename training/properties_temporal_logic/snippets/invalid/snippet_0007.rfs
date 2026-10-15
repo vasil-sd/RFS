@@ -1,0 +1,1 @@
+always (input_is(Request) -> bounded_eventually[10] (output_has(Response)))

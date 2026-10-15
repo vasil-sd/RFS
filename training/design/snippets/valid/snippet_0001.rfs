@@ -1,0 +1,20 @@
+module counter_wrap {
+  enum State { Counting }
+  initial Counting
+
+  event Inc
+  output Max
+
+  var count: bit<4> init 0
+
+  transition Counting on Inc where count < 15 {
+    next Counting;
+    set count = count + 1;
+  }
+
+  transition Counting on Inc where count == 15 {
+    next Counting;
+    emit Max;
+    set count = 0;
+  }
+}

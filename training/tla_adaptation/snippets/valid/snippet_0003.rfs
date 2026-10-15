@@ -1,0 +1,20 @@
+module traffic_light {
+  enum State { Red, Green, Yellow }
+  initial Red
+
+  event Tick
+
+  transition Red on Tick {
+    next Green;
+  }
+
+  transition Green on Tick {
+    next Yellow;
+  }
+
+  transition Yellow on Tick {
+    next Red;
+  }
+
+  prop no_skip_yellow : always (state == Green -> next (state != Red)) ;
+}

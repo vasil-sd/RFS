@@ -1,0 +1,5 @@
+event Tick
+transition Waiting on Tick where timer > 0 {
+  next Waiting;
+  set timer = timer - 1;
+}

@@ -1,0 +1,7 @@
+module m {
+  enum State { A, B }
+  initial A
+  event E
+  transition A on E {
+  }
+}

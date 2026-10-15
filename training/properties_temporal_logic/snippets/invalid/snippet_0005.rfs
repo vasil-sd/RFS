@@ -1,0 +1,1 @@
+always (input_is(Go) -> next (state == B))

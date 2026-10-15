@@ -1,0 +1,8 @@
+module counter {
+  enum State { Counting }
+  initial Counting
+  event Inc
+  event Reset
+  output Reached
+  var count: bit<8> init 0
+}

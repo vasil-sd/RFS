@@ -1,0 +1,26 @@
+# rfs 1.0
+module literal_patterns {
+  enum State { S }
+  initial S
+
+  event Cmd(Value(op: bit<4>))
+  event Flag(Value(b: bool))
+  output Zero
+  output One
+  output TrueAction
+
+  transition S on Cmd(Value(0)) {
+    next S;
+    emit Zero;
+  }
+
+  transition S on Cmd(Value(1)) {
+    next S;
+    emit One;
+  }
+
+  transition S on Flag(Value(true)) {
+    next S;
+    emit TrueAction;
+  }
+}

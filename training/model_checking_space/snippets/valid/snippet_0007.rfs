@@ -1,0 +1,12 @@
+# header comment
+// another comment
+module comments {
+  // enum comment
+  enum State { A, B } // inline comment
+  initial A
+  # event comment
+  event Go
+  transition A on Go { // body comment
+    next B; // action comment
+  }
+}

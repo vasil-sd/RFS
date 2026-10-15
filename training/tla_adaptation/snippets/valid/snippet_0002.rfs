@@ -1,0 +1,20 @@
+module one_item_buffer {
+  enum State { Empty, Full }
+  initial Empty
+
+  event Put
+  event Get
+
+  output BecameFull
+  output BecameEmpty
+
+  transition Empty on Put {
+    next Full;
+    emit BecameFull;
+  }
+
+  transition Full on Get {
+    next Empty;
+    emit BecameEmpty;
+  }
+}

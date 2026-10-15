@@ -31,6 +31,10 @@ The subsystem is organized so that:
 | `src/backends/rust_fsm.rs` | Rust backend: production FSM source generation. |
 | `src/backends/rust_test.rs` | Rust backend: unit-test source generation + aggregate test-crate helper for tooling. |
 | `src/backends/rust_mc.rs` | Rust backend: bounded model-checker executable generation. |
+| `src/backends/c.rs` | C backend plugin entry: the `C_BACKEND` registration value plus shared C helpers (identifier mangling, fixed-width type mapping). See `src/backends/C.md`. |
+| `src/backends/c_fsm.rs` | C backend: production FSM source generation (tagged-union inputs/outputs, priority-ordered arms, on_error fallback, simultaneous updates, translated safety subset). |
+| `src/backends/c_test.rs` | C backend: plain-assert unit-test executable generation. |
+| `src/backends/c_mc.rs` | C backend: bounded model-checker executable (same CLI wire format and LCG as the Rust MC). |
 
 ### Placement rule (where does new code go?)
 
@@ -250,8 +254,6 @@ directly:
   and `write_generated_crate(&root, &crate_)`.
 
 New code must go through the registry API; do not reintroduce wrapper surfaces.
-
-## 8. Testing conventions
 
 ## 8. Testing conventions
 

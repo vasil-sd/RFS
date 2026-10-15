@@ -14,8 +14,8 @@ pub mod validator;
 pub use error::{ParseError, Span};
 pub use frontend::{
     collect_files_with_ext, convert_file_to_ir, err_file_path, normalize_abs, plan_conversion,
-    render_ir, run_conversion, run_validate, validate_one, write_err_file, FailedFile, Format,
-    ValidateResult,
+    render_ir, run_conversion, run_validate, validate_one, validate_one_with_warnings,
+    write_err_file, FailedFile, Format, ValidateOneResult, ValidateResult,
 };
 pub use ir::*;
 pub use parser::{parse_file, parse_source};

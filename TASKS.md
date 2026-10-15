@@ -118,3 +118,25 @@ sed -n "<start>,<end>p" TASKS.md            # one specific entry by line range
 - Tracked as project content (not ignored): `.cargo/config.toml` (cargo aliases used throughout docs), `.ref_docs/` (Unsloth Qwen3.8 training references backing `training.py`), all docs, `src/` (23 files), `tests/` (5), `examples/` (44: 38 valid + 6 invalid), `training/` (256 files: 11 categories + snippets), `all_rfs_training.jsonl`, `training.py`.
 - Set repo-local identity `RFS Development <rfs-dev@localhost>` (no global/repo identity existed).
 - Commit: `65a7749` "Initial commit: RFS Phase 1 complete + Phase 2 preparation" - 345 files; worktree clean afterwards (`git status` empty); verified ignored set is exactly `.ruff_cache/`, `__pycache__/`, `target/`.
+
+
+---
+
+## 2026-10-15 21:06 - Phase 2 implemented: core DSL (version headers, on_error, priorities), validator checks + warnings, C backend
+
+### Interpretation & plan
+
+- Requested: full Phase 2 per ROADMAP - audit what Phase 0/1 already cover, plan with design-decision comparison tables and strong test coverage, implement everything, update all docs, TASKS.md entry + git commit.
+- Audit findings (recorded in plan): IR already carried `priority`/pattern bindings/output payloads; simultaneous updates via temps, derives, StepError + AssumptionHandler policy were done in Phase 1; duplicate `set` and missing `next` are parse-time errors. Missing: semantic use of priorities, on_error/default transitions, version headers, Phase 2 validator checks, C backend, realistic integration example.
+
+### Report
+
+- Language (parser/IR/printer): `module Name version "x.y.z" {` header -> `Module.version`; `on_error { next S; emit ...; }` -> `Module.on_error: Option<OnError>` (serde defaults, IR stays v0 - decision D10); round-trip verified.
+- Validator: errors for duplicate priority per (state+pattern) and shadowed duplicate transitions (identical pattern + identical guard); new non-fatal warning channel `validator::module_warnings` (unreachable states, dead events, unused vars, impossible guards) surfaced by `rfs validate` (exit code unchanged) and codegen. Ambiguity rule refined after false positive on the classic guarded if/else chain: order-dependent pairs are warnings, only true duplicates are errors (D2).
+- Rust codegen: per-state priority-ordered arms (effective priority, default 0), on_error fallback block replacing `Err(StepError::UnexpectedEvent)`, `SPEC_VERSION` const; generated negative unit tests adapt to on_error modules (assert landing in the error state instead of UnexpectedEvent).
+- C backend (new): `src/backends/c.rs`/`c_fsm.rs`/`c_test.rs`/`c_mc.rs` registered as second plugin; tagged-union inputs/outputs, fixed-width mapping bit<8/16/32/64>->uintN_t (other widths = codegen error, D8), priority/on_error/simultaneous-update parity, plain-assert test harness, MC with identical CLI wire format + LCG constants as the Rust MC; `src/backends/C.md` documents it.
+
+- Tests (+30 main: 95 -> 125): +13 validator unit tests (priority/ambiguity/duplicate rules, all warning classes), +4 parser unit tests (version header, on_error parse + round-trip, missing-next rejection), +7 codegen tests (Rust priority ordering/SPEC_VERSION/on_error markers; C registry/per-command generation over all 40 valid examples/C-vs-Rust semantic parity), +2 integration (`tests/integration_example_test.rs`: generate example 39 -> rustc compile -> driver reading events from an mpsc channel, asserts the full handshake output sequence, determinism across two runs, on_error landing); +4 C helper unit tests. Generated aggregate crate: 162 -> 164 modules, 486 -> 492 tests.
+- Examples: +2 valid (39_endpoint_protocol - realistic endpoint protocol with version/payloads/binding guards/priorities/on_error; 40_on_error_recovery), +5 invalid (duplicate priority, shadowed duplicate transition, on_error without next, unquoted version, duplicate set). `invalid_examples_fail_to_parse` extended to accept parse-OR-validation failure.
+- Docs: DESIGN.md sections 19-20 (Phase 1 renumbered; Phase 2 decisions D1-D10 with comparison tables); KB.md (state table, section 3.1/3.5 syntax, section 7 limitations rewritten - most Phase 0/1 items now resolved); ROADMAP.md Phase 2 status bullets; CODEGEN.md (C backend rows, testing conventions, invariants); BUILD.md + START.md counts/snapshot updated to Phase 2 state.
+- Verification: `cargo build` clean; `cargo test` 125/125; `cargo generate-code-tests` 164 modules; `cargo test-generated-code` 492/492; `rfs validate --input rfs examples/valid` exit 0 (40 files); clippy 0 errors; fmt clean. Generated C verified with gcc -Wall: production run reproduces the Rust behavior (syn -> data_ok -> rst sequence), `c test` passes, `c mc --bound 6 --runs 10` completes with the same summary format.

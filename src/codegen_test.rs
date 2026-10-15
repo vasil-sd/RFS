@@ -25,8 +25,12 @@ pub struct TestPlan {
     pub expect_progress: bool,
     /// Whether some input variant is statically not handled by any transition;
     /// when true, the negative test asserts that an unexpected-event failure
-    /// is found.
+    /// (or, with `on_error`, a fallback landing) is found.
     pub definite_unexpected: bool,
+    /// Whether the module declares an `on_error` fallback; when true, steps
+    /// never fail with `UnexpectedEvent`, so the negative test asserts that
+    /// the fallback state is reached instead.
+    pub has_on_error: bool,
 }
 
 /// Build a test plan for a module given its flattened variants.
@@ -35,6 +39,7 @@ pub fn build_test_plan(variants: &FsmVariants, module: &Module, steps: usize) ->
         steps,
         expect_progress: !module.transitions.is_empty(),
         definite_unexpected: has_definite_unexpected(variants, module),
+        has_on_error: module.on_error.is_some(),
     }
 }
 

@@ -182,6 +182,11 @@ fn cmd_validate(args: &[String]) -> ExitCode {
             for f in &result.ok_files {
                 println!("valid {}", f.display());
             }
+            for (f, warns) in &result.warnings {
+                for msg in warns {
+                    eprintln!("warning: {}: {}", f.display(), msg);
+                }
+            }
             for ff in &result.failed {
                 failed += 1;
                 if let Some(err_path) = &ff.err_file {

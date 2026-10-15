@@ -1,0 +1,29 @@
+# rfs 1.0
+module on_error_recovery {
+  enum State { Run, Safe }
+  initial Run
+
+  event Cmd(Go)
+  event Cmd(Stop)
+  output Signal(Signal(code: bit<8>))
+
+  transition Run on Cmd(Go) {
+    next Run;
+    emit Signal(Signal(1));
+  }
+
+  transition Run on Cmd(Stop) {
+    next Safe;
+  }
+
+  transition Safe on Cmd(Go) {
+    next Run;
+    emit Signal(Signal(2));
+  }
+
+  // Stop while Safe (and any future unhandled input) recovers to Safe with an alert.
+  on_error {
+    next Safe;
+    emit Signal(Signal(99));
+  }
+}

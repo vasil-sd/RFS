@@ -38,7 +38,11 @@ pub fn print_ir(ir: &Ir) -> String {
 /// Print a single module as formatted RFS source (no trailing newline).
 pub fn print_module(module: &Module) -> String {
     let mut s = String::new();
-    let _ = writeln!(s, "module {} {{", module.name);
+    let header = match &module.version {
+        Some(v) => format!("module {} version \"{}\" {{", module.name, v),
+        None => format!("module {} {{", module.name),
+    };
+    let _ = writeln!(s, "{}", header);
     for e in &module.enums {
         let variants = e.variants.join(", ");
         let _ = writeln!(s, "  enum {} {{ {} }}", e.name, variants);
@@ -64,6 +68,9 @@ pub fn print_module(module: &Module) -> String {
     for t in &module.transitions {
         s.push_str(&print_transition(t));
     }
+    if let Some(oe) = &module.on_error {
+        s.push_str(&print_on_error(oe));
+    }
     for p in &module.properties {
         let _ = writeln!(s, "  prop {} : {} ;", p.name, print_formula(&p.formula));
     }
@@ -71,6 +78,16 @@ pub fn print_module(module: &Module) -> String {
         let _ = writeln!(s, "  assume {} : {} ;", a.name, print_formula(&a.formula));
     }
     let _ = write!(s, "}}");
+    s
+}
+
+fn print_on_error(oe: &OnError) -> String {
+    let mut s = String::from("  on_error {\n");
+    let _ = writeln!(s, "    next {};", oe.next_state);
+    for o in &oe.emits {
+        let _ = writeln!(s, "    emit {};", print_output_expr(o));
+    }
+    s.push_str("  }\n");
     s
 }
 

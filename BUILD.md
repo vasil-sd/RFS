@@ -33,12 +33,12 @@ persist between tool calls). If `cargo --version` is not 1.99.0, see `TOOLCHAIN.
 
 | Suite | Command | Current result |
 |---|---|---|
-| All main-crate tests | `cargo test` | **95 pass** (31 lib, 41 frontend CLI logic, 12 codegen, 3 examples, 4 training, 4 parser-library comparison) |
+| All main-crate tests | `cargo test` | **125 pass** (52 lib, 41 frontend CLI logic, 19 codegen, 3 examples, 4 training, 4 parser-library comparison, 2 Phase 2 integration) |
 | Parser unit tests only | `cargo test --lib` | part of the 95 |
-| Example suite (file-driven: drop `.rfs` into `examples/valid\|invalid`, no test-code change) | `cargo test --test examples_test` | 3 pass; all 38 valid parse+round-trip, all 6 invalid fail as expected |
+| Example suite (file-driven: drop `.rfs` into `examples/valid\|invalid`, no test-code change) | `cargo test --test examples_test` | 3 pass; all 40 valid parse+validate+round-trip, all 11 invalid are rejected (parse or validation) |
 | Parser-library comparison (nom vs chumsky smoke) | `cargo test --test library_comparison` | 4 pass |
 | Training-set structure/snippets/aggregation/freshness | `cargo test-training` (= `cargo test training`) | 4 pass |
-| Generated-code aggregate unit tests (separate crate under `target/rfs_codegen_tests`) | `cargo test-generated-code` | **486 pass** |
+| Generated-code aggregate unit tests (separate crate under `target/rfs_codegen_tests`) | `cargo test-generated-code` | **492 pass** |
 
 Other suites: `tests/frontend_test.rs` covers all four conversion combinations, strict
 extension handling, output placement, collision guard, err-file generation, and
@@ -60,8 +60,9 @@ per-command generation, option sensitivity, and CLI argument parsing.
 | Reformat / convert any format pair (rfs/json in both directions) | `cargo run -- parse --input <rfs\|json> --output <rfs\|json> <file-or-dir>` |
 | List codegen backends / per-backend help | `cargo run -- codegen --list` / `cargo run -- codegen rust --help` |
 | Generate production/test/MC Rust code | `cargo run -- codegen rust <production\|test\|mc> <spec.rfs\|spec.json> [--out FILE] [--assumes ...] [--steps N]` |
+| Generate C code (Phase 2; same commands) | `cargo run -- codegen c <production\|test\|mc> <spec.rfs\|spec.json> [--out FILE] [--assumes ...]` (compile with `gcc -Wall out.c`) |
 | Generate aggregate generated-code test crate (162 modules) | `cargo generate-code-tests [--test-steps N] [--assumes ...]` |
-| Generate + compile + run all generated unit tests (486) | `cargo test-generated-code` |
+| Generate + compile + run all generated unit tests (492) | `cargo test-generated-code` |
 | Extract training snippets from `training/*/rfs_training.jsonl` | `cargo extract-training-snippets` -> 120 valid / 125 invalid snippets |
 | Aggregate training JSONL | `cargo build-training` -> writes `all_rfs_training.jsonl` (219 examples) |
 | Run training tests | `cargo test-training` |
@@ -86,6 +87,8 @@ Additional checks depending on what changed:
 - Touched training sets -> `cargo extract-training-snippets && cargo build-training && cargo test-training`.
 - Touched language syntax -> also update `DESIGN.md`/`KB.md` and add valid+invalid examples first.
 
-Known-good baseline (2026-10-15): 95/95 main tests, 486/486 generated tests, clippy
-without errors (two pre-existing warnings: `from_str` naming in lib, `&PathBuf` arg in
-`tests/codegen_test.rs`), fmt clean.
+Known-good baseline (2026-10-15, after Phase 2): 125/125 main tests, 492/492
+generated tests, clippy without errors (two pre-existing warnings: `from_str` naming
+in lib, `&PathBuf` arg in `tests/codegen_test.rs`), fmt clean. C generated code
+compiles with `gcc -Wall`; the Phase 2 integration tests compile the Rust output
+with rustc and drive it over an mpsc channel.

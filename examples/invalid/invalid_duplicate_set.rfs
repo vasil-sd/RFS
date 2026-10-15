@@ -1,0 +1,11 @@
+module m {
+  enum State { A, B }
+  initial A
+  event E
+  var x: bit<8> init 0
+  transition A on E {
+    next B;
+    set x = 1;
+    set x = 2;
+  }
+}

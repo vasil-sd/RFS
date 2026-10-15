@@ -1,0 +1,12 @@
+module m {
+  enum State { A, B }
+  initial A
+  event E
+  output O
+  transition A on E {
+    next B;
+  }
+  on_error {
+    emit O;
+  }
+}

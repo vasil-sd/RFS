@@ -15,7 +15,7 @@
 //! - `crate::codegen_mc`: bounded model-checking concepts (config, violation
 //!   specs, sequence-generation phases, run-status taxonomy).
 
-use crate::backends::rust;
+use crate::backends::{c, rust};
 use crate::ir::Module;
 use std::fmt::Write as _;
 
@@ -118,7 +118,9 @@ pub struct Backend {
 }
 
 /// The registry of all code-generation backends (the plugin table).
-pub static BACKENDS: &[Backend] = std::slice::from_ref(&rust::RUST_BACKEND);
+const ALL_BACKENDS: &[&Backend] = &[&c::C_BACKEND, &rust::RUST_BACKEND];
+
+pub static BACKENDS: &[&Backend] = ALL_BACKENDS;
 
 /// All registered backends as `(name, description)` pairs.
 pub fn list_backends() -> Vec<(&'static str, &'static str)> {
@@ -127,7 +129,7 @@ pub fn list_backends() -> Vec<(&'static str, &'static str)> {
 
 /// Look up a backend by CLI name.
 pub fn get_backend(name: &str) -> Option<&'static Backend> {
-    BACKENDS.iter().find(|b| b.name == name)
+    BACKENDS.iter().find(|b| b.name == name).copied()
 }
 
 /// Common help text for `rfs codegen --help`.

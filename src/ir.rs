@@ -26,6 +26,12 @@ impl Default for Ir {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
 pub struct Module {
     pub name: String,
+    /// Optional spec version header (`module Name version "1.0" {`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub version: Option<String>,
+    /// Optional `on_error` fallback executed when no transition matches.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub on_error: Option<OnError>,
     pub enums: Vec<EnumDecl>,
     pub initial_state: Option<String>,
     pub events: Vec<ConstructorGroup>,
@@ -34,6 +40,14 @@ pub struct Module {
     pub transitions: Vec<Transition>,
     pub properties: Vec<Property>,
     pub assumptions: Vec<Property>,
+}
+
+/// Fallback behavior for unexpected inputs (no matching transition).
+/// Executed in any state; has no pattern bindings.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct OnError {
+    pub next_state: String,
+    pub emits: Vec<OutputExpr>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

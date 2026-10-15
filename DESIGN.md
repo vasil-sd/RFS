@@ -1264,7 +1264,7 @@ module handshake {
 
 ---
 
-## 18. Phase 1 code-generation decisions
+## 19. Phase 1 code-generation decisions
 
 Phase 1 introduces a validator and Rust translator. The key decisions are recorded in `KB.md` section 13, summarized here:
 
@@ -1276,3 +1276,124 @@ Phase 1 introduces a validator and Rust translator. The key decisions are record
 - Only safety formulas in the current translated subset become runtime checks or property checks. Formulas containing `bounded_eventually` are skipped with a warning.
 - Generated unit tests include initial-state, positive bounded-sequence, and negative unexpected-input tests. The sequence length is configurable, default 4.
 - The generated bounded model checker uses representative input constructors by default, can inject unexpected events, and can force selected safety assumptions to violate with per-run probabilities.
+
+## 20. Phase 2 core-DSL decisions
+
+Phase 2 makes the DSL practical for real endpoint protocol FSMs. The IR already
+carried `priority`, pattern bindings, and output payloads (forward-compatible
+since Phase 0); Phase 2 wires them through validation and code generation, adds
+two new syntax forms, and adds the C backend. Decisions are recorded as
+comparison tables; the chosen option is marked.
+
+### D1. Priority direction
+
+| Option | Pros | Cons | Decision |
+|---|---|---|---|
+| Larger number wins (checked first) | Matches "priority 10 beats priority 5" intuition; easy to explain in specs | Inverted vs interrupt/nice conventions | **Chosen** |
+| Smaller number wins | Matches POSIX nice / interrupt priorities | Counter-intuitive for spec authors ("is 1 top or bottom?") | Rejected |
+
+### D2. Ambiguity and duplicate detection (same state, identical event pattern)
+
+Two transitions in one state can conflict only when their patterns are
+identical (different variants of different groups never match the same input).
+
+| Situation | Severity | Rationale |
+|---|---|---|
+| Identical pattern + identical guard (both absent or structurally equal) | **Error** ("duplicate transitions") | The second transition is provably unreachable (shadowed). |
+| Identical pattern + two *different* explicit priorities | Allowed | Deterministic ordering; the author pinned intent. |
+| Identical pattern + duplicate explicit priority value | **Error** ("duplicate priority") | A tie cannot be ordered deterministically. |
+| Identical pattern, no priorities, different (or one missing) guard | **Warning** ("order-dependent") | First match wins in source order; legal if/else chains stay valid, but the author is told to pin intent with priorities. |
+
+Guards are compared structurally (no value analysis): overlapping guards like
+`x < 5` / `x >= 3` produce the warning even when some inputs are disjoint.
+This is the "at least syntactically" level required by the roadmap; bounded
+checking is left to Phase 4.
+
+### D3. Duplicate-priority scope
+
+| Option | Pros | Cons | Decision |
+|---|---|---|---|
+| Priorities must be unique per (state, pattern) | Numbers can be reused across unrelated patterns in the same state; minimal constraint | Slightly more complex rule to explain | **Chosen** |
+| Priorities must be unique per state (regardless of pattern) | Simplest rule | Forces a global numbering scheme per state even for patterns that cannot conflict (rejected after it broke a natural spec during implementation) | Rejected |
+
+### D4. Severity of reachability/usage diagnostics
+
+| Check | Severity | Rationale |
+|---|---|---|
+| Unreachable state | **Warning** | Over-approximated (guards ignored); legitimate specs may have defensive states; must not break the 40 existing valid examples |
+| Dead event (constructor never in any pattern) | **Warning** | Same reasoning; bare group patterns count as using all of the group's variants |
+| Unused variable (never read or written) | **Warning** | May be intentional documentation |
+| Impossible guard (literal `false`; same variable compared equal to two different integer literals in one top-level conjunction) | **Warning** | Syntactic detection only; the transition is dead but the spec still compiles |
+
+Warnings never block code generation or validation exit codes; they are printed
+by `rfs validate` and surfaced through codegen output warnings.
+
+### D5. Effective priority default
+
+A transition without `priority N;` has effective priority 0 (lowest). Within a
+state, arms are checked in descending effective priority (stable for ties; ties
+are validator errors). Cross-state ordering is irrelevant because only the
+active state can match. Generated code groups transitions by state and sorts
+each group, so specs without priorities generate behaviorally identical code to
+Phase 1 (source order preserved within a state).
+
+### D6. Error handling for unexpected inputs
+
+| Option | Pros | Cons | Decision |
+|---|---|---|---|
+| Module-level `on_error { next S; [emit O(...);] }` block | Explicit, one per module; no new pattern grammar; works in every state; MC-compatible (it is just a fallback arm) | Cannot vary the recovery target per state | **Chosen** |
+| Wildcard transition (`transition A on _ { ... }`) | Per-state flexibility | Requires a new pattern form that would clash with the existing `_` field wildcard; easy to misuse | Rejected |
+| Policy keyword (`on_error policy: ignore/error/recover`) | Compact | "ignore" silently drops protocol errors (bad for model checking); less readable in specs | Rejected |
+
+Semantics: when no transition matches, `on_error` executes in the current state:
+it moves to its declared state and emits its outputs; it has **no pattern
+bindings** and cannot assign variables (values carry over unchanged). Without
+`on_error`, behavior is unchanged from Phase 1 (`StepError::UnexpectedEvent` /
+`RFS_UNEXPECTED_EVENT`).
+
+### D7. Module version header syntax
+
+| Option | Pros | Cons | Decision |
+|---|---|---|---|
+| `module Name version "x.y.z" {` on the module line | Visible at a glance; one optional token; trivially round-trips | Version is per-module (a file with several modules repeats it) | **Chosen** |
+| `meta version = "..."` item inside the module | Extensible to more metadata later | A new item kind for what is currently a single value; no second metadata key exists yet | Rejected (revisit if more metadata keys appear) |
+
+The version is stored in the IR (`Module.version: Option<String>`, serde-defaulted,
+`skip_serializing_if = "Option::is_none"`), printed by the RFS printer, and
+emitted as `pub const SPEC_VERSION` (Rust) / `#define RFS_SPEC_VERSION` (C).
+
+### D8. C backend type mapping and scope
+
+| Item | Decision | Notes |
+|---|---|---|
+| `bool` | `bool` (`<stdbool.h>`) | |
+| `bit<N>` | `uintN_t` for N in {8, 16, 32, 64}; other widths are a **codegen error** | C has no wider fixed-width types; Rust uses u128 intermediates, C relies on native unsigned wrap-around (identical results mod 2^N) |
+| enums | `typedef enum { NAME_VARIANT } Name_t` | State enum variants get the `STATE_` prefix |
+| inputs/outputs | payload structs + `kind` int + anonymous union (`input_t` / `output_t`) | Classic C tagged-union representation |
+| simultaneous updates | temp variables, exactly like Rust | All RHS evaluated from old values before any assignment |
+| assumption handling | function pointer `rfs_policy_t (*handler)(void*, const char*)` with CONTINUE/STOP/PANIC policies; default handler aborts | Mirrors the Rust `AssumptionHandler` trait |
+| unit tests | plain-assert harness in `main()`, failure counting (no framework) | Same `TestPlan` semantics as the Rust backend, including the on_error landing check |
+| model checker | **same runtime wire format** as the Rust MC: `--bound --runs --seed --assumes --violate --unexpected-prob`, same LCG constants (6364136223846793005 / 1442695040888963407), same three-phase step strategy, same summary line | Counterexample traces print state/input kinds (C has no Rust-style Debug) |
+| property translation | same translated safety subset as Rust (Expr/Not/And/Or/Implies/Next/InputIs/OutputHas); liveness skipped with a warning | |
+
+### D9. Feature flags (std/no_std, property-monitors, logging hooks)
+
+Deferred beyond Phase 2: the roadmap marks `no_std` as "later"; no consumer
+needs the other two yet. Recorded so they are not silently dropped - they remain
+Phase 5 candidates. Generated code is already dependency-free single files, which
+keeps this door open.
+
+### D10. IR evolution rule
+
+Additive optional fields (serde `default` + skip-when-none) do **not** bump
+`IR_VERSION`; existing IR JSON keeps deserializing. Breaking changes to the IR
+shape must bump `IR_VERSION` and update round-trip tests. Phase 2 added
+`Module.version` and `Module.on_error` under this rule (IR stays v0).
+
+### Phase 2 summary of what was already present
+
+Verified during implementation (no new code needed, only docs/tests): full finite
+types; event payload patterns with bindings; guards on bound fields; output
+payloads; multiple variable updates; simultaneous updates via temp variables;
+derives on generated types; the clear error type (`StepError` / `RFS_UNEXPECTED_EVENT`);
+parser acceptance of `priority N;`; duplicate-`set` rejection at parse time.

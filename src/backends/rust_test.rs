@@ -44,7 +44,9 @@ pub(crate) fn emit_test_module(module: &Module, variants: &FsmVariants, steps: u
     } else {
         format!("vec![{}]", candidates.join(", "))
     };
-    let definite = plan.definite_unexpected;
+    let definite = plan.definite_unexpected && !plan.has_on_error;
+    let on_error_assert =
+        plan.has_on_error && codegen_test::has_definite_unexpected(variants, module);
     let expect_progress = plan.expect_progress;
     let _ = writeln!(
         out,
@@ -70,42 +72,86 @@ mod tests {{
         }}
         const EXPECT_PROGRESS: bool = {};
         assert!(steps > 0 || !EXPECT_PROGRESS || candidates.is_empty());
-    }}
-    #[test]
-    fn negative_unexpected_input_search() {{
-        let candidates = candidate_inputs();
-        let mut fsm = Fsm::new();
-        let mut found = false;
-        for _ in 0..{} {{
-            for input in &candidates {{
-                let mut trial = fsm.clone();
-                let mut handler = ContinueAssumptionHandler;
-                if matches!(trial.step_with_handler(*input, &mut handler), Err(StepError::UnexpectedEvent)) {{ found = true; break; }}
-            }}
-            if found {{ break; }}
-            let mut progressed = false;
-            for input in &candidates {{
-                let mut trial = fsm.clone();
-                let mut handler = ContinueAssumptionHandler;
-                if trial.step_with_handler(*input, &mut handler).is_ok() {{ fsm = trial; progressed = true; break; }}
-            }}
-            if !progressed {{ break; }}
-        }}
-        {}
-    }}
-}}
-"#,
+    }}"#,
         candidate_list,
         rust_ident(module.initial_state.as_deref().unwrap_or("__None__")),
         k,
-        expect_progress,
-        k,
-        if definite {
-            "assert!(found);"
-        } else {
-            "// No statically obvious unexpected representative input."
-        }
+        expect_progress
     );
+    // Negative test: without on_error it searches for UnexpectedEvent; with
+    // on_error (and a statically unhandled input) it asserts the fallback
+    // state is reached instead.
+    let mut neg = String::new();
+    let _ = writeln!(neg, "    #[test]");
+    let _ = writeln!(neg, "    fn negative_unexpected_input_search() {{");
+    let _ = writeln!(neg, "        let candidates = candidate_inputs();");
+    let _ = writeln!(neg, "        let mut fsm = Fsm::new();");
+    let _ = writeln!(neg, "        let mut found = false;");
+    if plan.has_on_error {
+        let _ = writeln!(neg, "        let mut on_error_found = false;");
+    }
+    let _ = writeln!(neg, "        for _ in 0..{} {{", k);
+    let _ = writeln!(neg, "            for input in &candidates {{");
+    let _ = writeln!(neg, "                let mut trial = fsm.clone();");
+    let _ = writeln!(
+        neg,
+        "                let mut handler = ContinueAssumptionHandler;"
+    );
+    if plan.has_on_error {
+        let oe_state = rust_ident(module.on_error.as_ref().unwrap().next_state.as_str());
+        let _ = writeln!(
+            neg,
+            "                match trial.step_with_handler(*input, &mut handler) {{"
+        );
+        let _ = writeln!(
+            neg,
+            "                    Err(StepError::UnexpectedEvent) => {{ found = true; break; }}"
+        );
+        let _ = writeln!(neg, "                    Ok(_) if trial.state == State::{} => {{ on_error_found = true; break; }}", oe_state);
+        let _ = writeln!(neg, "                    _ => {{}}");
+        let _ = writeln!(neg, "                }}");
+    } else {
+        let _ = writeln!(
+            neg,
+            "                if matches!(trial.step_with_handler(*input, &mut handler), Err(StepError::UnexpectedEvent)) {{ found = true; break; }}"
+        );
+    }
+    let _ = writeln!(neg, "            }}");
+    if plan.has_on_error {
+        let _ = writeln!(neg, "            if found || on_error_found {{ break; }}");
+    } else {
+        let _ = writeln!(neg, "            if found {{ break; }}");
+    }
+    let _ = writeln!(neg, "            let mut progressed = false;");
+    let _ = writeln!(neg, "            for input in &candidates {{");
+    let _ = writeln!(neg, "                let mut trial = fsm.clone();");
+    let _ = writeln!(
+        neg,
+        "                let mut handler = ContinueAssumptionHandler;"
+    );
+    let _ = writeln!(
+        neg,
+        "                if trial.step_with_handler(*input, &mut handler).is_ok() {{ fsm = trial; progressed = true; break; }}"
+    );
+    let _ = writeln!(neg, "            }}");
+    let _ = writeln!(neg, "            if !progressed {{ break; }}");
+    let _ = writeln!(neg, "        }}");
+    if on_error_assert {
+        let _ = writeln!(
+            neg,
+            "        assert!(on_error_found, \"on_error fallback was never reached\");"
+        );
+    } else if definite {
+        let _ = writeln!(neg, "        assert!(found);");
+    } else {
+        let _ = writeln!(
+            neg,
+            "        // No statically obvious unexpected representative input."
+        );
+    }
+    let _ = writeln!(neg, "    }}");
+    let _ = writeln!(neg, "}}");
+    out.push_str(&neg);
     out
 }
 

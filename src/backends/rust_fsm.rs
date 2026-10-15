@@ -234,6 +234,12 @@ pub enum StepError {{ UnexpectedEvent, AssumptionViolation {{ label: String }} }
             "pub const ASSUME_LABELS: &[&str] = &{:?};",
             assumes
         );
+        if let Some(v) = &self.module.version {
+            let _ = writeln!(
+                self.code,
+                "/// Spec version header from the RFS module declaration.\npub const SPEC_VERSION: &str = \"{v}\";"
+            );
+        }
         let mut pm = String::new();
         let mut am = String::new();
         for n in &self.property_names {
@@ -511,13 +517,37 @@ impl Fsm {{
             rust_ident(&init_state),
             init_vars
         );
+        // Phase 2: transitions are grouped by state (first-appearance order);
+        // within a state they are checked in descending effective priority
+        // (`priority N;`, default 0). Cross-state order is irrelevant because
+        // only the active state can match.
+        let mut state_order: Vec<&str> = Vec::new();
+        let mut by_state: std::collections::HashMap<&str, Vec<usize>> =
+            std::collections::HashMap::new();
         for (idx, t) in self.module.transitions.iter().enumerate() {
-            let block = self
-                .transition_block(t, idx)
-                .map_err(|e| format!("transition #{}: {}", idx, e))?;
-            self.code.push_str(&block);
+            if !by_state.contains_key(t.state.as_str()) {
+                state_order.push(t.state.as_str());
+            }
+            by_state.entry(t.state.as_str()).or_default().push(idx);
         }
-        let _ = writeln!(self.code, "        Err(StepError::UnexpectedEvent)\n    }}");
+        for state in &state_order {
+            let mut idxs: Vec<usize> = by_state.get(state).unwrap().clone();
+            idxs.sort_by_key(|&k| {
+                std::cmp::Reverse(self.module.transitions[k].priority.unwrap_or(0))
+            });
+            for idx in idxs {
+                let t = &self.module.transitions[idx];
+                let block = self
+                    .transition_block(t, idx)
+                    .map_err(|e| format!("transition #{}: {}", idx, e))?;
+                self.code.push_str(&block);
+            }
+        }
+        if self.module.on_error.is_some() {
+            self.code.push_str(&self.on_error_block()?);
+        } else {
+            let _ = writeln!(self.code, "        Err(StepError::UnexpectedEvent)\n    }}");
+        }
         let _ = writeln!(
             self.code,
             r#"    fn check_assumptions<H: AssumptionHandler>(&self, trace: &Trace, handler: &mut H) -> Result<(), StepError> {{
@@ -653,6 +683,48 @@ impl Fsm {{
         let _ = writeln!(out, "            }}");
         out.push_str(&self.pattern_block_close(t)?);
         let _ = writeln!(out, "        }}");
+        Ok(out)
+    }
+
+    /// Phase 2: fallback block executed when no transition matched the input
+    /// (the module declared an `on_error` block). No state check and no
+    /// pattern bindings; variable values are carried over unchanged.
+    fn on_error_block(&self) -> Result<String, String> {
+        let oe = self.module.on_error.as_ref().ok_or("no on_error block")?;
+        let mut out = String::new();
+        let env = Env::for_module(self.module);
+        let mut ctx = ExprCtx::new(self.module);
+        ctx.names.insert("state".into(), "self.state".into());
+        for v in &self.module.vars {
+            ctx.names
+                .insert(v.name.clone(), format!("self.vars.{}", rust_ident(&v.name)));
+        }
+        let mut outputs: Vec<String> = Vec::new();
+        for o in &oe.emits {
+            outputs.push(self.output_expr(o, &env, &ctx)?);
+        }
+        let outputs_expr: String = if outputs.is_empty() {
+            "Vec::new()".into()
+        } else {
+            format!("vec![{}]", outputs.join(", "))
+        };
+        let _ = writeln!(
+            out,
+            "        // on_error fallback: no transition matched the input"
+        );
+        let _ = writeln!(out, "        {{");
+        let _ = writeln!(out, "            let outputs = {};", outputs_expr);
+        let _ = writeln!(
+            out,
+            "            let next_state = State::{};",
+            rust_ident(&oe.next_state)
+        );
+        let _ = writeln!(out, "            let new_vars = self.vars.clone();");
+        let _ = writeln!(
+            out,
+            "            return self.commit_step(input, outputs, next_state, new_vars, handler);"
+        );
+        let _ = writeln!(out, "        }}\n    }}");
         Ok(out)
     }
 

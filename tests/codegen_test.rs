@@ -51,7 +51,15 @@ fn registry_lists_rust_backend() {
             cmd
         );
     }
-    assert!(codegen::get_backend("c").is_none());
+    // Phase 2: the C backend is registered alongside Rust.
+    let c_backend = codegen::get_backend("c").expect("c backend registered");
+    for cmd in ["production", "test", "mc"] {
+        assert!(
+            c_backend.commands.iter().any(|c| c.name == cmd),
+            "c backend must register command {}",
+            cmd
+        );
+    }
     assert!(codegen::get_backend("nope").is_none());
 }
 
@@ -270,4 +278,184 @@ fn model_checker_codegen_contains_main() {
         .run(backend, &ir.modules[0], &options)
         .expect("model checker codegen should succeed");
     assert!(mc.code.contains("fn main()"));
+}
+
+// ---------------------------------------------------------------------------
+// Phase 2: priorities, on_error fallback, version header
+// ---------------------------------------------------------------------------
+
+#[test]
+fn priority_10_arm_precedes_priority_1_in_generated_step() {
+    let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    let ir = parse_module(&root.join("examples/valid/39_endpoint_protocol.rfs"));
+    let backend = codegen::get_backend("rust").unwrap();
+    let options = codegen::BackendOptions {
+        assumptions: codegen::AssumptionSelection::All,
+        steps: 4,
+    };
+    let out = codegen::CodegenCommandKind::Production
+        .run(backend, &ir.modules[0], &options)
+        .expect("production codegen");
+    // The priority-10 arm (next Open via the exact-seq Data match) must be
+    // emitted before the priority-1 fallback arm in state Connecting.
+    let pos_hi = out
+        .code
+        .find("Output::Send_Ack { ack_seq: 1 }")
+        .expect("priority-10 emit present");
+    let pos_lo = out
+        .code
+        .find("Output::Alert_Code { reason: 7 }")
+        .expect("priority-1 emit present");
+    assert!(pos_hi < pos_lo, "higher priority arm must come first");
+}
+
+#[test]
+fn on_error_fallback_replaces_unexpected_event_error() {
+    let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    let ir = parse_module(&root.join("examples/valid/40_on_error_recovery.rfs"));
+    let backend = codegen::get_backend("rust").unwrap();
+    let options = codegen::BackendOptions {
+        assumptions: codegen::AssumptionSelection::All,
+        steps: 4,
+    };
+    let out = codegen::CodegenCommandKind::Production
+        .run(backend, &ir.modules[0], &options)
+        .expect("production codegen");
+    assert!(out.code.contains("on_error fallback"));
+    // With on_error the step function no longer returns UnexpectedEvent.
+    assert!(!out.code.contains("Err(StepError::UnexpectedEvent)"));
+}
+
+#[test]
+fn version_header_becomes_spec_version_constant() {
+    let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    let ir = parse_module(&root.join("examples/valid/39_endpoint_protocol.rfs"));
+    let backend = codegen::get_backend("rust").unwrap();
+    let options = codegen::BackendOptions {
+        assumptions: codegen::AssumptionSelection::All,
+        steps: 4,
+    };
+    let out = codegen::CodegenCommandKind::Production
+        .run(backend, &ir.modules[0], &options)
+        .expect("production codegen");
+    assert!(out
+        .code
+        .contains("pub const SPEC_VERSION: &str = \"1.0.0\";"));
+}
+
+#[test]
+fn generated_negative_test_asserts_on_error_landing() {
+    let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    let ir = parse_module(&root.join("examples/valid/40_on_error_recovery.rfs"));
+    let backend = codegen::get_backend("rust").unwrap();
+    let options = codegen::BackendOptions {
+        assumptions: codegen::AssumptionSelection::All,
+        steps: 4,
+    };
+    let out = codegen::CodegenCommandKind::UnitTests
+        .run(backend, &ir.modules[0], &options)
+        .expect("unit-test codegen");
+    assert!(out.code.contains("on_error_found"));
+}
+
+// ---------------------------------------------------------------------------
+// Phase 2: C backend (registry + per-command generation)
+// ---------------------------------------------------------------------------
+
+#[test]
+fn c_backend_registered_with_all_commands() {
+    let backends: Vec<&str> = rfs::codegen::list_backends()
+        .into_iter()
+        .map(|(n, _)| n)
+        .collect();
+    assert!(backends.contains(&"c"), "C backend must be registered");
+    let backend = rfs::codegen::get_backend("c").expect("c backend");
+    for cmd in ["production", "test", "mc"] {
+        assert!(
+            backend.commands.iter().any(|c| c.name == cmd),
+            "c backend missing command {}",
+            cmd
+        );
+    }
+}
+
+#[test]
+fn all_c_commands_generate_for_valid_examples() {
+    let files = files();
+    let backend = rfs::codegen::get_backend("c").unwrap();
+    let options = rfs::codegen::BackendOptions {
+        assumptions: rfs::codegen::AssumptionSelection::All,
+        steps: 4,
+    };
+    for path in &files {
+        let ir = parse_module(path);
+        for module in &ir.modules {
+            // Specs with bit widths outside 8/16/32/64 are rejected by the C backend.
+            let result =
+                rfs::codegen::CodegenCommandKind::Production.run(backend, module, &options);
+            if let Err(e) = &result {
+                assert!(
+                    e.iter().any(|x| x.contains("bit widths")),
+                    "{} production: unexpected C codegen error: {:?}",
+                    path.display(),
+                    e
+                );
+                continue;
+            }
+            let out = result.unwrap();
+            assert!(
+                out.code.contains("fsm_step"),
+                "{} c production missing fsm_step",
+                path.display()
+            );
+            assert!(out.code.contains("#include <stdint.h>"));
+
+            let tests = rfs::codegen::CodegenCommandKind::UnitTests
+                .run(backend, module, &options)
+                .unwrap_or_else(|e| panic!("{} c test failed: {:?}", path.display(), e));
+            assert!(
+                tests.code.contains("int main(void)"),
+                "{} c test missing main",
+                path.display()
+            );
+
+            let mc = rfs::codegen::CodegenCommandKind::ModelChecker
+                .run(backend, module, &options)
+                .unwrap_or_else(|e| panic!("{} c mc failed: {:?}", path.display(), e));
+            assert!(
+                mc.code.contains("model-check summary:"),
+                "{} c mc missing summary line",
+                path.display()
+            );
+        }
+    }
+}
+
+#[test]
+fn c_production_matches_rust_semantics_on_endpoint_protocol() {
+    // Both backends must agree on the priority-ordered step for the Phase 2
+    // showcase spec: the higher-priority arm is emitted first.
+    let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    let ir = parse_module(&root.join("examples/valid/39_endpoint_protocol.rfs"));
+    let backend = rfs::codegen::get_backend("c").unwrap();
+    let options = rfs::codegen::BackendOptions {
+        assumptions: rfs::codegen::AssumptionSelection::All,
+        steps: 4,
+    };
+    let out = rfs::codegen::CodegenCommandKind::Production
+        .run(backend, &ir.modules[0], &options)
+        .expect("c production codegen");
+    let pos_hi = out
+        .code
+        .find("INPUT_RECV_DATA")
+        .expect("data pattern present");
+    assert!(
+        out.code.contains("RFS_SPEC_VERSION"),
+        "version header must be emitted"
+    );
+    assert!(
+        out.code.contains("on_error fallback"),
+        "on_error block must be emitted"
+    );
+    assert!(pos_hi > 0);
 }

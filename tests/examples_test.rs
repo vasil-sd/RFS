@@ -62,7 +62,9 @@ fn valid_examples_parse_and_roundtrip() {
 }
 
 #[test]
-fn invalid_examples_fail_to_parse() {
+fn invalid_examples_rejected() {
+    // Phase 2: invalid examples may fail at parse time (syntax) or at
+    // validation time (semantic errors such as duplicate priorities).
     let dir = example_root().join("invalid");
     if !dir.exists() {
         return;
@@ -74,12 +76,14 @@ fn invalid_examples_fail_to_parse() {
         let source = fs::read_to_string(file)
             .unwrap_or_else(|e| panic!("failed to read {}: {}", file.display(), e));
 
-        let result = parse_source(&source);
-        assert!(
-            result.is_err(),
-            "expected {} to fail parsing, but it succeeded",
-            file.display()
-        );
+        match parse_source(&source) {
+            Err(_) => {} // parse failure: rejected as expected
+            Ok(ir) => assert!(
+                rfs::validator::validate_ir(&ir).is_err(),
+                "expected {} to fail validation, but it succeeded",
+                file.display()
+            ),
+        }
     }
 }
 

@@ -41,13 +41,14 @@ Read order for a new assistant:
 | IR | Phase 0 complete | Serializable Rust structs/enums in `src/ir.rs`. |
 | JSON round-trip | Working | `serde` + `serde_json`; tested. |
 | CLI | Working | Subcommand-based: `rfs parse` (format conversion), `rfs validate` (semantic validation), `rfs codegen` (backend registry dispatch). No positional-argument legacy mode. |
+| Phase 2 core DSL | Complete | Version headers, `on_error` fallbacks, priorities in generated code, Phase 2 validator checks (errors + warnings channel), C backend (production/test/mc) with the Rust MC wire format. See `DESIGN.md` section 20. |
 | Frontend CLI (`parse`) | Phase 1 working | `rfs parse --input <rfs\|json> --output <rfs\|json> <file-or-dir> [--target-dir DIR]`; all four RFS/JSON format combinations, structure-preserving target dirs, collision guard. |
 | Frontend CLI (`validate`) | Phase 1 working | `rfs validate [--input <rfs\|json>] <file-or-dir>`; file mode reports to stderr, directory mode writes `<name>.rfs-validation.err` next to each failing source. |
-| Valid examples | 38 files | All parse, validate, round-trip, and translate to Rust; includes TLA-inspired adaptations and Phase 1 assumption/unexpected-input demos. |
-| Invalid examples | 6 files | All fail as expected, including TLA-syntax anti-patterns. |
+| Valid examples | 40 files | All parse, validate, round-trip, and translate to Rust **and C**; includes TLA-inspired adaptations, Phase 1 assumption/unexpected-input demos, and the Phase 2 endpoint-protocol + on_error-recovery showcases. |
+| Invalid examples | 11 files | All fail as expected (parse or validation), including TLA-syntax anti-patterns and Phase 2 semantic errors (duplicate priority, shadowed duplicate transition, on_error without next, bad version header, duplicate set). |
 | Validator | Phase 1 working | `src/validator.rs` performs name resolution, pattern/output checks, expression typing, and formula typing. |
-| Code generator | Phase 1 working (plugin system) | `src/codegen.rs` defines the Backend plugin API, the `BACKENDS` registry, and `rfs codegen` CLI parsing; shared analysis in `codegen_fsm/test/mc.rs`; Rust backend under `src/backends/` implements production/test/mc. See `CODEGEN.md`. |
-| Tests | Passing | 95 non-doc tests in the main crate (31 lib, 41 frontend CLI logic, 12 codegen, 3 examples, 4 training, 4 parser-library comparison); generated aggregate unit-test crate currently has 486 passing tests. |
+| Code generator | Phase 2 working (plugin system) | `src/codegen.rs` defines the Backend plugin API, the `BACKENDS` registry, and `rfs codegen` CLI parsing; shared analysis in `codegen_fsm/test/mc.rs`; **Rust and C backends** under `src/backends/` each implement production/test/mc (C MC reuses the Rust MC wire format). See `CODEGEN.md`. |
+| Tests | Passing | 125 non-doc tests in the main crate (52 lib, 41 frontend CLI logic, 19 codegen, 3 examples, 4 training, 4 parser-library comparison, 2 Phase 2 integration); generated aggregate unit-test crate currently has 492 passing tests. |
 | LLM training set | Maintained, 11 categories | `training/<category>/rfs_training.jsonl` stores category-specific SFT examples (design, syntax_semantics, properties_temporal_logic, model_checking, model_checking_space, model_checking_properties, codegen_rust, examples_explain, frontend_cli, project_tooling, tla_adaptation); `all_rfs_training.jsonl` is the generated aggregate (219 examples). |
 | Training snippets | Generated | `training/<category>/snippets/valid/*.rfs` and `snippets/invalid/*.rfs` are extracted from training JSONL, validated, and tested by the parser suite. |
 | Lint/format | Clean | `cargo clippy --all-targets` and `cargo fmt` were clean at last verification. |
@@ -331,15 +332,45 @@ architecture: `src/backends/RUST.md`.
 
 ## 3. RFS v0 syntax reference
 
-### 3.1 Source file
+### 3.1 Source file and module header
 
-A source file contains zero or more modules.
+A source file contains zero or more modules. The module header optionally
+carries a version string (Phase 2; `DESIGN.md` section 20, D7):
 
 ```rfs
 module name {
   ...
 }
+
+module name version "1.2.3" {
+  ...
+}
 ```
+
+The version is a quoted string without escapes; it round-trips through the IR
+(`Module.version`) and becomes `SPEC_VERSION` in generated code. Module items:
+enums, `initial`, events, outputs, vars, transitions, `prop`, `assume`, and
+the Phase 2 error fallback (next subsection).
+
+### 3.1a Error fallback (`on_error`, Phase 2)
+
+```rfs
+module m {
+  ...
+  on_error {
+    next Safe;          // required: state entered when no transition matches
+    emit Alert(Code(9)); // optional emits, no pattern bindings, no assignments
+  }
+}
+```
+
+- At most one per module; `next` is mandatory (missing `next` is a parse error).
+- Executed in **any** state when no transition matched: the generated `step`
+  performs the fallback instead of returning an unexpected-event error.
+- No pattern bindings are available; variable values carry over unchanged.
+- Without `on_error`, behavior is exactly as in Phase 1
+  (`StepError::UnexpectedEvent` / `RFS_UNEXPECTED_EVENT`).
+
 
 Comments:
 
@@ -416,7 +447,7 @@ transition State on EventPattern where Guard {
   next NextState;
   emit OutputExpr;
   set var = expr;
-  priority N;   # parsed as forward-compatible extension, not yet used semantically
+  priority N;   # Phase 2: orders overlapping transitions (larger wins, default 0)
 }
 ```
 
@@ -428,6 +459,11 @@ Rules:
 - Zero or more `set` actions are allowed.
 - Each action must end with `;`.
 - Duplicate `next`, duplicate `priority`, or duplicate `set var` in one body is rejected.
+- Phase 2 priority semantics (`DESIGN.md` section 20, D1-D5): within one state and
+  identical event pattern, arms are checked in descending priority (default 0);
+  equal priorities on the same pattern are a validation error; different patterns
+  may reuse numbers. Without priorities, source order decides (and a warning is
+  emitted for guarded pairs so intent can be pinned).
 
 Example:
 
@@ -574,7 +610,7 @@ Meaning:
 | `src/parser.rs` | nom-based parser, comment stripping, structural validation, unit tests. |
 | `src/frontend.rs` | Frontend CLI logic: RFS/JSON format conversion (`run_conversion`, `plan_conversion`), output path planning (target-dir structure, extension replacement, collision guard via normalized absolute paths), validation dispatch (`run_validate`) including `.rfs-validation.err` writing; reusable from tests and external tools. |
 | `src/training.rs` | Training-set aggregation, JSONL validation, and RFS snippet extraction. |
-| `src/validator.rs` | Semantic validation and expression/formula typing used by code generation and snippet classification. |
+| `src/validator.rs` | Semantic validation and expression/formula typing; Phase 2 adds priority/duplicate-transition errors and the non-fatal warning channel (`module_warnings`: unreachable states, dead events, unused vars, impossible guards). Used by code generation, CLI validate, and snippet classification. |
 | `src/codegen.rs` | Codegen plugin core: `Backend`/`BackendCommandInfo` API, `BACKENDS` registry, `parse_codegen_args` CLI parsing, help rendering, shared option/output types. See `CODEGEN.md`. |
 | `src/codegen_fsm.rs` | Language-agnostic production-FSM helpers: variant flattening (`build_variants`), representative values, property-subset analysis. |
 | `src/codegen_test.rs` | Language-agnostic unit-test planning: `TestPlan`, unexpected-input/deadlock detection. |
@@ -582,6 +618,7 @@ Meaning:
 | `src/backends/mod.rs` | Backend plugin module root. |
 | `src/backends/rust.rs` | Rust backend registration (`RUST_BACKEND`) + shared Rust helpers (ident mangling, type mapping). See `src/backends/RUST.md`. |
 | `src/backends/rust_fsm.rs` | Rust backend: production FSM source generation (core reused by test/mc). |
+| `src/backends/c.rs` / `c_fsm.rs` / `c_test.rs` / `c_mc.rs` | C backend: registration + helpers, production FSM, plain-assert tests, bounded model checker. See `src/backends/C.md`. |
 | `src/backends/rust_test.rs` | Rust backend: unit-test generation + aggregate test-crate tooling. |
 | `src/backends/rust_mc.rs` | Rust backend: bounded model-checker executable generation. |
 | `src/bin/build_training.rs` | Cargo bin behind `cargo build-training`; writes `all_rfs_training.jsonl`. |
@@ -930,23 +967,22 @@ When making a design-relevant change:
 
 ---
 
-## 7. Known limitations and risks
+## 7. Known limitations and risks (current)
+
+Resolved during Phases 1-2: name resolution, pattern/output arity, state-name
+checks, expression typing, bit-vector masking semantics (wrapping via wide
+intermediates in Rust / native unsigned wrap in C), formula precedence
+(parenthesized implementation, documented in section 3.9), priority semantics
+(D1-D5 in `DESIGN.md` section 20), and the pre-plugin codegen API removal.
 
 | Area | Current limitation | Impact | Recommended next action |
 |---|---|---|---|
-| Semantic validation | Parser does not resolve names or check types. | Invalid but parseable specs can reach later stages. | Add validator in Phase 1. |
-| Spans in IR | IR is clean and span-free. | Validator/codegen errors may lack source locations. | Add AST or span side-table before detailed diagnostics. |
-| Anonymous payloads | `event E(x: bit<8>)` is not supported. | Some natural syntax is rejected. | Decide whether to add anonymous constructor variants later. |
-| Pattern arity | Parser does not check pattern field count against event variant fields. | Bad patterns can parse. | Add validator. |
-| Output arity | Parser does not check output argument count/types. | Bad emits can parse. | Add validator. |
-| State names | `next` and `initial` states are not checked against `State` enum. | Typos can parse. | Add validator. |
-| Expression typing | Expressions are untyped. | Nonsense expressions can parse. | Add type checker. |
-| Bit-vector semantics | Widths are stored but arithmetic semantics are not yet defined for codegen. | Codegen/model checking needs a precise rule. | Choose masking/wrapping strategy and document it. |
-| Formula precedence | Implication/`||` interaction is implementation-defined. | Users may write ambiguous properties. | Freeze precedence and add tests/examples. |
-| Priority | `priority N;` is parsed but unused. | Future semantics may change. | Either document as reserved or remove until implemented. |
-| Error recovery | Parser stops at first error. | Less useful IDE experience. | Acceptable for Phase 0/1; improve later. |
-
----
+| Spans in IR | IR is clean and span-free. | Validator/codegen errors lack source locations (message + transition id only). | Add a span side-table before IDE diagnostics (Phase 5). |
+| Anonymous payloads | `event E(x: bit<8>)` is not supported; the variant name must be written (`event E(E(x: bit<8>))`). | Some natural syntax is rejected. | Decide whether to add anonymous constructor variants later. |
+| Ambiguity analysis | Guard overlap is detected structurally only (identical guards, contradictory equalities); general overlapping guarded pairs yield a warning, not a proof. | Truly conflicting guarded transitions can pass with a warning. | Bounded/decision-procedure checking in Phase 4. |
+| C backend widths | Only bit<8/16/32/64> (D8). | Wider bit vectors cannot target C. | Document as a hard limit; Rust keeps u128 intermediates. |
+| Feature flags | No `no_std`/monitor/logging codegen options yet (D9, deferred). | Fine for current targets. | Phase 5 candidates. |
+| Error recovery | Parser stops at first error per file. | Less useful IDE experience. | Acceptable; improve later. |
 
 ## 8. Updated roadmap
 
@@ -1368,7 +1404,7 @@ By default the sequence generator chooses only enabled inputs that satisfy activ
 ### 13.5 Phase 1 build commands
 
 See `BUILD.md` section 4: `cargo generate-code-tests` (aggregate test crate),
-`cargo test-generated-code` (compile + run the 486 generated unit tests), and
+`cargo test-generated-code` (compile + run the 492 generated unit tests), and
 `cargo test codegen` (lightweight main-crate codegen tests).
 
 ### 13.6 Current Phase 1 limitations

@@ -2,7 +2,7 @@ use crate::error::{ParseError, Span};
 use crate::ir::*;
 use nom::{
     branch::alt,
-    bytes::complete::tag,
+    bytes::complete::{tag, take_while1},
     character::complete::{multispace0, multispace1, satisfy},
     combinator::opt,
     error::ErrorKind,
@@ -21,6 +21,7 @@ enum ModuleItem {
     Transition(Transition),
     Prop(Property),
     Assume(Property),
+    OnError(OnError),
 }
 
 #[derive(Debug, Default, Clone)]
@@ -137,11 +138,31 @@ fn module(i: &str) -> IResult<&str, Module> {
     let (i, _) = p_space1(i)?;
     let (i, name) = identifier(i)?;
     let (i, _) = p_space0(i)?;
+    // Optional version header: `version "x.y.z"` before the opening brace.
+    let (i, version) = match keyword(i, "version") {
+        Ok((i_kw, _)) => {
+            let (i2, _) = p_space1(i_kw)?;
+            let (i3, v) = string_lit(i2)?;
+            (i3, Some(v))
+        }
+        Err(_) => (i, None),
+    };
+    let (i, _) = p_space0(i)?;
     let (i, _) = p_tag("{", i)?;
     let (i, items) = many0(module_item).parse_complete(i)?;
     let (i, _) = p_space0(i)?;
     let (i, _) = p_tag("}", i)?;
-    build_module(name, items, i)
+    let (i, mut m) = build_module(name, items, i)?;
+    m.version = version;
+    Ok((i, m))
+}
+
+/// A double-quoted string literal without escapes (used for the version header).
+fn string_lit(i: &str) -> IResult<&str, String> {
+    let (i, _) = p_tag("\"", i)?;
+    let (i, s) = take_while1(|c: char| c != '"' && !c.is_whitespace())(i)?;
+    let (i, _) = p_tag("\"", i)?;
+    Ok((i, s.to_string()))
 }
 
 fn module_item(i: &str) -> IResult<&str, ModuleItem> {
@@ -154,6 +175,7 @@ fn module_item(i: &str) -> IResult<&str, ModuleItem> {
         transition_decl,
         prop_decl,
         assume_decl,
+        on_error_decl,
     ))
     .parse_complete(i)
 }
@@ -466,6 +488,56 @@ fn assume_decl(i: &str) -> IResult<&str, ModuleItem> {
     Ok((i, ModuleItem::Assume(Property { name, formula })))
 }
 
+fn on_error_decl(i: &str) -> IResult<&str, ModuleItem> {
+    let (i, _) = p_space0(i)?;
+    let (i, _) = keyword(i, "on_error")?;
+    let (i, _) = p_space1(i)?;
+    let (i, _) = p_tag("{", i)?;
+    let mut i = i;
+    let mut next_state: Option<String> = None;
+    let mut emits: Vec<OutputExpr> = Vec::new();
+    loop {
+        let (i_ws, _) = p_space0(i)?;
+        if let Ok((after, _)) = p_tag("}", i_ws) {
+            let Some(state) = next_state else {
+                return Err(semantic_err(i_ws)); // on_error requires `next`
+            };
+            return Ok((
+                after,
+                ModuleItem::OnError(OnError {
+                    next_state: state,
+                    emits,
+                }),
+            ));
+        }
+        let (i_act, name) = identifier(i_ws)?;
+        match name.as_str() {
+            "next" => {
+                if next_state.is_some() {
+                    return Err(semantic_err(i_act));
+                }
+                let (i2, _) = p_space1(i_act)?;
+                let (i3, state) = identifier(i2)?;
+                next_state = Some(state);
+                i = i3;
+            }
+            "emit" => {
+                let (i2, _) = p_space1(i_act)?;
+                let (i3, o) = output_expr(i2)?;
+                emits.push(o);
+                i = i3;
+            }
+            _ => return Err(semantic_err(i_act)),
+        }
+        let (i_after, _) = p_space0(i)?;
+        if let Ok((i_semi, _)) = p_tag(";", i_after) {
+            i = i_semi;
+            continue;
+        }
+        i = i_after;
+    }
+}
+
 fn build_module(name: String, items: Vec<ModuleItem>, i: &str) -> IResult<&str, Module> {
     let mut module = Module {
         name,
@@ -505,6 +577,12 @@ fn build_module(name: String, items: Vec<ModuleItem>, i: &str) -> IResult<&str, 
                     return Err(semantic_err(i));
                 }
                 module.properties.push(p);
+            }
+            ModuleItem::OnError(o) => {
+                if module.on_error.is_some() {
+                    return Err(semantic_err(i));
+                }
+                module.on_error = Some(o);
             }
             ModuleItem::Assume(p) => {
                 if module.properties.iter().any(|x| x.name == p.name)
@@ -1331,5 +1409,38 @@ mod tests {
     fn missing_next_fails() {
         let source = "module m { enum State { A, B } initial A event E transition A on E { } }";
         assert!(parse_source(source).is_err());
+    }
+
+    #[test]
+    fn parses_version_header() {
+        let source = "module m version \"0.9\" { enum State { A } initial A }";
+        let ir = parse_source(source).expect("parse versioned module");
+        assert_eq!(ir.modules[0].version.as_deref(), Some("0.9"));
+        printer::roundtrip_rfs(source).expect("rfs round-trip");
+    }
+
+    #[test]
+    fn parses_on_error_block_with_emit() {
+        let source = "module m { enum State { A, B } initial A event E output O                       transition A on E { next B; } on_error { next A; emit O; } }";
+        let ir = parse_source(source).expect("parse on_error module");
+        let oe = ir.modules[0].on_error.as_ref().expect("on_error present");
+        assert_eq!(oe.next_state, "A");
+        assert_eq!(oe.emits.len(), 1);
+        printer::roundtrip_rfs(source).expect("rfs round-trip");
+    }
+
+    #[test]
+    fn duplicate_on_error_fails_parse() {
+        let source = "module m { enum State { A, B } initial A event E                       on_error { next A; } on_error { next B; } }";
+        assert!(parse_source(source).is_err());
+    }
+
+    #[test]
+    fn version_header_requires_quoted_string() {
+        let source = "module m version 1.0 { enum State { A } initial A }";
+        assert!(
+            parse_source(source).is_err(),
+            "unquoted version must not parse"
+        );
     }
 }

@@ -35,16 +35,18 @@ model-checkable (no unbounded data, floats, or arbitrary functions in the core).
 
 ## 1. Project state snapshot (2026-10-15)
 
-- Phase 0 (parser/IR baseline) and Phase 1 (end-to-end demonstrator: validator,
-  plugin-based Rust codegen for production/test/mc, bounded model checker, frontend
-  CLI `parse`/`validate`/`codegen`) are COMPLETE. Phase 2 preparation cleanup done
-  (all legacy CLI modes and the pre-plugin codegen API removed).
-- Next work: **Phase 2 - Core DSL and production code generation** (event payloads
-  with bindings, guards on bound fields, output payloads, priorities, error handling
-  policy, validator improvements, C backend) - see `ROADMAP.md` "Phase 2".
-- Known-good baseline: 95/95 main tests, 486/486 generated-code tests, clippy without
-  errors, fmt clean; 38 valid + 6 invalid examples; 11 training categories / 219
-  aggregated SFT examples.
+- Phase 0 (parser/IR baseline), Phase 1 (validator, plugin-based Rust codegen,
+  bounded model checker, frontend CLI `parse`/`validate`/`codegen`) and **Phase 2
+  (core DSL)** are COMPLETE. Phase 2 added: module version headers, `on_error`
+  fallbacks, priority-ordered transition arms, Phase 2 validator checks (errors +
+  non-fatal warnings), simultaneous-update/priority/on_error codegen in Rust AND a
+  new **C backend** (production/test/mc with the Rust MC wire format). Design
+  decisions D1-D10: `DESIGN.md` section 20.
+- Next work: **Phase 3 - PSL-like properties and monitors** (property subset,
+  monitor codegen) - see `ROADMAP.md` "Phase 3".
+- Known-good baseline: 125/125 main tests, 492/492 generated-code tests, clippy
+  without errors, fmt clean; 40 valid + 11 invalid examples; 11 training categories /
+  219 aggregated SFT examples.
 
 ## 2. Documentation map (what each file is for)
 
@@ -57,7 +59,7 @@ model-checkable (no unbounded data, floats, or arbitrary functions in the core).
 | `DESIGN.md` | RFS v0 design: architecture, core semantics, EBNF grammar, IR schema, parser/codegen/MC/PSL plans, design-choice tables | When changing language semantics, grammar, IR, or codegen/MC design | **Never fully** - section map in section 5 |
 | `ROADMAP.md` | Phases 0-6 with scope + exit criteria, "Current status" of each completed phase | When scoping work, checking what a phase requires/delivers, finding next priorities | Read "Current status" (near end) + the relevant phase section only |
 | `CODEGEN.md` | Codegen backend plugin API, registry, how to add a new target language, testing conventions | When touching `src/codegen.rs`, `src/backends/*`, or adding a backend | Fully (~280 lines, safe) |
-| `src/backends/RUST.md` | Rust backend internals (module split, shared helpers) | When changing Rust code generation output | Fully (~150 lines, safe) |
+| `src/backends/RUST.md` / `src/backends/C.md` | Backend internals: module split, type mapping, value representation, MC wire format | When changing generated-code output for that language | Fully (~90-150 lines, safe) |
 | `TASKS.md` | Append-only history of LLM-assisted tasks (interpretation + report per task) | To recall how a similar task was done: `grep -n "<keyword>" TASKS.md` then read that section; to append: read ONLY its first paragraph (template + rules) | Never fully |
 | `training.py` docstring | SFT+GRPO training pipeline for Qwen3.8-27B on the RFS data | When running/adjusting LLM training | Read only the module docstring (`head -60 training.py`) |
 
@@ -67,13 +69,14 @@ model-checkable (no unbounded data, floats, or arbitrary functions in the core).
 src/parser.rs        nom-based RFS v0 parser          src/ir.rs         versioned serde IR
 src/frontend.rs      parse/validate CLI logic         src/main.rs       CLI arg parsing + dispatch
 src/validator.rs     semantic validation + typing     src/printer.rs    IR -> formatted RFS
-src/codegen.rs       backend plugin registry + CLI    src/backends/     rust*.rs backends (+ RUST.md)
+src/codegen.rs       backend plugin registry + CLI    src/backends/     rust*.rs + c*.rs backends (+ RUST.md, C.md)
 src/codegen_fsm.rs   shared production-FSM analysis   src/codegen_test.rs  unit-test planning
 src/codegen_mc.rs    shared MC wire format/concepts   src/training.rs   snippet extraction + aggregation
 src/error.rs         ParseError/Span                  src/bin/          build_training, extract_training_snippets,
                                                            generate_code_tests, test_generated_code
-tests/               examples_test, frontend_test, codegen_test, library_comparison, training_test
-examples/valid       38 .rfs files (file-driven suite)   examples/invalid  6 .rfs files (must fail)
+tests/               examples_test, frontend_test, codegen_test, integration_example_test,
+                   library_comparison, training_test
+examples/valid       40 .rfs files (file-driven suite)   examples/invalid  11 .rfs files (must fail)
 training/<cat>/      11 categories: rfs_training.jsonl + snippets/{valid,invalid}/
 all_rfs_training.jsonl   aggregated SFT set (219 lines) at repo root
 ```
@@ -123,8 +126,9 @@ then `sed -n '<start>,<end>p'`. Sections:
 | Add a valid/invalid example | `BUILD.md` section 3 (suite expectations) | Drop `.rfs` into `examples/valid|invalid` - no test-code change | `cargo test --test examples_test` |
 | Change RFS syntax/grammar | `DESIGN.md` sections 5-6 + `KB.md` sections 3, 6.5; add examples FIRST | Update parser/validator | Full checklist (`BUILD.md` section 5) + update DESIGN/KB |
 | Change the IR | `DESIGN.md` section 7 + serde attrs in `src/ir.rs` | Decide backward compat; bump `IR_VERSION` if needed | JSON round-trip tests + full checklist |
-| Add a codegen backend (e.g. C) | `CODEGEN.md` fully + `src/backends/RUST.md` | Implement 3 command fns in `src/backends/<lang>*.rs`, register static in `BACKENDS` | `cargo test-generated-code` pattern per CODEGEN section 8 |
-| Improve validator (Phase 2) | `ROADMAP.md` Phase 2 "Validator improvements" + `KB.md` section 13.6 limitations | Implement checks, add invalid examples first | Full checklist |
+| Add a codegen backend language | `CODEGEN.md` fully + `src/backends/RUST.md` / `src/backends/C.md` as references | Implement 3 command fns in `src/backends/<lang>*.rs`, register static in `BACKENDS` | per-command generation tests (see CODEGEN section 8) |
+| Property/monitor work (Phase 3) | `ROADMAP.md` "Phase 3" + `DESIGN.md` section 12 (PSL plan) + `KB.md` section 2.6 | Monitor codegen per ROADMAP; extend translated subset in `codegen_fsm.rs` | Full checklist |
+| Improve validator/codegen checks | `DESIGN.md` sections 19-20 (decision tables D1-D10) + `KB.md` section 7 | Implement checks, add invalid examples first | Full checklist |
 | Training-set work | `KB.md` section 4.6 (format rules: 2 messages, `< think> ... < /think>` assistant, snippets auto-extracted) | Edit `training/<cat>/rfs_training.jsonl` | `cargo extract-training-snippets && cargo build-training && cargo test-training` |
 | LLM training run (GPU) | `head -60 training.py` (docstring only) + `BUILD.md` last command row | `python training.py --stage both` | `--dry-run` first for CPU-only data/reward validation |
 | Recall how a past task was done | `grep -n "<keyword>" TASKS.md`, read that section only | - | - |
@@ -133,7 +137,7 @@ then `sed -n '<start>,<end>p'`. Sections:
 
 ```sh
 cargo build && cargo test && cargo clippy --all-targets && cargo fmt --check   # after any change
-cargo test-generated-code        # 486 generated unit tests (after codegen changes)
+cargo test-generated-code        # 492 generated unit tests (after codegen changes)
 cargo run -- validate --input rfs examples/valid    # quick sanity, exit 0 expected
 ```
 

@@ -1,0 +1,95 @@
+# rfs 1.0
+# Phase 2 showcase: version header, payload events with bindings, guards on
+# bound fields, priorities for overlapping patterns, and an on_error fallback.
+module endpoint_protocol version "1.0.0" {
+  enum State { Idle, Connecting, Open, Closing, Closed }
+  initial Idle
+
+  event Recv(Syn(src_port: bit<16>))
+  event Recv(Data(seq: bit<8>, len: bit<8>))
+  event Recv(Fin)
+  event Recv(Rst)
+  event Tick
+  output Send(Ack(ack_seq: bit<8>))
+  output Send(SynAck(src_port: bit<16>))
+  output Send(FinAck)
+  output Alert(Code(reason: bit<8>))
+
+  var seq: bit<8> init 0
+  var retransmits: bit<4> init 0
+  var peer_port: bit<16> init 0
+
+  transition Idle on Recv(Syn(src_port)) {
+    next Connecting;
+    emit Send(SynAck(src_port));
+    set peer_port = src_port;
+    set seq = 1;
+  }
+
+  // Overlapping Data patterns in Connecting: the exact-seq match wins (priority 10),
+  // any other data is a protocol error (priority 1).
+  transition Connecting on Recv(Data(seq, _)) where seq == 1 {
+    next Open;
+    emit Send(Ack(1));
+    priority 10;
+  }
+
+  transition Connecting on Recv(Data(_, _)) {
+    next Closed;
+    emit Alert(Code(7));
+    priority 1;
+  }
+
+  // Retransmit timeout while connecting: the guarded retry wins over the
+  // unguarded give-up fallback (pinned with priorities).
+  transition Connecting on Tick where retransmits < 3 {
+    next Connecting;
+    set retransmits = retransmits + 1;
+    priority 10;
+  }
+
+  transition Connecting on Tick {
+    next Closed;
+    emit Alert(Code(8));
+    priority 1;
+  }
+
+  // Open: acknowledge data, advance the sequence number.
+  transition Open on Recv(Data(seq, len)) where len > 0 {
+    next Open;
+    emit Send(Ack(seq));
+    set seq = seq + 1;
+  }
+
+  transition Open on Recv(Fin) {
+    next Closing;
+    emit Send(FinAck);
+  }
+
+  transition Open on Recv(Rst) {
+    next Closed;
+    emit Alert(Code(2));
+  }
+
+  // Closing: leave after the final ack, or time out.
+  transition Closing on Recv(Data(_, _)) where seq == 2 {
+    next Closed;
+  }
+
+  transition Closing on Tick {
+    next Closed;
+    emit Alert(Code(9));
+  }
+
+  transition Idle on Recv(Rst) {
+    next Closed;
+    emit Alert(Code(1));
+  }
+
+  // Anything not covered above (for example Rst while Connecting) lands in
+  // Closed with a generic alert instead of failing the step.
+  on_error {
+    next Closed;
+    emit Alert(Code(255));
+  }
+}

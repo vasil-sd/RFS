@@ -317,6 +317,9 @@ pub struct FailedFile {
 #[derive(Debug)]
 pub struct ValidateResult {
     pub ok_files: Vec<PathBuf>,
+    /// Warnings per validated file (Phase 2 non-fatal diagnostics); files
+    /// that failed validation have no warnings.
+    pub warnings: Vec<(PathBuf, Vec<String>)>,
     /// Failing files with their error messages (parse or semantic).
     pub failed: Vec<FailedFile>,
     /// IO errors from writing `.rfs-validation.err` files.
@@ -327,8 +330,43 @@ pub struct ValidateResult {
 
 /// Parse + validate one file. Returns semantic/parse error messages on failure.
 pub fn validate_one(path: &Path, format: Format) -> Result<(), Vec<String>> {
+    let r = validate_one_with_warnings(path, format)?;
+    if r.errors.is_empty() {
+        Ok(())
+    } else {
+        Err(r.errors)
+    }
+}
+
+/// Parse + validate one file, returning fatal errors and non-fatal warnings.
+pub fn validate_one_with_warnings(
+    path: &Path,
+    format: Format,
+) -> Result<ValidateOneResult, Vec<String>> {
     let ir = convert_file_to_ir(path, format).map_err(|e| vec![e])?;
-    validator::validate_ir(&ir).map_err(|errors| errors.into_iter().map(|e| e.message).collect())
+    match validator::validate_ir(&ir) {
+        Ok(()) => {
+            let mut warnings = Vec::new();
+            for m in &ir.modules {
+                warnings.extend(validator::module_warnings(m));
+            }
+            Ok(ValidateOneResult {
+                errors: Vec::new(),
+                warnings,
+            })
+        }
+        Err(errors) => Ok(ValidateOneResult {
+            errors: errors.into_iter().map(|e| e.message).collect(),
+            warnings: Vec::new(),
+        }),
+    }
+}
+
+/// Errors (fatal) and warnings (non-fatal) for one validated file.
+#[derive(Debug)]
+pub struct ValidateOneResult {
+    pub errors: Vec<String>,
+    pub warnings: Vec<String>,
 }
 
 /// Run validation over a file or directory. `Err` holds CLI-level misuse
@@ -356,15 +394,38 @@ pub fn run_validate(
                 )]);
             }
         }
-        match validate_one(path, fmt) {
-            Ok(()) => Ok(ValidateResult {
-                ok_files: vec![path.to_path_buf()],
-                failed: Vec::new(),
-                write_errors: Vec::new(),
-                is_directory: false,
-            }),
+        match validate_one_with_warnings(path, fmt) {
+            Ok(r) => {
+                let warnings = if r.warnings.is_empty() {
+                    Vec::new()
+                } else {
+                    vec![(path.to_path_buf(), r.warnings)]
+                };
+                if r.errors.is_empty() {
+                    Ok(ValidateResult {
+                        ok_files: vec![path.to_path_buf()],
+                        warnings,
+                        failed: Vec::new(),
+                        write_errors: Vec::new(),
+                        is_directory: false,
+                    })
+                } else {
+                    Ok(ValidateResult {
+                        ok_files: Vec::new(),
+                        warnings: Vec::new(),
+                        failed: vec![FailedFile {
+                            path: path.to_path_buf(),
+                            errors: r.errors,
+                            err_file: None,
+                        }],
+                        write_errors: Vec::new(),
+                        is_directory: false,
+                    })
+                }
+            }
             Err(errors) => Ok(ValidateResult {
                 ok_files: Vec::new(),
+                warnings: Vec::new(),
                 failed: vec![FailedFile {
                     path: path.to_path_buf(),
                     errors,
@@ -391,9 +452,20 @@ pub fn run_validate(
         }
         let mut ok_files = Vec::new();
         let mut failed = Vec::new();
+        let mut warnings: Vec<(PathBuf, Vec<String>)> = Vec::new();
         for f in files {
-            match validate_one(&f, fmt) {
-                Ok(()) => ok_files.push(f),
+            match validate_one_with_warnings(&f, fmt) {
+                Ok(r) if r.errors.is_empty() => {
+                    ok_files.push(f.clone());
+                    if !r.warnings.is_empty() {
+                        warnings.push((f, r.warnings));
+                    }
+                }
+                Ok(r) => failed.push(FailedFile {
+                    path: f,
+                    errors: r.errors,
+                    err_file: None,
+                }),
                 Err(errors) => failed.push(FailedFile {
                     path: f,
                     errors,
@@ -415,6 +487,7 @@ pub fn run_validate(
         }
         Ok(ValidateResult {
             ok_files,
+            warnings,
             failed,
             write_errors,
             is_directory: true,

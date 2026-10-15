@@ -180,6 +180,63 @@ pub fn validate_module(module: &Module) -> Vec<ValidationError> {
         }
     }
 
+    // Phase 2: priority and ambiguity diagnostics (per state).
+    let mut by_state: std::collections::BTreeMap<&str, Vec<&Transition>> =
+        std::collections::BTreeMap::new();
+    for t in &module.transitions {
+        by_state.entry(&t.state).or_default().push(t);
+    }
+    for (state, ts) in &by_state {
+        for i in 0..ts.len() {
+            for j in (i + 1)..ts.len() {
+                // Duplicate priorities are only a conflict when the two
+                // transitions can match the same input (identical pattern);
+                // numbers may be reused across different patterns.
+                if ts[i].pattern == ts[j].pattern {
+                    match (ts[i].priority, ts[j].priority) {
+                        (Some(a), Some(b)) if a == b => {
+                            errors.push(ValidationError::new(format!(
+                                "module '{}' state '{}': duplicate priority {} for the same event pattern (transitions #{} and #{})",
+                                module.name, state, a, ts[i].id, ts[j].id
+                            )));
+                        }
+                        _ => {}
+                    }
+                }
+                if ts[i].pattern == ts[j].pattern
+                    && ts[i].priority.is_none()
+                    && ts[j].priority.is_none()
+                    && ts[i].guard == ts[j].guard
+                {
+                    // Identical pattern and identical guard (both absent or
+                    // structurally equal): the second transition is shadowed.
+                    errors.push(ValidationError::new(format!(
+                        "module '{}' state '{}': duplicate transitions #{} and #{} - identical event pattern and guard; the second is unreachable",
+                        module.name, state, ts[i].id, ts[j].id
+                    )));
+                }
+            }
+        }
+    }
+
+    // Phase 2: on_error block validation (no pattern bindings available).
+    if let Some(oe) = &module.on_error {
+        if !state_variants.contains(&oe.next_state) {
+            errors.push(ValidationError::new(format!(
+                "module '{}' on_error: next state '{}' is not a State variant",
+                module.name, oe.next_state
+            )));
+        }
+        for o in &oe.emits {
+            if let Err(e) = validate_output_expr(o, module, &env0) {
+                errors.push(ValidationError::new(format!(
+                    "module '{}' on_error emit: {e}",
+                    module.name
+                )));
+            }
+        }
+    }
+
     for p in module.properties.iter().chain(module.assumptions.iter()) {
         if let Err(e) = type_formula(&p.formula, &env0) {
             errors.push(ValidationError::new(format!(
@@ -563,4 +620,364 @@ fn check_pattern_group(pattern: &EventPattern, env: &Env, is_input: bool) -> Res
 fn check_output_pattern_group(pattern: &OutputPattern, env: &Env) -> Result<(), String> {
     let _ = (pattern, env);
     Ok(())
+}
+
+// ---------------------------------------------------------------------------
+// Phase 2 non-fatal diagnostics (warnings): unreachable states, dead events,
+// unused variables, impossible guards. These never block code generation; the
+// CLI and codegen surface them as warnings.
+// ---------------------------------------------------------------------------
+
+/// Collect all identifier segments referenced by an expression.
+fn collect_names(e: &Expr, out: &mut HashSet<String>) {
+    match e {
+        Expr::Path { path } => {
+            if path.len() == 1 {
+                out.insert(path[0].clone());
+            }
+        }
+        Expr::Unary { expr, .. } => collect_names(expr, out),
+        Expr::Binary { left, right, .. } => {
+            collect_names(left, out);
+            collect_names(right, out);
+        }
+        _ => {}
+    }
+}
+
+/// True when the guard is the literal `false`.
+fn is_literal_false(e: &Expr) -> bool {
+    matches!(e, Expr::Bool { value: false })
+}
+
+/// Find a variable bound to two different integer literals by equality atoms
+/// joined at the top level with `&&` (syntactic impossibility detection).
+fn contradictory_equalities(e: &Expr) -> Option<(String, u64, u64)> {
+    let mut conjuncts = Vec::new();
+    let mut stack = vec![e];
+    while let Some(cur) = stack.pop() {
+        match cur {
+            Expr::Binary {
+                op: BinOp::LogicAnd,
+                left,
+                right,
+            } => {
+                stack.push(&**left);
+                stack.push(&**right);
+            }
+            other => conjuncts.push(other),
+        }
+    }
+    let mut seen: HashMap<String, u64> = HashMap::new();
+    for c in &conjuncts {
+        let (var, value) = match c {
+            Expr::Binary {
+                op: BinOp::Eq,
+                left,
+                right,
+            } => match (&**left, &**right) {
+                (Expr::Path { path }, Expr::Int { value }) if path.len() == 1 => {
+                    (path[0].clone(), *value)
+                }
+                (Expr::Int { value }, Expr::Path { path }) if path.len() == 1 => {
+                    (path[0].clone(), *value)
+                }
+                _ => continue,
+            },
+            _ => continue,
+        };
+        if let Some(prev) = seen.get(&var) {
+            if *prev != value {
+                return Some((var, *prev, value));
+            }
+        } else {
+            seen.insert(var, value);
+        }
+    }
+    None
+}
+
+/// Non-fatal Phase 2 diagnostics for one module.
+pub fn module_warnings(module: &Module) -> Vec<String> {
+    let mut w: Vec<String> = Vec::new();
+
+    // Unreachable states (guards ignored: reachability is over-approximated).
+    if let Some(init) = &module.initial_state {
+        let mut reachable: HashSet<&str> = HashSet::new();
+        let mut stack = vec![init.as_str()];
+        while let Some(s) = stack.pop() {
+            if reachable.insert(s) {
+                for t in module.transitions.iter().filter(|t| &t.state == s) {
+                    if !reachable.contains(t.next_state.as_str()) {
+                        stack.push(&t.next_state);
+                    }
+                }
+            }
+        }
+        if let Some(se) = module.enums.iter().find(|e| e.name == "State") {
+            for v in &se.variants {
+                if !reachable.contains(v.as_str()) {
+                    w.push(format!(
+                        "module '{}': state '{}' is unreachable from the initial state",
+                        module.name, v
+                    ));
+                }
+            }
+        }
+    }
+
+    // Dead events: input constructors never referenced by any transition pattern.
+    let mut used: HashSet<(String, String)> = HashSet::new();
+    for t in &module.transitions {
+        match &t.pattern.variant {
+            None => {
+                if let Some(g) = module.events.iter().find(|g| g.name == t.pattern.group) {
+                    for v in &g.variants {
+                        let vn = match v {
+                            ConstructorVariant::Unit { name } => name.clone(),
+                            ConstructorVariant::Struct { name, .. } => name.clone(),
+                        };
+                        used.insert((g.name.clone(), vn));
+                    }
+                }
+            }
+            Some(pv) => {
+                used.insert((
+                    t.pattern.group.clone(),
+                    pattern_variant_name(pv).to_string(),
+                ));
+            }
+        }
+    }
+    for g in &module.events {
+        for v in &g.variants {
+            let vn = match v {
+                ConstructorVariant::Unit { name } => name.clone(),
+                ConstructorVariant::Struct { name, .. } => name.clone(),
+            };
+            if !used.contains(&(g.name.clone(), vn.clone())) {
+                w.push(format!(
+                    "module '{}': event '{}' is never used in any transition pattern (dead event)",
+                    module.name, vn
+                ));
+            }
+        }
+    }
+
+    // Unused variables: never read (guards/emit args) and never assigned.
+    let mut touched: HashSet<String> = HashSet::new();
+    for t in &module.transitions {
+        if let Some(g) = &t.guard {
+            collect_names(g, &mut touched);
+        }
+        for o in &t.emits {
+            for a in &o.args {
+                collect_names(a, &mut touched);
+            }
+        }
+        for a in &t.assignments {
+            touched.insert(a.var.clone());
+        }
+    }
+    if let Some(oe) = &module.on_error {
+        for o in &oe.emits {
+            for a in &o.args {
+                collect_names(a, &mut touched);
+            }
+        }
+    }
+    for v in &module.vars {
+        if !touched.contains(&v.name) {
+            w.push(format!(
+                "module '{}': variable '{}' is never read or written (unused)",
+                module.name, v.name
+            ));
+        }
+    }
+
+    // Order-dependent transition pairs: same state + identical pattern, no
+    // priorities on either, differing (or one missing) guard. First match wins
+    // in source order; flag so the author can pin intent with priorities.
+    let mut by_state: std::collections::BTreeMap<&str, Vec<&Transition>> =
+        std::collections::BTreeMap::new();
+    for t in &module.transitions {
+        by_state.entry(&t.state).or_default().push(t);
+    }
+    for (state, ts) in &by_state {
+        for i in 0..ts.len() {
+            for j in (i + 1)..ts.len() {
+                if ts[i].pattern == ts[j].pattern
+                    && ts[i].priority.is_none()
+                    && ts[j].priority.is_none()
+                    && ts[i].guard != ts[j].guard
+                {
+                    w.push(format!(
+                        "module '{}' state '{}': transitions #{} and #{} share an event pattern with different guards and no priorities; first match wins in source order (add distinct `priority N;` to pin the intent)",
+                        module.name, state, ts[i].id, ts[j].id
+                    ));
+                }
+            }
+        }
+    }
+
+    // Impossible guards: literal false, or contradictory top-level equalities.
+    for t in &module.transitions {
+        if let Some(g) = &t.guard {
+            if is_literal_false(g) {
+                w.push(format!(
+                    "module '{}': transition #{} has a guard that is always false (dead transition)",
+                    module.name, t.id
+                ));
+            } else if let Some((var, a, b)) = contradictory_equalities(g) {
+                w.push(format!(
+                    "module '{}': transition #{} guard is impossible: '{}' is compared equal to both {} and {}",
+                    module.name, t.id, var, a, b
+                ));
+            }
+        }
+    }
+
+    w
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::parser::parse_source;
+
+    fn module_from(source: &str) -> Module {
+        let ir = parse_source(source).expect("test source should parse");
+        assert_eq!(ir.modules.len(), 1, "expected exactly one module");
+        ir.modules.into_iter().next().unwrap()
+    }
+
+    #[test]
+    fn version_header_is_parsed_into_module() {
+        let m = module_from("module m version \"1.2.3\" { enum State { A } initial A }");
+        assert_eq!(m.version.as_deref(), Some("1.2.3"));
+    }
+
+    #[test]
+    fn on_error_block_is_parsed_into_module() {
+        let m = module_from(
+            "module m { enum State { A, B } initial A event E output O              transition A on E { next B; } on_error { next A; emit O; } }",
+        );
+        let oe = m.on_error.as_ref().expect("on_error parsed");
+        assert_eq!(oe.next_state, "A");
+        assert_eq!(oe.emits.len(), 1);
+    }
+
+    #[test]
+    fn on_error_without_next_fails_parse() {
+        let r = parse_source(
+            "module m { enum State { A } initial A event E output O              on_error { emit O; } }",
+        );
+        assert!(r.is_err(), "on_error without next must not parse");
+    }
+
+    #[test]
+    fn duplicate_priority_same_pattern_is_error() {
+        let m = module_from(
+            "module m { enum State { A, B } initial A event E              transition A on E { next B; priority 5; }              transition A on E { next A; priority 5; } }",
+        );
+        let errors = validate_module(&m);
+        assert!(errors
+            .iter()
+            .any(|e| e.message.contains("duplicate priority")));
+    }
+
+    #[test]
+    fn duplicate_priority_different_patterns_is_allowed() {
+        let m = module_from(
+            "module m { enum State { A, B } initial A event E event F              transition A on E { next B; priority 5; }              transition A on F { next A; priority 5; } }",
+        );
+        assert!(validate_module(&m).is_empty());
+    }
+
+    #[test]
+    fn shadowed_duplicate_transition_is_error() {
+        let m = module_from(
+            "module m { enum State { A, B } initial A event E              transition A on E { next B; } transition A on E { next A; } }",
+        );
+        assert!(validate_module(&m)
+            .iter()
+            .any(|e| e.message.contains("duplicate transitions")));
+    }
+
+    #[test]
+    fn order_dependent_guard_pair_is_warning_only() {
+        let m = module_from(
+            "module m { enum State { A, B } initial A event E var x: bit<8> init 0              transition A on E where x < 5 { next B; }              transition A on E where x >= 5 { next A; } }",
+        );
+        assert!(validate_module(&m).is_empty(), "no hard errors expected");
+        let warnings = module_warnings(&m);
+        assert!(warnings
+            .iter()
+            .any(|w| w.contains("share an event pattern")));
+    }
+
+    #[test]
+    fn unreachable_state_is_warning() {
+        let m = module_from(
+            "module m { enum State { A, B, Isolated } initial A event E              transition A on E { next B; } }",
+        );
+        assert!(validate_module(&m).is_empty());
+        assert!(module_warnings(&m)
+            .iter()
+            .any(|w| w.contains("'Isolated' is unreachable")));
+    }
+
+    #[test]
+    fn dead_event_is_warning() {
+        let m = module_from(
+            "module m { enum State { A, B } initial A event E event Ghost              transition A on E { next B; } }",
+        );
+        assert!(validate_module(&m).is_empty());
+        assert!(module_warnings(&m)
+            .iter()
+            .any(|w| w.contains("'Ghost' is never used")));
+    }
+
+    #[test]
+    fn unused_var_is_warning() {
+        let m = module_from(
+            "module m { enum State { A, B } initial A event E var lonely: bit<8> init 0              transition A on E { next B; } }",
+        );
+        assert!(validate_module(&m).is_empty());
+        assert!(module_warnings(&m)
+            .iter()
+            .any(|w| w.contains("'lonely' is never read or written")));
+    }
+
+    #[test]
+    fn literal_false_guard_is_warning() {
+        let m = module_from(
+            "module m { enum State { A, B } initial A event E              transition A on E where false { next B; } }",
+        );
+        assert!(validate_module(&m).is_empty());
+        assert!(module_warnings(&m)
+            .iter()
+            .any(|w| w.contains("always false")));
+    }
+
+    #[test]
+    fn contradictory_equalities_guard_is_warning() {
+        let m = module_from(
+            "module m { enum State { A, B } initial A event E var x: bit<8> init 0              transition A on E where x == 1 && x == 2 { next B; } }",
+        );
+        assert!(validate_module(&m).is_empty());
+        assert!(module_warnings(&m).iter().any(|w| w.contains("impossible")));
+    }
+
+    #[test]
+    fn on_error_unknown_state_is_error() {
+        let m = module_from(
+            "module m { enum State { A, B } initial A event E              transition A on E { next B; } on_error { next Nowhere; } }",
+        );
+        // `Nowhere` is not a State variant: the parser accepts identifiers and
+        // validation must reject them.
+        assert!(validate_module(&m)
+            .iter()
+            .any(|e| e.message.contains("on_error")));
+    }
 }

@@ -1,0 +1,3 @@
+transition S on Recv(Ack(ack_seq)) where ack_seq == seq {
+  next S;
+}

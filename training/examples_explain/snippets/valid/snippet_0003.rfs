@@ -1,0 +1,47 @@
+# Adapted from tlaplus/Examples: specifications/echo/Echo.tla.
+# The TLA+ Echo protocol builds a spanning tree in a graph.
+# This RFS adaptation models one non-initiator node with exactly two neighbors.
+# kind 0 represents an "m" message; the simplified node ignores "c" messages.
+module echo_node_tla {
+  enum State { WaitingFirst, WaitingSecond, Done }
+  initial WaitingFirst
+
+  event Msg(FromA(kind: bit<1>))
+  event Msg(FromB(kind: bit<1>))
+
+  output SendM(ToA)
+  output SendM(ToB)
+  output SendC(ToA)
+  output SendC(ToB)
+
+  var parent_is_a: bool init false
+  var rcvd: bit<2> init 0
+
+  transition WaitingFirst on Msg(FromA(0)) {
+    next WaitingSecond;
+    set rcvd = 1;
+    set parent_is_a = true;
+    emit SendM(ToB);
+  }
+
+  transition WaitingFirst on Msg(FromB(0)) {
+    next WaitingSecond;
+    set rcvd = 1;
+    set parent_is_a = false;
+    emit SendM(ToA);
+  }
+
+  transition WaitingSecond on Msg(FromB(0)) where parent_is_a {
+    next Done;
+    set rcvd = 2;
+    emit SendC(ToA);
+  }
+
+  transition WaitingSecond on Msg(FromA(0)) where !parent_is_a {
+    next Done;
+    set rcvd = 2;
+    emit SendC(ToB);
+  }
+
+  prop done_means_two_received : always (state == Done -> rcvd == 2) ;
+}

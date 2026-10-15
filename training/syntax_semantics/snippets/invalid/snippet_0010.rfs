@@ -1,0 +1,3 @@
+transition A on Go {
+  emit Done;
+}

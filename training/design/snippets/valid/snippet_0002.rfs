@@ -1,0 +1,43 @@
+module request_retry {
+  enum State { Idle, Waiting, Retried }
+  initial Idle
+
+  event Req
+  event Ack
+  event Tick
+  output Send
+  output Retry
+  output GiveUp
+
+  var timer: bit<3> init 2
+
+  transition Idle on Req {
+    next Waiting;
+    emit Send;
+    set timer = 2;
+  }
+
+  transition Waiting on Ack {
+    next Idle;
+  }
+
+  transition Waiting on Tick where timer > 1 {
+    next Waiting;
+    set timer = timer - 1;
+  }
+
+  transition Waiting on Tick where timer == 1 {
+    next Retried;
+    emit Retry;
+    set timer = 1;
+  }
+
+  transition Retried on Ack {
+    next Idle;
+  }
+
+  transition Retried on Tick {
+    next Idle;
+    emit GiveUp;
+  }
+}

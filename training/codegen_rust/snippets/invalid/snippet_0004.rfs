@@ -1,0 +1,2 @@
+set x = y + 1;
+set y = x;

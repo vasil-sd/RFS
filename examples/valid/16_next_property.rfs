@@ -1,0 +1,9 @@
+module next_property {
+  enum State { A, B }
+  initial A
+  event Go
+  transition A on Go {
+    next B;
+  }
+  prop goes_to_b : always (input_is(Go) -> next (state == B)) ;
+}

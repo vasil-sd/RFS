@@ -1,0 +1,1 @@
+always (state == Waiting -> bounded_eventually[10] (state == Idle))

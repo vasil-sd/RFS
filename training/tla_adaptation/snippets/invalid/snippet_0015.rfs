@@ -1,0 +1,4 @@
+transition One on Put {
+  next Full;
+  set count = 1;
+}

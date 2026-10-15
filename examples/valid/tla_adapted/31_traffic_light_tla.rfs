@@ -1,0 +1,29 @@
+# Adapted from TLA+ by Example: TrafficLight (basic-operators lesson).
+# TLA+ Next cycles red -> green -> yellow -> red.
+# RFS makes the step explicit by using a Tick input event.
+module traffic_light_tla {
+  enum State { Red, Green, Yellow }
+  initial Red
+
+  enum Color { Red, Green, Yellow }
+
+  event Tick
+  output Changed(To(color: Color))
+
+  transition Red on Tick {
+    next Green;
+    emit Changed(To(Color::Green));
+  }
+
+  transition Green on Tick {
+    next Yellow;
+    emit Changed(To(Color::Yellow));
+  }
+
+  transition Yellow on Tick {
+    next Red;
+    emit Changed(To(Color::Red));
+  }
+
+  prop no_skip_yellow : always (state == Green -> next (state != Red)) ;
+}

@@ -1,0 +1,1 @@
+always (bounded_eventually[5] (input_is(Tick)))

@@ -1,0 +1,18 @@
+module var_init_enum {
+  enum State { S }
+  initial S
+  enum Phase { Init, Run, Done }
+  var phase: Phase init Phase::Init
+  event Begin
+  event End
+  output Running
+  transition S on Begin where phase == Phase::Init {
+    next S;
+    set phase = Phase::Run;
+    emit Running;
+  }
+  transition S on End where phase == Phase::Run {
+    next S;
+    set phase = Phase::Done;
+  }
+}

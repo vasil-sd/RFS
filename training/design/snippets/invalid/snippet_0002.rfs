@@ -1,0 +1,8 @@
+module bad_next {
+  enum State { A }
+  initial A
+  event Go
+  transition A on Go {
+    next B;
+  }
+}

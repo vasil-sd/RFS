@@ -1,0 +1,9 @@
+[alias]
+build-training = "run --bin build_training --"
+extract-training-snippets = "run --bin extract_training_snippets --"
+test-training = "test training"
+generate-code-tests = "run --bin generate_code_tests --"
+test-generated-code = "run --bin test_generated_code --"
+parse = "run -- parse"
+validate = "run -- validate"
+codegen = "run -- codegen"

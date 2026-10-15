@@ -1,0 +1,35 @@
+# Adapted from tlaplus/Examples: specifications/SingleLaneBridge.
+# The original TLA+ spec models two agents and a shared bridge.
+# This RFS adaptation models the bridge grant controller as a finite automaton.
+module single_lane_bridge_tla {
+  enum State { Idle, NorthUsing, SouthUsing }
+  initial Idle
+
+  event Request(North)
+  event Request(South)
+  event Done(North)
+  event Done(South)
+
+  output Permit(North)
+  output Permit(South)
+
+  transition Idle on Request(North) {
+    next NorthUsing;
+    emit Permit(North);
+  }
+
+  transition Idle on Request(South) {
+    next SouthUsing;
+    emit Permit(South);
+  }
+
+  transition NorthUsing on Done(North) {
+    next Idle;
+  }
+
+  transition SouthUsing on Done(South) {
+    next Idle;
+  }
+
+  prop one_side_at_a_time : always (state == NorthUsing || state == SouthUsing || state == Idle) ;
+}

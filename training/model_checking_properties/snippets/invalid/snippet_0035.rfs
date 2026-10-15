@@ -1,0 +1,1 @@
+prop no_bad : always (state != Bad) ;

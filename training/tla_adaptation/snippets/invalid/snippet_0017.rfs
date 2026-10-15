@@ -1,0 +1,1 @@
+var neighbor_mask: bit<2> init 0

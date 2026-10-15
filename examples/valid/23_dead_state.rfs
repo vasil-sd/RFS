@@ -1,0 +1,14 @@
+module dead_state {
+  enum State { Active, Dead }
+  initial Active
+  event Work
+  event Fail
+  output Done
+  transition Active on Work {
+    next Active;
+    emit Done;
+  }
+  transition Active on Fail {
+    next Dead;
+  }
+}

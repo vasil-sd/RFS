@@ -1,0 +1,20 @@
+module timer_zero {
+  enum State { Ready, Waiting }
+  initial Ready
+  var timer: bit<4> init 0
+  event Start
+  event Tick
+  output Expired
+  transition Ready on Start {
+    next Waiting;
+    set timer = 5;
+  }
+  transition Waiting on Tick where timer > 0 {
+    next Waiting;
+    set timer = timer - 1;
+  }
+  transition Waiting on Tick where timer == 0 {
+    next Ready;
+    emit Expired;
+  }
+}

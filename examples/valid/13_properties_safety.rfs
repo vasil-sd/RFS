@@ -1,0 +1,14 @@
+module properties_safety {
+  enum State { Good, Bad }
+  initial Good
+  event ToBad
+  event ToGood
+  transition Good on ToBad {
+    next Bad;
+  }
+  transition Bad on ToGood {
+    next Good;
+  }
+  prop no_bad : always (state != Bad) ;
+  prop returns_good : always (input_is(ToGood) -> next (state == Good)) ;
+}

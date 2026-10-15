@@ -1,0 +1,12 @@
+# TLA+ uses primed variables such as x' in next-state actions.
+# RFS uses `set x = expr;` and does not accept prime syntax.
+module bad_tla_prime {
+  enum State { A }
+  initial A
+  event E
+  var x: bit<8> init 0
+  transition A on E {
+    next A;
+    set x = x';
+  }
+}

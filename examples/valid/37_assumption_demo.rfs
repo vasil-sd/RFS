@@ -1,0 +1,11 @@
+module assumption_demo {
+  enum State { A, B }
+  initial A
+  event Good
+  event Bad
+  transition A on Good { next B; }
+  transition B on Good { next A; }
+  transition A on Bad { next A; }
+  assume env_no_bad : always (!input_is(Bad));
+  prop states_valid : always (state == A || state == B);
+}

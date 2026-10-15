@@ -1,0 +1,24 @@
+module request_response {
+  enum State { Idle, Waiting }
+  initial Idle
+  event Req
+  event Resp
+  event Tick
+  output SendResp
+  var timer: bit<3> init 2
+  transition Idle on Req {
+    next Waiting;
+    emit SendResp;
+    set timer = 2;
+  }
+  transition Waiting on Resp {
+    next Idle;
+  }
+  transition Waiting on Tick where timer > 0 {
+    next Waiting;
+    set timer = timer - 1;
+  }
+  transition Waiting on Tick where timer == 0 {
+    next Idle;
+  }
+}

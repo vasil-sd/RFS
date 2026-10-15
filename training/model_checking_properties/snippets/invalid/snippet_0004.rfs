@@ -1,0 +1,1 @@
+prop bounded_progress : always (bounded_eventually[5] (state == Running)) ;

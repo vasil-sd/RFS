@@ -1,0 +1,21 @@
+module comparisons {
+  enum State { S }
+  initial S
+  var x: bit<8> init 5
+  event Inc
+  event Dec
+  event Check
+  output InRange
+  transition S on Inc where x < 255 {
+    next S;
+    set x = x + 1;
+  }
+  transition S on Dec where x > 0 {
+    next S;
+    set x = x - 1;
+  }
+  transition S on Check where x >= 3 && x <= 10 {
+    next S;
+    emit InRange;
+  }
+}

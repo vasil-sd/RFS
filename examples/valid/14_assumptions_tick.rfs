@@ -1,0 +1,11 @@
+module assumptions_tick {
+  enum State { S }
+  initial S
+  event Tick
+  var n: bit<8> init 0
+  transition S on Tick {
+    next S;
+    set n = n + 1;
+  }
+  assume env_tick : always (bounded_eventually[5] (input_is(Tick))) ;
+}

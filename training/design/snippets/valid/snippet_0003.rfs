@@ -1,0 +1,17 @@
+module toggle {
+  enum State { Off, On }
+  initial Off
+
+  event Toggle
+  output StateChanged
+
+  transition Off on Toggle {
+    next On;
+    emit StateChanged;
+  }
+
+  transition On on Toggle {
+    next Off;
+    emit StateChanged;
+  }
+}

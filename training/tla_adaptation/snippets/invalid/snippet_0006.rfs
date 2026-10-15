@@ -1,0 +1,10 @@
+module bad_tla_prime {
+  enum State { A }
+  initial A
+  event E
+  var x: bit<8> init 0
+  transition A on E {
+    next A;
+    set x = x';
+  }
+}

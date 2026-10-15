@@ -1,0 +1,44 @@
+# Inspired by tlaplus/Examples: specifications/GermanProtocol.
+# The original spec models reliable data transfer over an unreliable channel.
+# This RFS adaptation models one sender endpoint with alternating-bit ACKs,
+# timeout retransmission, and bounded give-up behavior.
+module german_transfer_tla {
+  enum State { Idle, WaitingAck, Done }
+  initial Idle
+
+  event Command(SendData)
+  event Net(Ack(seq: bit<1>))
+  event Tick
+
+  output Send(Data(seq: bit<1>))
+  output GiveUp
+
+  var expected_seq: bit<1> init 0
+  var timer: bit<3> init 0
+
+  transition Idle on Command(SendData) {
+    next WaitingAck;
+    set timer = 3;
+    emit Send(Data(expected_seq));
+  }
+
+  transition WaitingAck on Net(Ack(seq)) where seq == expected_seq {
+    next Done;
+    set expected_seq = 1 - expected_seq;
+  }
+
+  transition WaitingAck on Tick where timer > 0 {
+    next WaitingAck;
+    set timer = timer - 1;
+    emit Send(Data(expected_seq));
+  }
+
+  transition WaitingAck on Tick where timer == 0 {
+    next Idle;
+    set timer = 0;
+    emit GiveUp;
+  }
+
+  prop done_only_after_ack : always (state == Done -> true) ;
+  prop give_up_bounded : always (input_is(Command(SendData)) -> bounded_eventually[4] (output_has(GiveUp) || state == Done)) ;
+}

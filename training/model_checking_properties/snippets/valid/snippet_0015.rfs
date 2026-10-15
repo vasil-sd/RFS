@@ -1,0 +1,13 @@
+module alpha {
+  enum State { A }
+  initial A
+  event Ping
+}
+module beta {
+  enum State { X, Y }
+  initial X
+  event Pong
+  transition X on Pong {
+    next Y;
+  }
+}

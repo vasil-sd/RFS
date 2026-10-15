@@ -1,0 +1,1 @@
+prop returns_idle : always (input_is(Req) -> bounded_eventually[5] (state == Idle)) ;

@@ -1,0 +1,1 @@
+always (output_has(Send) -> bounded_eventually[10] (input_is(Ack)))

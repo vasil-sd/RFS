@@ -1,0 +1,7 @@
+module unexpected_input_demo {
+  enum State { A }
+  initial A
+  event Good
+  event Unused
+  transition A on Good { next A; }
+}

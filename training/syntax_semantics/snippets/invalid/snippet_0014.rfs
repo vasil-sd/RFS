@@ -1,0 +1,6 @@
+var last_ack: bit<4> init 0
+
+transition S on Recv(Ack(ack_seq)) {
+  next S;
+  set last_ack = ack_seq;
+}

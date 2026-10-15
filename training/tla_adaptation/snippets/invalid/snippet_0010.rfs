@@ -1,0 +1,5 @@
+prop state_matches_count : always (
+  (state == Empty && count == 0) ||
+  (state == One && count == 1) ||
+  (state == Full && count == 2)
+) ;

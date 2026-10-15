@@ -1,0 +1,26 @@
+module bit_ops {
+  enum State { S }
+  initial S
+  var flags: bit<8> init 0
+  event Set1
+  event Set2
+  event Clear2
+  event Check
+  output Ok
+  transition S on Set1 {
+    next S;
+    set flags = flags | 1;
+  }
+  transition S on Set2 {
+    next S;
+    set flags = flags | 2;
+  }
+  transition S on Clear2 {
+    next S;
+    set flags = flags & ~2;
+  }
+  transition S on Check where (flags & 3) == 3 {
+    next S;
+    emit Ok;
+  }
+}

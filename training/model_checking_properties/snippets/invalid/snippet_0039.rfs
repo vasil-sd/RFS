@@ -1,0 +1,1 @@
+prop valid_state : always (state == Closed || state == Listen || state == SynSent || state == SynReceived || state == Established || state == FinWait1 || state == CloseWait || state == LastAck || state == TimeWait) ;

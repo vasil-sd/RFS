@@ -1,0 +1,4 @@
+transition A on E {
+  next B;
+  next C;
+}

@@ -1,0 +1,2 @@
+assume env_tick : always (bounded_eventually[5] (input_is(Tick))) ;
+prop closes_time_wait : always (state == TimeWait -> bounded_eventually[3] (state == Closed)) ;

@@ -1,0 +1,1 @@
+prop timer_nonnegative : always (true) ; # placeholder? Actually timer >= 0 not expressible if bitvector unsigned.

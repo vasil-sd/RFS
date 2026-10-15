@@ -1,0 +1,121 @@
+# Adapted from tlaplus/Examples: specifications/tcp/tcp.tla.
+# The TLA+ spec models two TCP peers and message queues.
+# This RFS adaptation models one endpoint as a finite I/O automaton.
+# Local user commands and remote network messages are inputs; sent messages are outputs.
+module tcp_endpoint_tla {
+  enum State {
+    Closed,
+    Listen,
+    SynSent,
+    SynReceived,
+    Established,
+    FinWait1,
+    CloseWait,
+    LastAck,
+    TimeWait
+  }
+  initial Closed
+
+  event Command(ActiveOpen)
+  event Command(PassiveOpen)
+  event Command(Close)
+  event Net(Syn)
+  event Net(SynAck)
+  event Net(Ack)
+  event Net(Fin)
+  event Tick
+
+  output Send(Syn)
+  output Send(SynAck)
+  output Send(Ack)
+  output Send(Fin)
+
+  var tcb: bool init false
+  var time_wait: bit<3> init 0
+
+  transition Closed on Command(ActiveOpen) {
+    next SynSent;
+    set tcb = true;
+    emit Send(Syn);
+  }
+
+  transition Closed on Command(PassiveOpen) {
+    next Listen;
+    set tcb = true;
+  }
+
+  transition Listen on Net(Syn) {
+    next SynReceived;
+    emit Send(SynAck);
+  }
+
+  transition Listen on Command(Close) {
+    next Closed;
+    set tcb = false;
+  }
+
+  transition SynSent on Net(SynAck) {
+    next Established;
+    emit Send(Ack);
+  }
+
+  transition SynSent on Command(Close) {
+    next Closed;
+    set tcb = false;
+  }
+
+  transition SynReceived on Net(Ack) {
+    next Established;
+  }
+
+  transition SynReceived on Command(Close) {
+    next FinWait1;
+    emit Send(Fin);
+  }
+
+  transition Established on Command(Close) {
+    next FinWait1;
+    emit Send(Fin);
+  }
+
+  transition Established on Net(Fin) {
+    next CloseWait;
+    emit Send(Ack);
+  }
+
+  transition FinWait1 on Net(Fin) {
+    next TimeWait;
+    set time_wait = 2;
+    emit Send(Ack);
+  }
+
+  transition FinWait1 on Net(Ack) {
+    next TimeWait;
+    set time_wait = 2;
+  }
+
+  transition CloseWait on Command(Close) {
+    next LastAck;
+    emit Send(Fin);
+  }
+
+  transition LastAck on Net(Ack) {
+    next Closed;
+    set tcb = false;
+  }
+
+  transition TimeWait on Tick where time_wait > 0 {
+    next TimeWait;
+    set time_wait = time_wait - 1;
+  }
+
+  transition TimeWait on Tick where time_wait == 0 {
+    next Closed;
+    set tcb = false;
+    set time_wait = 0;
+  }
+
+  prop closed_has_no_tcb : always (state == Closed -> !tcb) ;
+  prop established_has_tcb : always (state == Established -> tcb) ;
+  assume env_tick_in_time : always (bounded_eventually[5] (input_is(Tick))) ;
+}

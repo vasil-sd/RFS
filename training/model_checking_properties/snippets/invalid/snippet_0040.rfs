@@ -1,0 +1,1 @@
+prop valid_state : always (state == Empty || state == One || state == Full) ;

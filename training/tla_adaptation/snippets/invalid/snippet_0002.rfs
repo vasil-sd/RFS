@@ -1,0 +1,2 @@
+enum Mode { One, Two }
+var mode: Mode init Mode::One

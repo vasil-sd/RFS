@@ -1,0 +1,4 @@
+prop closed_has_no_tcb : always (state == Closed -> !tcb) ;
+prop established_has_tcb : always (state == Established -> tcb) ;
+prop listen_syn_response : always (input_is(Net(Syn)) -> output_has(Send(SynAck))) ;
+prop time_wait_bounded : always (state == TimeWait -> bounded_eventually[3] (state == Closed)) ;

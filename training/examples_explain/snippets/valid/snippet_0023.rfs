@@ -1,0 +1,4 @@
+module empty_module {
+  enum State { A }
+  initial A
+}

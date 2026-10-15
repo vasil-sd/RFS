@@ -1,0 +1,1 @@
+always (input_is(Recv(Syn)) -> output_has(Send(SynAck)))

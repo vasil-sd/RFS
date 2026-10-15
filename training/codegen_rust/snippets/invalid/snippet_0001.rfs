@@ -1,0 +1,2 @@
+event Recv(Ack(ack_seq: bit<4>))
+transition S on Recv(Ack(ack_seq)) where ack_seq == seq { ... }

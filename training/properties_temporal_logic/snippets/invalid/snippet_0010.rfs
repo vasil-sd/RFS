@@ -1,0 +1,9 @@
+enum State { Idle, Waiting, Answered }
+initial Idle
+
+event Request
+output Response
+
+transition Idle on Request { next Waiting; }
+transition Waiting on some_input { next Answered; emit Response; }
+transition Answered on Request { next Waiting; }

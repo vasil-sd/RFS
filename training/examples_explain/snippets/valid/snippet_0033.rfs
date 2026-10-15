@@ -1,0 +1,20 @@
+module shifts {
+  enum State { S }
+  initial S
+  var window: bit<8> init 1
+  event Left
+  event Right
+  output Wide
+  transition S on Left where window < 128 {
+    next S;
+    set window = window << 1;
+  }
+  transition S on Right where window > 1 {
+    next S;
+    set window = window >> 1;
+  }
+  transition S on Left where window == 128 {
+    next S;
+    emit Wide;
+  }
+}

@@ -1,0 +1,7 @@
+module m {
+  enum State { A, B, C }
+  initial A
+  var mode: Mode init Mode::Normal
+  enum Mode { Normal, Fast, Error }
+  var flag: bool init false
+}

@@ -1,0 +1,21 @@
+module counter {
+  enum State { Counting }
+  initial Counting
+  event Inc
+  event Reset
+  output Reached
+  var count: bit<8> init 0
+  transition Counting on Inc where count < 255 {
+    next Counting;
+    set count = count + 1;
+  }
+  transition Counting on Inc where count == 255 {
+    next Counting;
+    emit Reached;
+    set count = 0;
+  }
+  transition Counting on Reset {
+    next Counting;
+    set count = 0;
+  }
+}

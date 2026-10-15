@@ -1,0 +1,9 @@
+transition A on ChooseOne {
+  next A;
+  set x = 1;
+}
+
+transition A on ChooseTwo {
+  next A;
+  set x = 2;
+}

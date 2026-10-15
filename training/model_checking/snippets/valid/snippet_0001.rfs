@@ -1,0 +1,12 @@
+module big_counter {
+  enum State { S }
+  initial S
+
+  event Inc
+  var x: bit<32> init 0
+
+  transition S on Inc {
+    next S;
+    set x = x + 1;
+  }
+}

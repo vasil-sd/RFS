@@ -1,0 +1,1 @@
+prop exclusive : always (!(a_active && b_active)) ;

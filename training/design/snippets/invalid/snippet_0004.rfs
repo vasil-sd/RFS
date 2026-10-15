@@ -1,0 +1,1 @@
+prop always_valid_state : always (state == Off || state == On) ;

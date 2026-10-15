@@ -1,0 +1,7 @@
+transition A on E where cond1 {
+  next B;
+}
+
+transition A on E where cond2 {
+  next C;
+}

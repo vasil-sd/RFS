@@ -1,0 +1,43 @@
+# Inspired by bounded-buffer / producer-consumer PlusCal patterns.
+# The TLA+ idea is a buffer with finite capacity and Put/Get actions.
+# RFS models the buffer controller with explicit states and a count variable.
+module bounded_buffer_tla {
+  enum State { Empty, One, Full }
+  initial Empty
+
+  event Put
+  event Get
+
+  output BufferFull
+  output BufferEmpty
+
+  var count: bit<2> init 0
+
+  transition Empty on Put {
+    next One;
+    set count = 1;
+  }
+
+  transition One on Put {
+    next Full;
+    set count = 2;
+    emit BufferFull;
+  }
+
+  transition Full on Get {
+    next One;
+    set count = 1;
+  }
+
+  transition One on Get {
+    next Empty;
+    set count = 0;
+    emit BufferEmpty;
+  }
+
+  prop state_matches_count : always (
+    (state == Empty && count == 0) ||
+    (state == One && count == 1) ||
+    (state == Full && count == 2)
+  ) ;
+}

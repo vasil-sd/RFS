@@ -101,3 +101,20 @@ sed -n "<start>,<end>p" TASKS.md            # one specific entry by line range
 - `KB.md`: section 5 body replaced by pointer stub to BUILD.md/TOOLCHAIN.md/START.md; section 6.1 toolchain items moved out (generic cwd/terminal tips kept); section 10 quick-start replaced by START.md pointer (its two workflow checklists migrated into START.md section 8); obsolete section 12 "Suggested first tasks" (recommended implementing the already-existing validator) replaced by ROADMAP Phase 2 pointer; section 13.5 now points to BUILD.md section 4; section 1 state table gained rows for START/BUILD/TOOLCHAIN and KB re-labeled "Maintained".
 - `DESIGN.md` section 14: "Implemented so far" bash block replaced by prose + pointers to BUILD.md / KB 4.5 (planned-commands design list kept). `ROADMAP.md`: intro gained one-line pointers to BUILD.md/TOOLCHAIN.md/START.md (phase exit criteria left as acceptance statements, not how-to).
 - Verification: no RUSTUP_HOME/CARGO_HOME or command tables remain in KB/DESIGN/ROADMAP/CODEGEN (grep clean); all three new files cross-referenced from the old docs; KB section numbering intact (1-13, no duplicates); no source code touched, so no test run needed.
+
+---
+
+## 2026-10-15 16:41 — Curated .gitignore and made the initial git commit
+
+### Interpretation & plan
+
+- Requested: add all unnecessary files/folders (temp, build, etc.) to `.gitignore`, then make a git commit of the current RFS project state.
+- Plan: inventory untracked content; decide track-vs-ignore per item (build artifacts/caches ignored, everything else tracked); note that the repo had zero commits, so this is the initial commit; set a repo-local git identity (none configured).
+
+### Report
+
+- Rewrote `.gitignore`: ignores `/target` (2.3 GB build artifacts), `__pycache__/` + `*.pyc`, `.ruff_cache/`, editor/OS noise (`*~`, `.DS_Store`).
+- Deliberate change: removed the previous `Cargo.lock` ignore entry - this is an application crate (CLI + 4 bins) and the lock file (version 4) is required for reproducible builds; it is now tracked.
+- Tracked as project content (not ignored): `.cargo/config.toml` (cargo aliases used throughout docs), `.ref_docs/` (Unsloth Qwen3.8 training references backing `training.py`), all docs, `src/` (23 files), `tests/` (5), `examples/` (44: 38 valid + 6 invalid), `training/` (256 files: 11 categories + snippets), `all_rfs_training.jsonl`, `training.py`.
+- Set repo-local identity `RFS Development <rfs-dev@localhost>` (no global/repo identity existed).
+- Commit: `65a7749` "Initial commit: RFS Phase 1 complete + Phase 2 preparation" - 345 files; worktree clean afterwards (`git status` empty); verified ignored set is exactly `.ruff_cache/`, `__pycache__/`, `target/`.

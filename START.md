@@ -28,10 +28,14 @@ model-checkable (no unbounded data, floats, or arbitrary functions in the core).
    how; never read the whole history into context).
 6. Keep `cargo test`, `cargo clippy --all-targets`, and `cargo fmt` green, and keep
    the docs synchronized with design-relevant changes (section 8 rules).
-7. Do NOT download images to illustrate your reports - almost always they are not
-   relevant to the subject/topic. Include an image only when there is a strict need
-   for it (for example an important math equation or an essential diagram that cannot
-   be conveyed in text). Default: no images.
+7. Images are PROHIBITED by default in all answers and reports. Do NOT run image
+   searches (e.g. `web_search` with `image_queries`) or download/embed images to
+   illustrate your work - for this project's subject matter such searches almost
+   always return irrelevant results (unrelated acronyms, stock templates, unrelated
+   diagrams) and pollute the answer with misleading visuals. Include an image ONLY
+   when a task strictly requires one that cannot be conveyed in text or code (for
+   example an important math equation or an essential diagram). When in doubt: no
+   image at all.
 
 ## 1. Project state snapshot (2026-10-15)
 

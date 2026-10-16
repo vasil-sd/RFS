@@ -140,3 +140,18 @@ sed -n "<start>,<end>p" TASKS.md            # one specific entry by line range
 - Examples: +2 valid (39_endpoint_protocol - realistic endpoint protocol with version/payloads/binding guards/priorities/on_error; 40_on_error_recovery), +5 invalid (duplicate priority, shadowed duplicate transition, on_error without next, unquoted version, duplicate set). `invalid_examples_fail_to_parse` extended to accept parse-OR-validation failure.
 - Docs: DESIGN.md sections 19-20 (Phase 1 renumbered; Phase 2 decisions D1-D10 with comparison tables); KB.md (state table, section 3.1/3.5 syntax, section 7 limitations rewritten - most Phase 0/1 items now resolved); ROADMAP.md Phase 2 status bullets; CODEGEN.md (C backend rows, testing conventions, invariants); BUILD.md + START.md counts/snapshot updated to Phase 2 state.
 - Verification: `cargo build` clean; `cargo test` 125/125; `cargo generate-code-tests` 164 modules; `cargo test-generated-code` 492/492; `rfs validate --input rfs examples/valid` exit 0 (40 files); clippy 0 errors; fmt clean. Generated C verified with gcc -Wall: production run reproduces the Rust behavior (syn -> data_ok -> rst sequence), `c test` passes, `c mc --bound 6 --runs 10` completes with the same summary format.
+
+## 2026-10-15 22:02 — Clarified START.md rule 7: images prohibited by default in answers/reports
+
+### Interpretation & plan
+
+- Requested: rewrite operating-protocol item 7 in START.md so the ban on unnecessary image usage is unambiguous for LLM assistants.
+- Trigger: a prior session violated the old wording by running `web_search` with `image_queries` after an orientation summary; every returned image was irrelevant (unrelated acronyms, stock templates, unrelated diagrams).
+- Plan: (1) verify exact current text of item 7; (2) rewrite it to name image searches as prohibited tool usage, state default = no images in any answer/report, keep the strict-need exception; (3) append this entry.
+
+### Report
+
+- Rewrote START.md §0 item 7 (was line 31): now bans image searches (`web_search` + `image_queries`) and downloading/embedding images by default; exception only for content that cannot be conveyed in text or code (important math equation, essential diagram); ends with "When in doubt: no image at all."
+- Docs-only change to the session-protocol file; no source, tests, or build impact.
+- Verification: single-hunk edit confirmed by diff view; surrounding items 6 and section 1 untouched.
+

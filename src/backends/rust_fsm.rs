@@ -1,44 +1,55 @@
 //! Rust backend: production FSM source generation.
 //!
 //! Generates the standalone Rust source for one RFS module: type declarations
-//! (enums, `Vars`, `Input`, `Output`), the trace/assumption runtime, property
-//! and assumption check functions, and the `Fsm` implementation with its
-//! transition blocks. See `backends/RUST.md` for the generated-code anatomy
-//! and design decisions.
+//! (enums, `Vars`, `Input`, `Output`), the trace/sample runtime, online
+//! property and assumption monitors (rendered from the shared `MonitorPlan`
+//! of `crate::monitor` - identical semantics to the C backend), and the
+//! `Fsm` implementation with its transition blocks. See `backends/RUST.md`
+//! for the generated-code anatomy and design decisions.
 
 use crate::backends::rust::{
     bit_rust_type, mask_expr, representative_input_expr, rust_ident, rust_type, snake,
 };
-use crate::codegen::{AssumptionSelection, BackendOptions, CodegenOutput};
+use crate::codegen::{AssumptionSelection, BackendOptions, CodegenOutput, PropertyMonitorMode};
 use crate::codegen_fsm::{self, FsmVariants, VariantInfo};
 use crate::ir::*;
+use crate::monitor::{self, AnchorRange, MonNode, MonitorPlan, SignalAtom, SignalExpr};
 use crate::validator::{self, Env, ExprType};
 use std::collections::{HashMap, HashSet};
 use std::fmt::Write as _;
 
-/// Entry point for the `production` command: production FSM code without tests.
+/// Entry point for the `production` command: production FSM code without
+/// tests. Property monitors are emitted only with `--with-property-monitors`
+/// (D-P3-6), gated behind `#[cfg(debug_assertions)]`.
 pub fn generate_production(
     module: &Module,
     options: &BackendOptions,
 ) -> Result<CodegenOutput, Vec<String>> {
-    generate_with_tests(module, options, false)
+    let mode = if options.with_property_monitors {
+        PropertyMonitorMode::Gated
+    } else {
+        PropertyMonitorMode::Off
+    };
+    generate_core(module, options, false, mode)
 }
 
-/// Core generator shared by the `production` and `test` commands (and the
-/// legacy API): validates the module, then emits the Rust FSM source. When
-/// `with_tests` is set, a unit-test module is appended (see
-/// `crate::backends::rust_test`).
-pub(crate) fn generate_with_tests(
+/// Core generator shared by all three commands: validates the module, then
+/// emits the Rust FSM source. When `with_tests` is set, a unit-test module
+/// is appended (see `crate::backends::rust_test`). `prop_mode` selects the
+/// property-monitor activation (D-P3-6): production maps the CLI flag to
+/// Off/Gated; test and mc always pass Always.
+pub(crate) fn generate_core(
     module: &Module,
     options: &BackendOptions,
     with_tests: bool,
+    prop_mode: PropertyMonitorMode,
 ) -> Result<CodegenOutput, Vec<String>> {
     let errors = validator::validate_module(module);
     if !errors.is_empty() {
         return Err(errors.into_iter().map(|e| e.message).collect());
     }
     let mut warnings = Vec::new();
-    let gen = Gen::new(module, options, &mut warnings, with_tests)?;
+    let gen = Gen::new(module, options, &mut warnings, with_tests, prop_mode)?;
     Ok(CodegenOutput {
         code: gen.code,
         warnings,
@@ -50,6 +61,11 @@ struct Gen<'a> {
     options: &'a BackendOptions,
     code: String,
     variants: FsmVariants,
+    prop_mode: PropertyMonitorMode,
+    /// Compiled assumption monitors (selected via `--assumes`), in declaration order.
+    assume_plans: Vec<MonitorPlan>,
+    /// Compiled property monitors, in declaration order.
+    prop_plans: Vec<MonitorPlan>,
     active_assumes: Vec<String>,
     property_names: Vec<String>,
 }
@@ -60,21 +76,26 @@ impl<'a> Gen<'a> {
         options: &'a BackendOptions,
         warnings: &mut Vec<String>,
         with_tests: bool,
+        prop_mode: PropertyMonitorMode,
     ) -> Result<Self, Vec<String>> {
         let mut g = Self {
             module,
             options,
             code: String::new(),
             variants: codegen_fsm::build_variants(module),
+            prop_mode,
+            assume_plans: vec![],
+            prop_plans: vec![],
             active_assumes: vec![],
             property_names: vec![],
         };
+        g.compile_monitors(warnings);
         g.emit_prelude();
         g.emit_enums();
         g.emit_vars();
         g.emit_input_output();
         g.emit_trace_and_handlers();
-        g.emit_formula_functions(warnings);
+        g.emit_monitors().map_err(|e| vec![e])?;
         g.emit_fsm_impl().map_err(|e| vec![e])?;
         if with_tests {
             g.code
@@ -85,6 +106,20 @@ impl<'a> Gen<'a> {
                 ));
         }
         Ok(g)
+    }
+
+    /// Whether property-monitor machinery is emitted at all (D-P3-6).
+    fn has_prop(&self) -> bool {
+        self.prop_mode != PropertyMonitorMode::Off
+    }
+
+    /// The `#[cfg(...)]` prefix for gated property-monitor items ("" when the
+    /// monitors are unconditional or absent).
+    fn prop_cfg(&self) -> &'static str {
+        match self.prop_mode {
+            PropertyMonitorMode::Gated => "#[cfg(debug_assertions)] ",
+            _ => "",
+        }
     }
 
     fn input_variant(&self, group: &str, variant: &str) -> Option<&VariantInfo> {
@@ -159,18 +194,25 @@ impl<'a> Gen<'a> {
     }
 
     fn emit_trace_and_handlers(&mut self) {
+        let pv_variant = if self.has_prop() {
+            format!(
+                ", {}PropertyViolation {{ label: String, step: usize }}",
+                self.prop_cfg()
+            )
+        } else {
+            String::new()
+        };
         let _ = writeln!(
             self.code,
             r#"#[derive(Debug, Clone)]
 pub struct TraceStep {{ pub input: Input, pub outputs: Vec<Output>, pub from_state: State, pub to_state: State, pub vars: Vars }}
 #[derive(Debug, Clone)]
 pub struct Trace {{ pub initial_state: State, pub initial_vars: Vars, pub steps: Vec<TraceStep> }}
-impl Trace {{
-    pub fn state_at(&self, pos: usize) -> State {{ if pos == 0 {{ self.initial_state }} else {{ self.steps[pos - 1].to_state }} }}
-    pub fn vars_at(&self, pos: usize) -> Vars {{ if pos == 0 {{ self.initial_vars }} else {{ self.steps[pos - 1].vars }} }}
-    pub fn input_at(&self, pos: usize) -> Option<Input> {{ self.steps.get(pos).map(|s| s.input) }}
-    pub fn outputs_at(&self, pos: usize) -> Vec<Output> {{ self.steps.get(pos).map(|s| s.outputs.clone()).unwrap_or_default() }}
-}}
+/// One sample of the trace - the unit the online monitors evaluate. Values
+/// are post-step; sample 0 is the initial configuration (no input/outputs,
+/// so `input_is`/`output_has` are false there).
+#[derive(Debug, Clone)]
+pub struct Sample {{ pub input: Option<Input>, pub outputs: Vec<Output>, pub from_state: State, pub to_state: State, pub vars: Vars }}
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum AssumptionPolicy {{ Continue, Stop, Panic }}
 pub trait AssumptionHandler {{ fn on_violation(&mut self, label: &str) -> AssumptionPolicy; }}
@@ -181,25 +223,30 @@ impl AssumptionHandler for StopAssumptionHandler {{ fn on_violation(&mut self, _
 pub struct ContinueAssumptionHandler;
 impl AssumptionHandler for ContinueAssumptionHandler {{ fn on_violation(&mut self, _label: &str) -> AssumptionPolicy {{ AssumptionPolicy::Continue }} }}
 #[derive(Debug, Clone, PartialEq)]
-pub enum StepError {{ UnexpectedEvent, AssumptionViolation {{ label: String }} }}
+pub enum StepError {{ UnexpectedEvent, AssumptionViolation {{ label: String }}{pv_variant} }}
 "#
         );
     }
 
-    fn emit_formula_functions(&mut self, warnings: &mut Vec<String>) {
+    // ------------------------------------------------------------------
+    // Online monitors (Phase 3): rendered from the shared MonitorPlan
+    // (`crate::monitor`) with identical semantics to the C backend.
+    // ------------------------------------------------------------------
+
+    /// Compile all property/assumption formulas into monitor plans. Formulas
+    /// outside the monitor subset (R1-R4) are skipped with a warning - the
+    /// same text in every backend (D-P3-5).
+    fn compile_monitors(&mut self, warnings: &mut Vec<String>) {
         for p in &self.module.properties {
-            if !validator::is_safety_formula(&p.formula) {
-                warnings.push(format!("property '{}' is not safety; skipped", p.name));
-                continue;
-            }
-            if let Some(code) = self.safety_formula_code(&p.name, &p.formula, "prop") {
-                self.property_names.push(p.name.clone());
-                self.code.push_str(&code);
-            } else {
-                warnings.push(format!(
-                    "property '{}' is safety but outside Phase 1 translated subset; skipped",
+            match monitor::compile_formula(&p.name, false, &p.formula) {
+                Ok(plan) => {
+                    self.property_names.push(p.name.clone());
+                    self.prop_plans.push(plan);
+                }
+                Err(_) => warnings.push(format!(
+                    "property '{}' is outside the monitor subset; skipped",
                     p.name
-                ));
+                )),
             }
         }
         for a in &self.module.assumptions {
@@ -208,20 +255,44 @@ pub enum StepError {{ UnexpectedEvent, AssumptionViolation {{ label: String }} }
             if !selected {
                 continue;
             }
-            if !validator::is_safety_formula(&a.formula) {
-                warnings.push(format!("assume '{}' is not safety; skipped", a.name));
-                continue;
-            }
-            if let Some(code) = self.safety_formula_code(&a.name, &a.formula, "assume") {
-                self.active_assumes.push(a.name.clone());
-                self.code.push_str(&code);
-            } else {
-                warnings.push(format!(
-                    "assume '{}' is safety but outside Phase 1 translated subset; skipped",
+            match monitor::compile_formula(&a.name, true, &a.formula) {
+                Ok(plan) => {
+                    self.active_assumes.push(a.name.clone());
+                    self.assume_plans.push(plan);
+                }
+                Err(_) => warnings.push(format!(
+                    "assume '{}' is outside the monitor subset; skipped",
                     a.name
-                ));
+                )),
             }
         }
+    }
+
+    fn emit_monitors(&mut self) -> Result<(), String> {
+        // Per-label monitor structs (assumptions first, then properties;
+        // declaration order within each group). Property monitors are gated
+        // with the aggregate in Gated mode so release builds carry nothing.
+        for plan in &self.assume_plans {
+            self.code.push_str(&self.render_monitor(plan, "")?);
+        }
+        let prop_struct_cfg = match self.prop_mode {
+            PropertyMonitorMode::Gated => "#[cfg(debug_assertions)]\n",
+            _ => "",
+        };
+        for plan in &self.prop_plans {
+            self.code
+                .push_str(&self.render_monitor(plan, prop_struct_cfg)?);
+        }
+        if self.has_prop() {
+            let cfg = self.prop_cfg();
+            let _ = writeln!(
+                self.code,
+                "{cfg}/// A property violation confirmed by the online monitors. `step` is the\n{cfg}/// sample where the failure was confirmed; `trigger_step` is the sample that\n{cfg}/// started the failing obligation (None for plain per-sample checks).\n{cfg}#[derive(Debug, Clone)]\n{cfg}pub struct PropertyViolation {{ pub label: String, pub step: usize, pub trigger_step: Option<usize> }}"
+            );
+            self.emit_prop_monitors();
+        }
+        self.emit_assume_monitors();
+        // Label constants (kept for MC/test runtimes and user code; D-P3-4).
         let props: Vec<&str> = self.property_names.iter().map(|s| s.as_str()).collect();
         let assumes: Vec<&str> = self.active_assumes.iter().map(|s| s.as_str()).collect();
         let _ = writeln!(
@@ -240,26 +311,6 @@ pub enum StepError {{ UnexpectedEvent, AssumptionViolation {{ label: String }} }
                 "/// Spec version header from the RFS module declaration.\npub const SPEC_VERSION: &str = \"{v}\";"
             );
         }
-        let mut pm = String::new();
-        let mut am = String::new();
-        for n in &self.property_names {
-            let _ = writeln!(
-                pm,
-                "            \"{}\" => prop_{}_always(trace),",
-                n,
-                snake(n)
-            );
-        }
-        for n in &self.active_assumes {
-            let _ = writeln!(
-                am,
-                "            \"{}\" => assume_{}_always(trace),",
-                n,
-                snake(n)
-            );
-        }
-        let _ = writeln!(self.code, "pub fn property_check(label: &str, trace: &Trace) -> bool {{ match label {{ {} _ => true }} }}", pm);
-        let _ = writeln!(self.code, "pub fn assume_check(label: &str, trace: &Trace) -> bool {{ match label {{ {} _ => true }} }}", am);
         let inputs: Vec<String> = self
             .variants
             .inputs
@@ -275,67 +326,236 @@ pub enum StepError {{ UnexpectedEvent, AssumptionViolation {{ label: String }} }
                 inputs.join(", ")
             );
         }
+        Ok(())
     }
 
-    fn safety_formula_code(&self, name: &str, formula: &Formula, prefix: &str) -> Option<String> {
-        let inner = codegen_fsm::safety_formula_inner(formula)?;
-        let at_body = self.gen_formula_at(inner)?;
-        let sname = snake(name);
-        Some(format!(
-            "fn {}_{}(trace: &Trace, pos: usize) -> bool {{ {} }}\npub fn {}_{}_always(trace: &Trace) -> bool {{ for pos in 0..=trace.steps.len() {{ if !{}_{}(trace, pos) {{ return false; }} }} true }}\n",
-            prefix, sname, at_body, prefix, sname, prefix, sname
+    /// Render one monitor struct from a compiled plan. Nodes are numbered in
+    /// DFS pre-order over the plan tree; the step body evaluates them in
+    /// post-order (children before parents), mirroring the reference
+    /// interpreter in `crate::monitor`.
+    fn render_monitor(&self, plan: &MonitorPlan, cfg: &str) -> Result<String, String> {
+        let m = snake(&plan.label);
+        let mut fields: Vec<String> = Vec::new();
+        let mut inits: Vec<String> = Vec::new();
+        let mut sigs: Vec<String> = Vec::new();
+        let mut blocks: Vec<String> = Vec::new();
+        let mut next_id = 0usize;
+        self.render_node(
+            &plan.root,
+            &mut next_id,
+            &mut fields,
+            &mut inits,
+            &mut sigs,
+            &mut blocks,
+        )?;
+
+        let kind = if plan.is_assumption {
+            "assumption"
+        } else {
+            "property"
+        };
+        let sig_fns: Vec<String> = sigs
+            .iter()
+            .enumerate()
+            .map(|(i, e)| format!("    fn sig_{}(s: &Sample) -> bool {{ {} }}", i, e))
+            .collect();
+        Ok(format!(
+            "{cfg}/// Online monitor for {kind} '{label}' (compiled from the RFS formula).\n{cfg}#[derive(Debug, Clone)]\n{cfg}pub struct Mon_{m} {{\n{fields}\n}}\n{cfg}impl Mon_{m} {{\n{sigs}\n    pub fn new() -> Self {{ Self {{ {inits} }} }}\n    /// Step the monitor on sample `idx`. Returns true when the failure is\n    /// newly confirmed at this sample.\n    pub fn step(&mut self, s: &Sample, idx: usize) -> bool {{\n        let before = self.n0_failed;\n{blocks}\n        self.n0_failed && !before\n    }}\n    /// The sample that started the currently failing obligation (None for\n    /// plain per-sample check failures).\n    pub fn trigger_step(&self) -> Option<usize> {{ (self.n0_trigger_step >= 0).then(|| self.n0_trigger_step as usize) }}\n}}\n",
+            label = plan.label,
+            fields = fields.iter().map(|f| format!("    {f}")).collect::<Vec<_>>().join(",\n"),
+            inits = inits.join(", "),
+            sigs = sig_fns.join("\n"),
+            blocks = blocks.join("\n"),
         ))
     }
 
-    fn trace_expr_ctx(&self) -> ExprCtx {
+    fn render_node(
+        &self,
+        node: &MonNode,
+        next_id: &mut usize,
+        fields: &mut Vec<String>,
+        inits: &mut Vec<String>,
+        sigs: &mut Vec<String>,
+        blocks: &mut Vec<String>,
+    ) -> Result<(), String> {
+        let id = *next_id;
+        *next_id += 1;
+        match node {
+            MonNode::RangeCheck { expr, range } => {
+                let sig = sigs.len();
+                sigs.push(self.gen_signal(expr)?);
+                fields.push(format!("n{id}_failed: bool"));
+                fields.push(format!("n{id}_trigger_step: i32"));
+                fields.push(format!("n{id}_now: bool"));
+                inits.push(format!("n{id}_failed: false"));
+                inits.push(format!("n{id}_trigger_step: -1"));
+                inits.push(format!("n{id}_now: false"));
+                let cond = Self::range_cond(range);
+                // Per-sample check: `now` is recomputed every sample (the
+                // child may recover); `failed` is sticky for reporting.
+                blocks.push(format!(
+                    "        self.n{id}_now = {cond} && !Self::sig_{sig}(s);\n        if self.n{id}_now {{ self.n{id}_failed = true; }}"
+                ));
+            }
+            MonNode::Obligation {
+                bound,
+                trigger,
+                body,
+                range,
+            } => {
+                let tsig = sigs.len();
+                sigs.push(self.gen_signal(trigger)?);
+                let bsig = sigs.len();
+                sigs.push(self.gen_signal(body)?);
+                fields.push(format!("n{id}_failed: bool"));
+                fields.push(format!("n{id}_trigger_step: i32"));
+                inits.push(format!("n{id}_failed: false"));
+                inits.push(format!("n{id}_trigger_step: -1"));
+                if *bound >= 1 {
+                    fields.push(format!("n{id}_pending: bool"));
+                    fields.push(format!("n{id}_remaining: u64"));
+                    inits.push(format!("n{id}_pending: false"));
+                    inits.push(format!("n{id}_remaining: 0"));
+                }
+                fields.push(format!("n{id}_now: bool"));
+                inits.push(format!("n{id}_now: false"));
+                let cond = Self::range_cond(range);
+                if *bound == 0 {
+                    // be[0]: the body must hold at the trigger sample itself.
+                    blocks.push(format!(
+                        "        if !self.n{id}_failed && {cond} && Self::sig_{tsig}(s) && !Self::sig_{bsig}(s) {{ self.n{id}_failed = true; self.n{id}_trigger_step = idx as i32; }}\n        self.n{id}_now = self.n{id}_failed;"
+                    ));
+                } else {
+                    // D-P3-3 pending model (the algorithm backends render).
+                    blocks.push(format!(
+                        "        if !self.n{id}_failed {{\n            let a = {cond} && Self::sig_{tsig}(s);\n            let b = Self::sig_{bsig}(s);\n            if !self.n{id}_pending && a {{ self.n{id}_pending = true; self.n{id}_remaining = {bound}; self.n{id}_trigger_step = idx as i32; }}\n            if self.n{id}_pending {{\n                if b {{ self.n{id}_pending = false; }}\n                else {{ self.n{id}_remaining -= 1; if self.n{id}_remaining == 0 {{ self.n{id}_failed = true; }} }}\n            }}\n        }}\n        // Obligation failures are terminal: once confirmed, the node is\n        // failing at every later sample.\n        self.n{id}_now = self.n{id}_failed;"
+                    ));
+                }
+            }
+            MonNode::DelayedCheck {
+                antecedent,
+                consequent,
+                range,
+            } => {
+                let asig = sigs.len();
+                sigs.push(self.gen_signal(antecedent)?);
+                let csig = sigs.len();
+                sigs.push(self.gen_signal(consequent)?);
+                fields.push(format!("n{id}_failed: bool"));
+                fields.push(format!("n{id}_trigger_step: i32"));
+                fields.push(format!("n{id}_prev_antecedent: bool"));
+                fields.push(format!("n{id}_now: bool"));
+                inits.push(format!("n{id}_failed: false"));
+                inits.push(format!("n{id}_trigger_step: -1"));
+                inits.push(format!("n{id}_prev_antecedent: false"));
+                inits.push(format!("n{id}_now: false"));
+                let cond = Self::range_cond(range);
+                // Delayed check: the antecedent held at the PREVIOUS sample, so
+                // the consequent must hold now. Failure is terminal; there is
+                // no trigger sample to report (trigger_step stays -1).
+                blocks.push(format!(
+                    "        if !self.n{id}_failed && {cond} && self.n{id}_prev_antecedent && !Self::sig_{csig}(s) {{ self.n{id}_failed = true; }}\n        self.n{id}_prev_antecedent = Self::sig_{asig}(s);\n        // DelayedCheck failures are terminal: once confirmed, the node is\n        // failing at every later sample.\n        self.n{id}_now = self.n{id}_failed;"
+                ));
+            }
+            MonNode::And(children) | MonNode::Or(children) => {
+                let mut child_ids: Vec<usize> = Vec::new();
+                for c in children {
+                    child_ids.push(*next_id);
+                    self.render_node(c, next_id, fields, inits, sigs, blocks)?;
+                }
+                fields.push(format!("n{id}_failed: bool"));
+                fields.push(format!("n{id}_trigger_step: i32"));
+                fields.push(format!("n{id}_now: bool"));
+                inits.push(format!("n{id}_failed: false"));
+                inits.push(format!("n{id}_trigger_step: -1"));
+                inits.push(format!("n{id}_now: false"));
+                // Per-sample composition over the children's CURRENT failure
+                // status (a disjunction fails only while ALL children fail at
+                // this sample; a conjunction while ANY child fails).
+                let join = if matches!(node, MonNode::And(_)) {
+                    " || "
+                } else {
+                    " && "
+                };
+                let any_all = child_ids
+                    .iter()
+                    .map(|c| format!("self.n{c}_now"))
+                    .collect::<Vec<_>>()
+                    .join(join);
+                let mins: Vec<String> = child_ids
+                    .iter()
+                    .map(|c| {
+                        format!(
+                            "            if self.n{c}_now && self.n{c}_trigger_step >= 0 {{ ts = ts.min(self.n{c}_trigger_step); }}"
+                        )
+                    })
+                    .collect();
+                blocks.push(format!(
+                    "        self.n{id}_now = ({any_all});\n        if self.n{id}_now && !self.n{id}_failed {{\n            self.n{id}_failed = true;\n            let mut ts = i32::MAX;\n{mins}\n            self.n{id}_trigger_step = if ts == i32::MAX {{ -1 }} else {{ ts }};\n        }}",
+                    mins = mins.join("\n")
+                ));
+            }
+        }
+        Ok(())
+    }
+
+    /// The `idx` condition for an anchor range ("true" when unbounded from 0).
+    fn range_cond(range: &AnchorRange) -> String {
+        if range.from == 0 && range.to.is_none() {
+            return "true".into();
+        }
+        let mut c = format!("idx as u64 >= {}", range.from);
+        if let Some(t) = range.to {
+            c.push_str(&format!(" && idx as u64 <= {}", t));
+        }
+        c
+    }
+
+    /// Render a per-sample signal expression against `s: &Sample`.
+    fn gen_signal(&self, sig: &SignalExpr) -> Result<String, String> {
+        match sig {
+            SignalExpr::Atom(SignalAtom::True) => Ok("true".into()),
+            SignalExpr::Atom(SignalAtom::VarExpr(expr)) => {
+                let env = Env::for_module(self.module);
+                let mut ctx = self.sample_expr_ctx();
+                ctx.expected = Some(ExprType::Bool);
+                gen_expr(expr, &env, &ctx)
+            }
+            SignalExpr::Atom(SignalAtom::InputIs(p)) => Ok(self
+                .input_is_sample_expr(p)
+                .ok_or("unresolvable input pattern")?),
+            SignalExpr::Atom(SignalAtom::OutputHas(p)) => Ok(self
+                .output_has_sample_expr(p)
+                .ok_or("unresolvable output pattern")?),
+            SignalExpr::Not(inner) => Ok(format!("!({})", self.gen_signal(inner)?)),
+            SignalExpr::And(l, r) => Ok(format!(
+                "({}) && ({})",
+                self.gen_signal(l)?,
+                self.gen_signal(r)?
+            )),
+            SignalExpr::Or(l, r) => Ok(format!(
+                "({}) || ({})",
+                self.gen_signal(l)?,
+                self.gen_signal(r)?
+            )),
+        }
+    }
+
+    /// Expression context for signals: `state` is the post-step state and
+    /// variables read from the sample.
+    fn sample_expr_ctx(&self) -> ExprCtx {
         let mut ctx = ExprCtx::new(self.module);
-        ctx.names
-            .insert("state".into(), "trace.state_at(pos)".into());
+        ctx.names.insert("state".into(), "s.to_state".into());
         for v in &self.module.vars {
-            ctx.names.insert(
-                v.name.clone(),
-                format!("trace.vars_at(pos).{}", rust_ident(&v.name)),
-            );
+            ctx.names
+                .insert(v.name.clone(), format!("s.vars.{}", rust_ident(&v.name)));
         }
         ctx
     }
 
-    fn gen_formula_at(&self, f: &Formula) -> Option<String> {
-        match f {
-            Formula::Expr { expr } => {
-                let env = Env::for_module(self.module);
-                let mut ctx = self.trace_expr_ctx();
-                ctx.expected = Some(ExprType::Bool);
-                gen_expr(expr, &env, &ctx).ok()
-            }
-            Formula::Not { inner } => Some(format!("!({})", self.gen_formula_at(inner)?)),
-            Formula::And { left, right } => Some(format!(
-                "({}) && ({})",
-                self.gen_formula_at(left)?,
-                self.gen_formula_at(right)?
-            )),
-            Formula::Or { left, right } => Some(format!(
-                "({}) || ({})",
-                self.gen_formula_at(left)?,
-                self.gen_formula_at(right)?
-            )),
-            Formula::Implies { left, right } => Some(format!(
-                "!({}) || ({})",
-                self.gen_formula_at(left)?,
-                self.gen_formula_at(right)?
-            )),
-            Formula::Next { inner } => Some(format!(
-                "(pos + 1 <= trace.steps.len() && {{ let pos = pos + 1; {} }})",
-                self.gen_formula_at(inner)?
-            )),
-            Formula::InputIs { pattern } => self.input_is_trace_expr(pattern),
-            Formula::OutputHas { pattern } => self.output_has_trace_expr(pattern),
-            _ => None,
-        }
-    }
-
-    fn input_is_trace_expr(&self, pattern: &EventPattern) -> Option<String> {
-        let variant_code = match &pattern.variant {
+    /// Render `input_is(pattern)` against `s: &Sample`.
+    fn input_is_sample_expr(&self, pattern: &EventPattern) -> Option<String> {
+        match &pattern.variant {
             None => {
                 let variants: Vec<&VariantInfo> = self
                     .variants
@@ -356,48 +576,42 @@ pub enum StepError {{ UnexpectedEvent, AssumptionViolation {{ label: String }} }
                         }
                     })
                     .collect();
-                format!("matches!(inp, {})", arms.join(" | "))
+                let arms = arms
+                    .iter()
+                    .map(|a| format!("Some({})", a))
+                    .collect::<Vec<_>>()
+                    .join(" | ");
+                Some(format!("matches!(s.input.as_ref(), {})", arms))
             }
             Some(PatternVariant::Unit { name }) => {
                 let v = self.input_variant(&pattern.group, name)?;
                 if !v.fields.is_empty() {
                     return None;
                 }
-                format!("matches!(inp, Input::{})", rust_ident(&v.unique_name))
+                Some(format!(
+                    "matches!(s.input.as_ref(), Some(Input::{name}))",
+                    name = rust_ident(&v.unique_name)
+                ))
             }
             Some(PatternVariant::Struct { name, fields }) => {
                 let v = self.input_variant(&pattern.group, name)?;
                 if v.fields.len() != fields.len() {
                     return None;
                 }
-                let binds: Vec<String> = fields
-                    .iter()
-                    .enumerate()
-                    .map(|(i, _)| format!("_f{}", i))
-                    .collect();
-                let pat_fields: Vec<String> = v
-                    .fields
-                    .iter()
-                    .zip(binds.iter())
-                    .map(|((df, _), b)| {
-                        let field = rust_ident(df);
-                        if field == *b {
-                            field
-                        } else {
-                            format!("{}: {}", field, b)
-                        }
-                    })
-                    .collect();
+                // Bind each variant field by its real name and guard on the
+                // pattern constraints (a `matches!` + external guard would not
+                // compile: pattern bindings do not escape the match).
+                let binds: Vec<String> = v.fields.iter().map(|(f, _)| rust_ident(f)).collect();
                 let guards: Vec<String> = fields
                     .iter()
                     .enumerate()
                     .filter_map(|(i, pf)| {
-                        let b = format!("_f{}", i);
+                        let b = &binds[i];
                         match &pf.pattern {
-                            PatternExpr::Int { value } => Some(format!("{} == {}", b, value)),
-                            PatternExpr::Bool { value } => Some(format!("{} == {}", b, value)),
+                            PatternExpr::Int { value } => Some(format!("*{} == {}", b, value)),
+                            PatternExpr::Bool { value } => Some(format!("*{} == {}", b, value)),
                             PatternExpr::EnumVariant { path } => Some(format!(
-                                "{} == {}",
+                                "*{} == {}",
                                 b,
                                 path.iter()
                                     .map(|x| rust_ident(x))
@@ -413,18 +627,18 @@ pub enum StepError {{ UnexpectedEvent, AssumptionViolation {{ label: String }} }
                 } else {
                     guards.join(" && ")
                 };
-                format!(
-                    "matches!(inp, Input::{} {{ {} }}) && {}",
+                Some(format!(
+                    "match s.input.as_ref() {{ Some(Input::{} {{ {} }}) => {}, _ => false }}",
                     rust_ident(&v.unique_name),
-                    pat_fields.join(", "),
+                    binds.join(", "),
                     guard
-                )
+                ))
             }
-        };
-        Some(format!("{{ let inp = trace.input_at(pos); match inp {{ Some(v) => {{ let inp = v; {} }}, None => false }} }}", variant_code))
+        }
     }
 
-    fn output_has_trace_expr(&self, pattern: &OutputPattern) -> Option<String> {
+    /// Render `output_has(pattern)` against `s: &Sample`.
+    fn output_has_sample_expr(&self, pattern: &OutputPattern) -> Option<String> {
         let inner = match &pattern.variant {
             None => {
                 let variants: Vec<&VariantInfo> = self
@@ -463,10 +677,129 @@ pub enum StepError {{ UnexpectedEvent, AssumptionViolation {{ label: String }} }
                 )
             }
         };
-        Some(format!(
-            "trace.outputs_at(pos).iter().any(|o| {{ {} }})",
-            inner
-        ))
+        Some(format!("s.outputs.iter().any(|o| {{ {} }})", inner))
+    }
+
+    /// Emit the `AssumeMonitors` aggregate (always present, even when empty).
+    fn emit_assume_monitors(&mut self) {
+        let fields: Vec<String> = self
+            .assume_plans
+            .iter()
+            .map(|p| format!("pub mon_{}: Mon_{}", snake(&p.label), snake(&p.label)))
+            .collect();
+        let inits: Vec<String> = self
+            .assume_plans
+            .iter()
+            .map(|p| {
+                let s = snake(&p.label);
+                format!("mon_{s}: Mon_{s}::new()")
+            })
+            .collect();
+        let steps: Vec<String> = self.assume_plans.iter().map(|p| {
+            let s = snake(&p.label);
+            format!(
+                "        if self.mon_{s}.step(s, idx) && r.is_none() && active_assumes.iter().any(|a| a == \"{}\") {{ r = Some(\"{}\"); }}",
+                p.label, p.label
+            )
+        }).collect();
+        let _ = writeln!(
+            self.code,
+            "/// Aggregate state of all assumption monitors (stepped online in `commit_step`)."
+        );
+        let _ = writeln!(self.code, "#[derive(Debug, Clone)]");
+        let _ = writeln!(
+            self.code,
+            "pub struct AssumeMonitors {{ {} }}",
+            fields.join(", ")
+        );
+        let _ = writeln!(self.code, "impl AssumeMonitors {{");
+        let _ = writeln!(
+            self.code,
+            "    pub fn new() -> Self {{ Self {{ {} }} }}",
+            inits.join(", ")
+        );
+        let _ = writeln!(
+            self.code,
+            "    /// Step all assumption monitors on sample `idx`. Returns the label of a"
+        );
+        let _ = writeln!(
+            self.code,
+            "    /// newly failed ACTIVE assumption (first in declaration order), if any."
+        );
+        let _ = writeln!(self.code, "    pub fn step(&mut self, s: &Sample, idx: usize, active_assumes: &[String]) -> Option<&'static str> {{");
+        let _ = writeln!(self.code, "        let mut r: Option<&'static str> = None;");
+        for line in steps {
+            let _ = writeln!(self.code, "{}", line);
+        }
+        let _ = writeln!(self.code, "        r");
+        let _ = writeln!(self.code, "    }}");
+        let _ = writeln!(self.code, "}}");
+    }
+
+    /// Emit the `PropMonitors` aggregate (only when property monitors are on).
+    fn emit_prop_monitors(&mut self) {
+        let cfg = match self.prop_mode {
+            PropertyMonitorMode::Gated => "#[cfg(debug_assertions)]\n",
+            _ => "",
+        };
+        let fields: Vec<String> = self
+            .prop_plans
+            .iter()
+            .map(|p| format!("pub mon_{}: Mon_{}", snake(&p.label), snake(&p.label)))
+            .collect();
+        let inits: Vec<String> = self
+            .prop_plans
+            .iter()
+            .map(|p| {
+                let s = snake(&p.label);
+                format!("mon_{s}: Mon_{s}::new()")
+            })
+            .collect();
+        let steps: Vec<String> = self.prop_plans.iter().map(|p| {
+            let s = snake(&p.label);
+            format!(
+                "        if self.mon_{s}.step(s, idx) && r.is_none() {{ r = Some(PropertyViolation {{ label: \"{}\".into(), step: idx, trigger_step: self.mon_{s}.trigger_step() }}); }}",
+                p.label
+            )
+        }).collect();
+        let _ = writeln!(
+            self.code,
+            "{cfg}/// Aggregate state of all property monitors (stepped online in `commit_step`)."
+        );
+        let _ = writeln!(self.code, "{cfg}#[derive(Debug, Clone)]");
+        let _ = writeln!(
+            self.code,
+            "{cfg}pub struct PropMonitors {{ {} }}",
+            fields.join(", ")
+        );
+        let _ = writeln!(self.code, "{cfg}impl PropMonitors {{");
+        let _ = writeln!(
+            self.code,
+            "    pub fn new() -> Self {{ Self {{ {} }} }}",
+            inits.join(", ")
+        );
+        let _ = writeln!(
+            self.code,
+            "    /// Step all property monitors on sample `idx`. Returns the first newly"
+        );
+        let _ = writeln!(
+            self.code,
+            "    /// failed monitor's violation (declaration order), if any."
+        );
+        let _ = writeln!(
+            self.code,
+            "    pub fn step(&mut self, s: &Sample, idx: usize) -> Option<PropertyViolation> {{"
+        );
+        let _ = writeln!(
+            self.code,
+            "        let mut r: Option<PropertyViolation> = None;"
+        );
+        for line in steps {
+            let _ = writeln!(self.code, "{}", line);
+        }
+        let _ = writeln!(self.code, "        r");
+        let _ = writeln!(self.code, "    }}");
+        let _ = writeln!(self.code, "}}");
     }
 
     fn initial_vars_expr(&self) -> Result<String, String> {
@@ -493,19 +826,58 @@ pub enum StepError {{ UnexpectedEvent, AssumptionViolation {{ label: String }} }
             .clone()
             .unwrap_or_else(|| "__None__".into());
         let init_vars = self.initial_vars_expr().unwrap_or_else(|_| "Vars".into());
+        let cfg = self.prop_cfg();
+        let prop_fields = if self.has_prop() {
+            format!(
+                "\n    {cfg}pub prop_monitors: PropMonitors,\n    {cfg}pub property_violation: Option<PropertyViolation>"
+            )
+        } else {
+            String::new()
+        };
+        let prop_init = if self.has_prop() {
+            format!(" {cfg}prop_monitors: PropMonitors::new(), {cfg}property_violation: None")
+        } else {
+            String::new()
+        };
+        let prop_init_check = if self.has_prop() {
+            format!(
+                "{cfg}if let Some(pv) = fsm.prop_monitors.step(&sample, 0) {{\n            fsm.property_violation = Some(pv);\n        }}"
+            )
+        } else {
+            String::new()
+        };
+        let prop_check = if self.has_prop() {
+            format!(
+                "{cfg}if let Some(pv) = self.prop_monitors.step(&sample, idx) {{\n            if self.property_violation.is_none() {{\n                self.property_violation = Some(pv.clone());\n                return Err(StepError::PropertyViolation {{ label: pv.label.clone(), step: pv.step }});\n            }}\n        }}"
+            )
+        } else {
+            String::new()
+        };
         let _ = writeln!(
             self.code,
             r#"#[derive(Debug, Clone)]
-pub struct Fsm {{ pub state: State, pub vars: Vars, pub trace: Trace, pub active_assumes: Vec<String> }}
+pub struct Fsm {{
+    pub state: State,
+    pub vars: Vars,
+    pub trace: Trace,
+    pub active_assumes: Vec<String>,
+    pub assume_monitors: AssumeMonitors,{prop_fields}
+}}
 impl Fsm {{
     pub fn new() -> Self {{
         let state = State::{};
         let vars = {};
         let trace = Trace {{ initial_state: state, initial_vars: vars, steps: Vec::new() }};
         let active_assumes = ASSUME_LABELS.iter().map(|s| s.to_string()).collect();
-        let mut fsm = Self {{ state, vars, trace, active_assumes }};
-        let mut handler = PanicAssumptionHandler;
-        let _ = fsm.check_assumptions(&fsm.trace, &mut handler);
+        let mut fsm = Self {{ state, vars, trace, active_assumes, assume_monitors: AssumeMonitors::new(),{prop_init} }};
+        // Sample 0 (the initial configuration): step the monitors so countdowns
+        // and one-shot obligations start correctly. An assumption violated at
+        // sample 0 panics, as with the previous post-hoc check.
+        let sample = Sample {{ input: None, outputs: Vec::new(), from_state: fsm.state, to_state: fsm.state, vars: fsm.vars.clone() }};
+        if let Some(label) = fsm.assume_monitors.step(&sample, 0, &fsm.active_assumes) {{
+            panic!("RFS assumption violated: {{}}", label);
+        }}
+{prop_init_check}
         fsm
     }}
     pub fn step(&mut self, input: Input) -> Result<Vec<Output>, StepError> {{
@@ -550,37 +922,24 @@ impl Fsm {{
         }
         let _ = writeln!(
             self.code,
-            r#"    fn check_assumptions<H: AssumptionHandler>(&self, trace: &Trace, handler: &mut H) -> Result<(), StepError> {{
-        for label in &self.active_assumes {{
-            if !assume_check(label, trace) {{
-                match handler.on_violation(label) {{
-                    AssumptionPolicy::Continue => {{}},
-                    AssumptionPolicy::Stop => return Err(StepError::AssumptionViolation {{ label: label.clone() }}),
-                    AssumptionPolicy::Panic => panic!("RFS assumption violated: {{}}", label),
-                }}
+            r#"    fn commit_step<H: AssumptionHandler>(&mut self, input: Input, outputs: Vec<Output>, next_state: State, new_vars: Vars, handler: &mut H) -> Result<Vec<Output>, StepError> {{
+        let step = TraceStep {{ input, outputs: outputs.clone(), from_state: self.state, to_state: next_state, vars: new_vars }};
+        let sample = Sample {{ input: Some(step.input.clone()), outputs: step.outputs.clone(), from_state: step.from_state, to_state: step.to_state, vars: step.vars.clone() }};
+        self.trace.steps.push(step);
+        let idx = self.trace.steps.len();
+        if let Some(label) = self.assume_monitors.step(&sample, idx, &self.active_assumes) {{
+            match handler.on_violation(label) {{
+                AssumptionPolicy::Continue => {{}},
+                AssumptionPolicy::Stop => return Err(StepError::AssumptionViolation {{ label: label.to_string() }}),
+                AssumptionPolicy::Panic => panic!("RFS assumption violated: {{}}", label),
             }}
         }}
-        Ok(())
-    }}
-    fn commit_step<H: AssumptionHandler>(&mut self, input: Input, outputs: Vec<Output>, next_state: State, new_vars: Vars, handler: &mut H) -> Result<Vec<Output>, StepError> {{
-        let mut candidate = self.trace.clone();
-        candidate.steps.push(TraceStep {{ input, outputs: outputs.clone(), from_state: self.state, to_state: next_state, vars: new_vars }});
-        for label in &self.active_assumes {{
-            if !assume_check(label, &candidate) {{
-                match handler.on_violation(label) {{
-                    AssumptionPolicy::Continue => {{}},
-                    AssumptionPolicy::Stop => return Err(StepError::AssumptionViolation {{ label: label.clone() }}),
-                    AssumptionPolicy::Panic => panic!("RFS assumption violated: {{}}", label),
-                }}
-            }}
-        }}
-        self.trace = candidate;
-        self.state = next_state;
-        self.vars = new_vars;
+{prop_check}
+        self.state = sample.to_state;
+        self.vars = sample.vars;
         Ok(outputs)
     }}
-}}
-"#
+}}"#
         );
         // group match helpers
         for group in &self.module.events {

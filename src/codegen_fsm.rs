@@ -150,9 +150,10 @@ pub fn representative_values(variant: &VariantInfo, module: &Module) -> Vec<(Str
 pub fn contains_liveness(f: &Formula) -> bool {
     match f {
         Formula::BoundedEventually { .. } => true,
-        Formula::Not { inner } | Formula::Always { inner } | Formula::Next { inner } => {
-            contains_liveness(inner)
-        }
+        Formula::Not { inner }
+        | Formula::Always { inner }
+        | Formula::Next { inner }
+        | Formula::BoundedAlways { inner, .. } => contains_liveness(inner),
         Formula::And { left, right }
         | Formula::Or { left, right }
         | Formula::Implies { left, right } => contains_liveness(left) || contains_liveness(right),

@@ -56,7 +56,13 @@ pub fn generate_model_checker(
     module: &Module,
     options: &crate::codegen::BackendOptions,
 ) -> Result<crate::codegen::CodegenOutput, Vec<String>> {
-    let prod = crate::backends::c_fsm::generate_production(module, options)?;
+    // The model checker reuses the production FSM core without unit tests.
+    // Property monitors are always included (D-P3-6).
+    let prod = crate::backends::c_fsm::generate_core(
+        module,
+        options,
+        crate::codegen::PropertyMonitorMode::Always,
+    )?;
     let candidates = rep_inputs(module);
     let n_all = candidates.len().max(1);
     let cand_list = if candidates.is_empty() {
@@ -65,10 +71,44 @@ pub fn generate_model_checker(
         format!("{{ {} }}", candidates.join(", "))
     };
 
+    // Generated vars printer for counterexample output (type-aware).
+    let vars_print = if module.vars.is_empty() {
+        "static void print_vars(const vars_t* v) { (void)v; printf(\"vars()\\n\"); }\n".to_string()
+    } else {
+        let parts: Vec<String> = module
+            .vars
+            .iter()
+            .enumerate()
+            .map(|(i, v)| {
+                let n = c_ident(&v.name);
+                let sep = if i == 0 { "" } else { " " };
+                match &v.ty {
+                    Type::Bool => format!(
+                        "printf(\"%s%s=%s\", \"{}\", \"{}\", v->{} ? \"true\" : \"false\");",
+                        sep, n, n
+                    ),
+                    Type::Bit { .. } => format!(
+                        "printf(\"%s%s=%llu\", \"{}\", \"{}\", (unsigned long long)v->{});",
+                        sep, n, n
+                    ),
+                    Type::Enum { .. } => format!(
+                        "printf(\"%s%s=%d\", \"{}\", \"{}\", (int)v->{});",
+                        sep, n, n
+                    ),
+                }
+            })
+            .collect();
+        format!(
+            "static void print_vars(const vars_t* v) {{\n    printf(\"vars(\");\n{parts}\n    printf(\")\\n\");\n}}\n",
+            parts = parts.join("\n    ")
+        )
+    };
+
     // State/vars kind names for trace printing: print only kind + state names.
     let mc_main = format!(
         r#"
 // ---- generated bounded model checker (same wire format as the Rust MC) ----
+{vars_print}
 static fsm_t clone_fsm(const fsm_t* f) {{
     fsm_t t = *f;
     if (f->trace.steps != 0) {{
@@ -91,10 +131,13 @@ static int mc_chance(double p) {{ double lo = p < 0.0 ? 0.0 : (p > 1.0 ? 1.0 : p
 static int mc_pick_index(int len) {{ if (len <= 0) return -1; return (int)(mc_next_f64() * (double)len) % len; }}
 
 typedef struct {{ const char* label; double prob; double percent; }} violation_spec_t;
-static void parse_violation_spec(const char* s, violation_spec_t* out) {{
+static void parse_violation_spec(char* s, violation_spec_t* out) {{
+    // `s` is a mutable buffer: truncate the label at the first ':' so it
+    // matches the Rust parser (label:prob:percent%).
     out->label = s; out->prob = 1.0; out->percent = 100.0;
-    const char* c1 = strchr(s, ':');
+    char* c1 = (char*)strchr(s, ':');
     if (c1) {{
+        *c1 = 0;
         out->prob = strtod(c1 + 1, 0);
         const char* c2 = strchr(c1 + 1, ':');
         if (c2) out->percent = strtod(c2 + 1, 0);
@@ -108,6 +151,22 @@ static void print_trace(const rfs_trace_t* trace) {{
         const trace_step_t* s = &trace->steps[i];
         printf("\n  step %d input_kind=%d from=%d to=%d n_outputs=%d", i, s->input.kind, s->from, s->to, s->n_outputs);
     }}
+}}
+
+/// Print the property-specific counterexample (which property failed, which
+/// step triggered the obligation, when the violation was confirmed, relevant
+/// variable values, full input/output sequence) and exit.
+static void report_property_violation(const fsm_t* f, int run) {{
+    printf("run %d property violation: %s\n", run, f->prop_label);
+    if (f->prop_trigger_step >= 0) {{
+        printf("  trigger step: %d\n", f->prop_trigger_step);
+        printf("  vars at trigger step: "); print_vars(&f->trace.steps[f->prop_trigger_step - 1].vars);
+    }}
+    printf("  violation step: %d\n", f->prop_step);
+    const vars_t* vv = (f->prop_step == 0) ? &f->trace.initial_vars : &f->trace.steps[f->prop_step - 1].vars;
+    printf("  vars at violation step: "); print_vars(vv);
+    print_trace(&f->trace);
+    exit(1);
 }}
 
 int main(int argc, char** argv) {{
@@ -127,7 +186,7 @@ int main(int argc, char** argv) {{
             // comma-separated label:prob:percent% entries
             char buf[512]; strncpy(buf, argv[++i], sizeof(buf) - 1); buf[sizeof(buf) - 1] = 0;
             for (char* tok = strtok(buf, ","); tok && n_specs < 16; tok = strtok(0, ",")) {{
-                parse_violation_spec(tok, &specs[n_specs++]);
+                parse_violation_spec(tok, &specs[n_specs++]); // tok is a mutable buffer
             }}
         }}
         else if (strcmp(argv[i], "--unexpected-prob") == 0 && i + 1 < argc) unexpected_prob = strtod(argv[++i], 0);
@@ -156,6 +215,9 @@ int main(int argc, char** argv) {{
     #define N_ALL_INPUTS (sizeof(ALL_INPUTS) / sizeof(ALL_INPUTS[0]))
 
     MC_SEED = seed;
+    // Property violations terminate the checker immediately (exit 1), so
+    // this counter is always 0 in the summary; the field stays for a stable
+    // summary format.
     int property_violations = 0, unexpected_count = 0, assumption_stops = 0, completed = 0;
 
     for (int run = 0; run < runs; run++) {{
@@ -163,8 +225,13 @@ int main(int argc, char** argv) {{
         for (int i = 0; i < n_specs; i++) {{ violating[i] = mc_chance(specs[i].prob); target_fraction[i] = specs[i].percent / 100.0; }}
 
         fsm_t fsm; fsm_new(&fsm);
-        // Restrict active assumptions to the CLI selection.
-        for (int i = 0; i < n_active && i < 64; i++) {{ /* labels already filtered */ }}
+        // Restrict active assumptions to the CLI selection (parity with the
+        // Rust model checker; the sample-0 check in fsm_new ran with all).
+        fsm.active_assumes = active;
+        fsm.n_active_assumes = n_active;
+        // A property can already be violated at sample 0 (the initial
+        // configuration, e.g. an invariant on the initial state).
+        if (fsm.prop_label[0] != 0) report_property_violation(&fsm, run);
         const char* status = "completed";
 
         for (int step = 0; step < bound; step++) {{
@@ -175,12 +242,14 @@ int main(int argc, char** argv) {{
                 for (int c = 0; c < N_ALL_INPUTS; c++) {{
                     fsm_t t = clone_fsm(&fsm);
                     step_result_t r = fsm_step(&t, ALL_INPUTS[c], stop_handler, 0);
-                    if (r.status == RFS_ASSUMPTION_VIOLATION && strcmp(r.assume_label, specs[i].label) == 0) {{ forced = c; break; }}
+                    if ((r.status == RFS_ASSUMPTION_VIOLATION && strcmp(r.assume_label, specs[i].label) == 0)
+                        || (r.status == RFS_PROPERTY_VIOLATION && strcmp(r.prop_label, specs[i].label) == 0)) {{ forced = c; break; }}
                 }}
             }}
             if (forced >= 0) {{
                 step_result_t r = fsm_step(&fsm, ALL_INPUTS[forced], stop_handler, 0);
                 if (r.status == RFS_ASSUMPTION_VIOLATION) {{ status = "assumption-violated"; assumption_stops++; break; }}
+                if (fsm.prop_label[0] != 0) report_property_violation(&fsm, run);
                 continue;
             }}
 
@@ -191,6 +260,7 @@ int main(int argc, char** argv) {{
                     step_result_t r = fsm_step(&fsm, ALL_INPUTS[idx], cont_handler, 0);
                     if (r.status == RFS_UNEXPECTED_EVENT) {{ status = "unexpected-event"; unexpected_count++; break; }}
                 }}
+                if (fsm.prop_label[0] != 0) report_property_violation(&fsm, run);
                 continue;
             }}
 
@@ -199,25 +269,19 @@ int main(int argc, char** argv) {{
             for (int c = 0; c < N_ALL_INPUTS && n_allowed < 256; c++) {{
                 fsm_t t = clone_fsm(&fsm);
                 step_result_t r = fsm_step(&t, ALL_INPUTS[c], stop_handler, 0);
-                if (r.status == RFS_OK) allowed[n_allowed++] = c;
+                // Inputs that confirm a property violation are allowed on
+                // purpose: the model checker wants to find violations.
+                if (r.status == RFS_OK || r.status == RFS_PROPERTY_VIOLATION) allowed[n_allowed++] = c;
             }}
             if (n_allowed == 0) {{ status = "stuck"; break; }}
             int idx = mc_pick_index(n_allowed);
             step_result_t r = fsm_step(&fsm, ALL_INPUTS[allowed[idx]], stop_handler, 0);
             if (r.status == RFS_UNEXPECTED_EVENT) {{ status = "unexpected-event"; unexpected_count++; break; }}
             if (r.status == RFS_ASSUMPTION_VIOLATION) {{ status = "assumption-violated"; assumption_stops++; break; }}
+            if (fsm.prop_label[0] != 0) report_property_violation(&fsm, run);
         }}
 
         if (strcmp(status, "completed") == 0) completed++;
-
-        for (int i = 0; i < N_PROPERTY_LABELS; i++) {{
-            if (!rfs_property_check(PROPERTY_LABELS[i], &fsm.trace)) {{
-                property_violations++;
-                printf("run %d property violation: %s\n", run, PROPERTY_LABELS[i]);
-                print_trace(&fsm.trace);
-                return 1;
-            }}
-        }}
     }}
 
     printf("model-check summary: runs=%d bound=%d completed=%d unexpected=%d assumption_stops=%d property_violations=%d\n", runs, bound, completed, unexpected_count, assumption_stops, property_violations);

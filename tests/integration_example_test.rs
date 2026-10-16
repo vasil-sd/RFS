@@ -22,6 +22,7 @@ fn generate_fsm_source(out_dir: &Path) -> PathBuf {
     let options = rfs::codegen::BackendOptions {
         assumptions: rfs::codegen::AssumptionSelection::All,
         steps: 4,
+        with_property_monitors: false,
     };
     let out = rfs::codegen::CodegenCommandKind::Production
         .run(backend, &ir.modules[0], &options)

@@ -58,6 +58,10 @@ pub struct BackendOptions {
     pub assumptions: AssumptionSelection,
     /// Example-run length K for test generation.
     pub steps: usize,
+    /// Emit property monitors in production output (D-P3-6). Only the
+    /// `production` command accepts this option; `test` and `mc` always
+    /// include property monitors, so they ignore it.
+    pub with_property_monitors: bool,
 }
 
 impl Default for BackendOptions {
@@ -65,8 +69,23 @@ impl Default for BackendOptions {
         Self {
             assumptions: AssumptionSelection::All,
             steps: 4,
+            with_property_monitors: false,
         }
     }
+}
+
+/// How property monitors are activated in a generated artifact (D-P3-6).
+/// Backends map [`Gated`] to their compile-time debug switch: Rust renders
+/// `#[cfg(debug_assertions)]`, C renders `#ifdef RFS_PROPERTY_MONITORS`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PropertyMonitorMode {
+    /// No property monitors are emitted (default production output).
+    Off,
+    /// Property monitors are emitted but compile-time gated (zero cost when
+    /// the debug switch is off).
+    Gated,
+    /// Property monitors are always active (`test` and `mc` commands).
+    Always,
 }
 
 /// Result of a backend generation command.
@@ -159,6 +178,10 @@ pub fn common_help() -> String {
     let _ = writeln!(
         s,
         "  --steps N                          example-run length K for the test command (default: 4)"
+    );
+    let _ = writeln!(
+        s,
+        "  --with-property-monitors           production only: emit online property monitors\n                               (debug-gated; zero cost in release builds)"
     );
     let _ = writeln!(
         s,
@@ -261,6 +284,7 @@ pub enum CodegenRequest {
         out: Option<String>,
         assumptions: AssumptionSelection,
         steps: usize,
+        with_property_monitors: bool,
     },
 }
 
@@ -316,6 +340,7 @@ pub fn parse_codegen_args(args: &[String]) -> Result<CodegenRequest, Vec<String>
     let mut out = None;
     let mut assumptions = AssumptionSelection::default();
     let mut steps = 4usize;
+    let mut with_property_monitors = false;
     let mut i = 2;
     while i < rest.len() {
         match rest[i].as_str() {
@@ -342,6 +367,16 @@ pub fn parse_codegen_args(args: &[String]) -> Result<CodegenRequest, Vec<String>
                     None => errors.push("--steps requires a numeric argument".into()),
                 }
             }
+            "--with-property-monitors" => {
+                if command != CodegenCommandKind::Production {
+                    errors.push(
+                        "--with-property-monitors is only valid for the production command; test and mc always include property monitors"
+                            .into(),
+                    );
+                } else {
+                    with_property_monitors = true;
+                }
+            }
             other if other.starts_with('-') => errors.push(format!("unknown option: {}", other)),
             other => errors.push(format!("unexpected extra argument: {}", other)),
         }
@@ -356,6 +391,7 @@ pub fn parse_codegen_args(args: &[String]) -> Result<CodegenRequest, Vec<String>
             out,
             assumptions,
             steps,
+            with_property_monitors,
         },
         errors,
     )

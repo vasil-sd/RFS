@@ -1,0 +1,49 @@
+# Phase 3 showcase: every property compiles to an online monitor with zero
+# warnings. Covers the full monitor subset: a plain safety invariant, `next`
+# (delayed check), `always(a -> be[N] b)` (obligation with countdown),
+# `always[N]` (bounded window), and a liveness assumption on the environment.
+module property_monitors {
+  enum State { Idle, SentFin, Acked, Closed }
+  initial Idle
+
+  event Send(Fin)
+  event Recv(Ack)
+  event Tick
+
+  output Send(Ack)
+
+  var ack_received: bool init false
+  var retries: bit<4> init 0
+
+  transition Idle on Send(Fin) {
+    next SentFin;
+  }
+  transition SentFin on Recv(Ack) {
+    next Acked;
+    emit Send(Ack);
+    set ack_received = true;
+  }
+  # Retransmit timer: each Tick while waiting for the Ack counts a retry.
+  transition SentFin on Tick {
+    next SentFin;
+    set retries = retries + 1;
+  }
+  transition Acked on Tick {
+    next Closed;
+  }
+
+  # Safety: once closed, an Ack must have been received.
+  prop closed_implies_acked : always (state == Closed -> ack_received == true) ;
+
+  # Delayed check: the sample AFTER an Ack input observes ack_received.
+  prop ack_sets_flag_next : always (input_is(Recv(Ack)) -> next (ack_received == true)) ;
+
+  # Obligation: every Fin must be answered by an Ack within 5 samples.
+  prop fin_acked_bounded : always (input_is(Send(Fin)) -> bounded_eventually[5] (input_is(Recv(Ack)))) ;
+
+  # Bounded window: in any 10-sample window the retry counter stays <= 5.
+  prop retries_bounded_window : always[10] (retries <= 5) ;
+
+  # Environment liveness assumption: a Tick arrives within every 6 samples.
+  assume env_tick : always (bounded_eventually[5] (input_is(Tick))) ;
+}

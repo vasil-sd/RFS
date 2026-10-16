@@ -226,3 +226,38 @@ sed -n "<start>,<end>p" TASKS.md            # one specific entry by line range
 - `START.md`: rule 8 now names per-task `PHASE_N_TASK_M.md` files + stop for user review after planning and per-task explicit confirmation before execution; section 2 doc-map roadmap row extended to `PHASE_N_TASK_M.md` / `PHASE_N_*_STATUS.md`.
 - Verification: docs-only change - no source/tests/examples/training touched, no build/test run required. INTRO.md code fences balanced (12), no duplicated structural headings, typo scan clean, step-letter references consistent (j/k/m/r, steps l-m); `git diff --stat`: INTRO.md +301/-24, START.md 8 lines.
 - Uncommitted on purpose (user decides commit grouping); working tree also holds the in-progress Phase 3 implementation changes. Next protocol step when resuming Phase 3: create `PHASE_3_TASK_M.md` files for the remaining tasks (planning step j applied to the already-approved plan), then per-task loop with user gates.
+
+---
+
+## 2026-10-16 18:52 — Phase 3 resumption under new protocol: baseline audit, corrections 10a/11a/13a, task files for remaining tasks (awaiting review)
+
+### Interpretation & plan
+
+- Request: commit the protocol change; then resume Phase 3. Commit done (`8707574`: INTRO.md + START.md + TASKS.md only - Phase 3 work-in-progress excluded).
+- Resumption follows implementation stage steps a-e of `docs/roadmap/INTRO.md` section 3.2: re-read PHASE_3.md + plan fully, audit working-tree state per planned task, record unrecorded corrections, create `PHASE_3_TASK_M.md` files for the remaining tasks (user decision: executed work stays as-is, no retroactive task/status files), then STOP for user review of the task files (planning step k).
+
+### Report
+
+- Baseline audit (fresh `cargo test --no-fail-fast`): lib 78/78 OK (incl. monitor test battery + always[N] parser/validator tests); `tests/codegen_test.rs` 16/19 and `tests/examples_test.rs` 2/3 - ALL four failures trace to the example-42 parse failure; frontend 41/41, integration_example 2/2, library_comparison 4/4, training 4/4 OK.
+- Tasks 1-12 verified IMPLEMENTED in the working tree: IR `BoundedAlways` (ir.rs:204), parser `always[N]` (parser.rs:1214), printer (printer.rs:345/411), validator bound+duplicate checks (validator.rs:240-283), `src/monitor.rs` (MonitorPlan@124, compile_formula@134, reference interpreter, test battery), Rust online monitors + `StepError::PropertyViolation` (rust_fsm.rs), `--with-property-monitors` CLI (codegen.rs/main.rs), Rust MC online detection (rust_mc.rs:89), C monitor parity incl. `RFS_PROPERTY_VIOLATION` (c_fsm.rs:235) and C MC parity (c_mc.rs:159); post-hoc `property_check`/`assume_check` removed from BOTH backends.
+- Example-42 parse failure root-caused: `primary_formula` expr fallthrough (parser.rs) + `primary_expr` accepting bare identifier paths - in `state == Sending && output_has(Sent)` the token `output_has` is consumed as a variable reference and `(Sent)` becomes trailing input. Empirical constraint map established (fails: state-compare LEFT of &&/|| with non-comparison right operand; works: reordered, or left-parenthesized). Verified fix = reorder antecedent (commutative, semantics unchanged); both reorder and left-parenthesize variants parse the full file.
+- Plan corrections appended to PHASE_3_PLAN.md: 10a (example 33 `be[4]`->`be[5]` off-by-one under D-P3-3 - previously unrecorded working-tree change), 11a (C.md sections 4-5 update owed by task 11 never made - folded into task 21 with RUST.md, which also has zero monitor content), 13a (example 42 parse failure + chosen no-grammar-change fix per 4a precedent).
+- Created 9 task files per template 2.4: `PHASE_3_TASK_{13,15,16,17,18,19,20,21,22}.md` (task 13 = complete the examples work incl. the example-42 fix + parser-constraint pin tests; 15 = option-sensitivity codegen tests both backends; 16 = monitor integration test; 17 = cross-backend parity test; 18 = generated aggregate regen+run; 19/20 = training update + snippets/aggregate; 21 = docs sync incl. C.md/RUST.md; 22 = verification + PHASE_3_STATUS.md + state table + commit).
+- Removed stale scratch logs `.e.txt` / `.testout.txt` from the repo root (previous-session cargo-test output; would have polluted the close-out commit).
+- STOPPED for user review of the task files (protocol step k). Execution order on approval: 13 -> 15 -> 16 -> 17 -> 18 -> 19 -> 20 -> 21 -> 22, each gated by "let's execute the task".
+
+---
+
+## 2026-10-16 20:52 — Task 23 added per user request: grammar fix for formula-level boolean operators (+ tests); tasks 13/21 updated
+
+### Interpretation & plan
+
+- Request: add a new task for the grammar fix (so `state == S && output_has(O)` parses) and its tests. Per protocol: new task = plan-corrections row (type `new`, non-colliding number) + `PHASE_N_TASK_M.md` file; dependent unimplemented task files (13, 21) updated to match.
+
+### Report
+
+- `PHASE_3_PLAN.md`: correction row 23 (new). Fix design: restrict `primary_formula`'s expr fallthrough to the non-boolean expression level (`equality`, below `logic_and`); formula-level `&&`/`||` then build Formula::And/Or with each operand parsed via primary_formula; pure-expression conjunctions in properties now parse as Formula::And(Expr, Expr) - additive for JSON (old IR still deserializes), no IR_VERSION bump, transition-guard grammar unaffected. Supersedes 13a's workaround: example 42 keeps its original text.
+- Created `docs/roadmap/PHASE_3_TASK_23.md`: parser fix + printer round-trip check (minimal parens) + tests (mixed conjunction/disjunction AST shapes, pure-expr conjunction shape, precedence a&&b||c, regression guards for previously-working shapes, monitor plan-structure acceptance, full-suite run; example 42 must parse unmodified as hand-off to task 13).
+- `PHASE_3_TASK_13.md` updated: now verification-only - example 42 parses unchanged post task 23 (AST shape check), zero-warning monitor check both backends; parser pin tests moved to task 23.
+- `PHASE_3_TASK_21.md` updated: KB/DESIGN document the FIXED grammar (formula-level &&/||, non-boolean expr fallthrough, EBNF update) instead of a workaround constraint.
+- Execution order on approval: 23 -> 13 -> 15 -> 16 -> 17 -> 18 -> 19 -> 20 -> 21 -> 22, each gated by "let's execute the task".

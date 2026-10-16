@@ -255,6 +255,7 @@ fn cmd_codegen(args: &[String]) -> ExitCode {
             out,
             assumptions,
             steps,
+            with_property_monitors,
         }) => {
             let Some(backend) = codegen::get_backend(&backend_name) else {
                 eprintln!(
@@ -282,7 +283,11 @@ fn cmd_codegen(args: &[String]) -> ExitCode {
                 eprintln!("error: no modules in {}", input);
                 return ExitCode::FAILURE;
             }
-            let options = codegen::BackendOptions { assumptions, steps };
+            let options = codegen::BackendOptions {
+                assumptions,
+                steps,
+                with_property_monitors,
+            };
             match command.run(backend, &ir.modules[0], &options) {
                 Err(errors) => {
                     for e in &errors {

@@ -47,7 +47,14 @@ pub fn generate_unit_tests(
     module: &Module,
     options: &crate::codegen::BackendOptions,
 ) -> Result<crate::codegen::CodegenOutput, Vec<String>> {
-    let prod = crate::backends::c_fsm::generate_production(module, options)?;
+    // The generated tests reuse the production FSM core. Property monitors
+    // are always included (D-P3-6), so a spec that violates its own property
+    // fails its generated tests.
+    let prod = crate::backends::c_fsm::generate_core(
+        module,
+        options,
+        crate::codegen::PropertyMonitorMode::Always,
+    )?;
     let variants = codegen_fsm::build_variants(module);
     let plan = crate::codegen_test::build_test_plan(&variants, module, options.steps);
 

@@ -199,6 +199,12 @@ pub enum Formula {
     Always {
         inner: Box<Formula>,
     },
+    /// `always[N] (inner)`: the body must hold at every sample 0..N-1.
+    /// Additive Phase 3 variant (no IR_VERSION bump; D-P3-1).
+    BoundedAlways {
+        bound: u64,
+        inner: Box<Formula>,
+    },
     BoundedEventually {
         bound: u64,
         inner: Box<Formula>,

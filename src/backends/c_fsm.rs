@@ -1,25 +1,45 @@
 //! C backend: production FSM source generation.
 //!
 //! Renders the module into a self-contained C translation unit: state/input/
-//! output types, vars struct, trace recording, assumption handling (function
-//! pointer mirroring the Rust `AssumptionHandler`), the priority-ordered
-//! `fsm_step`, and the translated safety-subset property/assumption checks.
-//! Simultaneous variable updates use temporary next variables, exactly like
-//! the Rust backend (DESIGN.md section 19).
+//! output types, vars struct, trace recording, online property and assumption
+//! monitors (rendered from the shared `MonitorPlan` of `crate::monitor` -
+//! identical semantics to the Rust backend), assumption handling (function
+//! pointer mirroring the Rust `AssumptionHandler`), and the priority-ordered
+//! `fsm_step`. Simultaneous variable updates use temporary next variables,
+//! exactly like the Rust backend (DESIGN.md section 19).
 
 use crate::backends::c::{c_ident, c_type, int_c_literal, mask_c_expr};
-use crate::codegen::BackendOptions;
+use crate::codegen::{self, BackendOptions, PropertyMonitorMode};
 use crate::codegen_fsm::{self, FsmVariants, VariantInfo};
 use crate::ir::*;
+use crate::monitor::{self, AnchorRange, MonNode, MonitorPlan, SignalAtom, SignalExpr};
 use crate::validator::{self, Env, ExprType};
 use std::fmt::Write as _;
 
+/// Entry point for the `production` command: production FSM code without
+/// tests. Property monitors are emitted only with `--with-property-monitors`
+/// (D-P3-6), gated behind `#ifdef RFS_PROPERTY_MONITORS`.
 pub fn generate_production(
     module: &Module,
     options: &BackendOptions,
 ) -> Result<crate::codegen::CodegenOutput, Vec<String>> {
+    let mode = if options.with_property_monitors {
+        PropertyMonitorMode::Gated
+    } else {
+        PropertyMonitorMode::Off
+    };
+    generate_core(module, options, mode)
+}
+
+/// Core generator shared by all three commands (D-P3-6): `production` maps
+/// the CLI flag to Off/Gated; `test` and `mc` always pass Always.
+pub(crate) fn generate_core(
+    module: &Module,
+    options: &BackendOptions,
+    prop_mode: PropertyMonitorMode,
+) -> Result<crate::codegen::CodegenOutput, Vec<String>> {
     let mut warnings = Vec::new();
-    let gen = Gen::new(module, options, &mut warnings)?;
+    let gen = Gen::new(module, options, prop_mode, &mut warnings)?;
     Ok(crate::codegen::CodegenOutput {
         code: gen.code,
         warnings,
@@ -30,8 +50,13 @@ struct Gen<'a> {
     module: &'a Module,
     options: &'a BackendOptions,
     variants: FsmVariants,
-    property_names: Vec<String>,
+    prop_mode: PropertyMonitorMode,
+    /// Compiled assumption monitors (selected via `--assumes`), in declaration order.
+    assume_plans: Vec<MonitorPlan>,
+    /// Compiled property monitors, in declaration order.
+    prop_plans: Vec<MonitorPlan>,
     active_assumes: Vec<String>,
+    property_names: Vec<String>,
     code: String,
 }
 
@@ -39,6 +64,7 @@ impl<'a> Gen<'a> {
     fn new(
         module: &'a Module,
         options: &'a BackendOptions,
+        prop_mode: PropertyMonitorMode,
         warnings: &mut Vec<String>,
     ) -> Result<Self, Vec<String>> {
         // Reject unsupported bit widths up front (decision D8).
@@ -74,25 +100,64 @@ impl<'a> Gen<'a> {
             module,
             options,
             variants: codegen_fsm::build_variants(module),
+            prop_mode,
+            assume_plans: Vec::new(),
+            prop_plans: Vec::new(),
             property_names: Vec::new(),
             active_assumes: Vec::new(),
             code: String::new(),
         };
+        g.compile_monitors(warnings);
         g.emit_header();
         g.emit_types();
-        g.emit_formula_functions(warnings);
+        g.emit_monitors().map_err(|e| vec![e])?;
         g.emit_fsm_impl().map_err(|e| vec![e])?;
         Ok(g)
+    }
+
+    /// Whether property-monitor machinery is emitted at all (D-P3-6).
+    fn has_prop(&self) -> bool {
+        self.prop_mode != PropertyMonitorMode::Off
+    }
+
+    /// Wrap a chunk of generated C in the property-monitor guard. In Gated
+    /// mode the code sits behind `#ifdef RFS_PROPERTY_MONITORS` (enabled by
+    /// the `--with-property-monitors` header define or `-D` on the command
+    /// line); Always/Off emit it bare.
+    fn prop_wrap(&self, code: &str) -> String {
+        match self.prop_mode {
+            PropertyMonitorMode::Gated => {
+                // The directive lines must stand alone: start on a fresh line
+                // (call sites may be mid-line) and end one before the next.
+                format!("\n#ifdef RFS_PROPERTY_MONITORS\n{code}\n#endif\n")
+            }
+            _ => code.to_string(),
+        }
+    }
+
+    /// Property-monitor-only generated C: present in Gated (behind the
+    /// `#ifdef`) and Always modes, absent in Off.
+    fn prop_emit(&self, code: &str) -> String {
+        if self.has_prop() {
+            self.prop_wrap(code)
+        } else {
+            String::new()
+        }
     }
 
     fn emit_header(&mut self) {
         let _ = writeln!(
             self.code,
-            "// Generated by RFS Phase 2 codegen (C backend). Do not edit.\n\
+            "// Generated by RFS Phase 3 codegen (C backend). Do not edit.\n\
              #include <stdint.h>\n#include <stdbool.h>\n#include <string.h>\n#include <stdio.h>\n#include <stdlib.h>"
         );
         if let Some(v) = &self.module.version {
             let _ = writeln!(self.code, "#define RFS_SPEC_VERSION \"{}\"", v);
+        }
+        // --with-property-monitors (D-P3-6): enable the #ifdef-guarded
+        // property-monitor code in this translation unit.
+        if self.prop_mode == PropertyMonitorMode::Gated {
+            let _ = writeln!(self.code, "#define RFS_PROPERTY_MONITORS 1");
         }
     }
 
@@ -167,8 +232,9 @@ impl<'a> Gen<'a> {
         // Status / policies / handler (mirrors the Rust StepError + AssumptionHandler).
         let _ = writeln!(
             self.code,
-            "typedef enum {{ RFS_OK, RFS_UNEXPECTED_EVENT, RFS_ASSUMPTION_VIOLATION }} rfs_status_t;\n\
-             typedef struct {{ rfs_status_t status; output_t outputs[MAX_OUTPUTS]; int n_outputs; char assume_label[64]; }} step_result_t;\n\
+            "typedef enum {{ RFS_OK, RFS_UNEXPECTED_EVENT, RFS_ASSUMPTION_VIOLATION, RFS_PROPERTY_VIOLATION }} rfs_status_t;\n\
+             typedef struct {{ rfs_status_t status; output_t outputs[MAX_OUTPUTS]; int n_outputs; char assume_label[64]; char prop_label[64]; int prop_step; int prop_trigger_step; }} step_result_t;\n\
+             static inline step_result_t rfs_make_result(rfs_status_t status) {{ step_result_t r; memset(&r, 0, sizeof(r)); r.status = status; return r; }}\n\
              typedef enum {{ RFS_CONTINUE, RFS_STOP, RFS_PANIC }} rfs_policy_t;\n\
              typedef rfs_policy_t (*rfs_assumption_handler)(void* user_data, const char* label);\n\
              static rfs_policy_t rfs_panic_handler(void* user_data, const char* label) {{ (void)user_data; fprintf(stderr, \"RFS assumption violated: %s\\n\", label); abort(); }}"
@@ -397,173 +463,305 @@ fn gen_expr_c(e: &Expr, env: &Env, ctx: &Ctx, module: &Module) -> Result<String,
 // ---------------------------------------------------------------------------
 
 impl<'a> Gen<'a> {
-    fn emit_formula_functions(&mut self, warnings: &mut Vec<String>) {
+    // ------------------------------------------------------------------
+    // Online monitors (Phase 3): rendered from the shared MonitorPlan
+    // (`crate::monitor`) with identical semantics to the Rust backend.
+    // ------------------------------------------------------------------
+
+    /// Compile all property/assumption formulas into monitor plans. Formulas
+    /// outside the monitor subset (R1-R4) are skipped with a warning - the
+    /// same text in every backend (D-P3-5).
+    fn compile_monitors(&mut self, warnings: &mut Vec<String>) {
         for p in &self.module.properties {
-            if !validator::is_safety_formula(&p.formula) {
-                warnings.push(format!("property '{}' is not safety; skipped", p.name));
-                continue;
-            }
-            if let Some(code) = self.safety_formula_c(&p.name, &p.formula, "prop") {
-                self.property_names.push(p.name.clone());
-                self.code.push_str(&code);
-            } else {
-                warnings.push(format!(
-                    "property '{}' is safety but outside the translated subset; skipped",
+            match monitor::compile_formula(&p.name, false, &p.formula) {
+                Ok(plan) => {
+                    self.property_names.push(p.name.clone());
+                    self.prop_plans.push(plan);
+                }
+                Err(_) => warnings.push(format!(
+                    "property '{}' is outside the monitor subset; skipped",
                     p.name
-                ));
+                )),
             }
         }
         for a in &self.module.assumptions {
             let selected = matches!(
                 self.options.assumptions,
-                crate::codegen::AssumptionSelection::All
-            ) || matches!(&self.options.assumptions, crate::codegen::AssumptionSelection::Labels(l) if l.iter().any(|x| x == &a.name));
+                codegen::AssumptionSelection::All
+            ) || matches!(&self.options.assumptions, codegen::AssumptionSelection::Labels(l) if l.iter().any(|x| x == &a.name));
             if !selected {
                 continue;
             }
-            if !validator::is_safety_formula(&a.formula) {
-                warnings.push(format!("assume '{}' is not safety; skipped", a.name));
-                continue;
-            }
-            if let Some(code) = self.safety_formula_c(&a.name, &a.formula, "assume") {
-                self.active_assumes.push(a.name.clone());
-                self.code.push_str(&code);
-            } else {
-                warnings.push(format!(
-                    "assume '{}' is safety but outside the translated subset; skipped",
+            match monitor::compile_formula(&a.name, true, &a.formula) {
+                Ok(plan) => {
+                    self.active_assumes.push(a.name.clone());
+                    self.assume_plans.push(plan);
+                }
+                Err(_) => warnings.push(format!(
+                    "assume '{}' is outside the monitor subset; skipped",
                     a.name
-                ));
+                )),
             }
         }
+    }
 
+    fn emit_monitors(&mut self) -> Result<(), String> {
+        // One sample of the trace - the unit the online monitors evaluate.
+        // `input` is NULL for sample 0 (the initial configuration, so
+        // `input_is` is false there).
+        let _ = writeln!(
+            self.code,
+            "typedef struct {{ const input_t* input; const output_t* outputs; int n_outputs; state_t from_state; state_t to_state; vars_t vars; }} rfs_sample_t;"
+        );
+        // Per-label assumption monitor structs (declaration order).
+        for plan in &self.assume_plans {
+            self.code.push_str(&self.render_monitor(plan)?);
+        }
+        // Property-monitor machinery: violation record type, per-label
+        // structs, and the aggregate - gated together in Gated mode so a
+        // build without the debug switch carries nothing (D-P3-6).
+        if self.has_prop() {
+            let mut prop = String::new();
+            let _ = writeln!(
+                prop,
+                "/// A property violation confirmed by the online monitors. `step` is the\n/// sample where the failure was confirmed; `trigger_step` is the sample that\n/// started the failing obligation (-1 for plain per-sample checks).\ntypedef struct {{ const char* label; int step; int trigger_step; }} rfs_property_violation_t;"
+            );
+            for plan in &self.prop_plans {
+                prop.push_str(&self.render_monitor(plan)?);
+            }
+            prop.push_str(&self.render_prop_monitors());
+            self.code.push_str(&self.prop_wrap(&prop));
+        }
+        // Aggregate assumption monitors (always on; the handler path enforces).
+        if !self.assume_plans.is_empty() {
+            self.code.push_str(&self.render_assume_monitors());
+        } else {
+            // Empty aggregate keeps the fsm_t shape and call sites uniform.
+            let _ = writeln!(
+                self.code,
+                "typedef struct {{ int _unused; }} assume_monitors_t;\nstatic inline void assume_monitors_new(assume_monitors_t* m) {{ (void)m; }}\nstatic inline const char* assume_monitors_step(assume_monitors_t* m, const rfs_sample_t* s, int idx, const char** active_assumes, int n_active) {{ (void)m; (void)s; (void)idx; (void)active_assumes; (void)n_active; return 0; }}"
+            );
+        }
+        // Label constants (kept for MC/test runtimes and user code; D-P3-4).
         let props: Vec<String> = if self.property_names.is_empty() {
             vec!["0".into()]
         } else {
-            self.property_names
-                .iter()
-                .map(|s| format!("\"{}\"", s))
-                .collect()
+            self.property_names.iter().map(|s| format!("\"{}\"", s)).collect()
         };
         let assumes: Vec<String> = if self.active_assumes.is_empty() {
             vec!["0".into()]
         } else {
-            self.active_assumes
-                .iter()
-                .map(|s| format!("\"{}\"", s))
-                .collect()
+            self.active_assumes.iter().map(|s| format!("\"{}\"", s)).collect()
         };
+        // `RFS_UNUSED`: the label tables exist for MC/test runtimes and user
+        // code (D-P3-4); a production TU without them referenced must not
+        // warn under -Wall.
         let _ = writeln!(
             self.code,
-            "static const char* PROPERTY_LABELS[] = {{{}}};",
-            props.join(", ")
+            "#if defined(__GNUC__) || defined(__clang__)\n#define RFS_UNUSED __attribute__((unused))\n#else\n#define RFS_UNUSED\n#endif"
         );
-        let _ = writeln!(
-            self.code,
-            "static const int N_PROPERTY_LABELS = {};",
-            self.property_names.len()
-        );
-        let _ = writeln!(
-            self.code,
-            "static const char* ASSUME_LABELS[] = {{{}}};",
-            assumes.join(", ")
-        );
-        let _ = writeln!(
-            self.code,
-            "static const int N_ASSUME_LABELS = {};",
-            self.active_assumes.len()
-        );
-
-        // Dispatchers used by the model checker and commit_step.
-        let mut pm = String::new();
-        for n in &self.property_names {
-            let _ = writeln!(
-                pm,
-                "    if (strcmp(label, \"{}\") == 0) return prop_{}_always(trace);",
-                n,
-                crate::backends::rust::snake(n)
-            );
-        }
-        let mut am = String::new();
-        for n in &self.active_assumes {
-            let _ = writeln!(
-                am,
-                "    if (strcmp(label, \"{}\") == 0) return assume_{}_always(trace);",
-                n,
-                crate::backends::rust::snake(n)
-            );
-        }
-        let _ = writeln!(
-            self.code,
-            "static bool rfs_property_check(const char* label, const rfs_trace_t* trace) {{ (void)label; (void)trace;\n{pm}    return true;\n}}\n\
-             static bool rfs_assume_check(const char* label, const rfs_trace_t* trace) {{ (void)label; (void)trace;\n{am}    return true;\n}}"
-        );
+        let _ = writeln!(self.code, "static const char* PROPERTY_LABELS[] RFS_UNUSED = {{{}}};", props.join(", "));
+        let _ = writeln!(self.code, "static const int N_PROPERTY_LABELS RFS_UNUSED = {};", self.property_names.len());
+        let _ = writeln!(self.code, "static const char* ASSUME_LABELS[] RFS_UNUSED = {{{}}};", assumes.join(", "));
+        let _ = writeln!(self.code, "static const int N_ASSUME_LABELS RFS_UNUSED = {};", self.active_assumes.len());
+        Ok(())
     }
 
-    fn safety_formula_c(&self, name: &str, formula: &Formula, prefix: &str) -> Option<String> {
-        let inner = codegen_fsm::safety_formula_inner(formula)?;
-        let sname = crate::backends::rust::snake(name);
-        // Collect distinct InputIs/OutputHas patterns for helper functions.
+    /// Render one monitor struct from a compiled plan. Nodes are numbered in
+    /// DFS pre-order over the plan tree; the step body evaluates them in
+    /// post-order (children before parents), mirroring the reference
+    /// interpreter in `crate::monitor`.
+    fn render_monitor(&self, plan: &MonitorPlan) -> Result<String, String> {
+        let m = crate::backends::rust::snake(&plan.label);
+        // Distinct InputIs/OutputHas patterns (first-seen DFS order) get one
+        // helper function each.
         let mut input_pats: Vec<&EventPattern> = Vec::new();
         let mut output_pats: Vec<&OutputPattern> = Vec::new();
-        let mut stack = vec![inner];
-        while let Some(f) = stack.pop() {
-            match f {
-                Formula::InputIs { pattern } => input_pats.push(pattern),
-                Formula::OutputHas { pattern } => output_pats.push(pattern),
-                _ => {}
-            }
-            match f {
-                Formula::Not { inner } | Formula::Next { inner } => stack.push(inner),
-                Formula::And { left, right }
-                | Formula::Or { left, right }
-                | Formula::Implies { left, right } => {
-                    stack.push(left);
-                    stack.push(right);
-                }
-                _ => {}
-            }
-        }
-        let mut helpers = String::new();
+        collect_signal_patterns(&plan.root, &mut input_pats, &mut output_pats);
+
+        let mut fields: Vec<String> = Vec::new();
+        let mut inits: Vec<String> = Vec::new();
+        let mut sigs: Vec<String> = Vec::new();
+        let mut blocks: Vec<String> = Vec::new();
+        let mut next_id = 0usize;
+        self.render_node(&plan.root, &mut next_id, &mut fields, &mut inits, &mut sigs, &mut blocks, &m, &input_pats, &output_pats)?;
+
+        let kind = if plan.is_assumption { "assumption" } else { "property" };
+        let mut out = String::new();
         for (i, p) in input_pats.iter().enumerate() {
-            if let Some(h) = self.input_is_helper_c(*p, i) {
-                helpers.push_str(&h);
-            } else {
-                return None;
+            match self.input_is_sample_helper_c(&m, i, p) {
+                Some(h) => out.push_str(&h),
+                None => return Err(format!("monitor '{}': unresolvable input pattern", plan.label)),
             }
         }
         for (i, p) in output_pats.iter().enumerate() {
-            if let Some(h) = self.output_has_helper_c(*p, i) {
-                helpers.push_str(&h);
-            } else {
-                return None;
+            match self.output_has_sample_helper_c(&m, i, p) {
+                Some(h) => out.push_str(&h),
+                None => return Err(format!("monitor '{}': unresolvable output pattern", plan.label)),
             }
         }
-        let at_body = self.gen_formula_c(inner, "pos", &input_pats, &output_pats)?;
-        Some(format!(
-            "{helpers}static bool {}_{}(const rfs_trace_t* trace, int pos) {{ return {}; }}\n\
-             static bool {}_{}_always(const rfs_trace_t* trace) {{ for (int pos = 0; pos <= trace->len; pos++) {{ if (!{}_{}(trace, pos)) return false; }} return true; }}\n",
-            prefix, sname, at_body, prefix, sname, prefix, sname
-        ))
+        let sig_fns: Vec<String> = sigs
+            .iter()
+            .enumerate()
+            .map(|(i, e)| format!("static inline bool mon_{m}_sig_{i}(const rfs_sample_t* s) {{ return {e}; }}\n"))
+            .collect();
+        let _ = writeln!(
+            out,
+            "/// Online monitor for {kind} '{label}' (compiled from the RFS formula).\ntypedef struct {{\n{fields}\n}} mon_{m}_t;\nstatic inline void mon_{m}_new(mon_{m}_t* m) {{ {inits} }}\n{sigs}/// Step the monitor on sample `idx`. Returns true when the failure is\n/// newly confirmed at this sample.\nstatic inline bool mon_{m}_step(mon_{m}_t* m, const rfs_sample_t* s, int idx) {{\n    bool before = m->n0_failed;\n{blocks}\n    return m->n0_failed && !before;\n}}\n/// The sample that started the currently failing obligation (-1 for plain\n/// per-sample check failures).\nstatic inline int mon_{m}_trigger_step(const mon_{m}_t* m) {{ return m->n0_trigger_step; }}\n",
+            label = plan.label,
+            fields = fields.join("\n"),
+            inits = inits.join(" "),
+            sigs = sig_fns.join(""),
+            blocks = blocks.join("\n"),
+        );
+        Ok(out)
     }
 
-    /// Render a formula over a trace position. `pos_expr` is the C expression
-    /// for the current position (e.g. "pos" or "pos + 1").
-    fn gen_formula_c(
+    fn render_node(
         &self,
-        f: &Formula,
-        pos_expr: &str,
+        node: &MonNode,
+        next_id: &mut usize,
+        fields: &mut Vec<String>,
+        inits: &mut Vec<String>,
+        sigs: &mut Vec<String>,
+        blocks: &mut Vec<String>,
+        m: &str,
         input_pats: &[&EventPattern],
         output_pats: &[&OutputPattern],
-    ) -> Option<String> {
-        match f {
-            Formula::Expr { expr } => {
+    ) -> Result<(), String> {
+        let id = *next_id;
+        *next_id += 1;
+        match node {
+            MonNode::RangeCheck { expr, range } => {
+                let sig_expr = self.gen_signal_c(expr, m, input_pats, output_pats)?;
+                sigs.push(sig_expr.clone());
+                fields.push(format!("    bool n{id}_failed;"));
+                fields.push(format!("    int n{id}_trigger_step;"));
+                fields.push(format!("    bool n{id}_now;"));
+                inits.push(format!(
+                    "m->n{id}_failed = false; m->n{id}_trigger_step = -1; m->n{id}_now = false;"
+                ));
+                let cond = Self::range_cond_c(range);
+                // Per-sample check: `now` is recomputed every sample (the
+                // child may recover); `failed` is sticky for reporting.
+                blocks.push(format!(
+                    "    m->n{id}_now = ({cond}) && !({sig_expr});\n    if (m->n{id}_now) {{ m->n{id}_failed = true; }}"
+                ));
+            }
+            MonNode::Obligation { bound, trigger, body, range } => {
+                let tsig_expr = self.gen_signal_c(trigger, m, input_pats, output_pats)?;
+                sigs.push(tsig_expr.clone());
+                let bsig_expr = self.gen_signal_c(body, m, input_pats, output_pats)?;
+                sigs.push(bsig_expr.clone());
+                fields.push(format!("    bool n{id}_failed;"));
+                fields.push(format!("    int n{id}_trigger_step;"));
+                inits.push(format!("m->n{id}_failed = false; m->n{id}_trigger_step = -1;"));
+                if *bound >= 1 {
+                    fields.push(format!("    bool n{id}_pending;"));
+                    fields.push(format!("    long long n{id}_remaining;"));
+                    inits.push(format!("m->n{id}_pending = false; m->n{id}_remaining = 0;"));
+                }
+                fields.push(format!("    bool n{id}_now;"));
+                inits.push(format!("m->n{id}_now = false;"));
+                let cond = Self::range_cond_c(range);
+                if *bound == 0 {
+                    // be[0]: the body must hold at the trigger sample itself.
+                    blocks.push(format!(
+                        "    if (!m->n{id}_failed && {cond} && ({tsig_expr}) && !({bsig_expr})) {{ m->n{id}_failed = true; m->n{id}_trigger_step = idx; }}\n    m->n{id}_now = m->n{id}_failed;"
+                    ));
+                } else {
+                    // D-P3-3 pending model (the Rust backend renders).
+                    blocks.push(format!(
+                        "    if (!m->n{id}_failed) {{\n        bool a = {cond} && ({tsig_expr});\n        bool b = ({bsig_expr});\n        if (!m->n{id}_pending && a) {{ m->n{id}_pending = true; m->n{id}_remaining = {bound}; m->n{id}_trigger_step = idx; }}\n        if (m->n{id}_pending) {{\n            if (b) {{ m->n{id}_pending = false; }}\n            else {{ m->n{id}_remaining -= 1; if (m->n{id}_remaining == 0) {{ m->n{id}_failed = true; }} }}\n        }}\n    }}\n    // Obligation failures are terminal: once confirmed, the node is\n    // failing at every later sample.\n    m->n{id}_now = m->n{id}_failed;"
+                    ));
+                }
+            }
+            MonNode::DelayedCheck { antecedent, consequent, range } => {
+                let asig_expr = self.gen_signal_c(antecedent, m, input_pats, output_pats)?;
+                sigs.push(asig_expr.clone());
+                let csig_expr = self.gen_signal_c(consequent, m, input_pats, output_pats)?;
+                sigs.push(csig_expr.clone());
+                fields.push(format!("    bool n{id}_failed;"));
+                fields.push(format!("    int n{id}_trigger_step;"));
+                fields.push(format!("    bool n{id}_prev_antecedent;"));
+                fields.push(format!("    bool n{id}_now;"));
+                inits.push(format!(
+                    "m->n{id}_failed = false; m->n{id}_trigger_step = -1; m->n{id}_prev_antecedent = false; m->n{id}_now = false;"
+                ));
+                let cond = Self::range_cond_c(range);
+                // Delayed check: the antecedent held at the PREVIOUS sample, so
+                // the consequent must hold now. Failure is terminal; there is
+                // no trigger sample to report (trigger_step stays -1).
+                blocks.push(format!(
+                    "    if (!m->n{id}_failed && {cond} && m->n{id}_prev_antecedent && !({csig_expr})) {{ m->n{id}_failed = true; }}\n    m->n{id}_prev_antecedent = ({asig_expr});\n    // DelayedCheck failures are terminal: once confirmed, the node is\n    // failing at every later sample.\n    m->n{id}_now = m->n{id}_failed;"
+                ));
+            }
+            MonNode::And(children) | MonNode::Or(children) => {
+                let mut child_ids: Vec<usize> = Vec::new();
+                for c in children {
+                    child_ids.push(*next_id);
+                    self.render_node(c, next_id, fields, inits, sigs, blocks, m, input_pats, output_pats)?;
+                }
+                fields.push(format!("    bool n{id}_failed;"));
+                fields.push(format!("    int n{id}_trigger_step;"));
+                fields.push(format!("    bool n{id}_now;"));
+                inits.push(format!(
+                    "m->n{id}_failed = false; m->n{id}_trigger_step = -1; m->n{id}_now = false;"
+                ));
+                // Per-sample composition over the children's CURRENT failure
+                // status (a disjunction fails only while ALL children fail at
+                // this sample; a conjunction while ANY child fails).
+                let join = if matches!(node, MonNode::And(_)) { " || " } else { " && " };
+                let any_all = child_ids
+                    .iter()
+                    .map(|c| format!("m->n{c}_now"))
+                    .collect::<Vec<_>>()
+                    .join(join);
+                let mins: Vec<String> = child_ids
+                    .iter()
+                    .map(|c| {
+                        format!(
+                            "        if (m->n{c}_now && m->n{c}_trigger_step >= 0) {{ if (ts < 0 || m->n{c}_trigger_step < ts) ts = m->n{c}_trigger_step; }}"
+                        )
+                    })
+                    .collect();
+                blocks.push(format!(
+                    "    m->n{id}_now = ({any_all});\n    if (m->n{id}_now && !m->n{id}_failed) {{\n        m->n{id}_failed = true;\n        int ts = -1;\n{mins}\n        m->n{id}_trigger_step = ts;\n    }}",
+                    mins = mins.join("\n")
+                ));
+            }
+        }
+        Ok(())
+    }
+
+    /// The `idx` condition for an anchor range ("true" when unbounded from 0).
+    fn range_cond_c(range: &AnchorRange) -> String {
+        if range.from == 0 && range.to.is_none() {
+            return "true".into();
+        }
+        let mut c = format!("((long long)(idx) >= {})", range.from);
+        if let Some(t) = range.to {
+            c.push_str(&format!(" && ((long long)(idx) <= {})", t));
+        }
+        c
+    }
+
+    /// Render a per-sample signal expression against `s: const rfs_sample_t*`.
+    fn gen_signal_c(
+        &self,
+        sig: &SignalExpr,
+        m: &str,
+        input_pats: &[&EventPattern],
+        output_pats: &[&OutputPattern],
+    ) -> Result<String, String> {
+        match sig {
+            SignalExpr::Atom(SignalAtom::True) => Ok("(true)".into()),
+            SignalExpr::Atom(SignalAtom::VarExpr(expr)) => {
                 let env = Env::for_module(self.module);
                 let mut ctx = Ctx::default();
                 for v in &self.module.vars {
-                    ctx.names.insert(
-                        v.name.clone(),
-                        format!("trace_vars(trace, {}).{}", pos_expr, c_ident(&v.name)),
-                    );
+                    ctx.names
+                        .insert(v.name.clone(), format!("s->vars.{}", c_ident(&v.name)));
                 }
                 ctx.state_variants = self
                     .module
@@ -572,78 +770,126 @@ impl<'a> Gen<'a> {
                     .find(|e| e.name == "State")
                     .map(|e| e.variants.iter().cloned().collect())
                     .unwrap_or_default();
-                ctx.names
-                    .insert("state".into(), format!("trace_state(trace, {})", pos_expr));
-                gen_expr_c(expr, &env, &ctx, self.module).ok()
+                ctx.names.insert("state".into(), "s->to_state".into());
+                gen_expr_c(expr, &env, &ctx, self.module).map(|e| format!("({e})"))
             }
-            Formula::Not { inner } => Some(format!(
+            SignalExpr::Atom(SignalAtom::InputIs(p)) => {
+                let idx = input_pats
+                    .iter()
+                    .position(|x| *x == p)
+                    .ok_or("unresolvable input pattern")?;
+                Ok(format!("mon_{m}_in_{idx}(s)"))
+            }
+            SignalExpr::Atom(SignalAtom::OutputHas(p)) => {
+                let idx = output_pats
+                    .iter()
+                    .position(|x| *x == p)
+                    .ok_or("unresolvable output pattern")?;
+                Ok(format!("mon_{m}_out_{idx}(s)"))
+            }
+            SignalExpr::Not(inner) => Ok(format!(
                 "(!({}))",
-                self.gen_formula_at_inner(inner, pos_expr, input_pats, output_pats)?
+                self.gen_signal_c(inner, m, input_pats, output_pats)?
             )),
-            Formula::And { left, right } => Some(format!(
-                "(({}) && ({})",
-                self.gen_formula_at_inner(left, pos_expr, input_pats, output_pats)?,
-                self.gen_formula_at_inner(right, pos_expr, input_pats, output_pats)?
+            SignalExpr::And(l, r) => Ok(format!(
+                "({}) && ({})",
+                self.gen_signal_c(l, m, input_pats, output_pats)?,
+                self.gen_signal_c(r, m, input_pats, output_pats)?
             )),
-            Formula::Or { left, right } => Some(format!(
-                "(({}) || ({})",
-                self.gen_formula_at_inner(left, pos_expr, input_pats, output_pats)?,
-                self.gen_formula_at_inner(right, pos_expr, input_pats, output_pats)?
+            SignalExpr::Or(l, r) => Ok(format!(
+                "({}) || ({})",
+                self.gen_signal_c(l, m, input_pats, output_pats)?,
+                self.gen_signal_c(r, m, input_pats, output_pats)?
             )),
-            Formula::Implies { left, right } => Some(format!(
-                "(!({}) || ({})",
-                self.gen_formula_at_inner(left, pos_expr, input_pats, output_pats)?,
-                self.gen_formula_at_inner(right, pos_expr, input_pats, output_pats)?
-            )),
-            Formula::Next { inner } => Some(format!(
-                "(({} + 1 <= trace->len && {}))",
-                pos_expr,
-                self.gen_formula_at_inner(
-                    inner,
-                    &(format!("({} + 1)", pos_expr)),
-                    input_pats,
-                    output_pats
-                )?
-            )),
-            Formula::InputIs { pattern } => {
-                let idx = input_pats.iter().position(|p| *p == pattern)?;
-                Some(format!("input_is_{}(trace, {})", idx, pos_expr))
-            }
-            Formula::OutputHas { pattern } => {
-                let idx = output_pats.iter().position(|p| *p == pattern)?;
-                Some(format!("output_has_{}(trace, {})", idx, pos_expr))
-            }
-            _ => None,
         }
     }
 
-    fn gen_formula_at_inner(
-        &self,
-        f: &Formula,
-        pos_expr: &str,
-        input_pats: &[&EventPattern],
-        output_pats: &[&OutputPattern],
-    ) -> Option<String> {
-        self.gen_formula_c(f, pos_expr, input_pats, output_pats)
-    }
-
-    /// Helper: does the trace input at `pos` match this pattern?
-    fn input_is_helper_c(&self, pattern: &EventPattern, idx: usize) -> Option<String> {
+    /// Helper: does the sample input match this pattern? (`NULL` input -
+    /// sample 0 - never matches.)
+    fn input_is_sample_helper_c(&self, m: &str, idx: usize, pattern: &EventPattern) -> Option<String> {
         let cond = self.input_match_cond(pattern)?;
         Some(format!(
-            "static bool input_is_{}(const rfs_trace_t* trace, int pos) {{ if (pos >= trace->len) return false; const input_t* inp = &trace->steps[pos].input; return {}; }}\n",
-            idx, cond
+            "static inline bool mon_{m}_in_{idx}(const rfs_sample_t* s) {{ if (!s->input) return false; const input_t* inp = s->input; return {cond}; }}\n"
         ))
     }
 
-    /// Helper: does the trace step at `pos` contain an output matching this pattern?
-    fn output_has_helper_c(&self, pattern: &OutputPattern, idx: usize) -> Option<String> {
+    /// Helper: does the sample contain an output matching this pattern?
+    fn output_has_sample_helper_c(&self, m: &str, idx: usize, pattern: &OutputPattern) -> Option<String> {
         let cond = self.output_match_cond(pattern)?;
         Some(format!(
-            "static bool output_has_{}(const rfs_trace_t* trace, int pos) {{ if (pos >= trace->len) return false; for (int i = 0; i < trace->steps[pos].n_outputs; i++) {{ const output_t* o = &trace->steps[pos].outputs[i]; if ({cond}) return true; }} return false; }}\n",
-            idx
+            "static inline bool mon_{m}_out_{idx}(const rfs_sample_t* s) {{ for (int i = 0; i < s->n_outputs; i++) {{ const output_t* o = &s->outputs[i]; if ({cond}) return true; }} return false; }}\n"
         ))
     }
+
+    /// Emit the `assume_monitors` aggregate (always present on `fsm_t`).
+    fn render_assume_monitors(&self) -> String {
+        let fields: Vec<String> = self
+            .assume_plans
+            .iter()
+            .map(|p| {
+                let s = crate::backends::rust::snake(&p.label);
+                format!("mon_{s}_t mon_{s};")
+            })
+            .collect();
+        let inits: Vec<String> = self
+            .assume_plans
+            .iter()
+            .map(|p| {
+                let s = crate::backends::rust::snake(&p.label);
+                format!("mon_{s}_new(&m->mon_{s});")
+            })
+            .collect();
+        let steps: Vec<String> = self.assume_plans.iter().map(|p| {
+            let s = crate::backends::rust::snake(&p.label);
+            format!(
+                "    if (mon_{s}_step(&m->mon_{s}, s, idx) && !r) {{ for (int i = 0; i < n_active; i++) {{ if (strcmp(active_assumes[i], \"{}\") == 0) {{ r = \"{}\"; break; }} }} }}",
+                p.label, p.label
+            )
+        }).collect();
+        format!(
+            "/// Aggregate state of all assumption monitors (stepped online in `rfs_commit`).\ntypedef struct {{ {fields} }} assume_monitors_t;\nstatic inline void assume_monitors_new(assume_monitors_t* m) {{ {inits} }}\n/// Step all assumption monitors on sample `idx`. Returns the label of a\n/// newly failed ACTIVE assumption (first in declaration order), or NULL.\nstatic inline const char* assume_monitors_step(assume_monitors_t* m, const rfs_sample_t* s, int idx, const char** active_assumes, int n_active) {{\n    const char* r = 0;\n{steps}\n    return r;\n}}\n",
+            fields = fields.join(" "),
+            inits = inits.join(" "),
+            steps = steps.join("\n"),
+        )
+    }
+
+    /// Emit the `prop_monitors` aggregate (only when property monitors are on).
+    fn render_prop_monitors(&self) -> String {
+        if self.prop_plans.is_empty() {
+            return "typedef struct { int _unused; } prop_monitors_t;\nstatic inline void prop_monitors_new(prop_monitors_t* m) { (void)m; }\nstatic inline int prop_monitors_step(prop_monitors_t* m, const rfs_sample_t* s, int idx, rfs_property_violation_t* out) { (void)m; (void)s; (void)idx; (void)out; return 0; }\n".into();
+        }
+        let fields: Vec<String> = self
+            .prop_plans
+            .iter()
+            .map(|p| {
+                let s = crate::backends::rust::snake(&p.label);
+                format!("mon_{s}_t mon_{s};")
+            })
+            .collect();
+        let inits: Vec<String> = self
+            .prop_plans
+            .iter()
+            .map(|p| {
+                let s = crate::backends::rust::snake(&p.label);
+                format!("mon_{s}_new(&m->mon_{s});")
+            })
+            .collect();
+        let steps: Vec<String> = self.prop_plans.iter().map(|p| {
+            let s = crate::backends::rust::snake(&p.label);
+            format!(
+                "    if (mon_{s}_step(&m->mon_{s}, s, idx) && !found) {{ out->label = \"{}\"; out->step = idx; out->trigger_step = mon_{s}_trigger_step(&m->mon_{s}); found = 1; }}",
+                p.label
+            )
+        }).collect();
+        format!(
+            "/// Aggregate state of all property monitors (stepped online in `rfs_commit`).\ntypedef struct {{ {fields} }} prop_monitors_t;\nstatic inline void prop_monitors_new(prop_monitors_t* m) {{ {inits} }}\n/// Step all property monitors on sample `idx`. Returns 1 and fills `out`\n/// with the first newly failed monitor's violation (declaration order).\nstatic inline int prop_monitors_step(prop_monitors_t* m, const rfs_sample_t* s, int idx, rfs_property_violation_t* out) {{\n    int found = 0;\n{steps}\n    return found;\n}}\n",
+            fields = fields.join(" "),
+            inits = inits.join(" "),
+            steps = steps.join("\n"),
+        )
+    }
+
 
     /// C condition for an input matching a pattern (over `inp`).
     fn input_match_cond(&self, pattern: &EventPattern) -> Option<String> {
@@ -806,9 +1052,18 @@ impl<'a> Gen<'a> {
         let m = self.module;
         let init_state = m.initial_state.clone().unwrap_or_else(|| "__None__".into());
 
+        let prop_fields = if self.has_prop() {
+            let f = "prop_monitors_t prop_monitors;\n    char prop_label[64];\n    int prop_step;\n    int prop_trigger_step;";
+            match self.prop_mode {
+                PropertyMonitorMode::Gated => format!("\n#ifdef RFS_PROPERTY_MONITORS\n    {f}\n#endif\n"),
+                _ => format!(" {f}"),
+            }
+        } else {
+            String::new()
+        };
         let _ = writeln!(
             self.code,
-            "typedef struct {{ state_t state; vars_t vars; rfs_trace_t trace; const char** active_assumes; int n_active_assumes; }} fsm_t;"
+            "typedef struct {{ state_t state; vars_t vars; rfs_trace_t trace; const char** active_assumes; int n_active_assumes; assume_monitors_t assume_monitors;{prop_fields} }} fsm_t;"
         );
 
         // Initial vars literal.
@@ -834,17 +1089,39 @@ impl<'a> Gen<'a> {
             format!("(vars_t){{ {} }}", fields.join(", "))
         };
 
+        let prop_init = self.prop_emit(
+            "    prop_monitors_new(&f->prop_monitors);\n\
+             \n    f->prop_label[0] = 0; f->prop_step = -1; f->prop_trigger_step = -1;",
+        );
+        let prop_sample0 = self.prop_emit(
+            "    rfs_property_violation_t pv;\n\
+             \n    if (prop_monitors_step(&f->prop_monitors, &sample, 0, &pv)) {\n\
+             \n        strcpy(f->prop_label, pv.label); f->prop_step = pv.step; f->prop_trigger_step = pv.trigger_step;\n\
+             \n    }",
+        );
         let _ = writeln!(
             self.code,
-            "void fsm_new(fsm_t* f) {{\n    f->state = STATE_{};\n    f->vars = {};\n    f->trace.initial_state = f->state; f->trace.initial_vars = f->vars; f->trace.steps = 0; f->trace.len = 0; f->trace.cap = 0;\n    f->n_active_assumes = N_ASSUME_LABELS;\n    f->active_assumes = (const char**)calloc((size_t)f->n_active_assumes, sizeof(char*));\n    for (int i = 0; i < f->n_active_assumes; i++) f->active_assumes[i] = ASSUME_LABELS[i];\n}}",
+            "void fsm_new(fsm_t* f) {{\n    f->state = STATE_{};\n    f->vars = {};\n    f->trace.initial_state = f->state; f->trace.initial_vars = f->vars; f->trace.steps = 0; f->trace.len = 0; f->trace.cap = 0;\n    f->n_active_assumes = N_ASSUME_LABELS;\n    f->active_assumes = (const char**)calloc((size_t)f->n_active_assumes, sizeof(char*));\n    for (int i = 0; i < f->n_active_assumes; i++) f->active_assumes[i] = ASSUME_LABELS[i];\n    assume_monitors_new(&f->assume_monitors);{prop_init}\n    // Sample 0 (the initial configuration): step the monitors so countdowns\n    // and one-shot obligations start correctly. An assumption violated at\n    // sample 0 aborts, as with the previous post-hoc check.\n    rfs_sample_t sample = {{ 0, 0, 0, f->state, f->state, f->vars }};\n    const char* al = assume_monitors_step(&f->assume_monitors, &sample, 0, f->active_assumes, f->n_active_assumes);\n    if (al) {{ fprintf(stderr, \"RFS assumption violated: %s\\n\", al); abort(); }}{prop_sample0}\n}}",
             c_ident(&init_state).to_uppercase(),
             init_vars
         );
 
-        // commit_step: push trace, check active assumptions via handler.
+        // rfs_commit: push the trace step, then step the online monitors -
+        // assumption enforcement via the handler path and a sticky property
+        // violation record (D-P3-4: post-hoc checks removed).
+        let prop_check = self.prop_emit(
+            "    rfs_property_violation_t pv;\n\
+             \n    if (prop_monitors_step(&f->prop_monitors, &sample, idx, &pv) && f->prop_label[0] == 0) {\n\
+             \n        strcpy(f->prop_label, pv.label); f->prop_step = pv.step; f->prop_trigger_step = pv.trigger_step;\n\
+             \n        step_result_t r = rfs_make_result(RFS_PROPERTY_VIOLATION);\n\
+             \n        strncpy(r.prop_label, pv.label, sizeof(r.prop_label) - 1); r.prop_label[sizeof(r.prop_label) - 1] = 0;\n\
+             \n        r.prop_step = pv.step; r.prop_trigger_step = pv.trigger_step;\n\
+             \n        return r;\n\
+             \n    }",
+        );
         let _ = writeln!(
             self.code,
-            "static step_result_t rfs_commit(fsm_t* f, const input_t* in, const output_t* outs, int n_out, state_t next_state, const vars_t* new_vars, rfs_assumption_handler handler, void* user) {{\n    trace_step_t s; s.input = *in; for (int i = 0; i < n_out && i < MAX_OUTPUTS; i++) s.outputs[i] = outs[i]; s.n_outputs = n_out; s.from = f->state; s.to = next_state; s.vars = *new_vars;\n    trace_push(&f->trace, &s);\n    for (int i = 0; i < f->n_active_assumes; i++) {{\n        if (!rfs_assume_check(f->active_assumes[i], &f->trace)) {{\n            rfs_policy_t pol = handler(user, f->active_assumes[i]);\n            if (pol == RFS_STOP) {{ step_result_t r; r.status = RFS_ASSUMPTION_VIOLATION; strncpy(r.assume_label, f->active_assumes[i], sizeof(r.assume_label) - 1); r.assume_label[sizeof(r.assume_label) - 1] = 0; r.n_outputs = 0; return r; }}\n            if (pol == RFS_PANIC) {{ fprintf(stderr, \"RFS assumption violated: %s\\n\", f->active_assumes[i]); abort(); }}\n        }}\n    }}\n    f->state = next_state; f->vars = *new_vars;\n    step_result_t r; r.status = RFS_OK; for (int i = 0; i < n_out && i < MAX_OUTPUTS; i++) r.outputs[i] = outs[i]; r.n_outputs = n_out; r.assume_label[0] = 0; return r;\n}}"
+            "static step_result_t rfs_commit(fsm_t* f, const input_t* in, const output_t* outs, int n_out, state_t next_state, const vars_t* new_vars, rfs_assumption_handler handler, void* user) {{\n    trace_step_t s; s.input = *in; for (int i = 0; i < n_out && i < MAX_OUTPUTS; i++) s.outputs[i] = outs[i]; s.n_outputs = n_out; s.from = f->state; s.to = next_state; s.vars = *new_vars;\n    trace_push(&f->trace, &s);\n    int idx = f->trace.len;\n    rfs_sample_t sample = {{ in, outs, n_out, s.from, s.to, s.vars }};\n    const char* al = assume_monitors_step(&f->assume_monitors, &sample, idx, f->active_assumes, f->n_active_assumes);\n    if (al) {{\n        rfs_policy_t pol = handler(user, al);\n        if (pol == RFS_STOP) {{ step_result_t r = rfs_make_result(RFS_ASSUMPTION_VIOLATION); strncpy(r.assume_label, al, sizeof(r.assume_label) - 1); r.assume_label[sizeof(r.assume_label) - 1] = 0; return r; }}\n        if (pol == RFS_PANIC) {{ fprintf(stderr, \"RFS assumption violated: %s\\n\", al); abort(); }}\n    }}{prop_check}\n    f->state = next_state; f->vars = *new_vars;\n    step_result_t r = rfs_make_result(RFS_OK); for (int i = 0; i < n_out && i < MAX_OUTPUTS; i++) r.outputs[i] = outs[i]; r.n_outputs = n_out; return r;\n}}"
         );
 
         // step(): grouped by state, priority-ordered within a state (Phase 2).
@@ -911,7 +1188,7 @@ impl<'a> Gen<'a> {
         } else {
             let _ = writeln!(
                 self.code,
-                "    {{ step_result_t r; r.status = RFS_UNEXPECTED_EVENT; r.n_outputs = 0; r.assume_label[0] = 0; return r; }}"
+                "    {{ return rfs_make_result(RFS_UNEXPECTED_EVENT); }}"
             );
         }
         let _ = writeln!(self.code, "}}");
@@ -1168,5 +1445,60 @@ impl<'a> Gen<'a> {
             fields.push(format!(".{}.{} = {}", pl, c_ident(&v.fields[i].0), val));
         }
         Ok(format!("(output_t){{ {} }}", fields.join(", ")))
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Monitor-plan signal collection (shared by the C monitor rendering)
+// ---------------------------------------------------------------------------
+
+/// Collect distinct InputIs/OutputHas patterns from a plan tree, in first-
+/// seen DFS order (used to number the per-monitor helper functions).
+fn collect_signal_patterns<'p>(
+    node: &'p MonNode,
+    input_pats: &mut Vec<&'p EventPattern>,
+    output_pats: &mut Vec<&'p OutputPattern>,
+) {
+    fn push<'p>(
+        sig: &'p SignalExpr,
+        input_pats: &mut Vec<&'p EventPattern>,
+        output_pats: &mut Vec<&'p OutputPattern>,
+    ) {
+        let mut stack = vec![sig];
+        while let Some(s) = stack.pop() {
+            if let SignalExpr::Atom(SignalAtom::InputIs(p)) = s {
+                if !input_pats.iter().any(|x| *x == p) {
+                    input_pats.push(p);
+                }
+            } else if let SignalExpr::Atom(SignalAtom::OutputHas(p)) = s {
+                if !output_pats.iter().any(|x| *x == p) {
+                    output_pats.push(p);
+                }
+            }
+            match s {
+                SignalExpr::Not(inner) => stack.push(inner),
+                SignalExpr::And(l, r) | SignalExpr::Or(l, r) => {
+                    stack.push(r);
+                    stack.push(l);
+                }
+                _ => {}
+            }
+        }
+    }
+    match node {
+        MonNode::DelayedCheck { antecedent, consequent, .. } => {
+            push(antecedent, input_pats, output_pats);
+            push(consequent, input_pats, output_pats);
+        }
+        MonNode::RangeCheck { expr, .. } => push(expr, input_pats, output_pats),
+        MonNode::Obligation { trigger, body, .. } => {
+            push(trigger, input_pats, output_pats);
+            push(body, input_pats, output_pats);
+        }
+        MonNode::And(children) | MonNode::Or(children) => {
+            for c in children {
+                collect_signal_patterns(c, input_pats, output_pats);
+            }
+        }
     }
 }

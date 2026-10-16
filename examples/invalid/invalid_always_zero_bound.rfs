@@ -1,0 +1,9 @@
+# always[N] requires N >= 1: a zero-length window is meaningless (the bound
+# must name at least one sample). Validation must reject this.
+module always_zero_bound {
+  enum State { A }
+  initial A
+  event Go
+  transition A on Go { next A; }
+  prop bad : always[0] (state == A) ;
+}

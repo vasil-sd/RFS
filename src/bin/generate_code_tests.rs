@@ -53,6 +53,7 @@ fn main() -> ExitCode {
     let options = codegen::BackendOptions {
         assumptions,
         steps: test_steps,
+        with_property_monitors: false,
     };
     match rust_test::generate_aggregate_test_crate(&files, &options) {
         Ok(crate_) => {

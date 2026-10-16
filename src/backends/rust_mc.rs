@@ -19,11 +19,18 @@ pub fn generate_model_checker(
     options: &BackendOptions,
 ) -> Result<CodegenOutput, Vec<String>> {
     // The model checker reuses the production FSM core without unit tests.
+    // Property monitors are always included (D-P3-6).
     let fsm_options = BackendOptions {
         assumptions: options.assumptions.clone(),
         steps: 0,
+        with_property_monitors: false,
     };
-    let fsm = crate::backends::rust_fsm::generate_with_tests(module, &fsm_options, false)?;
+    let fsm = crate::backends::rust_fsm::generate_core(
+        module,
+        &fsm_options,
+        false,
+        crate::codegen::PropertyMonitorMode::Always,
+    )?;
     let mut out = fsm.code;
     out.push_str(MC_RUNTIME);
     Ok(CodegenOutput {
@@ -71,6 +78,27 @@ fn print_trace(trace: &Trace) {
     }
 }
 
+/// Variable values at sample `pos` (0 = initial configuration).
+fn vars_at(trace: &Trace, pos: usize) -> String {
+    if pos == 0 { format!("{:?}", trace.initial_vars) } else { format!("{:?}", trace.steps[pos - 1].vars) }
+}
+
+/// Print the property-specific counterexample (which property failed, which
+/// step triggered the obligation, when the violation was confirmed, relevant
+/// variable values, full input/output sequence) and exit.
+fn report_property_violation(fsm: &Fsm, run: usize) -> ! {
+    let pv = fsm.property_violation.as_ref().expect("violation recorded");
+    println!("run {} property violation: {}", run, pv.label);
+    if let Some(t) = pv.trigger_step {
+        println!("  trigger step: {}", t);
+        println!("  vars at trigger step: {}", vars_at(&fsm.trace, t));
+    }
+    println!("  violation step: {}", pv.step);
+    println!("  vars at violation step: {}", vars_at(&fsm.trace, pv.step));
+    print_trace(&fsm.trace);
+    std::process::exit(1);
+}
+
 fn main() {
     let args: Vec<String> = std::env::args().collect();
     let mut bound = 5usize;
@@ -95,7 +123,10 @@ fn main() {
     let specs: Vec<ViolationSpec> = violate_arg.iter().map(|s| parse_violation_spec(s)).collect();
     let active_assumes = parse_assume_selection(&assumes_arg);
     let mut rng = Rng::new(seed);
-    let mut property_violations = 0usize;
+    // Property violations terminate the checker immediately (exit 1), so
+    // this counter is always 0 in the summary; the field stays for a stable
+    // summary format.
+    let property_violations = 0usize;
     let mut unexpected_count = 0usize;
     let mut assumption_stops = 0usize;
     let mut completed = 0usize;
@@ -105,16 +136,23 @@ fn main() {
         let target_fraction: Vec<f64> = specs.iter().map(|s| s.percent / 100.0).collect();
         let mut fsm = Fsm::new();
         fsm.active_assumes = active_assumes.clone();
+        // A property can already be violated at sample 0 (the initial
+        // configuration, e.g. an invariant on the initial state).
+        if fsm.property_violation.is_some() { report_property_violation(&fsm, run); }
         let mut status = String::from("completed");
         for _step in 0..bound {
-            // Try forced assumption violation first.
+            // Try forced violation first (assumption or property labels).
             let mut forced = None;
             for (idx, spec) in specs.iter().enumerate() {
                 if violating[idx] && rng.chance(target_fraction[idx]) {
                     if let Some(input) = ALL_INPUTS.iter().find(|input| {
                         let mut trial = fsm.clone();
                         let mut handler = StopAssumptionHandler;
-                        matches!(trial.step_with_handler(**input, &mut handler), Err(StepError::AssumptionViolation { label }) if label == spec.label)
+                        match trial.step_with_handler(**input, &mut handler) {
+                            Err(StepError::AssumptionViolation { label }) => label == spec.label,
+                            Err(StepError::PropertyViolation { label, .. }) => label == spec.label,
+                            _ => false,
+                        }
                     }) {
                         forced = Some(*input);
                         break;
@@ -127,6 +165,7 @@ fn main() {
                     Err(StepError::AssumptionViolation { label }) => { status = format!("assumption-violated:{}", label); assumption_stops += 1; break; }
                     _ => {}
                 }
+                if fsm.property_violation.is_some() { report_property_violation(&fsm, run); }
                 continue;
             }
 
@@ -141,15 +180,22 @@ fn main() {
                         break;
                     }
                 }
+                if fsm.property_violation.is_some() { report_property_violation(&fsm, run); }
                 continue;
             }
 
-            // Default: choose an allowed representative input.
+            // Default: choose an allowed representative input. Inputs that
+            // confirm a property violation are allowed on purpose: the model
+            // checker wants to find violations, not avoid them.
             let mut allowed: Vec<Input> = Vec::new();
             for input in ALL_INPUTS {
                 let mut trial = fsm.clone();
                 let mut handler = StopAssumptionHandler;
-                if trial.step_with_handler(*input, &mut handler).is_ok() { allowed.push(*input); }
+                match trial.step_with_handler(*input, &mut handler) {
+                    Ok(_) => allowed.push(*input),
+                    Err(StepError::PropertyViolation { .. }) => allowed.push(*input),
+                    _ => {}
+                }
             }
             if allowed.is_empty() { status = String::from("stuck"); break; }
             if let Some(idx) = rng.pick_index(allowed.len()) {
@@ -159,19 +205,12 @@ fn main() {
                     Ok(_) => {}
                     Err(StepError::UnexpectedEvent) => { status = String::from("unexpected-event"); unexpected_count += 1; break; }
                     Err(StepError::AssumptionViolation { label }) => { status = format!("assumption-violated:{}", label); assumption_stops += 1; break; }
+                    Err(StepError::PropertyViolation { .. }) => {}
                 }
             }
+            if fsm.property_violation.is_some() { report_property_violation(&fsm, run); }
         }
         if status == "completed" { completed += 1; }
-
-        for label in PROPERTY_LABELS {
-            if !property_check(label, &fsm.trace) {
-                property_violations += 1;
-                println!("run {} property violation: {}", run, label);
-                print_trace(&fsm.trace);
-                std::process::exit(1);
-            }
-        }
     }
 
     println!("model-check summary: runs={} bound={} completed={} unexpected={} assumption_stops={} property_violations={}", runs, bound, completed, unexpected_count, assumption_stops, property_violations);

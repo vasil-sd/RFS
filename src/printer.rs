@@ -342,6 +342,7 @@ fn needs_parens(f: &Formula, ctx: Fctx) -> bool {
     match f {
         Formula::Next { .. }
         | Formula::Always { .. }
+        | Formula::BoundedAlways { .. }
         | Formula::BoundedEventually { .. }
         | Formula::InputIs { .. }
         | Formula::OutputHas { .. } => false,
@@ -407,6 +408,11 @@ fn print_formula_ctx(f: &Formula, ctx: Fctx) -> String {
         // Inside the temporal parentheses the inner text is a full formula.
         Formula::Next { inner } => format!("next ({})", print_formula_ctx(inner, Fctx::Top)),
         Formula::Always { inner } => format!("always ({})", print_formula_ctx(inner, Fctx::Top)),
+        Formula::BoundedAlways { bound, inner } => format!(
+            "always[{}] ({})",
+            bound,
+            print_formula_ctx(inner, Fctx::Top)
+        ),
         Formula::BoundedEventually { bound, inner } => format!(
             "bounded_eventually[{}] ({})",
             bound,

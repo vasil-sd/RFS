@@ -21,6 +21,7 @@ fn main() -> ExitCode {
     let options = codegen::BackendOptions {
         assumptions: codegen::AssumptionSelection::All,
         steps: 4,
+        with_property_monitors: false,
     };
     let crate_ = match rust_test::generate_aggregate_test_crate(&files, &options) {
         Ok(c) => c,

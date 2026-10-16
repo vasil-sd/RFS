@@ -1,0 +1,49 @@
+# Phase 3 showcase: a retry/timeout protocol with periodic liveness (an
+# environment assumption) and two concurrent obligations that can be pending
+# at the same time. Every formula compiles to an online monitor.
+module bounded_liveness_protocol {
+  enum State { Idle, Sending, Done }
+  initial Idle
+
+  event Start
+  event Tick
+  event Ack
+
+  output Sent
+
+  var timer: bit<8> init 0
+  var round: bit<8> init 1
+
+  transition Idle on Start {
+    next Sending;
+    emit Sent;
+    set timer = 3;
+  }
+  # Countdown: each Tick decrements the retry timer.
+  transition Sending on Tick where timer > 0 {
+    next Sending;
+    set timer = timer - 1;
+  }
+  # Timeout: when the timer is exhausted, a Tick triggers the retry.
+  transition Sending on Tick where timer == 0 {
+    next Sending;
+    emit Sent;
+    set timer = 3;
+    set round = round + 1;
+  }
+  transition Sending on Ack {
+    next Done;
+  }
+
+  # Periodic liveness: a Tick arrives within every 5 samples.
+  assume env_tick : always (bounded_eventually[4] (input_is(Tick))) ;
+
+  # Obligation 1: a Start is answered (by the immediate Sent emission or an
+  # Ack) within 5 samples.
+  prop start_responds : always (input_is(Start) -> bounded_eventually[5] (output_has(Sent) || input_is(Ack))) ;
+
+  # Obligation 2: a retry (Sent while Sending) is followed by another Sent or
+  # an Ack within 8 samples - consistent with env_tick and timer = 3, so both
+  # obligations can be pending concurrently without spurious violations.
+  prop retry_responds : always (state == Sending && output_has(Sent) -> bounded_eventually[8] (output_has(Sent) || input_is(Ack))) ;
+}

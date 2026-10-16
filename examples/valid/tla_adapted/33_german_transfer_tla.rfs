@@ -40,5 +40,8 @@ module german_transfer_tla {
   }
 
   prop done_only_after_ack : always (state == Done -> true) ;
-  prop give_up_bounded : always (input_is(Command(SendData)) -> bounded_eventually[4] (output_has(GiveUp) || state == Done)) ;
+  # GiveUp is emitted on the Tick AFTER the timer reaches 0: SendData at
+  # sample i gives timer=3 at i, ticks at i+1..i+3 count it down, and the
+  # give-up transition fires at i+4 - hence the bound is 5, not 4.
+  prop give_up_bounded : always (input_is(Command(SendData)) -> bounded_eventually[5] (output_has(GiveUp) || state == Done)) ;
 }

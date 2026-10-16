@@ -237,8 +237,28 @@ pub fn validate_module(module: &Module) -> Vec<ValidationError> {
         }
     }
 
+    // Phase 3: duplicate prop/assume names would collide in generated monitor
+    // struct names, so reject them early (D-P3-4).
+    {
+        let mut seen: HashSet<String> = HashSet::new();
+        for p in module.properties.iter().chain(module.assumptions.iter()) {
+            if !seen.insert(p.name.clone()) {
+                errors.push(ValidationError::new(format!(
+                    "module '{}' has duplicate property/assumption name '{}'",
+                    module.name, p.name
+                )));
+            }
+        }
+    }
+
     for p in module.properties.iter().chain(module.assumptions.iter()) {
         if let Err(e) = type_formula(&p.formula, &env0) {
+            errors.push(ValidationError::new(format!(
+                "module '{}' property '{}': {}",
+                module.name, p.name, e
+            )));
+        }
+        if let Some(e) = bounded_always_error(&p.formula) {
             errors.push(ValidationError::new(format!(
                 "module '{}' property '{}': {}",
                 module.name, p.name, e
@@ -247,6 +267,28 @@ pub fn validate_module(module: &Module) -> Vec<ValidationError> {
     }
 
     errors
+}
+
+/// Phase 3 bound check (D-P3-2): `always[N]` requires N >= 1. Note that
+/// `bounded_eventually[0]` stays legal and means "the body must hold at the
+/// trigger sample itself".
+fn bounded_always_error(f: &Formula) -> Option<String> {
+    match f {
+        Formula::BoundedAlways { bound, .. } if *bound < 1 => {
+            Some("always[N] requires N >= 1".into())
+        }
+        Formula::Not { inner }
+        | Formula::Next { inner }
+        | Formula::Always { inner }
+        | Formula::BoundedAlways { inner, .. }
+        | Formula::BoundedEventually { inner, .. } => bounded_always_error(inner),
+        Formula::And { left, right }
+        | Formula::Or { left, right }
+        | Formula::Implies { left, right } => {
+            bounded_always_error(left).or_else(|| bounded_always_error(right))
+        }
+        _ => None,
+    }
 }
 
 fn pattern_variant_name(p: &PatternVariant) -> &str {
@@ -569,9 +611,10 @@ impl ExprType {
 pub fn is_safety_formula(f: &Formula) -> bool {
     match f {
         Formula::BoundedEventually { .. } => false,
-        Formula::Not { inner } | Formula::Next { inner } | Formula::Always { inner } => {
-            is_safety_formula(inner)
-        }
+        Formula::Not { inner }
+        | Formula::Next { inner }
+        | Formula::Always { inner }
+        | Formula::BoundedAlways { inner, .. } => is_safety_formula(inner),
         Formula::And { left, right }
         | Formula::Or { left, right }
         | Formula::Implies { left, right } => is_safety_formula(left) && is_safety_formula(right),
@@ -591,6 +634,7 @@ pub fn type_formula(f: &Formula, env: &Env) -> Result<(), String> {
         Formula::Not { inner }
         | Formula::Next { inner }
         | Formula::Always { inner }
+        | Formula::BoundedAlways { inner, .. }
         | Formula::BoundedEventually { inner, .. } => type_formula(inner, env),
         Formula::And { left, right }
         | Formula::Or { left, right }
@@ -979,5 +1023,65 @@ mod tests {
         assert!(validate_module(&m)
             .iter()
             .any(|e| e.message.contains("on_error")));
+    }
+
+    #[test]
+    fn bounded_always_zero_bound_is_error() {
+        let m = module_from(
+            "module m { enum State { A } initial A prop p : always[0] (state == A) ; }",
+        );
+        assert!(validate_module(&m)
+            .iter()
+            .any(|e| e.message.contains("always[N] requires N >= 1")));
+    }
+
+    #[test]
+    fn bounded_always_zero_bound_nested_is_error() {
+        // Bare expression children of `&&` must be parenthesized (the parser
+        // absorbs following boolean operators into one Expr node).
+        let m = module_from(
+            "module m { enum State { A } initial A prop p : always ((state == A) && always[0] (state == A)) ; }",
+        );
+        assert!(validate_module(&m)
+            .iter()
+            .any(|e| e.message.contains("always[N] requires N >= 1")));
+    }
+
+    #[test]
+    fn bounded_eventually_zero_bound_is_allowed() {
+        let m = module_from(
+            "module m { enum State { A } initial A event E prop p : always (input_is(E) -> bounded_eventually[0] (state == A)) ; }",
+        );
+        assert!(validate_module(&m).is_empty());
+    }
+
+    #[test]
+    fn duplicate_property_name_rejected_at_parse() {
+        // Pre-existing parser guard (build_module): duplicate prop names never
+        // reach validation.
+        let r = parse_source(
+            "module m { enum State { A } initial A prop p1 : always (state == A) ; prop p1 : always (state == A) ; }",
+        );
+        assert!(r.is_err(), "duplicate prop name must not parse");
+    }
+
+    #[test]
+    fn duplicate_property_and_assume_name_rejected_at_parse() {
+        let r = parse_source(
+            "module m { enum State { A } initial A event E prop p1 : always (state == A) ; assume p1 : always (input_is(E) -> state == A) ; }",
+        );
+        assert!(r.is_err(), "cross-list duplicate name must not parse");
+    }
+
+    #[test]
+    fn validator_rejects_duplicate_names_in_ir() {
+        // The validator guard also covers IR loaded from JSON, which bypasses
+        // the parser pass.
+        let mut m =
+            module_from("module m { enum State { A } initial A prop p1 : always (state == A) ; }");
+        m.properties.push(m.properties[0].clone());
+        assert!(validate_module(&m)
+            .iter()
+            .any(|e| e.message.contains("duplicate property/assumption name")));
     }
 }

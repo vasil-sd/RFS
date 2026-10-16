@@ -1211,13 +1211,30 @@ fn primary_formula(i: &str) -> IResult<&str, Formula> {
     }
     if let Ok((i2, _)) = soft_keyword(i, "always") {
         let (i2, _) = p_space0(i2)?;
-        let (i3, _) = p_tag("(", i2)?;
+        // Optional `[N]` bound: `always[N] (...)` (Phase 3). Absent N keeps
+        // the unbounded `always (...)`.
+        let mut bound: Option<u64> = None;
+        let mut i_after_kw = i2;
+        if let Ok((ib, _)) = p_tag("[", i2) {
+            let (ib, b) = int_lit(ib)?;
+            let (ib, _) = p_tag("]", ib)?;
+            bound = Some(b);
+            i_after_kw = ib;
+        }
+        let (i3, _) = p_space0(i_after_kw)?;
+        let (i3, _) = p_tag("(", i3)?;
         let (i4, inner) = formula(i3)?;
         let (i5, _) = p_tag(")", i4)?;
         return Ok((
             i5,
-            Formula::Always {
-                inner: Box::new(inner),
+            match bound {
+                Some(b) => Formula::BoundedAlways {
+                    bound: b,
+                    inner: Box::new(inner),
+                },
+                None => Formula::Always {
+                    inner: Box::new(inner),
+                },
             },
         ));
     }
@@ -1384,6 +1401,29 @@ mod tests {
         let source = "module m { enum State { A } initial A event E prop p : always (input_is(E) -> next (state == A)) ; }";
         let ir = parse_source(source).expect("parse formula");
         assert_eq!(ir.modules[0].properties.len(), 1);
+        printer::roundtrip_rfs(source).expect("rfs round-trip");
+    }
+
+    #[test]
+    fn parses_bounded_always() {
+        let source = "module m { enum State { A } initial A event E prop p : always[3] (state == A) ; prop q : always (input_is(E) -> always[2] (state == A)) ; }";
+        let ir = parse_source(source).expect("parse bounded always");
+        let module = &ir.modules[0];
+        assert_eq!(module.properties.len(), 2);
+        match &module.properties[0].formula {
+            Formula::BoundedAlways { bound, inner } => {
+                assert_eq!(*bound, 3);
+                assert!(matches!(inner.as_ref(), Formula::Expr { .. }));
+            }
+            other => panic!("expected BoundedAlways, got {:?}", other),
+        }
+        // Unbounded `always` keeps parsing as Always.
+        match &module.properties[1].formula {
+            Formula::Always { inner } => {
+                assert!(matches!(inner.as_ref(), Formula::Implies { .. }))
+            }
+            other => panic!("expected Always, got {:?}", other),
+        }
         printer::roundtrip_rfs(source).expect("rfs round-trip");
     }
 

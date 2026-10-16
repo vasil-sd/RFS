@@ -86,6 +86,7 @@ fn all_rust_commands_generate_for_valid_examples() {
     let options = codegen::BackendOptions {
         assumptions: codegen::AssumptionSelection::All,
         steps: 4,
+        with_property_monitors: false,
     };
     for path in &files {
         let ir = parse_module(path);
@@ -116,10 +117,12 @@ fn steps_option_changes_test_generation() {
     let small = codegen::BackendOptions {
         assumptions: Default::default(),
         steps: 1,
+        with_property_monitors: false,
     };
     let big = codegen::BackendOptions {
         assumptions: Default::default(),
         steps: 6,
+        with_property_monitors: false,
     };
     let a = codegen::CodegenCommandKind::UnitTests
         .run(backend, &ir.modules[0], &small)
@@ -176,6 +179,7 @@ fn cli_parses_generate_with_options() {
             out,
             assumptions,
             steps,
+            with_property_monitors,
         } => {
             assert_eq!(backend_name, "rust");
             assert_eq!(command, codegen::CodegenCommandKind::UnitTests);
@@ -183,6 +187,7 @@ fn cli_parses_generate_with_options() {
             assert_eq!(out.as_deref(), Some("/tmp/t.rs"));
             assert_eq!(assumptions, codegen::AssumptionSelection::None);
             assert_eq!(steps, 7);
+            assert!(!with_property_monitors);
         }
         other => panic!("expected Generate, got {:?}", other),
     }
@@ -258,6 +263,7 @@ fn aggregate_codegen_succeeds_for_valid_examples_and_training_snippets() {
     let options = codegen::BackendOptions {
         assumptions: codegen::AssumptionSelection::All,
         steps: 4,
+        with_property_monitors: false,
     };
     let crate_ = rfs::backends::rust_test::generate_aggregate_test_crate(&files, &options)
         .expect("aggregate codegen should succeed");
@@ -273,6 +279,7 @@ fn model_checker_codegen_contains_main() {
     let options = codegen::BackendOptions {
         assumptions: codegen::AssumptionSelection::All,
         steps: 0,
+        with_property_monitors: false,
     };
     let mc = codegen::CodegenCommandKind::ModelChecker
         .run(backend, &ir.modules[0], &options)
@@ -292,6 +299,7 @@ fn priority_10_arm_precedes_priority_1_in_generated_step() {
     let options = codegen::BackendOptions {
         assumptions: codegen::AssumptionSelection::All,
         steps: 4,
+        with_property_monitors: false,
     };
     let out = codegen::CodegenCommandKind::Production
         .run(backend, &ir.modules[0], &options)
@@ -317,6 +325,7 @@ fn on_error_fallback_replaces_unexpected_event_error() {
     let options = codegen::BackendOptions {
         assumptions: codegen::AssumptionSelection::All,
         steps: 4,
+        with_property_monitors: false,
     };
     let out = codegen::CodegenCommandKind::Production
         .run(backend, &ir.modules[0], &options)
@@ -334,6 +343,7 @@ fn version_header_becomes_spec_version_constant() {
     let options = codegen::BackendOptions {
         assumptions: codegen::AssumptionSelection::All,
         steps: 4,
+        with_property_monitors: false,
     };
     let out = codegen::CodegenCommandKind::Production
         .run(backend, &ir.modules[0], &options)
@@ -351,6 +361,7 @@ fn generated_negative_test_asserts_on_error_landing() {
     let options = codegen::BackendOptions {
         assumptions: codegen::AssumptionSelection::All,
         steps: 4,
+        with_property_monitors: false,
     };
     let out = codegen::CodegenCommandKind::UnitTests
         .run(backend, &ir.modules[0], &options)
@@ -386,6 +397,7 @@ fn all_c_commands_generate_for_valid_examples() {
     let options = rfs::codegen::BackendOptions {
         assumptions: rfs::codegen::AssumptionSelection::All,
         steps: 4,
+        with_property_monitors: false,
     };
     for path in &files {
         let ir = parse_module(path);
@@ -441,6 +453,7 @@ fn c_production_matches_rust_semantics_on_endpoint_protocol() {
     let options = rfs::codegen::BackendOptions {
         assumptions: rfs::codegen::AssumptionSelection::All,
         steps: 4,
+        with_property_monitors: false,
     };
     let out = rfs::codegen::CodegenCommandKind::Production
         .run(backend, &ir.modules[0], &options)

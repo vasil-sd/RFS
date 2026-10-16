@@ -22,11 +22,17 @@ use crate::ir::*;
 use std::fmt::Write as _;
 
 /// Entry point for the `test` command: production FSM code + unit tests.
+/// Property monitors are always included (D-P3-6).
 pub fn generate_unit_tests(
     module: &Module,
     options: &BackendOptions,
 ) -> Result<CodegenOutput, Vec<String>> {
-    crate::backends::rust_fsm::generate_with_tests(module, options, true)
+    crate::backends::rust_fsm::generate_core(
+        module,
+        options,
+        true,
+        crate::codegen::PropertyMonitorMode::Always,
+    )
 }
 
 /// Render the `#[cfg(test)]` module appended by the `test` command.
@@ -177,7 +183,12 @@ pub fn generate_aggregate_test_crate(
             .map_err(|e| vec![format!("{}: {}", file.display(), e.message)])?;
         let file_stem = file.file_name().and_then(|s| s.to_str()).unwrap_or("file");
         for module in &ir.modules {
-            let result = crate::backends::rust_fsm::generate_with_tests(module, options, true)?;
+            let result = crate::backends::rust_fsm::generate_core(
+                module,
+                options,
+                true,
+                crate::codegen::PropertyMonitorMode::Always,
+            )?;
             warnings.extend(result.warnings);
             let mod_name = format!(
                 "m{:03}_{}_{}",

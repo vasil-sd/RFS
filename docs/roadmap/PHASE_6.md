@@ -7,7 +7,7 @@ Make the toolchain trustworthy enough for production protocol work.
 ## Scope
 
 - formal semantics document (automaton model, transition relation, deterministic vs nondeterministic modes, property sampling, PSL operator semantics, strong/weak liveness, fairness, assumptions, error/deadlock semantics, abstraction rules if any);
-- soundness testing: differential MC comparisons, monitor-vs-reference comparisons, PSL translation checks, codegen fuzzing;
+- soundness testing: differential MC comparisons (including cross-backend Rust-vs-C runs), monitor-vs-reference comparisons, PSL translation checks, codegen fuzzing;
 - fuzzing the toolchain itself (parser, validator, IR serialization, code generator, model checker on small generated specs);
 - benchmark suite with protocol-like examples and tracked metrics;
 - stability and versioning: RFS syntax version header, IR schema version, generated-code compatibility policy, migration guide process;
@@ -35,6 +35,7 @@ This is essential for user trust.
 Add differential testing:
 
 - compare brute-force MC with reachable-state MC on small specs;
+- compare backends against each other (backend parity): same spec + seed must give identical statuses, violation labels, step numbers, and counterexample information across Rust and C - for MC runs, forced violations, and production FSMs driven by identical random input sequences;
 - compare generated monitors against hand-written reference monitors;
 - compare PSL translation against an external model checker or library where possible;
 - fuzz random specs and check invariants of code generation.
@@ -52,7 +53,7 @@ Fuzz:
 Goals:
 
 - no crashes on malformed but parseable input;
-- no invalid Rust generated from valid specs;
+- no invalid target-language code (Rust or C) generated from valid specs;
 - no false `PASS (complete)` when search was incomplete;
 - stable diagnostics.
 
@@ -108,15 +109,15 @@ Provide:
 ## Deliverables
 
 - Formal semantics document.
-- Differential + fuzz test harnesses for parser/validator/IR/codegen/MC.
-- Benchmark suite running in CI with tracked metrics.
+- Differential + fuzz test harnesses for parser/validator/IR/codegen/MC, including the cross-backend (Rust vs C) differential suite.
+- Benchmark suite running in CI with tracked metrics, per backend (Rust and C).
 - Versioning scheme (RFS syntax version header, IR schema version) and migration guide process.
 - Full documentation set sufficient for external users.
 
 ## Exit criteria
 
 - v1.0 syntax is stable;
-- toolchain passes fuzzing and differential testing;
+- toolchain passes fuzzing and differential testing (including cross-backend Rust-vs-C comparisons);
 - model checker reports are trustworthy and clearly labeled;
 - production code generation is used in at least one real or realistic protocol project;
 - documentation is sufficient for external users;

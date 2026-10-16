@@ -6,7 +6,7 @@ Move from toy exhaustive checking to a useful verification tool.
 
 ## Scope
 
-- exact reachable-state engine in generated Rust or `rfs-mc-core` (visited set, parent pointers for counterexamples, memory limits, state count reporting, deterministic and nondeterministic modes);
+- exact reachable-state engine in every backend (generated code per backend or a shared `rfs-mc-core`): visited set, parent pointers for counterexamples, memory limits, state count reporting, deterministic and nondeterministic modes - identical results across backends;
 - statuses: `PASS (complete)`, `FAIL`, `UNKNOWN (state limit reached)`;
 - input abstraction for payload fields not used by any guard, action, or property;
 - optional symbolic/SMT bounded mode (z3 bindings, k-liveness; clearly labeled incomplete);
@@ -15,7 +15,8 @@ Move from toy exhaustive checking to a useful verification tool.
 
 ## Exact reachable-state engine
 
-Implement proper state-space search in generated Rust or in `rfs-mc-core`:
+Implement proper state-space search in every backend (generated code per
+backend or a shared `rfs-mc-core`):
 
 - visited set;
 - parent pointers for counterexamples;
@@ -31,6 +32,10 @@ PASS (complete)
 FAIL
 UNKNOWN (state limit reached)
 ```
+
+Parity requirement: the search must be deterministic (fixed traversal order), so
+all backends report the same status and the same counterexample for the same
+spec; cross-backend differential runs are part of the phase verification.
 
 ## Input abstraction
 
@@ -58,7 +63,7 @@ Possible Rust dependencies later:
 - custom bitvector encodings;
 - SAT/SMT solver backend trait.
 
-This mode is for bug hunting and larger-data exploration, not a replacement for exact finite MC.
+This mode is for bug hunting and larger-data exploration, not a replacement for exact finite MC. When implemented, it must be exposed with identical CLI semantics and results in all backends (backend parity).
 
 ## Liveness engine
 
@@ -71,7 +76,7 @@ p until q
 
 Implementation options:
 
-1. Büchi product + fair cycle search in Rust.
+1. Büchi product + fair cycle search (in every backend or a shared core).
 2. k-liveness transformation for bounded checking.
 
 Fairness policy must be documented.
@@ -101,14 +106,16 @@ Add:
 
 ## Deliverables
 
-- Exact MC engine with complete/unknown reporting and actionable counterexamples.
-- Bounded SMT mode behind a feature flag (optional; bug hunting, not exact).
-- Liveness checking in at least bounded mode with documented fairness.
-- Benchmark suite with several protocol-like examples tracking parse/codegen/MC metrics.
+- Exact MC engine with complete/unknown reporting and actionable counterexamples, available in ALL backends with identical results.
+- Bounded SMT mode behind a feature flag (optional; bug hunting, not exact), exposed identically in all backends when implemented.
+- Liveness checking in at least bounded mode with documented fairness, in all backends.
+- Benchmark suite with several protocol-like examples tracking parse/codegen/MC metrics per backend.
+- Cross-backend differential MC comparison: same spec + seed gives identical status and counterexample information in Rust and C.
 
 ## Exit criteria
 
-- exact MC completes on medium-sized finite specs;
+- exact MC completes on medium-sized finite specs in all backends;
+- cross-backend differential runs (Rust vs C) produce identical statuses and counterexample information on the benchmark suite;
 - bounded MC works on larger bitvector specs;
 - liveness properties can be checked in at least bounded mode;
 - counterexamples are actionable;

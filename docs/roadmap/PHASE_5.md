@@ -9,9 +9,10 @@ Make the DSL usable by teams in real Rust projects.
 - stable CLI surface: `rfs parse`, `validate`, `codegen` (list/help/per-backend), `test`, `diagram`, `info` plus documented options (`--target-dir`, `--features`, `--no-std`, `--with-property-monitors`, `--counterexample-format`, `--state-limit`, `--time-limit`, `--log-level`);
 - Cargo integration: `rfs-build` crate for `build.rs`, optional procedural macro crate later, example crates (sync handler, async handler, fuzzing harness);
 - adapters: `ProtocolFsm` trait plus sync/async/callback/no_std adapter variants;
-- test generation: per-transition unit tests, invariant tests, property monitor debug tests, random trace tests, fuzz target skeleton;
+- test generation for ALL backends with identical coverage: per-transition unit tests, invariant tests, property monitor debug tests, random trace tests, fuzz target skeleton (Rust `libfuzzer_sys` / C libFuzzer);
 - diagrams: Graphviz DOT, SVG/PNG state diagrams, transition tables, variable/event summaries;
-- IDE support: initial syntax highlighting + CLI diagnostics integration; full LSP later.
+- IDE support: initial syntax highlighting + CLI diagnostics integration; full LSP later;
+- backend parity maintained (`INTRO.md` principle): every backend-generated deliverable ships for all backends with identical behavior; Rust-ecosystem-only integrations (`rfs-build` crate, futures/no_std adapters) are documented as such, with C-side equivalents where the functionality is language-neutral.
 
 ## CLI hardening
 
@@ -76,15 +77,22 @@ Optional adapters:
 - callback-based;
 - embedded/no_std.
 
+The `ProtocolFsm` trait and the async/callback/no_std adapters are Rust
+ecosystem integration, not backend deliverables - they do not require a 1:1 C
+mapping of idioms. The C backend's equivalent surface is its generated plain-C
+step API (same semantics as the Rust FSM); this phase documents it and adds C
+example projects mirroring the Rust example crates.
+
 ## Test generation
 
-Generate tests from specs:
+Generate tests from specs, in ALL backends with identical coverage (same test
+cases, same expected outcomes):
 
 - unit tests for each transition;
 - invariant tests;
 - property monitor debug tests;
 - random trace tests;
-- fuzz target skeleton.
+- fuzz target skeleton (Rust: `libfuzzer_sys`; C: libFuzzer).
 
 Example generated fuzz target skeleton:
 
@@ -132,7 +140,7 @@ Full LSP later:
 
 - Stable CLI surface with documented options (see Scope).
 - `rfs-build` crate for `build.rs` integration; example crates (sync handler, async handler, fuzzing harness).
-- Generated adapters and test suites including a fuzz target skeleton.
+- Generated adapters and test suites including a fuzz target skeleton, for all backends with identical coverage.
 - Diagram generation (Graphviz DOT, SVG/PNG, transition tables, summaries).
 - Initial IDE support (syntax highlighting for `.rfs`, CLI diagnostics integration).
 
@@ -141,6 +149,7 @@ Full LSP later:
 - a team can add RFS to an existing Rust project with `build.rs`;
 - generated production code is stable and maintainable;
 - CI can run model checking and generated tests;
+- all backend-generated deliverables exist for every backend (Rust and C) and cross-backend comparison of their behavior passes;
 - fuzzing harnesses can be generated;
 - diagrams and docs are useful for protocol review;
 - basic IDE support exists.

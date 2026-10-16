@@ -4,9 +4,17 @@ This directory is the split form of the former single `ROADMAP.md` (removed
 2026-10-16, see `TASKS.md`). It describes development from Phase 0 parser/IR
 baseline to a production-ready DSL and toolchain.
 
-The guiding principle is:
+The guiding principles are:
 
-> One constrained specification → one versioned IR → multiple Rust targets.
+> One constrained specification → one versioned IR → multiple targets.
+
+> **Backend parity:** every codegen backend provides the same functionality -
+> the same commands, the same deliverables per command, and exactly the same
+> observable behavior for the same spec and inputs. Backends must always be kept
+> in sync: a feature lands in ALL existing backends within the same phase, and
+> cross-backend differential tests verify that backends behave identically.
+> Rationale: testing backends against each other gives maximal confidence in
+> their correctness.
 
 Targets include production automata, model-checking executables, tests, diagrams,
 and later IDE support.
@@ -30,7 +38,7 @@ Phase state (2026-10-16):
 | 0 - Semantics, IR, parser baseline | COMPLETE | `PHASE_0.md`, `PHASE_0_STATUS.md` |
 | 1 - Minimal end-to-end demonstrator | COMPLETE | `PHASE_1.md`, `PHASE_1_STATUS.md` |
 | 2 - Core DSL and production code generation | COMPLETE | `PHASE_2.md`, `PHASE_2_STATUS.md` |
-| 3 - PSL-like properties and monitors | NEXT (not yet planned) | `PHASE_3.md` |
+| 3 - PSL-like properties and monitors | PLANNED (plan awaiting user review) | `PHASE_3.md`, `PHASE_3_PLAN.md` |
 | 4 - Scalable model checking | not started | `PHASE_4.md` |
 | 5 - Full toolchain and production integration | not started | `PHASE_5.md` |
 | 6 - Production hardening and v1.0 | not started | `PHASE_6.md` |
@@ -83,6 +91,12 @@ do, and which later phase covers it, if known.
 > Written for a future LLM session: after reading `START.md`,
 > `docs/roadmap/INTRO.md` and this file, the assistant must be able to start
 > implementation immediately without re-deriving scope.
+
+## Context
+
+List of important notes, issues and findings discovered during plannig process.
+All important information for a future LLM session, that may be needed for
+an implementation process, should be placed here.
 
 ## Planned tasks
 
@@ -235,6 +249,11 @@ i) Update `TASKS.md` (entry per its first-paragraph template) and commit.
   learned goes into `PHASE_N_PLAN.md` (corrections) or `PHASE_N_STATUS.md`, never
   silently into the phase file.
 - Keep the phase-state table in section 1 current.
+- Backend parity (guiding principle) applies to ALL phases: every plan must
+  include per-backend tasks for every backend feature and at least one
+  cross-backend differential test comparing backends' behavior on identical
+  specs/seeds; a phase may not exit with any backend left behind on in-scope
+  functionality.
 - The "Recommended v1 scope" and implementation-stack guidance in sections 5-6
   apply to ALL phases; they moved here from the old `ROADMAP.md`.
 
@@ -264,7 +283,7 @@ To keep the first production-ready version manageable, v1 should include:
 - exact reachable-state MC for small systems;
 - bounded MC mode;
 - counterexample JSON/text output;
-- production Rust code generation;
+- production code generation in all backends;
 - optional debug property monitors;
 - CLI and `build.rs` integration;
 - generated unit tests.

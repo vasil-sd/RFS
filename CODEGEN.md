@@ -14,7 +14,7 @@ The subsystem is organized so that:
 - one **common, target-language-agnostic core** defines the plugin API, the CLI
   surface, and the shared analysis helpers;
 - each **target language is a self-contained plugin** under `src/backends/`
-  (currently: Rust; planned: C);
+  (currently: Rust and C);
 - adding a new backend never requires changing the core beyond appending one
   entry to the registry table.
 
@@ -282,3 +282,8 @@ checks; keep any such checks aligned with section 4.2 above.
    not diverge in transition semantics.
 4. The core (`codegen*.rs`) contains no target-language syntax; the backends
    contain no IR analysis that belongs to the core (see placement rule).
+5. Backend parity (roadmap principle, `docs/roadmap/INTRO.md`): all registered
+   backends provide the same commands and deliverables with identical observable
+   behavior for the same spec and inputs; new backend features land in every
+   backend in the same change and are covered by cross-backend differential
+   tests.

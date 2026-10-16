@@ -1,8 +1,9 @@
 //! Phase 2 integration example: a realistic endpoint-protocol spec is compiled
 //! to production Rust, and a driver reads events from an mpsc channel, steps
 //! the generated FSM, and asserts on the emitted outputs. This proves the
-//! ROADMAP exit criteria "a realistic endpoint protocol spec compiles to
-//! production Rust" and "generated code is deterministic and testable".
+//! Phase 2 exit criteria (docs/roadmap/PHASE_2.md): "a realistic endpoint
+//! protocol spec compiles to production Rust" and "generated code is
+//! deterministic and testable".
 
 use std::path::{Path, PathBuf};
 use std::process::Command;

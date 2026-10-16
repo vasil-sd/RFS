@@ -15,9 +15,11 @@ model-checkable (no unbounded data, floats, or arbitrary functions in the core).
 
 1. This file is the only document you read fully at session start. Everything else is
    read **on demand**, in targeted chunks, when a task requires it (see section 6).
-2. Never load whole large documents into context. For `KB.md` / `DESIGN.md` /
-   `ROADMAP.md` use `grep -n "^## \|^### " <file>` to get current line numbers, then
-   `sed -n '<a>,<b>p'` for just the needed section.
+2. Never load whole large documents into context. For `KB.md` / `DESIGN.md` use
+   `grep -n "^## \|^### " <file>` to get current line numbers, then
+   `sed -n '<a>,<b>p'` for just the needed section. Roadmap files in
+   `docs/roadmap/` are small by design: read `INTRO.md` once per phase task and
+   only the specific `PHASE_N*.md` file you need (never all of them).
 3. Toolchain: do not search for cargo/rustc. Use the activation block in section 4.
    If a build fails with a lock-file or version error, read `TOOLCHAIN.md` (it is
    short) and follow it - do not try other toolchains first.
@@ -36,6 +38,10 @@ model-checkable (no unbounded data, floats, or arbitrary functions in the core).
    when a task strictly requires one that cannot be conveyed in text or code (for
    example an important math equation or an essential diagram). When in doubt: no
    image at all.
+8. Phase work (planning or implementing any project phase) follows the two-stage
+   protocol in `docs/roadmap/INTRO.md`: the planning stage ends with a written
+   `PHASE_N_PLAN.md` and a stop for user review; the implementation stage requires
+   that plan file to exist before any code is touched.
 
 ## 1. Project state snapshot (2026-10-15)
 
@@ -47,7 +53,8 @@ model-checkable (no unbounded data, floats, or arbitrary functions in the core).
   new **C backend** (production/test/mc with the Rust MC wire format). Design
   decisions D1-D10: `DESIGN.md` section 20.
 - Next work: **Phase 3 - PSL-like properties and monitors** (property subset,
-  monitor codegen) - see `ROADMAP.md` "Phase 3".
+  monitor codegen) - see `docs/roadmap/PHASE_3.md`; phase planning/implementation
+  protocol: `docs/roadmap/INTRO.md`.
 - Known-good baseline: 125/125 main tests, 492/492 generated-code tests, clippy
   without errors, fmt clean; 40 valid + 11 invalid examples; 11 training categories /
   219 aggregated SFT examples.
@@ -61,7 +68,8 @@ model-checkable (no unbounded data, floats, or arbitrary functions in the core).
 | `TOOLCHAIN.md` | Rust toolchain paths/versions, activation, reinstall, env corner cases | Only when cargo/rustc fails or exact versions are needed | Fully (~70 lines, safe) |
 | `KB.md` | Design decisions, RFS v0 syntax reference, source-code map, CLI behavior, training-set organization, agent workflow experience | For language semantics questions, source layout, CLI rules, "how is X implemented" | **Never fully** - section map in section 5; grep + sed ranges |
 | `DESIGN.md` | RFS v0 design: architecture, core semantics, EBNF grammar, IR schema, parser/codegen/MC/PSL plans, design-choice tables | When changing language semantics, grammar, IR, or codegen/MC design | **Never fully** - section map in section 5 |
-| `ROADMAP.md` | Phases 0-6 with scope + exit criteria, "Current status" of each completed phase | When scoping work, checking what a phase requires/delivers, finding next priorities | Read "Current status" (near end) + the relevant phase section only |
+| `docs/roadmap/INTRO.md` | Roadmap overview, phase-state table, formatting templates, two-stage planning/implementation protocol | When scoping, planning, or implementing any phase; checking next priorities | Fully (short) |
+| `docs/roadmap/PHASE_N.md` / `PHASE_N_PLAN.md` / `PHASE_N_STATUS.md` | Phase N description (goal/scope/deliverables/exit criteria/non-goals) / implementation plan / completion status report | Description: when working on phase N. Plan: fully, before implementing. Status: for completed phases 0-2 | Fully (each is short by design) |
 | `CODEGEN.md` | Codegen backend plugin API, registry, how to add a new target language, testing conventions | When touching `src/codegen.rs`, `src/backends/*`, or adding a backend | Fully (~280 lines, safe) |
 | `src/backends/RUST.md` / `src/backends/C.md` | Backend internals: module split, type mapping, value representation, MC wire format | When changing generated-code output for that language | Fully (~90-150 lines, safe) |
 | `TASKS.md` | Append-only history of LLM-assisted tasks (interpretation + report per task) | To recall how a similar task was done: `grep -n "<keyword>" TASKS.md` then read that section; to append: read ONLY its first paragraph (template + rules) | Never fully |
@@ -119,9 +127,11 @@ then `sed -n '<start>,<end>p'`. Sections:
   12 PSL-like property language plan / 13 diagnostics + validation plan /
   14 toolchain CLI plan / 15 testing strategy / 16 risks / 17 Phase 0 deliverables /
   18 example spec + Phase 1 codegen decisions.
-- **ROADMAP.md**: Phase 0..6 sections (scope, exit criteria each), "Recommended v1
-  scope", "Suggested implementation stack", **"Current status"** (read this first for
-  what is implemented and what comes next).
+- **docs/roadmap/**: split roadmap (replaces the old `ROADMAP.md`, removed
+  2026-10-16): `INTRO.md` (overview + templates + protocol), `PHASE_0..6.md`
+  (phase descriptions), `PHASE_N_PLAN.md` / `PHASE_N_STATUS.md` where they exist
+  (status exists for completed phases 0-2). All small: read the specific file you
+  need, fully.
 
 ## 6. Task -> read / do / verify table (lazy loading protocol)
 
@@ -131,7 +141,7 @@ then `sed -n '<start>,<end>p'`. Sections:
 | Change RFS syntax/grammar | `DESIGN.md` sections 5-6 + `KB.md` sections 3, 6.5; add examples FIRST | Update parser/validator | Full checklist (`BUILD.md` section 5) + update DESIGN/KB |
 | Change the IR | `DESIGN.md` section 7 + serde attrs in `src/ir.rs` | Decide backward compat; bump `IR_VERSION` if needed | JSON round-trip tests + full checklist |
 | Add a codegen backend language | `CODEGEN.md` fully + `src/backends/RUST.md` / `src/backends/C.md` as references | Implement 3 command fns in `src/backends/<lang>*.rs`, register static in `BACKENDS` | per-command generation tests (see CODEGEN section 8) |
-| Property/monitor work (Phase 3) | `ROADMAP.md` "Phase 3" + `DESIGN.md` section 12 (PSL plan) + `KB.md` section 2.6 | Monitor codegen per ROADMAP; extend translated subset in `codegen_fsm.rs` | Full checklist |
+| Phase implementation (next: Phase 3 properties/monitors) | `docs/roadmap/INTRO.md` fully + `docs/roadmap/PHASE_N.md`; phase-specific docs (`DESIGN.md` section 12 PSL plan, `KB.md` section 2.6 for Phase 3) | Two-stage protocol from INTRO.md: planning stage writes `PHASE_N_PLAN.md`, then stops for user review; implementation stage executes the plan, tracks corrections, writes `PHASE_N_STATUS.md` at exit criteria | Full checklist + docs sync + TASKS.md entry |
 | Improve validator/codegen checks | `DESIGN.md` sections 19-20 (decision tables D1-D10) + `KB.md` section 7 | Implement checks, add invalid examples first | Full checklist |
 | Training-set work | `KB.md` section 4.6 (format rules: 2 messages, `< think> ... < /think>` assistant, snippets auto-extracted) | Edit `training/<cat>/rfs_training.jsonl` | `cargo extract-training-snippets && cargo build-training && cargo test-training` |
 | LLM training run (GPU) | `head -60 training.py` (docstring only) + `BUILD.md` last command row | `python training.py --stage both` | `--dry-run` first for CPU-only data/reward validation |
@@ -157,13 +167,15 @@ Expected results and every command/alias: `BUILD.md` sections 3-4.
 - Keep training data category-local: add SFT examples to
   `training/<category>/rfs_training.jsonl`, then regenerate snippets + aggregate.
 - Keep `cargo test`, `cargo clippy --all-targets`, and `cargo fmt` green.
-- Keep `DESIGN.md`, `ROADMAP.md`, `KB.md` (and `BUILD.md`/`TOOLCHAIN.md` when
-  commands/toolchain change) synchronized with design-relevant changes.
+- Keep `DESIGN.md`, the `docs/roadmap/` phase files (incl. status reports), and
+  `KB.md` (and `BUILD.md`/`TOOLCHAIN.md` when commands/toolchain change)
+  synchronized with design-relevant changes.
 - Append a `TASKS.md` entry after every completed task (template in its first paragraph).
 
 Before changing language syntax:
 
-1. Search `DESIGN.md`, `ROADMAP.md`, and `KB.md` for the affected decision.
+1. Search `DESIGN.md`, the relevant `docs/roadmap/PHASE_N.md`, and `KB.md` for the
+   affected decision.
 2. Add valid and invalid examples first if possible.
 3. Update parser or validator.
 4. Run full tests.

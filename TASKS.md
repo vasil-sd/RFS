@@ -155,3 +155,20 @@ sed -n "<start>,<end>p" TASKS.md            # one specific entry by line range
 - Docs-only change to the session-protocol file; no source, tests, or build impact.
 - Verification: single-hunk edit confirmed by diff view; surrounding items 6 and section 1 untouched.
 
+## 2026-10-16 00:21 — Documentation refactor: split ROADMAP.md into docs/roadmap/ (INTRO + PHASE_N[_PLAN|_STATUS])
+
+### Interpretation & plan
+
+- Requested: split ROADMAP.md into `docs/roadmap/` - INTRO.md (info from the old first section + formatting templates for PHASE_N.md / PHASE_N_PLAN.md / PHASE_N_STATUS.md + two-stage planning/implementation protocol extracted from the request), PHASE_0..6.md normalized to one common structure; then update all other markdown files and replace every ROADMAP.md reference with actual information.
+- Plan: (1) read ROADMAP.md fully (828 lines) and grep all references repo-wide; (2) create 11 new files preserving ALL content (phases, v1 scope, stack tables, per-phase current status); (3) normalize phase files to Goal/Scope/phase-specific/Deliverables/Exit criteria/Non-goals, deriving missing sections from existing text only; (4) write STATUS files for completed phases 0-2 from the "Current status" section; (5) update references in START.md/KB.md/DESIGN.md + one .rs doc comment; (6) delete ROADMAP.md; (7) verify via grep + BUILD.md section 5 checklist.
+
+### Report
+
+- New `docs/roadmap/` (1354 lines total): INTRO.md (overview, phase-state table, templates 2.1-2.3 with exact table columns, two-stage protocol 3.1 planning / 3.2 implementation, general rules; "Recommended v1 scope" + both stack tables moved here from the old intro sections), PHASE_0..6.md (each: Goal/Scope/phase-specific sections/Deliverables/Exit criteria/Non-goals; Deliverables and Non-goals derived from existing text for phases that lacked them), PHASE_0_STATUS.md / PHASE_1_STATUS.md / PHASE_2_STATUS.md (reconstructed from the old "Current status" section into template 2.3 tables, with provenance notes).
+- `ROADMAP.md` deleted (828 lines); no content loss - every section now lives in docs/roadmap/.
+- START.md: 8 edits (rule 2 roadmap reading guidance, new rule 8 two-stage protocol pointer, section 1 next-work pointer to PHASE_3.md, section 2 doc-map rows, section 5 section map, section 6 task row generalized to "Phase implementation", section 8 sync + syntax-change checklist).
+- KB.md: 9 edits incl. section 8 rewrite (stale "Phase 1 - next phase" M1-M6 milestone plan removed as superseded by PHASE_1_STATUS.md; Phase 1/2 marked complete with STATUS pointers; new "Phase 3 and later - next work"), section 12 priority updated to Phase 3, read-order list, state table, doc workflow (6.6), sync rule (11).
+- DESIGN.md section 17: historical deliverable annotated "(now split into docs/roadmap/)"; tests/integration_example_test.rs doc comment now cites docs/roadmap/PHASE_2.md exit criteria.
+- TASKS.md history untouched (append-only rule); training JSONL untouched (contains only the generic word "roadmap", no file references).
+- Verification: grep - shows remaining ROADMAP mentions are intentional provenance notes + TASKS.md history only; cargo build OK; cargo test all suites ok (125); clippy 0 errors; fmt clean.
+- Git note: working tree had pre-existing uncommitted changes before this task (ROADMAP.md Phase 2 status bullets, START.md rule 7, earlier TASKS.md entry) - no commit made; user to decide commit grouping.

@@ -1185,7 +1185,7 @@ is stable for the v0 subset.
 Phase 0 delivers:
 
 1. `DESIGN.md` with core design choices;
-2. `ROADMAP.md` with development plan;
+2. `ROADMAP.md` with development plan (now split into `docs/roadmap/`);
 3. Rust parser for the RFS v0 subset;
 4. IR v0 data structures;
 5. JSON serialization/deserialization for IR v0;

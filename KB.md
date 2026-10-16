@@ -18,7 +18,7 @@ Read order for a new assistant:
 
 1. `KB.md`
 2. `DESIGN.md`
-3. `ROADMAP.md`
+3. `docs/roadmap/INTRO.md` (+ the specific `PHASE_N*.md` file you need)
 4. `src/ir.rs`
 5. `src/parser.rs`
 6. `examples/valid/`
@@ -34,7 +34,7 @@ Read order for a new assistant:
 | Build/run/test how-to | Active | `BUILD.md` - build files, commands, test suites and expected results, verification checklist. |
 | Toolchain | Pinned facts | `TOOLCHAIN.md` - Rust toolchain locations/versions, activation, reinstall. |
 | Design document | Done, maintained | `DESIGN.md` contains the RFS v0 design baseline and parser decision. |
-| Roadmap | Active | `ROADMAP.md` describes Phase 0 through production toolchain. |
+| Roadmap | Active | `docs/roadmap/` (split from the old `ROADMAP.md` on 2026-10-16): `INTRO.md` + `PHASE_0..6.md`; status reports for completed phases 0-2. |
 | Knowledge base | Maintained | This file: design decisions, syntax reference, source map, agent workflow experience. |
 | Cargo project | Working | Package `rfs`, version `0.1.0`, edition `2021`. |
 | Parser | Phase 0 complete | Implemented with `nom` 8 in `src/parser.rs`. |
@@ -960,7 +960,7 @@ These were real bugs or design traps during the nom rewrite:
 When making a design-relevant change:
 
 1. Update `DESIGN.md` if the language or architecture changed.
-2. Update `ROADMAP.md` if phase status or stack changed.
+2. Update the relevant `docs/roadmap/PHASE_N*.md` file (plan corrections / status report) if phase status or stack changed; keep the phase-state table in `docs/roadmap/INTRO.md` current.
 3. Update `KB.md` if future agents need to know the new state, command, corner case, or limitation.
 4. Add or update examples/tests for the behavior.
 5. Run `cargo test`, `cargo clippy --all-targets`, and `cargo fmt`.
@@ -986,13 +986,15 @@ intermediates in Rust / native unsigned wrap in C), formula precedence
 
 ## 8. Updated roadmap
 
-`ROADMAP.md` remains the authoritative long-term roadmap. This section is a compact status view for future work.
+`docs/roadmap/` (INTRO.md + PHASE_N.md files) is the authoritative long-term
+roadmap; per-phase implementation reports live in `docs/roadmap/PHASE_N_STATUS.md`.
+This section is a compact status view for future work.
 
 ### Phase 0: Parser/IR baseline — complete with caveats
 
 Completed:
 
-- DESIGN and ROADMAP documents.
+- DESIGN and roadmap documents.
 - Cargo project.
 - IR v0 with serde JSON.
 - nom-based parser for RFS v0 subset.
@@ -1003,7 +1005,8 @@ Completed:
 - parser-library comparison: nom chosen, chumsky retained as dev-only smoke test.
 - passing `cargo test`, `cargo clippy`, and `cargo fmt`.
 
-Caveats:
+Caveats (as of Phase 0 completion; most were resolved in Phases 1-2 - see section 7
+for what remains):
 
 - No semantic type checking or name resolution.
 - No spans in IR.
@@ -1011,61 +1014,25 @@ Caveats:
 - No model checking.
 - Priority is parsed but not semantically used.
 
-### Phase 1: Minimal end-to-end demonstrator — next phase
+### Phase 1: Minimal end-to-end demonstrator — complete
 
-Goal:
+Validator, plugin-based Rust codegen (production/test/mc), bounded model checker,
+and the `rfs parse`/`rfs validate` CLI rework are implemented. The historical
+M1-M6 milestone plan is superseded by the actual outcome recorded in
+`docs/roadmap/PHASE_1_STATUS.md`.
 
-```text
-RFS spec -> validated IR -> Rust production code + Rust model-checking executable
-```
+### Phase 2: Core DSL and production code generation — complete
 
-Recommended milestone order:
+Module version headers, `on_error` fallbacks, semantic priorities, validator
+warnings, and the C backend are implemented; details in
+`docs/roadmap/PHASE_2_STATUS.md`.
 
-1. **M1: Semantic validator**
-   - name resolution;
-   - type checking for expressions, patterns, outputs, variables;
-   - transition/action validation;
-   - better error reporting.
+### Phase 3 and later — next work
 
-2. **M2: Frozen v0 semantics**
-   - document expression evaluation on bit-vectors;
-   - document formula precedence;
-   - decide status of `priority`;
-   - add invalid examples for validator errors.
-
-3. **M3: Production code generator MVP**
-   - generate Rust enums for states, events, outputs, and vars;
-   - generate `Fsm::step`;
-   - support unit events first, then payloads and guards;
-   - generate compilable Rust for small specs.
-
-4. **M4: Model-checker generator MVP**
-   - bounded exhaustive search over finite state + variables;
-   - check `always p` and simple implications;
-   - print counterexample trace;
-   - start with small depth/state space.
-
-5. **M5: CLI integration**
-   - `rfs check`;
-   - `rfs codegen`;
-   - `rfs mc`;
-   - or keep subcommands in current binary before extracting a proper CLI crate.
-
-6. **M6: Demo protocol**
-   - create a small but meaningful protocol spec;
-   - prove production code compiles;
-   - prove model checker finds an injected bug and accepts a corrected spec.
-
-### Phase 2 and later
-
-- full PSL-like property subset;
-- monitor/automata compilation for properties;
-- priorities and deterministic scheduling;
-- module composition/import;
-- better diagnostics and IDE/LSP support;
-- diagrams;
-- fuzzing and performance work;
-- optional SMT/BDD/symbolic backends.
+- **Phase 3 (next):** PSL-like property subset + monitor codegen + MC integration - `docs/roadmap/PHASE_3.md`; start via the two-stage protocol in `docs/roadmap/INTRO.md` (plan first, user review, then implement).
+- Phase 4: scalable model checking (exact reachable-state engine, liveness, optional SMT) - `docs/roadmap/PHASE_4.md`.
+- Phase 5: full toolchain and production integration (CLI hardening, `build.rs`, adapters, diagrams, IDE) - `docs/roadmap/PHASE_5.md`.
+- Phase 6: production hardening and v1.0 (formal semantics, fuzzing, benchmarks, docs) - `docs/roadmap/PHASE_6.md`.
 
 ---
 
@@ -1320,7 +1287,7 @@ toolchain activation, essential commands, workflow rules). Build/test details:
 - Do not break the file-driven example suite. New examples should work without changing test code.
 - Keep training data category-local: add new SFT examples to `training/<category>/rfs_training.jsonl`, then run `cargo extract-training-snippets` and `cargo build-training`.
 - Keep `cargo test`, `cargo clippy --all-targets`, and `cargo fmt` green.
-- Keep `DESIGN.md`, `ROADMAP.md`, and `KB.md` synchronized when making design-relevant changes.
+- Keep `DESIGN.md`, the `docs/roadmap/` phase files, and `KB.md` synchronized when making design-relevant changes.
 - Prefer `nom` for parser work unless a new evaluation justifies switching.
 - If adding dependencies, state the reason and keep dev-only dependencies out of normal dependencies when possible.
 - When uncertain about semantics, write the open question in `KB.md` and add tests that pin the chosen behavior after the decision is made.
@@ -1329,10 +1296,11 @@ toolchain activation, essential commands, workflow rules). Build/test details:
 
 ## 12. What to work on next
 
-Obsolete as of Phase 1 completion (validator, codegen, and bounded MC all exist).
-Current priorities: **`ROADMAP.md` "Phase 2: Core DSL and production code generation"**
-(payloads with bindings, priorities, validator improvements, C backend), plus the
-session entry workflow in `START.md`.
+Obsolete as of Phase 2 completion (core DSL, priorities, on_error, validator
+warnings, and the C backend all exist).
+Current priority: **`docs/roadmap/PHASE_3.md` - PSL-like properties and monitors**
+(property subset, monitor codegen, MC integration), planned via the two-stage
+protocol in `docs/roadmap/INTRO.md`, plus the session entry workflow in `START.md`.
 
 ---
 

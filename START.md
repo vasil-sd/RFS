@@ -40,8 +40,10 @@ model-checkable (no unbounded data, floats, or arbitrary functions in the core).
    image at all.
 8. Phase work (planning or implementing any project phase) follows the two-stage
    protocol in `docs/roadmap/INTRO.md`: the planning stage ends with a written
-   `PHASE_N_PLAN.md` and a stop for user review; the implementation stage requires
-   that plan file to exist before any code is touched.
+   `PHASE_N_PLAN.md` plus per-task `PHASE_N_TASK_M.md` files, each followed by a stop
+   for user review; the implementation stage requires that plan file to exist before
+   any code is touched and executes tasks one at a time - every task starts only
+   after explicit user confirmation.
 
 ## 1. Project state snapshot (2026-10-15)
 
@@ -69,7 +71,7 @@ model-checkable (no unbounded data, floats, or arbitrary functions in the core).
 | `KB.md` | Design decisions, RFS v0 syntax reference, source-code map, CLI behavior, training-set organization, agent workflow experience | For language semantics questions, source layout, CLI rules, "how is X implemented" | **Never fully** - section map in section 5; grep + sed ranges |
 | `DESIGN.md` | RFS v0 design: architecture, core semantics, EBNF grammar, IR schema, parser/codegen/MC/PSL plans, design-choice tables | When changing language semantics, grammar, IR, or codegen/MC design | **Never fully** - section map in section 5 |
 | `docs/roadmap/INTRO.md` | Roadmap overview, phase-state table, formatting templates, two-stage planning/implementation protocol | When scoping, planning, or implementing any phase; checking next priorities | Fully (short) |
-| `docs/roadmap/PHASE_N.md` / `PHASE_N_PLAN.md` / `PHASE_N_STATUS.md` | Phase N description (goal/scope/deliverables/exit criteria/non-goals) / implementation plan / completion status report | Description: when working on phase N. Plan: fully, before implementing. Status: for completed phases 0-2 | Fully (each is short by design) |
+| `docs/roadmap/PHASE_N.md` / `PHASE_N_PLAN.md` / `PHASE_N_TASK_M.md` / `PHASE_N_*_STATUS.md` | Phase N description (goal/scope/deliverables/exit criteria/non-goals) / implementation plan / per-task implementation details / phase or task completion status report | Description: when working on phase N. Plan: fully, before implementing. Task file: fully, before executing that task. Status: for completed phases/tasks | Fully (each is short by design) |
 | `CODEGEN.md` | Codegen backend plugin API, registry, how to add a new target language, testing conventions | When touching `src/codegen.rs`, `src/backends/*`, or adding a backend | Fully (~280 lines, safe) |
 | `src/backends/RUST.md` / `src/backends/C.md` | Backend internals: module split, type mapping, value representation, MC wire format | When changing generated-code output for that language | Fully (~90-150 lines, safe) |
 | `TASKS.md` | Append-only history of LLM-assisted tasks (interpretation + report per task) | To recall how a similar task was done: `grep -n "<keyword>" TASKS.md` then read that section; to append: read ONLY its first paragraph (template + rules) | Never fully |

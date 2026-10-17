@@ -29,6 +29,11 @@ cargo test         # full main-crate suite (see section 3)
 Re-export the three env vars in **every** shell command that needs cargo (env does not
 persist between tool calls). If `cargo --version` is not 1.99.0, see `TOOLCHAIN.md`.
 
+SMT mode (Phase 4 task 11, optional, feature-gated) additionally requires the
+project-local z3 install: activation env vars per `TOOLCHAIN.md` section 5.2
+(`PATH=/workspace/host/z3/bin:$PATH` + `Z3_LIBRARY_PATH_OVERRIDE`); generated C
+SMT output compiles per section 5.3.
+
 ## 3. Test layout and expected current results
 
 | Suite | Command | Current result |
@@ -92,6 +97,9 @@ Additional checks depending on what changed:
   crate first if you changed generation output).
 - Touched training sets -> `cargo extract-training-snippets && cargo build-training && cargo test-training`.
 - Touched language syntax -> also update `DESIGN.md`/`KB.md` and add valid+invalid examples first.
+- Touched SMT mode / the feature-gated z3 dependency -> rebuild with the SMT feature
+  and the z3 env vars from `TOOLCHAIN.md` section 5.2; spot-compile generated C SMT
+  output per section 5.3.
 
 Known-good baseline (2026-10-17, after Phase 3): 170/170 main tests, 513/513
 generated tests, clippy without errors (12 pre-existing warnings: 11 in lib -

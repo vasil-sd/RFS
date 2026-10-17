@@ -30,8 +30,11 @@
 - `src/monitor.rs` = shared PSL-to-monitor compiler with restrictions R1-R4;
   out-of-subset formulas produce IDENTICAL skip warnings in both backends.
   New liveness operators will be outside the monitor subset (MC-only).
-- Environment: `cmake` present, z3 NOT installed (no headers/lib) - SMT mode
-  is a heavy optional task with a feasibility gate (D-P4-12).
+- Environment: `cmake` present; z3 **5.3.1** installed project-locally at
+  `/workspace/host/z3` (prebuilt x64-glibc-2.39 release, verified working
+  2026-10-18; install/reinstall procedure in `TOOLCHAIN.md` section 5) - SMT
+  mode remains an optional task with a feasibility gate on the Rust bindings
+  (D-P4-12).
 - Generated binaries must stay self-contained (no dependency on the RFS
   toolchain crate; C output compiles with plain `gcc -Wall`).
 
@@ -108,13 +111,16 @@
   on the cycle). Documented in DESIGN section 11. RISK: if the fairness
   filter proves too complex, plan correction restricts liveness to
   deterministic mode.
-- D-P4-12 SMT bounded mode (optional task 11): feasibility gate first (build
-  the `z3` crate from source via cmake in a scratch project; C backend would
-  link libz3). If infeasible -> plan correction deferring to Phase 5/6 with
-  rationale; exit criterion "bounded MC works on larger bitvector specs" is
-  then satisfied by bounded exact MC + input abstraction (honest UNKNOWN for
-  used large bitvectors, full checking when abstractable), documented in
-  PHASE_4_STATUS.md.
+- D-P4-12 SMT bounded mode (optional task 11): z3 5.3.1 is installed at
+  `/workspace/host/z3` per `TOOLCHAIN.md` section 5 (done during planning,
+  re-verified at task start). Feasibility gate: scratch project building the
+  `z3` crate 0.21.x against that install (default z3-sys feature + env vars
+  per TOOLCHAIN.md 5.2; the C backend links the SAME libz3, so both backends
+  share one solver build - parity). If infeasible -> plan correction deferring
+  to Phase 5/6 with rationale; exit criterion "bounded MC works on larger
+  bitvector specs" is then satisfied by bounded exact MC + input abstraction
+  (honest UNKNOWN for used large bitvectors, full checking when abstractable),
+  documented in PHASE_4_STATUS.md.
 - D-P4-13 Benchmarks: three protocol-like specs in `examples/valid` (task 6:
   sliding-window ARQ with an UNUSED `bit<32>` checksum field; task 8: 4-node
   token ring, elevator) + inline FAIL variants inside
@@ -152,7 +158,7 @@
 | 8. | Benchmark specs | `examples/valid/44_token_ring.rfs` (new); `examples/valid/45_elevator.rfs` (new) | Two more protocol-like medium-size specs with safety + liveness properties and abstraction-stress payload fields; the file-driven example suite picks them up automatically (parse+validate+round-trip). |
 | 9. | Benchmark suite test | `tests/benchmark_mc_test.rs` (new); `BUILD.md` (change - suite row) | Runs exact MC on all benchmark specs in BOTH backends: asserts expected statuses, parity of deterministic metrics (states/transitions/max_depth), sanity bounds; inline FAIL variants with known violations (D-P4-13); writes `target/mc_benchmarks.json` + prints the per-backend table. |
 | 10. | Performance features | `src/backends/rust_mc.rs` (change); `src/backends/c_mc.rs` (change); `tests/benchmark_mc_test.rs` (change) | Statistics polish (memory estimate, monitor size), `--max-states` default tuned from benchmark data, `--timeout-sec` documented as non-parity. OPTIONAL subtask: `--threads N` level-parallel BFS with canonical violation selection + parity test at threads 1 vs 2; defer via plan correction if parity risk emerges. |
-| 11. | SMT bounded mode (OPTIONAL) | `Cargo.toml` (change - z3 dep, feature-gated); `src/backends/rust_mc.rs` or `src/backends/rust_smt.rs` (new/change); `src/backends/c_mc.rs` (change); docs per task 13 | Feasibility gate FIRST: build the `z3` crate from source in a scratch project; if it fails -> plan correction deferring to Phase 5/6 with rationale (D-P4-12). If proceeding: `--mode smt-bounded`, k-liveness for liveness, results clearly labeled incomplete, identical CLI semantics + results in both backends. |
+| 11. | SMT bounded mode (OPTIONAL) | `Cargo.toml` (change - z3 dep, feature-gated); `src/backends/rust_mc.rs` or `src/backends/rust_smt.rs` (new/change); `src/backends/c_mc.rs` (change); `TOOLCHAIN.md` (change - section 5 status line only if reinstall/version bump needed); docs per task 13 | Step 0: verify z3 install per `TOOLCHAIN.md` section 5 (installed during planning; reinstall if missing). Feasibility gate: scratch build of the `z3` crate 0.21.x against `/workspace/host/z3` (env vars per section 5.2); if it fails -> plan correction deferring to Phase 5/6 with rationale (D-P4-12). If proceeding: `--mode smt-bounded`, k-liveness for liveness, results clearly labeled incomplete, identical CLI semantics + results in both backends (same libz3 in Rust and C). |
 | 12. | Training data update | `training/properties_temporal_logic/rfs_training.jsonl` (change); `training/model_checking_properties/rfs_training.jsonl` (change); `training/<cat>/snippets/**` + `all_rfs_training.jsonl` (regenerate) | SFT examples: `eventually`/`until` syntax + weak-until semantics, exact MC statuses (`pass-complete`/`fail`/`unknown-state-limit`), input abstraction, liveness counterexamples; regenerate snippets + aggregate; `cargo test-training` green. |
 | 13. | Docs sync | `DESIGN.md` (change - sections 5/6/7, section 11 REWRITTEN for the exact engine, section 12 subset table, NEW section 22 "Phase 4 model-checking decisions" D-P4-1..N); `KB.md` (change); `BUILD.md` (change); `CODEGEN.md` (change); `src/backends/RUST.md` (change); `src/backends/C.md` (change); `START.md` (change - section 1 snapshot) | Sync all design-relevant docs to the final Phase 4 state: exact engine architecture, statuses, liveness algorithm + fairness policy, input-abstraction soundness, SMT outcome (implemented or deferred), benchmark suite. |
 | 14. | Close-out | `docs/roadmap/PHASE_4_STATUS.md` (new); `docs/roadmap/INTRO.md` (change - state table row 4); `TASKS.md` (change) | Full verification per BUILD.md section 5 + `gcc -Wall` spot check of the NEW C MC output; `PHASE_4_STATUS.md` per template 2.3 with exact counts; state-table row 4 -> COMPLETE; TASKS.md entry; single commit; clean tree. |
@@ -180,8 +186,9 @@
      benchmarks demand it (task 3 decision).
   2. `--nondet` strong-fairness filter complexity - fallback: liveness in
      deterministic mode only (plan correction, D-P4-11).
-  3. z3 build feasibility in this environment (cmake present, no z3 installed)
-     - gated in task 11 (D-P4-12).
+  3. Rust `z3` crate compatibility with the installed z3 5.3.1 (the solver
+     itself is verified working; the bindings scratch build is the gate) -
+     gated in task 11 (D-P4-12).
   4. Pinned test values change deliberately in task 4 (D-P4-14) - re-pin from
      actual deterministic output, never hand-computed.
 - Explicitly deferred within this phase: incremental MC cache for CI (phase

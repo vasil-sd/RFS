@@ -398,3 +398,18 @@ sed -n "<start>,<end>p" TASKS.md            # one specific entry by line range
 - Findings: RFS v0 negation is `!` (no `not` keyword) and `next` requires parentheses - first draft of the R1-R4 example failed to parse, fixed before appending. Pre-existing properties_temporal_logic blocks are bare fragments (category has 0 valid snippets); new examples use complete minimal modules per the task's "must parse + validate" discipline - line 13 will be the category's first valid snippet after task 20 re-extraction.
 - Expected transient state: `cargo test-training` 3/4 - `committed_all_rfs_training_file_is_fresh` red (219 vs 224) until task 20 runs `cargo build-training`; `aggregate_training_sets_matches_category_files` passes (validates the new lines).
 - Next in defined order: task 20 (regenerate snippets + aggregate + training tests).
+
+## 2026-10-17 20:50 — Phase 3 task 20: regenerated training snippets + aggregate; BUILD.md counts synced (125/125 snippets, 224 examples, 171/513 codegen tests)
+
+### Interpretation & plan
+
+- Requested: execute Phase 3 task 20 per `docs/roadmap/PHASE_3_TASK_20.md` - run the training pipeline after task 19's additions, get all training tests green, and update BUILD.md expected counts.
+- Plan: (1) `cargo extract-training-snippets && cargo build-training && cargo test-training`; on extractor rejection -> fix the block in task-19 files (none expected); (2) regenerate the generated-code test crate for new actuals; (3) update BUILD.md sections 3-4 numbers; (4) status file + this entry.
+
+### Report
+
+- Pipeline all green: extract -> **125 valid / 125 invalid** snippets (valid +5: properties_temporal_logic 0 -> 3 - first valid snippets ever in that category, model_checking_properties 36 -> 38); build-training -> **224 examples**; test-training **4/4** (the freshness test red during task 19 now passes).
+- Generated-code test crate regenerated: **171 modules / 513 tests, all pass** (+5 snippet modules x 3 tests over task 18's 166/498).
+- BUILD.md section 4 updated to actuals: 162 -> 171 modules, 492 -> 513 tests, 120/125 -> 125/125 snippets, 219 -> 224 examples. `tests/training_test.rs` needed no changes (counts computed dynamically).
+- Left for task 21's BUILD.md sync: section 3 main-test count line ("125 pass" vs current 170) and section 5's dated Phase 2 baseline - recorded in the status file.
+- `cargo test --no-fail-fast` 170/170 green; fmt clean. Next in defined order: task 21 (docs sync).

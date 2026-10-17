@@ -1,20 +1,19 @@
-module timer_zero {
-  enum State { Ready, Waiting }
-  initial Ready
-  var timer: bit<4> init 0
-  event Start
+module ticked_service {
+  enum State { Idle, Busy }
+  initial Idle
+  event Req
   event Tick
-  output Expired
-  transition Ready on Start {
-    next Waiting;
-    set timer = 5;
+  output Done
+  transition Idle on Req {
+    next Busy;
   }
-  transition Waiting on Tick where timer > 0 {
-    next Waiting;
-    set timer = timer - 1;
+  transition Idle on Tick {
+    next Idle;
   }
-  transition Waiting on Tick where timer == 0 {
-    next Ready;
-    emit Expired;
+  transition Busy on Tick {
+    next Idle;
+    emit Done;
   }
+  assume env_ticks : always (bounded_eventually[5] (input_is(Tick))) ;
+  prop busy_resolves : always (state == Busy -> bounded_eventually[5] (output_has(Done))) ;
 }

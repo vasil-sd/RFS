@@ -61,10 +61,10 @@ per-command generation, option sensitivity, and CLI argument parsing.
 | List codegen backends / per-backend help | `cargo run -- codegen --list` / `cargo run -- codegen rust --help` |
 | Generate production/test/MC Rust code | `cargo run -- codegen rust <production\|test\|mc> <spec.rfs\|spec.json> [--out FILE] [--assumes ...] [--steps N]` |
 | Generate C code (Phase 2; same commands) | `cargo run -- codegen c <production\|test\|mc> <spec.rfs\|spec.json> [--out FILE] [--assumes ...]` (compile with `gcc -Wall out.c`) |
-| Generate aggregate generated-code test crate (162 modules) | `cargo generate-code-tests [--test-steps N] [--assumes ...]` |
-| Generate + compile + run all generated unit tests (492) | `cargo test-generated-code` |
-| Extract training snippets from `training/*/rfs_training.jsonl` | `cargo extract-training-snippets` -> 120 valid / 125 invalid snippets |
-| Aggregate training JSONL | `cargo build-training` -> writes `all_rfs_training.jsonl` (219 examples) |
+| Generate aggregate generated-code test crate (171 modules) | `cargo generate-code-tests [--test-steps N] [--assumes ...]` |
+| Generate + compile + run all generated unit tests (513) | `cargo test-generated-code` |
+| Extract training snippets from `training/*/rfs_training.jsonl` | `cargo extract-training-snippets` -> 125 valid / 125 invalid snippets |
+| Aggregate training JSONL | `cargo build-training` -> writes `all_rfs_training.jsonl` (224 examples) |
 | Run training tests | `cargo test-training` |
 | Train Qwen3.8-27B on RFS data (SFT then GRPO, needs GPU) | `python training.py --stage both` (`--dry-run` = CPU-only data/reward validation) |
 

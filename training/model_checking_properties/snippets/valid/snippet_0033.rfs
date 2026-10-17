@@ -1,20 +1,24 @@
-module shifts {
-  enum State { S }
-  initial S
-  var window: bit<8> init 1
-  event Left
-  event Right
-  output Wide
-  transition S on Left where window < 128 {
-    next S;
-    set window = window << 1;
+module request_response {
+  enum State { Idle, Waiting }
+  initial Idle
+  event Req
+  event Resp
+  event Tick
+  output SendResp
+  var timer: bit<3> init 2
+  transition Idle on Req {
+    next Waiting;
+    emit SendResp;
+    set timer = 2;
   }
-  transition S on Right where window > 1 {
-    next S;
-    set window = window >> 1;
+  transition Waiting on Resp {
+    next Idle;
   }
-  transition S on Left where window == 128 {
-    next S;
-    emit Wide;
+  transition Waiting on Tick where timer > 0 {
+    next Waiting;
+    set timer = timer - 1;
+  }
+  transition Waiting on Tick where timer == 0 {
+    next Idle;
   }
 }

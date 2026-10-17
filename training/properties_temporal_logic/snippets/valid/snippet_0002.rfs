@@ -1,0 +1,16 @@
+module startup {
+  enum State { Boot, Run, Error }
+  initial Boot
+  event Ready
+  event Fault
+  transition Boot on Ready {
+    next Run;
+  }
+  transition Boot on Fault {
+    next Error;
+  }
+  transition Run on Fault {
+    next Error;
+  }
+  prop no_early_error : always[4] (state != Error) ;
+}

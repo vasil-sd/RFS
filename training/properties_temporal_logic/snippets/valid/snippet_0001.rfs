@@ -1,0 +1,15 @@
+module ack_window {
+  enum State { Idle, Pending }
+  initial Idle
+  event Req
+  event SendAck
+  output Ack
+  transition Idle on Req {
+    next Pending;
+  }
+  transition Pending on SendAck {
+    next Idle;
+    emit Ack;
+  }
+  prop req_acked : always (input_is(Req) -> bounded_eventually[3] (output_has(Ack))) ;
+}

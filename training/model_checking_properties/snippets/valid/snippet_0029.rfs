@@ -1,16 +1,9 @@
-module output_group_multi {
-  enum State { S }
-  initial S
+module next_property {
+  enum State { A, B }
+  initial A
   event Go
-  event Stop
-  output Action(Go)
-  output Action(Stop(reason: bit<8>))
-  transition S on Go {
-    next S;
-    emit Action(Go);
+  transition A on Go {
+    next B;
   }
-  transition S on Stop {
-    next S;
-    emit Action(Stop(7));
-  }
+  prop goes_to_b : always (input_is(Go) -> next (state == B)) ;
 }

@@ -1,9 +1,13 @@
-module next_property {
-  enum State { A, B }
-  initial A
-  event Go
-  transition A on Go {
-    next B;
+module never_ack {
+  enum State { Idle, Pending }
+  initial Idle
+  event Req
+  event Tick
+  transition Idle on Req {
+    next Pending;
   }
-  prop goes_to_b : always (input_is(Go) -> next (state == B)) ;
+  transition Pending on Tick {
+    next Pending;
+  }
+  prop must_return : always (input_is(Req) -> bounded_eventually[3] (state == Idle)) ;
 }

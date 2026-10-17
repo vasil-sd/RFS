@@ -368,3 +368,17 @@ sed -n "<start>,<end>p" TASKS.md            # one specific entry by line range
 - Environmental incident (worse than task 17/23 class): fresh cargo rustc probes received stale session text on stdin; the task-17 FIFO workaround no longer works in this session; and `target/.rustc_info.json` had CACHED a failed probe which cargo replayed on every run. Working fix: delete the poisoned cache + LD_PRELOAD shim forcing `read(0)` -> EOF (full recipe in `PHASE_3_TASK_24_STATUS.md`).
 - Verification: example 13 test executables pass in both backends (rustc `--test` 3/3; gcc all pass) after reproducing the identical failure first; `cargo test --no-fail-fast` 170/170; `cargo generate-code-tests && cargo test-generated-code` 498/498 (was 495+3 failing - task 18 unblocked); clippy no errors (12 pre-existing warnings, identical set at HEAD); fmt clean; `validate --input rfs examples/valid` exit 0 (40 valid); `cargo test-training` 4/4.
 - Docs: `PHASE_3_TASK_24.md` corrections filled; `PHASE_3_TASK_24_STATUS.md` written. Next in defined order: task 18.
+
+## 2026-10-17 20:12 — Phase 3 task 18: regenerated + ran generated test aggregate (166 modules / 498 tests, all green)
+
+### Interpretation & plan
+
+- Requested: execute Phase 3 task 18 per `docs/roadmap/PHASE_3_TASK_18.md` - regenerate the generated-code test aggregate over ALL valid examples + training snippets, run it (monitor rendering bugs surface here), record updated counts for task 22.
+- Plan: (1) delete `target/rfs_codegen_tests` and re-run `cargo generate-code-tests && cargo test-generated-code` from scratch; (2) on any compile/test failure -> backend rendering bug path (plan correction + fix, never weaken the aggregate); (3) record counts in the status file.
+
+### Report
+
+- Clean run, no rendering bugs: `cargo generate-code-tests` exit 0 ("generated 166 RFS modules"); `cargo test-generated-code` exit 0, **498 passed / 0 failed** - deterministic, identical to task 24's verification run (which already included the fixed example-13 spec + updated snippet copies).
+- Counts recorded as codegen-side baseline for task 22: **166 modules / 498 tests**, superseding Phase 2's 164/492 (delta = +2 modules / +6 tests from Phase 3 examples 41/42, 3 generated tests each).
+- No checked-in file changes (aggregate is generated, not checked in); `PHASE_3_TASK_18_STATUS.md` written. Cargo run with the task-24 LD_PRELOAD probe shim (environmental incident), no impact on results.
+- Next in defined order: task 19 (training-set update).

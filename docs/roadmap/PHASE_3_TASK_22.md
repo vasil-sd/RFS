@@ -126,6 +126,12 @@ clean working tree.
 - If Action 1 fails: this task is NOT complete; loop back per protocol step q (correct
   plan, re-execute the responsible task) before returning here.
 
+## Task corrections
+
+| Correction | Description + rationale |
+|------------|-------------------------|
+| START.md snapshot sync (protocol step s) | Beyond the original affected-files table (`PHASE_3_STATUS.md`, `INTRO.md`, `TASKS.md`), protocol step s ("update all related documentation files; re-check that docs are aligned with the current state") required a minimal update of `START.md` section 1: its snapshot still said "only the phase close-out report + roadmap table update remain (task 22)" and "finish the Phase 3 close-out, task 22, first" - both false after close-out and misleading for the next session's orientation. Changed: IMPLEMENTED -> COMPLETE (close-out 2026-10-17), removed the task-22 parenthetical. Snapshot date label kept at 2026-10-17 (machine-local UTC, per project convention). No other START.md content touched. |
+
 ## Other information
 
 - Commit grouping: everything Phase 3-related in one commit (the protocol-change commit

@@ -433,3 +433,20 @@ sed -n "<start>,<end>p" TASKS.md            # one specific entry by line range
 - Grep audit passed: remaining post-hoc/liveness-skipped mentions are only intentional decision-record references or frozen historical docs (TASKS.md, PHASE_1_STATUS.md, task files).
 - Incident: one long KB.md insertion was written as literal placeholder text (argument elided in transit); detected by re-read, fixed, repo-wide scan clean.
 - No code changes; no test re-run needed (docs-only). Next in defined order: task 22 (close-out).
+
+## 2026-10-17 22:20 — Phase 3 task 22: close-out - full verification green, PHASE_3_STATUS.md, roadmap table COMPLETE
+
+### Interpretation & plan
+
+- Requested: execute Phase 3 task 22 per `docs/roadmap/PHASE_3_TASK_22.md` - final verification (BUILD.md checklist + gcc -Wall spot check), write `PHASE_3_STATUS.md` (template 2.3) and `PHASE_3_TASK_22_STATUS.md` (template 2.5.2, protocol step m), set INTRO.md state-table row 3 to COMPLETE, sync docs (step s), append this entry, commit.
+- Plan: run the full checklist; verify every status-file claim against source/git; write the reports; commit.
+
+### Report
+
+- Verification all green: `cargo build` exit 0; `cargo test` **170/170** (lib 86, frontend 41, codegen 23, examples 3, training 4, library_comparison 4, integration_example 2, monitor_integration 4, backend_parity 3); `cargo clippy --all-targets` no errors (12 pre-existing warnings: 11 lib + 1 codegen_test - matches documented baseline); `cargo fmt --check` clean; `cargo generate-code-tests` **171 modules**; `cargo test-generated-code` **513/513**; `validate --input rfs examples/valid` exit 0 (42 valid, known priority warnings only).
+- gcc -Wall spot check (example 41 C output): mc full link exit 0; production `-c` exit 0 with and without `-DRFS_PROPERTY_MONITORS`; monitor code zero warnings - the only warning is a pre-existing `-Wmaybe-uninitialized` on `outs` in core `fsm_step`, verified identical across variants by diffing against a monitor-free generation.
+- New: `docs/roadmap/PHASE_3_STATUS.md` (template 2.3, all sections, exact counts) + `docs/roadmap/PHASE_3_TASK_22_STATUS.md` (template 2.5.2).
+- `INTRO.md`: state-table row 3 -> COMPLETE with full file list (`PHASE_3_TASK_{13,15-24}.md` + `_STATUS`, `PHASE_3_STATUS.md`); table date -> 2026-10-17; historical note kept.
+- Task correction (recorded in PHASE_3_TASK_22.md): protocol step s required syncing the `START.md` section 1 snapshot (still said "only ... remain (task 22)") - minimal edit: IMPLEMENTED -> COMPLETE, removed task-22 parenthetical; not in the original affected-files table.
+- Commit: Phase 3 implementation was already committed incrementally per task (protocol step t): `e0bc3cb`..`752702a`; this close-out commit covers only bookkeeping files (PHASE_3_STATUS.md, PHASE_3_TASK_22_STATUS.md, INTRO.md, START.md, TASKS.md, PHASE_3_TASK_22.md correction). Working tree clean after commit.
+- Next entry point: `docs/roadmap/PHASE_4.md`, planning trigger "let's make a plan for Phase 4".

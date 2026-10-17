@@ -382,3 +382,19 @@ sed -n "<start>,<end>p" TASKS.md            # one specific entry by line range
 - Counts recorded as codegen-side baseline for task 22: **166 modules / 498 tests**, superseding Phase 2's 164/492 (delta = +2 modules / +6 tests from Phase 3 examples 41/42, 3 generated tests each).
 - No checked-in file changes (aggregate is generated, not checked in); `PHASE_3_TASK_18_STATUS.md` written. Cargo run with the task-24 LD_PRELOAD probe shim (environmental incident), no impact on results.
 - Next in defined order: task 19 (training-set update).
+
+## 2026-10-17 20:42 — Phase 3 task 19: added 5 SFT examples (always[N], monitor compilation, R1-R4, online MC monitoring, counterexamples)
+
+### Interpretation & plan
+
+- Requested: execute Phase 3 task 19 per `docs/roadmap/PHASE_3_TASK_19.md` - add SFT examples covering `always[N]` semantics, monitor compilation (D-P3-3), R1-R4 restrictions, online MC monitoring + assumption pruning, and enhanced counterexamples to the two existing training categories.
+- Plan: (1) read the plan's D-P3/R1-R4 text + existing category lines for style; (2) draft 5 examples with minimal modules; (3) verify every rfs block via `cargo run -- validate` (+ codegen warnings for R1-R4, real MC output for counterexamples); (4) append; (5) status file + this entry.
+
+### Report
+
+- Appended 3 lines to `training/properties_temporal_logic/rfs_training.jsonl` (12 -> 15): `always[N]` semantics on a minimal startup module; monitor compilation + D-P3-3 deadline walkthrough (ack_window); R1-R4 with 1 accepted + 3 skipped props (subset_check).
+- Appended 2 lines to `training/model_checking_properties/rfs_training.jsonl` (37 -> 39): online MC product state + assumption pruning incl. liveness assumptions (ticked_service); enhanced counterexample format with real verified Rust MC output (never_ack: trigger 1, deadline 3, exit 1).
+- All 5 rfs blocks pass `cargo run -- validate`; line-15 codegen emits exactly the 3 expected skip warnings with exact text and compiles ok_obligation; line-39 counterexample is real output (deterministic across seeds 1/7/42/777).
+- Findings: RFS v0 negation is `!` (no `not` keyword) and `next` requires parentheses - first draft of the R1-R4 example failed to parse, fixed before appending. Pre-existing properties_temporal_logic blocks are bare fragments (category has 0 valid snippets); new examples use complete minimal modules per the task's "must parse + validate" discipline - line 13 will be the category's first valid snippet after task 20 re-extraction.
+- Expected transient state: `cargo test-training` 3/4 - `committed_all_rfs_training_file_is_fresh` red (219 vs 224) until task 20 runs `cargo build-training`; `aggregate_training_sets_matches_category_files` passes (validates the new lines).
+- Next in defined order: task 20 (regenerate snippets + aggregate + training tests).

@@ -42,14 +42,15 @@ Read order for a new assistant:
 | JSON round-trip | Working | `serde` + `serde_json`; tested. |
 | CLI | Working | Subcommand-based: `rfs parse` (format conversion), `rfs validate` (semantic validation), `rfs codegen` (backend registry dispatch). No positional-argument legacy mode. |
 | Phase 2 core DSL | Complete | Version headers, `on_error` fallbacks, priorities in generated code, Phase 2 validator checks (errors + warnings channel), C backend (production/test/mc) with the Rust MC wire format. See `DESIGN.md` section 20. |
+| Phase 3 properties/monitors | Implemented (phase close-out: task 22) | Property subset incl. `always[N]`; online monitors from the shared MonitorPlan in BOTH backends (R1-R4 restrictions); `--with-property-monitors` CLI; enhanced MC counterexamples; cross-backend parity suite. See `DESIGN.md` section 21. |
 | Frontend CLI (`parse`) | Phase 1 working | `rfs parse --input <rfs\|json> --output <rfs\|json> <file-or-dir> [--target-dir DIR]`; all four RFS/JSON format combinations, structure-preserving target dirs, collision guard. |
 | Frontend CLI (`validate`) | Phase 1 working | `rfs validate [--input <rfs\|json>] <file-or-dir>`; file mode reports to stderr, directory mode writes `<name>.rfs-validation.err` next to each failing source. |
-| Valid examples | 40 files | All parse, validate, round-trip, and translate to Rust **and C**; includes TLA-inspired adaptations, Phase 1 assumption/unexpected-input demos, and the Phase 2 endpoint-protocol + on_error-recovery showcases. |
-| Invalid examples | 11 files | All fail as expected (parse or validation), including TLA-syntax anti-patterns and Phase 2 semantic errors (duplicate priority, shadowed duplicate transition, on_error without next, bad version header, duplicate set). |
+| Valid examples | 42 files | All parse, validate, round-trip, and translate to Rust **and C**; includes TLA-inspired adaptations, Phase 1 assumption/unexpected-input demos, the Phase 2 endpoint-protocol + on_error-recovery showcases, and the Phase 3 property/monitor demos (41 Fin/Ack-style, 42 bounded liveness). |
+| Invalid examples | 12 files | All fail as expected (parse or validation), including TLA-syntax anti-patterns, Phase 2 semantic errors (duplicate priority, shadowed duplicate transition, on_error without next, bad version header, duplicate set), and the Phase 3 `always[0]` zero-bound error. |
 | Validator | Phase 1 working | `src/validator.rs` performs name resolution, pattern/output checks, expression typing, and formula typing. |
 | Code generator | Phase 2 working (plugin system) | `src/codegen.rs` defines the Backend plugin API, the `BACKENDS` registry, and `rfs codegen` CLI parsing; shared analysis in `codegen_fsm/test/mc.rs`; **Rust and C backends** under `src/backends/` each implement production/test/mc (C MC reuses the Rust MC wire format). See `CODEGEN.md`. |
-| Tests | Passing | 125 non-doc tests in the main crate (52 lib, 41 frontend CLI logic, 19 codegen, 3 examples, 4 training, 4 parser-library comparison, 2 Phase 2 integration); generated aggregate unit-test crate currently has 492 passing tests. |
-| LLM training set | Maintained, 11 categories | `training/<category>/rfs_training.jsonl` stores category-specific SFT examples (design, syntax_semantics, properties_temporal_logic, model_checking, model_checking_space, model_checking_properties, codegen_rust, examples_explain, frontend_cli, project_tooling, tla_adaptation); `all_rfs_training.jsonl` is the generated aggregate (219 examples). |
+| Tests | Passing | 170 non-doc tests in the main crate (86 lib, 41 frontend CLI logic, 23 codegen, 3 examples, 4 training, 4 parser-library comparison, 2 Phase 2 integration, 4 monitor integration, 3 cross-backend parity); generated aggregate unit-test crate currently has 513 passing tests. |
+| LLM training set | Maintained, 11 categories | `training/<category>/rfs_training.jsonl` stores category-specific SFT examples (design, syntax_semantics, properties_temporal_logic, model_checking, model_checking_space, model_checking_properties, codegen_rust, examples_explain, frontend_cli, project_tooling, tla_adaptation); `all_rfs_training.jsonl` is the generated aggregate (224 examples). |
 | Training snippets | Generated | `training/<category>/snippets/valid/*.rfs` and `snippets/invalid/*.rfs` are extracted from training JSONL, validated, and tested by the parser suite. |
 | Lint/format | Clean | `cargo clippy --all-targets` and `cargo fmt` were clean at last verification. |
 
@@ -264,6 +265,7 @@ f || g
 f -> g
 next (f)
 always (f)
+always[N] (f)          # Phase 3: body must hold at samples 0..N-1, N >= 1
 bounded_eventually[N] (f)
 ```
 
@@ -272,6 +274,17 @@ Conventions:
 - `state` is an ordinary path expression by convention, usually referring to the current control state.
 - `input_is(...)` and `output_has(...)` are formula atoms recognized by the parser.
 - Assumptions describe environment guarantees; properties describe system obligations.
+- Phase 3: every in-subset prop/assume compiles to a per-label ONLINE monitor (shared MonitorPlan, rendered identically in both backends); exact deadline semantics and restrictions R1-R4 are in `DESIGN.md` section 21.
+
+Formula-level boolean operators (task 23 grammar fix): `&&` and `||` are
+operators at the FORMULA level (`and_formula`/`or_formula`), not only inside
+expressions. A formula operand that is not a keyword atom or parenthesized
+formula falls through to the NON-BOOLEAN expression level (comparisons and
+below, `non_boolean_expr = equality_expr`) - never to the full `expr` ladder,
+whose logic levels would mis-consume identifier-looking formula atoms. This is
+why mixed atom kinds like `state == S && output_has(O)` parse: each operand of
+the formula-level `&&` is parsed independently via `primary_formula`, so
+`output_has(...)` reaches its keyword branch. Pinned by parser unit tests.
 
 Known precedence corner case:
 
@@ -570,6 +583,7 @@ Examples:
 prop no_bad : always (state != Bad) ;
 prop returns_good : always (input_is(ToGood) -> next (state == Good)) ;
 prop timeout_progress : always (state == SynSent -> bounded_eventually[10] (state != SynSent)) ;
+prop startup_window : always[4] (state != Error) ;
 assume env_tick : always (bounded_eventually[5] (input_is(Tick))) ;
 ```
 
@@ -612,9 +626,10 @@ Meaning:
 | `src/training.rs` | Training-set aggregation, JSONL validation, and RFS snippet extraction. |
 | `src/validator.rs` | Semantic validation and expression/formula typing; Phase 2 adds priority/duplicate-transition errors and the non-fatal warning channel (`module_warnings`: unreachable states, dead events, unused vars, impossible guards). Used by code generation, CLI validate, and snippet classification. |
 | `src/codegen.rs` | Codegen plugin core: `Backend`/`BackendCommandInfo` API, `BACKENDS` registry, `parse_codegen_args` CLI parsing, help rendering, shared option/output types. See `CODEGEN.md`. |
-| `src/codegen_fsm.rs` | Language-agnostic production-FSM helpers: variant flattening (`build_variants`), representative values, property-subset analysis. |
+| `src/codegen_fsm.rs` | Language-agnostic production-FSM helpers: variant flattening (`build_variants`), representative values; legacy Phase 1 formula-subset helpers (`contains_liveness`, `safety_formula_inner`) kept for tests - monitor-compilability now comes from the shared compiler in `src/monitor.rs`. |
 | `src/codegen_test.rs` | Language-agnostic unit-test planning: `TestPlan`, unexpected-input/deadlock detection. |
 | `src/codegen_mc.rs` | Language-agnostic model-checker concepts: `McConfig` wire format, `ViolationSpec`, `McPhase`, `McStatus`. |
+| `src/monitor.rs` | Phase 3 shared monitor compiler: formula -> per-label `MonitorPlan` (per-sample boolean signals, delay registers for `next`, obligation monitors with trigger/deadline countdown for `be[N]`, countdown monitors for `always[N]`), restrictions R1-R4; language-agnostic - both backends render the same plan. Includes a reference interpreter used only by tests. |
 | `src/backends/mod.rs` | Backend plugin module root. |
 | `src/backends/rust.rs` | Rust backend registration (`RUST_BACKEND`) + shared Rust helpers (ident mangling, type mapping). See `src/backends/RUST.md`. |
 | `src/backends/rust_fsm.rs` | Rust backend: production FSM source generation (core reused by test/mc). |
@@ -969,11 +984,14 @@ When making a design-relevant change:
 
 ## 7. Known limitations and risks (current)
 
-Resolved during Phases 1-2: name resolution, pattern/output arity, state-name
+Resolved during Phases 1-3: name resolution, pattern/output arity, state-name
 checks, expression typing, bit-vector masking semantics (wrapping via wide
 intermediates in Rust / native unsigned wrap in C), formula precedence
 (parenthesized implementation, documented in section 3.9), priority semantics
-(D1-D5 in `DESIGN.md` section 20), and the pre-plugin codegen API removal.
+(D1-D5 in `DESIGN.md` section 20), the pre-plugin codegen API removal, and
+(Phase 3) online monitoring of ALL in-subset formulas - including bounded
+liveness - in both backends (previously post-hoc safety-only checks; see
+`DESIGN.md` section 21).
 
 | Area | Current limitation | Impact | Recommended next action |
 |---|---|---|---|
@@ -1321,7 +1339,7 @@ The translator option is:
 
 `cargo run -- codegen rust test file.rfs --out out.rs --assumes all|none|label1,label2` (the `test` command generates production code plus unit tests; use `production` for the FSM source only)
 
-Default is `all`. Only safety assumes selected by this option are translated into runtime checks. Liveness formulas containing `bounded_eventually` print a warning and are skipped. Safety formulas outside the current translated subset also print a warning and are skipped.
+Default is `all`. Only safety assumes selected by this option are translated into runtime checks. Liveness formulas containing `bounded_eventually` print a warning and are skipped. Safety formulas outside the current translated subset also print a warning and are skipped. **Phase 3 update:** all in-subset formulas - including `bounded_eventually` liveness - are now online-monitored in both backends; only out-of-subset formulas (R1-R4) print a warning and are skipped. See `DESIGN.md` section 21.
 
 Handler options considered:
 
@@ -1372,13 +1390,13 @@ By default the sequence generator chooses only enabled inputs that satisfy activ
 ### 13.5 Phase 1 build commands
 
 See `BUILD.md` section 4: `cargo generate-code-tests` (aggregate test crate),
-`cargo test-generated-code` (compile + run the 492 generated unit tests), and
+`cargo test-generated-code` (compile + run the 513 generated unit tests), and
 `cargo test codegen` (lightweight main-crate codegen tests).
 
 ### 13.6 Current Phase 1 limitations
 
 - Generated `step` chooses the first enabled transition in source order; it does not yet explore overlapping nondeterministic transitions as separate branches.
 - Model checker enumerates representative input constructors, not all payload valuations.
-- Translated safety subset supports `Always`, boolean operators, `Next`, state/variable expressions, `input_is`, and `output_has`. It skips `bounded_eventually` and some exotic formulas with warnings.
-- Assumption checks are post-hoc over the current trace prefix; this is correct for Phase 1 but may be less efficient than compiled monitors.
+- **Phase 3:** the monitored subset now includes `always[N]` and `bounded_eventually[N]`; all in-subset formulas are online-monitored in both backends, and only out-of-subset formulas (R1-R4) are skipped with a warning (`DESIGN.md` section 21).
+- **Phase 3:** assumption checks are ONLINE monitors stepped per sample (not post-hoc); liveness assumptions like `always(be[5] input_is(Tick))` prune environment branches online in MC.
 - The validator is a semantic precondition for code generation, not a full type checker for all future RFS extensions.

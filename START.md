@@ -45,21 +45,25 @@ model-checkable (no unbounded data, floats, or arbitrary functions in the core).
    any code is touched and executes tasks one at a time - every task starts only
    after explicit user confirmation.
 
-## 1. Project state snapshot (2026-10-15)
+## 1. Project state snapshot (2026-10-17)
 
 - Phase 0 (parser/IR baseline), Phase 1 (validator, plugin-based Rust codegen,
-  bounded model checker, frontend CLI `parse`/`validate`/`codegen`) and **Phase 2
-  (core DSL)** are COMPLETE. Phase 2 added: module version headers, `on_error`
-  fallbacks, priority-ordered transition arms, Phase 2 validator checks (errors +
-  non-fatal warnings), simultaneous-update/priority/on_error codegen in Rust AND a
-  new **C backend** (production/test/mc with the Rust MC wire format). Design
-  decisions D1-D10: `DESIGN.md` section 20.
-- Next work: **Phase 3 - PSL-like properties and monitors** (property subset,
-  monitor codegen) - see `docs/roadmap/PHASE_3.md`; phase planning/implementation
-  protocol: `docs/roadmap/INTRO.md`.
-- Known-good baseline: 125/125 main tests, 492/492 generated-code tests, clippy
-  without errors, fmt clean; 40 valid + 11 invalid examples; 11 training categories /
-  219 aggregated SFT examples.
+  bounded model checker, frontend CLI `parse`/`validate`/`codegen`), Phase 2
+  (core DSL + C backend) are COMPLETE, and **Phase 3 (PSL-like properties and
+  monitors)** is IMPLEMENTED - all code, tests, training data and docs are in
+  place; only the phase close-out report (`PHASE_3_STATUS.md`) + roadmap table
+  update remain (task 22). Phase 3 added: the `always[N]` property operator,
+  online property/assumption monitors from a shared MonitorPlan in BOTH backends
+  (restrictions R1-R4), the `--with-property-monitors` CLI flag for production
+  builds, enhanced property-specific MC counterexamples, and cross-backend
+  parity + monitor-integration test suites. Design decisions D-P3-1..D-P3-6:
+  `DESIGN.md` section 21.
+- Next work: **Phase 4 - Scalable model checking** - see
+  `docs/roadmap/PHASE_4.md` (finish the Phase 3 close-out, task 22, first);
+  phase planning/implementation protocol: `docs/roadmap/INTRO.md`.
+- Known-good baseline: 170/170 main tests, 513/513 generated-code tests, clippy
+  without errors, fmt clean; 42 valid + 12 invalid examples; 11 training categories /
+  224 aggregated SFT examples.
 
 ## 2. Documentation map (what each file is for)
 
@@ -153,7 +157,7 @@ then `sed -n '<start>,<end>p'`. Sections:
 
 ```sh
 cargo build && cargo test && cargo clippy --all-targets && cargo fmt --check   # after any change
-cargo test-generated-code        # 492 generated unit tests (after codegen changes)
+cargo test-generated-code        # 513 generated unit tests (after codegen changes)
 cargo run -- validate --input rfs examples/valid    # quick sanity, exit 0 expected
 ```
 

@@ -422,6 +422,7 @@ Supported v0 formulas:
 - boolean expressions;
 - `next formula`;
 - `always formula`;
+- `always[N] formula` (Phase 3): the body must hold at samples 0..N-1, N >= 1;
 - `bounded_eventually[N] formula`.
 
 Atomic proposition forms:
@@ -447,10 +448,18 @@ prop timeout_progress :
   always (state == WaitingAck -> bounded_eventually[10] (state != WaitingAck)) ;
 
 assume env_tick :
-  always (bounded_eventually[5] input_is(Tick)) ;
+  always (bounded_eventually[5] (input_is(Tick))) ;
 ```
 
-The `->` operator is syntactic sugar for implication. v0 may also support `&&`, `||`, `!`, `==`, `!=`, and parentheses.
+The `->` operator is syntactic sugar for implication. Formula-level boolean operators are `&&`, `||`, `!`, and parentheses; comparison atoms (`==`, `!=`, `<`, ...) combine with them at the formula level, so mixed atom kinds like `state == S && output_has(O)` parse (formula operands fall through to the non-boolean expression level - see section 6).
+
+**Monitor semantics (Phase 3, D-P3-3).** Every in-subset property/assumption compiles to a per-label online monitor that steps once per sample; sampling is post-step (`input_is`/`output_has` refer to the transition just taken; sample 0 is the initial configuration, where both atoms are false).
+
+- `always[N] p`: p must hold at samples 0..N-1 (countdown); violation at the first failing sample. N >= 1 (validator error otherwise).
+- `bounded_eventually[N] b` (obligation): triggered at sample i by its trigger signal (the implication antecedent when directly the consequent of `->`, else true), the body must hold at some sample j with i <= j <= i + N - 1; if not, the violation is confirmed at the deadline sample i + N - 1. Top-level `be[N] p` is pending from sample 0.
+- `next p`: delay register initialized to true (vacuous at sample 0).
+
+Worked example (N = 3, trigger at i, body never holds): countdown 3 -> 2 at s=i, 2 -> 1 at s=i+1, 1 -> 0 at s=i+2 - violation confirmed at i+2; if the body holds at any of i..i+2 the obligation clears. Formulas outside the monitor-compilability restrictions R1-R4 (section 21) parse and validate but are skipped with a warning in every backend.
 
 Full PSL-like operators such as unbounded `eventually`, `until`, `weak_until`, and `disable iff` are planned later.
 
@@ -538,17 +547,33 @@ output_expr     = identifier
 prop_decl       = "prop" identifier ":" formula ";" ;
 assume_decl     = "assume" identifier ":" formula ";" ;
 
-formula         = temporal_formula ;
-temporal_formula= "next" "(" formula ")"
+// Formula level (properties and assumptions). Precedence, loosest to tightest:
+// ||, ->, &&, !. `&&`/`||` are formula-level operators; each operand is parsed
+// independently via primary_formula, whose fallthrough is the NON-BOOLEAN
+// expression level (comparisons and below) - so mixed atom kinds like
+// `state == S && output_has(O)` parse.
+formula         = or_formula ;
+or_formula      = impl_formula { "||" impl_formula } ;
+impl_formula    = and_formula [ "->" impl_formula ] ;
+and_formula     = unary_formula { "&&" unary_formula } ;
+unary_formula   = "!" unary_formula | primary_formula ;
+primary_formula = "next" "(" formula ")"
+                | "always" "[" unsigned_integer_literal "]" "(" formula ")"
                 | "always" "(" formula ")"
                 | "bounded_eventually" "[" unsigned_integer_literal "]" "(" formula ")"
-                | boolean_formula
+                | "input_is" "(" event_pattern ")"
+                | "output_has" "(" output_pattern ")"
+                | "(" formula ")"
+                | non_boolean_expr
                 ;
 
-boolean_formula = or_expr ;
-or_expr         = and_expr { "||" and_expr } ;
-and_expr        = impl_expr { "&&" impl_expr } ;
-impl_expr       = equality_expr [ "->" equality_expr ] ;
+non_boolean_expr = equality_expr ;
+
+// Expression level (var init, guards, set actions): the full ladder including
+// the logic levels. Formulas use only `equality_expr` and below.
+expression      = logic_or ;
+logic_or        = logic_and { "||" logic_and } ;
+logic_and       = equality_expr { "&&" equality_expr } ;
 equality_expr   = compare_expr { ("==" | "!=") compare_expr } ;
 compare_expr    = add_expr { ("<" | "<=" | ">" | ">=") add_expr } ;
 add_expr        = mul_expr { ("+" | "-") mul_expr } ;
@@ -557,12 +582,7 @@ shift_expr      = unary_expr { ("<<" | ">>") unary_expr } ;
 unary_expr     = ("!" | "~" | "-") unary_expr | primary_expr ;
 primary_expr    = literal
                 | identifier_path
-                | atom_call
-                | "(" formula ")"
-                ;
-
-atom_call       = "input_is" "(" event_pattern ")"
-                | "output_has" "(" output_pattern ")"
+                | "(" expression ")"
                 ;
 
 literal         = unsigned_integer_literal
@@ -723,6 +743,10 @@ Property:
 ```
 
 Assumptions use the same property shape but are stored separately.
+
+Phase 3 adds one additive formula variant: `always[N] (inner)` serializes as
+`{ "kind": "bounded_always", "bound": N, "inner": {} }`. It is purely additive -
+no `IR_VERSION` bump; existing IR JSON round-trips unchanged (D-P3-1).
 
 ### IR design rules
 
@@ -1028,14 +1052,21 @@ Unbounded strong liveness such as `eventually p` requires fairness and Büchi-st
 
 ## 12. PSL-like property language plan
 
-### v0 parser subset
+### v0 parser subset (implemented, Phase 3)
 
 ```rfs
 next (formula)
 always (formula)
+always[N] (formula)
 bounded_eventually[N] (formula)
 boolean_formula
 ```
+
+The whole subset is implemented and monitored ONLINE in every backend (Phase 3,
+section 21): each prop/assume compiles to a per-label monitor from the shared
+`MonitorPlan`. Formulas outside the monitor-compilability restrictions R1-R4
+still parse and validate, but codegen skips them with an identical warning in
+every backend.
 
 ### Planned full subset
 
@@ -1273,7 +1304,7 @@ Phase 1 introduces a validator and Rust translator. The key decisions are record
 - Variable updates are simultaneous: all assignment right-hand sides are evaluated before any variable is written.
 - Assumption violations use a trait-based handler passed to `step_with_handler`; the default `step` panics.
 - The translator accepts an assumption-selection option: `all`, `none`, or comma-separated labels. Default is `all`.
-- Only safety formulas in the current translated subset become runtime checks or property checks. Formulas containing `bounded_eventually` are skipped with a warning.
+- Only safety formulas in the current translated subset become runtime checks or property checks. Formulas containing `bounded_eventually` are skipped with a warning. **Phase 3 update (D-P3-4/D-P3-5):** all in-subset formulas - including `bounded_eventually` - are now online-monitored in both backends; only out-of-subset formulas (R1-R4) are skipped. See section 21.
 - Generated unit tests include initial-state, positive bounded-sequence, and negative unexpected-input tests. The sequence length is configurable, default 4.
 - The generated bounded model checker uses representative input constructors by default, can inject unexpected events, and can force selected safety assumptions to violate with per-run probabilities.
 
@@ -1374,7 +1405,7 @@ emitted as `pub const SPEC_VERSION` (Rust) / `#define RFS_SPEC_VERSION` (C).
 | assumption handling | function pointer `rfs_policy_t (*handler)(void*, const char*)` with CONTINUE/STOP/PANIC policies; default handler aborts | Mirrors the Rust `AssumptionHandler` trait |
 | unit tests | plain-assert harness in `main()`, failure counting (no framework) | Same `TestPlan` semantics as the Rust backend, including the on_error landing check |
 | model checker | **same runtime wire format** as the Rust MC: `--bound --runs --seed --assumes --violate --unexpected-prob`, same LCG constants (6364136223846793005 / 1442695040888963407), same three-phase step strategy, same summary line | Counterexample traces print state/input kinds (C has no Rust-style Debug) |
-| property translation | same translated safety subset as Rust (Expr/Not/And/Or/Implies/Next/InputIs/OutputHas); liveness skipped with a warning | |
+| property translation | same translated safety subset as Rust (Expr/Not/And/Or/Implies/Next/InputIs/OutputHas). **Phase 3 update (D-P3-4/D-P3-5):** all in-subset formulas - including bounded liveness - are now online-monitored in BOTH backends from the shared MonitorPlan; only out-of-subset formulas (R1-R4) are skipped, with identical warning text. See section 21 | |
 
 ### D9. Feature flags (std/no_std, property-monitors, logging hooks)
 
@@ -1397,3 +1428,99 @@ types; event payload patterns with bindings; guards on bound fields; output
 payloads; multiple variable updates; simultaneous updates via temp variables;
 derives on generated types; the clear error type (`StepError` / `RFS_UNEXPECTED_EVENT`);
 parser acceptance of `priority N;`; duplicate-`set` rejection at parse time.
+
+---
+
+## 21. Phase 3 property/monitor decisions
+
+Phase 3 implements the PSL-like property subset with ONLINE monitors in every
+backend: each `prop`/`assume` compiles (in the shared, language-agnostic
+`src/monitor.rs`) to a per-label `MonitorPlan`, and both backends render that
+plan into generated monitor code with identical semantics. Decisions are
+recorded as comparison tables; the chosen option is marked.
+
+### D-P3-1. IR representation of `always[N]`
+
+| Option | Pros | Cons | Decision |
+|---|---|---|---|
+| Additive `BoundedAlways { bound, inner }` variant (serde tag `bounded_always`), no `IR_VERSION` bump | Old IR JSON round-trips unchanged; purely additive per the D10 rule | Variant set grows; consumers must tolerate unknown tags gracefully | **Chosen** |
+| Bump `IR_VERSION` to v1 with a migration note | Explicit version boundary | Breaks all existing IR JSON for a purely additive change | Rejected |
+
+### D-P3-2. Zero-bound rules
+
+| Option | Pros | Cons | Decision |
+|---|---|---|---|
+| `always[N]` requires N >= 1 (validator error); `bounded_eventually[0]` stays legal and means "the body must hold at the trigger sample itself" | New syntax has no compatibility concern; `be[0]` keeps a meaningful degenerate form | Two different zero-bound rules to document | **Chosen** |
+| Reject both zero bounds uniformly | One simple rule | Loses the useful "hold now" form of `be[0]`; no existing example uses either form (verified) | Rejected |
+
+### D-P3-3. Exact monitor semantics (deadline confirmation)
+
+Sampling follows section 11: per-sample values are post-step; `input_is`/
+`output_has` refer to the transition just taken; sample 0 is the initial
+configuration (no input/outputs, so both atoms are false there).
+
+Obligation monitor algorithm per sample s:
+
+```text
+a = eval(trigger signal at s)   # implication antecedent, or true for bare obligations
+b = eval(body signal at s)
+if !pending and a: pending = true; remaining = N; trigger_step = Some(s)
+if pending:
+    if b: pending = false; trigger_step = None
+    else: remaining -= 1; if remaining == 0: VIOLATION confirmed at sample s
+```
+
+| Option | Pros | Cons | Decision |
+|---|---|---|---|
+| Violation confirmed at the deadline sample i + N - 1 (countdown reaches 0) | Tighter counterexamples (violation step = last allowed sample); matches the countdown implementation; pinned by monitor-compiler tests before any codegen rendered it | PHASE_3.md's conceptual pseudocode reports one sample later - docs had to be reconciled | **Chosen** |
+| Confirm one sample after the deadline (i + N) | Matches the original conceptual pseudocode | Counterexamples point past the last allowed sample; off-by-one vs the countdown | Rejected |
+
+Worked check (N = 3, trigger at i, body never holds): s=i rem 3->2, s=i+1 rem
+2->1, s=i+2 rem 1->0 -> violation confirmed at i+2; if the body holds at any of
+i..i+2 the obligation clears. `always[N] p`: p must hold at samples 0..N-1
+(countdown; violation at the first failing sample). Top-level `be[N] p`:
+obligation pending from sample 0. `next p` in a monitor: delay register
+initialized to true (vacuous at sample 0), matching the pre-Phase-3 post-hoc
+semantics.
+
+### D-P3-4. Online monitors replace post-hoc checks
+
+| Option | Pros | Cons | Decision |
+|---|---|---|---|
+| Monitors step online in `commit_step`/`rfs_commit`; remove the generated post-hoc `property_check`/`assume_check` trace functions in BOTH backends | Single evaluation path; bounded-liveness obligations monitorable mid-run; assumption pruning works online in MC (incl. liveness assumptions) | Bigger refactor of both backends' generated code | **Chosen** |
+| Keep post-hoc trace checks and add monitors alongside | Smaller change | Two evaluation paths can diverge; liveness still unmonitorable online; duplicated monitor state | Rejected |
+
+Assumption enforcement stays on the existing `AssumptionHandler` path (a
+monitor-driven assumption violation is reported through it), so all MC/test
+call sites - trial-step forced violations, `--assumes`, integration tests - keep
+working unchanged. The `PROPERTY_LABELS`/`ASSUME_LABELS` constants stay.
+
+### D-P3-5. C backend: full monitor parity
+
+| Option | Pros | Cons | Decision |
+|---|---|---|---|
+| Full monitor parity in C: the same `MonitorPlan` rendered in C (task 11), C MC gets online detection + enhanced counterexamples (task 12), cross-backend differential tests verify identical behavior (task 17) | Backend parity principle (INTRO.md): same functionality and exactly the same observable behavior in ALL backends; differential testing is meaningful | C rendering work is real scope; C.md doc update was deferred to this task (correction 11a) | **Chosen** |
+| Rust-only monitors in Phase 3, C later | Less Phase 3 scope | Violates the backend parity principle; C MC would silently skip liveness assumptions and property detection | Rejected |
+
+Monitor-compilability restrictions R1-R4 (enforced by `monitor::compile_formula`,
+identical in every backend):
+
+- **R1:** no `bounded_eventually` under negation (directly or indirectly).
+- **R2:** a `bounded_eventually[N] b` node requires `b` to be temporal-operator-free and may appear (a) at top level, or (b) inside an `always`/`always[N]` body - except under another `bounded_eventually` and not under `next`. Its trigger signal is the implication antecedent when it is directly the consequent of `->`, else true.
+- **R3:** `always[N]` only at top level or under boolean connectives - never under `next`, `always`, `always[N]`, or `bounded_eventually`.
+- **R4:** `next` allowed anywhere safety is allowed, except inside a bounded-eventually body (see R2).
+
+Formulas outside R1-R4: parse + validate succeed; codegen in EVERY backend
+emits the same warning (`property '<name>' is outside the monitor subset;
+skipped` / `assume '<name>' ...`) and generates no monitor for that label.
+
+### D-P3-6. CLI flag and per-language gating
+
+| Option | Pros | Cons | Decision |
+|---|---|---|---|
+| `--with-property-monitors` applies to the PRODUCTION command of every backend; mc and test always include monitors; gating is per-language with zero-cost-when-disabled semantics (Rust `#[cfg(debug_assertions)]`, C `#ifdef RFS_PROPERTY_MONITORS`) | Release production builds pay zero monitor cost; MC/tests never need an opt-in flag; one flag across backends | Two gating mechanisms to document | **Chosen** |
+| Runtime toggle, or always-on monitors everywhere | Simplest mental model | Release builds pay monitor cost unconditionally; MC would need a way to disable (it must not - violations are the point) | Rejected |
+
+New generated error surface: Rust `StepError::PropertyViolation { label,
+step }`; C `RFS_PROPERTY_VIOLATION` status in `step_result_t` with
+`prop_label`/`prop_step`/`prop_trigger_step` fields.

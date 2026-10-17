@@ -23,16 +23,17 @@ The subsystem is organized so that:
 | File | Responsibility |
 |---|---|
 | `src/codegen.rs` | Plugin API (`Backend`, `BACKENDS`, `get_backend`, ...), shared option/output types, CLI request parsing for `rfs codegen`, help rendering. **This is the only file a new backend must touch (registry table).** |
-| `src/codegen_fsm.rs` | Language-agnostic helpers for *production FSM* generation: variant flattening (`build_variants`, `VariantInfo`, `FsmVariants`), representative field values, safety/liveness formula subset analysis. |
+| `src/codegen_fsm.rs` | Language-agnostic helpers for *production FSM* generation: variant flattening (`build_variants`, `VariantInfo`, `FsmVariants`), representative field values; legacy Phase 1 formula-subset helpers kept for tests (monitor-compilability now comes from `src/monitor.rs`). |
 | `src/codegen_test.rs` | Language-agnostic *unit-test planning*: `TestPlan`, `build_test_plan`, static unexpected-input detection (`has_definite_unexpected`, `is_deadlocked_initial`). Decides **what** to test; backends render **how**. |
 | `src/codegen_mc.rs` | Language-agnostic *model-checker* concepts: run configuration (`McConfig`) and its CLI wire format, forced-violation specs (`ViolationSpec`, `label:prob:percent%`), per-step generation phases (`McPhase`), per-run outcome taxonomy (`McStatus`). |
+| `src/monitor.rs` | Phase 3 *shared monitor compiler*: formula -> per-label `MonitorPlan` (language-agnostic); restrictions R1-R4; reference interpreter used only by tests. Both backends render the same plan. See section 5.4. |
 | `src/backends/mod.rs` | Module root for backend plugins. |
 | `src/backends/rust.rs` | Rust backend plugin entry: the `RUST_BACKEND` registration value plus shared Rust-specific helpers (identifier mangling, type mapping). |
 | `src/backends/rust_fsm.rs` | Rust backend: production FSM source generation. |
 | `src/backends/rust_test.rs` | Rust backend: unit-test source generation + aggregate test-crate helper for tooling. |
 | `src/backends/rust_mc.rs` | Rust backend: bounded model-checker executable generation. |
 | `src/backends/c.rs` | C backend plugin entry: the `C_BACKEND` registration value plus shared C helpers (identifier mangling, fixed-width type mapping). See `src/backends/C.md`. |
-| `src/backends/c_fsm.rs` | C backend: production FSM source generation (tagged-union inputs/outputs, priority-ordered arms, on_error fallback, simultaneous updates, translated safety subset). |
+| `src/backends/c_fsm.rs` | C backend: production FSM source generation (tagged-union inputs/outputs, priority-ordered arms, on_error fallback, simultaneous updates, online monitors rendered from the shared MonitorPlan - parity with Rust). |
 | `src/backends/c_test.rs` | C backend: plain-assert unit-test executable generation. |
 | `src/backends/c_mc.rs` | C backend: bounded model-checker executable (same CLI wire format and LCG as the Rust MC). |
 
@@ -74,6 +75,7 @@ pub struct BackendCommandInfo {
 pub struct BackendOptions {
     pub assumptions: AssumptionSelection,  // All | None | Labels(Vec<String>)
     pub steps: usize,                      // example-run length K (default 4)
+    pub with_property_monitors: bool,      // production only (D-P3-6); test/mc always include monitors
 }
 
 /// Result of one generation command.
@@ -137,17 +139,20 @@ pub enum CodegenRequest {
     Help,                                // rfs codegen --help | -h
     BackendHelp(String),                 // rfs codegen <backend> --help
     Generate { backend_name: String, command: CodegenCommandKind, input: String,
-               out: Option<String>, assumptions: AssumptionSelection, steps: usize },
+               out: Option<String>, assumptions: AssumptionSelection, steps: usize,
+               with_property_monitors: bool },
 }
 
 pub fn parse_codegen_args(args: &[String]) -> Result<CodegenRequest, Vec<String>>;
 ```
 
-Defaults: `--assumes all`, `--steps 4`, no `--out` (stdout). Parse errors:
-missing subcommand, unknown command name, `--out`/`--assumes` without value,
-non-numeric `--steps`, unknown options, stray positional arguments. The parser
-does **not** check the input extension or the backend name — those are done in
-the CLI layer (below) so tests can exercise parsing in isolation.
+Defaults: `--assumes all`, `--steps 4`, no `--out` (stdout), monitors off. Parse
+errors: missing subcommand, unknown command name, `--out`/`--assumes` without
+value, non-numeric `--steps`, `--with-property-monitors` on a non-production
+command (test/mc always include property monitors), unknown options, stray
+positional arguments. The parser does **not** check the input extension or the
+backend name — those are done in the CLI layer (below) so tests can exercise
+parsing in isolation.
 
 ### 4.2 CLI layer (`cmd_codegen` in `src/main.rs`)
 
@@ -173,6 +178,7 @@ rfs codegen --list
 rfs codegen --help
 rfs codegen rust --help
 rfs codegen rust production spec.rfs --out fsm.rs
+rfs codegen rust production spec.rfs --with-property-monitors --out fsm.rs
 rfs codegen rust test spec.json --steps 6 --out fsm_test.rs
 rfs codegen rust mc spec.rfs --assumes a1,a2 --out fsm_mc.rs
 ```
@@ -188,8 +194,9 @@ rfs codegen rust mc spec.rfs --assumes a1,a2 --out fsm_mc.rs
   identifier rules.
 - `representative_values(...)`: default field values used to synthesize
   candidate inputs for tests/model checking.
-- Formula subset analysis: which properties are expressible in the translated
-  (safety) subset; liveness constructs outside it become warnings, not errors.
+- Legacy Phase 1 formula-subset helpers (`contains_liveness`, `safety_formula_inner`)
+  kept for tests; monitor-compilability is decided by the shared compiler in
+  `src/monitor.rs` (section 5.4), so both backends warn identically.
 
 ### 5.2 `codegen_test.rs` (unit-test planning)
 
@@ -219,6 +226,23 @@ Important: the generated model-checker binary must not depend on this crate, so
 each backend **embeds its own copy** of the parsing helpers in the generated
 source. The formats defined here are the source of truth; keep the embedded
 copies in sync when changing them.
+
+### 5.4 `monitor.rs` (shared monitor compiler, Phase 3)
+
+- `compile_formula(label, is_assumption, formula) -> Result<MonitorPlan,
+  String>`: compiles a property/assumption formula into a language-agnostic
+  per-label monitor plan - per-sample boolean signals (temporal-operator-free
+  subformulas), delay registers for `next`, obligation monitors with
+  trigger/deadline countdown for `bounded_eventually[N]`, countdown monitors
+  for `always[N]`, and top-level violation wiring.
+- Restrictions R1-R4 decide what is compilable; out-of-subset formulas return
+  Err, and EVERY backend emits the same warning (`property '<name>' is outside
+  the monitor subset; skipped`) and generates no monitor for that label
+  (D-P3-5).
+- Both backends render the SAME `MonitorPlan` (Rust in `rust_fsm.rs`, C in
+  `c_fsm.rs`); exact deadline semantics (D-P3-3) are pinned by unit tests,
+  including a small reference interpreter used only by tests. See DESIGN.md
+  section 21.
 
 ## 6. Adding a new backend (checklist)
 
@@ -265,9 +289,24 @@ New code must go through the registry API; do not reintroduce wrapper surfaces.
   training snippet, with per-command output markers (`pub struct Fsm`,
   `#[test]`, `fn main()`);
 - option sensitivity: different `--steps` produce different test code;
+  `--with-property-monitors` on/off changes PRODUCTION output in BOTH backends,
+  and the flag is rejected for mc/test (they always include monitors);
+- monitor rendering: monitor structs present in generated code for
+  property-bearing examples (e.g. example 41) in Rust AND C; no skip warnings
+  for in-subset properties, identical warning wording for out-of-subset formulas;
 - CLI parsing: list/help/backend-help, full generate with options, defaults,
   assumption label lists, and every documented parse-error case;
 - the aggregate test-crate helper and model-checker generation.
+
+Cross-backend differential parity (`tests/backend_parity_test.rs`, Phase 3):
+same-seed MC runs over ALL property-bearing examples must be field-identical
+(exit codes, summary-line fields, violation label + trigger/deadline steps),
+forced `--violate` counterexamples must match, and both backends' generated
+test executables must agree on every example. Monitor integration
+(`tests/monitor_integration_test.rs`): an injected bug is caught by the MC in
+BOTH backends with the same property-specific counterexample info, and
+debug-gated production monitors report violations (`StepError::PropertyViolation`
+/ `RFS_PROPERTY_VIOLATION`).
 
 End-to-end behavior of the binary (exit codes, extension enforcement, unknown
 backend) is exercised by running `target/debug/rfs codegen ...` in CI-style
@@ -287,3 +326,6 @@ checks; keep any such checks aligned with section 4.2 above.
    behavior for the same spec and inputs; new backend features land in every
    backend in the same change and are covered by cross-backend differential
    tests.
+6. Property/assumption monitors are compiled ONCE by the shared `src/monitor.rs`
+   and rendered by every backend: monitor semantics (D-P3-3) and out-of-subset
+   warning text must be identical across backends (D-P3-5).

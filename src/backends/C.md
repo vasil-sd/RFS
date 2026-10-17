@@ -64,9 +64,19 @@ maximum emit count over all transitions and the on_error block.
 - **Assumption handling**: function-pointer handler
   (`rfs_policy_t (*handler)(void* user, const char* label)`) with
   Continue/Stop/Panic policies - the C analogue of the Rust trait.
-- **Translated safety subset**: same formula subset as Rust (via
-  `codegen_fsm::safety_formula_inner`), rendered over a dynamic trace array;
-  out-of-subset formulas are skipped with warnings, exactly like Rust.
+- **Online monitors (Phase 3, D-P3-5)**: the SAME shared `MonitorPlan` as the
+  Rust backend is rendered in C - per-label monitor structs (`mon_<label>_t`
+  with `_in_N` input-match helpers, `_sig_N` signal expressions, and a `_step`
+  function) mirroring the Rust rendering, evaluated over `rfs_sample_t`
+  (the C analogue of Rust's `Sample`: `input`, `outputs`, `from_state`,
+  `to_state`, `vars`). Property monitors are gated by
+  `#ifdef RFS_PROPERTY_MONITORS` (defined when `--with-property-monitors` is
+  used for the production command); assumption monitors are always active and
+  go through the existing handler path. A confirmed property violation sets
+  `RFS_PROPERTY_VIOLATION` in `step_result_t` with `prop_label`, `prop_step`,
+  and `prop_trigger_step` (the C analogue of Rust's
+  `StepError::PropertyViolation`). Out-of-subset formulas (R1-R4) are skipped
+  with the IDENTICAL warning text as Rust.
 - **Version header**: emitted as `#define RFS_SPEC_VERSION "..."`.
 
 ## 5. Model checker wire format
@@ -76,8 +86,14 @@ The generated MC executable accepts the identical CLI as the Rust one
 `--unexpected-prob`) and uses the same LCG constants
 (6364136223846793005 / 1442695040888963407, top-53-bit double mapping), the
 same three-phase step strategy (forced violation -> unexpected injection ->
-allowed random), and prints the same summary line format. A run that violates
-a property prints a counterexample trace and exits 1.
+allowed random), and prints the same summary line format. Property violations
+are detected ONLINE by the monitors during stepping (not post-hoc); a run that
+violates a property prints the same property-specific counterexample as the
+Rust MC - `run N property violation: <label>`, trigger step + vars at trigger
+step (for obligations), violation step + vars, and the full input/output trace
+- and exits 1. Same-seed runs of the Rust and C model checkers are
+indistinguishable in these fields (verified by the cross-backend parity suite,
+`tests/backend_parity_test.rs`).
 
 ## 6. Known limitations
 

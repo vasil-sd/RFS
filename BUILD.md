@@ -33,17 +33,22 @@ persist between tool calls). If `cargo --version` is not 1.99.0, see `TOOLCHAIN.
 
 | Suite | Command | Current result |
 |---|---|---|
-| All main-crate tests | `cargo test` | **125 pass** (52 lib, 41 frontend CLI logic, 19 codegen, 3 examples, 4 training, 4 parser-library comparison, 2 Phase 2 integration) |
-| Parser unit tests only | `cargo test --lib` | part of the 95 |
-| Example suite (file-driven: drop `.rfs` into `examples/valid\|invalid`, no test-code change) | `cargo test --test examples_test` | 3 pass; all 40 valid parse+validate+round-trip, all 11 invalid are rejected (parse or validation) |
+| All main-crate tests | `cargo test` | **170 pass** (86 lib, 41 frontend CLI logic, 23 codegen, 3 examples, 4 training, 4 parser-library comparison, 2 Phase 2 integration, 4 monitor integration, 3 cross-backend parity) |
+| Parser unit tests only | `cargo test --lib` | part of the 170 |
+| Example suite (file-driven: drop `.rfs` into `examples/valid\|invalid`, no test-code change) | `cargo test --test examples_test` | 3 pass; all 42 valid parse+validate+round-trip, all 12 invalid are rejected (parse or validation) |
 | Parser-library comparison (nom vs chumsky smoke) | `cargo test --test library_comparison` | 4 pass |
 | Training-set structure/snippets/aggregation/freshness | `cargo test-training` (= `cargo test training`) | 4 pass |
-| Generated-code aggregate unit tests (separate crate under `target/rfs_codegen_tests`) | `cargo test-generated-code` | **492 pass** |
+| Generated-code aggregate unit tests (separate crate under `target/rfs_codegen_tests`) | `cargo test-generated-code` | **513 pass** |
 
 Other suites: `tests/frontend_test.rs` covers all four conversion combinations, strict
 extension handling, output placement, collision guard, err-file generation, and
 end-to-end binary exit codes; `tests/codegen_test.rs` covers the backend registry,
-per-command generation, option sensitivity, and CLI argument parsing.
+per-command generation, option sensitivity (incl. `--with-property-monitors`), and CLI
+argument parsing; `tests/monitor_integration_test.rs` (Phase 3) drives an injected bug
+through the MC in BOTH backends and exercises debug-gated production monitors;
+`tests/backend_parity_test.rs` (Phase 3) is the cross-backend differential suite -
+same-seed MC runs over all property-bearing examples must be field-identical, and both
+backends' generated test executables must agree on every example.
 
 ## 4. Common commands (cargo aliases in `.cargo/config.toml`)
 
@@ -59,8 +64,9 @@ per-command generation, option sensitivity, and CLI argument parsing.
 | Convert RFS to IR JSON | `cargo run -- parse --input rfs --output json <file-or-dir> [--target-dir DIR]` |
 | Reformat / convert any format pair (rfs/json in both directions) | `cargo run -- parse --input <rfs\|json> --output <rfs\|json> <file-or-dir>` |
 | List codegen backends / per-backend help | `cargo run -- codegen --list` / `cargo run -- codegen rust --help` |
-| Generate production/test/MC Rust code | `cargo run -- codegen rust <production\|test\|mc> <spec.rfs\|spec.json> [--out FILE] [--assumes ...] [--steps N]` |
-| Generate C code (Phase 2; same commands) | `cargo run -- codegen c <production\|test\|mc> <spec.rfs\|spec.json> [--out FILE] [--assumes ...]` (compile with `gcc -Wall out.c`) |
+| Generate production/test/MC Rust code | `cargo run -- codegen rust <production\|test\|mc> <spec.rfs\|spec.json> [--out FILE] [--assumes ...] [--steps N] [--with-property-monitors]` |
+| Generate C code (Phase 2; same commands) | `cargo run -- codegen c <production\|test\|mc> <spec.rfs\|spec.json> [--out FILE] [--assumes ...] [--with-property-monitors]` (compile with `gcc -Wall out.c`) |
+| Property monitors in production builds (Phase 3) | `--with-property-monitors` is accepted on the `production` command of ANY backend only; `test` and `mc` always include monitors. Rust gates monitor emission/stepping on `#[cfg(debug_assertions)]` (zero cost in release); C gates on `-DRFS_PROPERTY_MONITORS` |
 | Generate aggregate generated-code test crate (171 modules) | `cargo generate-code-tests [--test-steps N] [--assumes ...]` |
 | Generate + compile + run all generated unit tests (513) | `cargo test-generated-code` |
 | Extract training snippets from `training/*/rfs_training.jsonl` | `cargo extract-training-snippets` -> 125 valid / 125 invalid snippets |
@@ -87,8 +93,10 @@ Additional checks depending on what changed:
 - Touched training sets -> `cargo extract-training-snippets && cargo build-training && cargo test-training`.
 - Touched language syntax -> also update `DESIGN.md`/`KB.md` and add valid+invalid examples first.
 
-Known-good baseline (2026-10-15, after Phase 2): 125/125 main tests, 492/492
-generated tests, clippy without errors (two pre-existing warnings: `from_str` naming
-in lib, `&PathBuf` arg in `tests/codegen_test.rs`), fmt clean. C generated code
-compiles with `gcc -Wall`; the Phase 2 integration tests compile the Rust output
-with rustc and drive it over an mpsc channel.
+Known-good baseline (2026-10-17, after Phase 3): 170/170 main tests, 513/513
+generated tests, clippy without errors (12 pre-existing warnings: 11 in lib -
+mostly `src/backends/c_fsm.rs` monitor rendering + `from_str` naming - and 1
+`&PathBuf` arg in `tests/codegen_test.rs`), fmt clean. C generated code compiles
+with `gcc -Wall`; the Phase 2 integration tests compile the Rust output with rustc
+and drive it over an mpsc channel; the Phase 3 parity suite compiles BOTH backends'
+MC/test output (rustc + gcc) and compares same-seed results field by field.

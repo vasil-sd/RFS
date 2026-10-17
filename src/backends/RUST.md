@@ -40,24 +40,58 @@ The generated file contains, in order:
    variant named by `VariantInfo::unique_name` (mangled through
    `rust_ident`), carrying the constructor's fields. Flat enums keep the
    transition `match` exhaustive and simple for downstream users.
-4. Trace runtime: `TraceStep { input, outputs, from_state, to_state, vars }`,
-   `Trace` with `state_at / vars_at / input_at / outputs_at` accessors — a
-   complete execution record used by tests, property checks, and the model
-   checker.
+4. Sample + trace runtime: `Sample { input: Option<Input>, outputs,
+   from_state, to_state, vars }` — the per-sample record the monitors evaluate
+   (sample 0 has no input/outputs); `TraceStep`/`Trace` keep the complete
+   execution record for counterexample printing.
 5. Assumption runtime: `AssumptionPolicy { Continue, Stop, Panic }`,
    `trait AssumptionHandler`, and the three built-in handlers
    (`Panic/Stop/Continue`). `Fsm::step` is the plain entry point (panic on
    violation); `Fsm::step_with_handler` delegates policy decisions to a caller
    handler.
-6. `pub enum StepError { UnexpectedEvent, AssumptionViolation { label } }`.
-7. Property and assumption check functions operating on the recorded trace
-   (the translated safety subset; liveness constructs outside it are skipped
-   with a warning at generation time).
-8. `pub struct Fsm { state, vars, trace, active_assumes }` with `new()` and
+6. `pub enum StepError { UnexpectedEvent, AssumptionViolation { label },
+   #[cfg(debug_assertions)] PropertyViolation { label, step } }` — the
+   property-violation variant is debug-gated in production output (D-P3-6);
+   it is always present in test/mc output.
+7. Online property/assumption monitors (Phase 3, section 2.3) — rendered from
+   the shared `MonitorPlan`; the pre-Phase-3 post-hoc `property_check`/
+   `assume_check` trace functions are GONE (D-P3-4).
+8. `pub struct Fsm { state, vars, trace, active_assumes, assume_monitors,
+   #[cfg(debug_assertions)] prop_monitors, #[cfg(debug_assertions)]
+   property_violation: Option<PropertyViolation> }` with `new()` and
    `step(input) -> Result<Vec<Output>, StepError>`: the transition block is a
    `match` on `(state, input)`; guards are lowered expressions over old
    values; variable updates are **simultaneous** (all assignments read pre-step
-   values); outputs are collected per step.
+   values); outputs are collected per step. `new()` steps one initial sample
+   (position 0) so monitor countdowns start correctly; `commit_step` steps the
+   monitors online after every successful transition.
+
+#### 2.3 Online property/assumption monitors (Phase 3)
+
+Every in-subset `prop`/`assume` compiles (in the shared, language-agnostic
+`src/monitor.rs`) to a per-label monitor plan; this backend renders it as:
+
+- one `pub struct Mon_<label>` per formula with `new()` and
+  `step(s: &Sample, idx: usize) -> Option<PropertyViolation>`; fields are the
+  plan's state - per-sample signal results (`n<i>_now`), failure flags
+  (`n<i>_failed`), trigger steps (`n<i>_trigger_step`), obligation countdowns
+  (`n<i>_pending`, `n<i>_remaining`), and delay registers for `next`
+  (`n<i>_prev_antecedent`, initialized so sample 0 is vacuous);
+- aggregate structs `PropMonitors` (properties) and `AssumeMonitors`
+  (assumptions); the `PROPERTY_LABELS` / `ASSUME_LABELS` constants stay;
+- sticky violation record: a confirmed property violation sets
+  `fsm.property_violation = Some(PropertyViolation { label, step,
+  trigger_step })` and is never cleared; assumption-monitor violations go
+  through the existing `AssumptionHandler` path (so all MC/test call sites keep
+  working unchanged - D-P3-4).
+
+Gating (D-P3-6): in PRODUCTION output the property monitors, their `Fsm`
+fields, and the `StepError::PropertyViolation` variant are wrapped in
+`#[cfg(debug_assertions)]` - debug builds report violations as errors, release
+builds have zero monitor cost. ASSUMPTION monitors are never gated (they are
+part of step semantics). In TEST and MC output everything is always on (no
+gating). Formulas outside the monitor subset (R1-R4) generate no monitor and
+warn with the same text as every other backend.
 
 ### 2.2 Expression lowering
 
@@ -105,11 +139,17 @@ false)`) and appends a runtime that:
   `--violate label:prob:percent%[,label2:...]`, `--unexpected-prob P`;
 - at each step selects an input by the phase order from `codegen_mc::McPhase`:
   forced assumption violation first, then unexpected-event injection, then a
-  normally allowed random input;
-- checks every property label against the recorded trace after each run and
-  reports outcomes using the `codegen_mc::McStatus` taxonomy (completed,
-  property violation, unexpected event, assumption stop); counterexample traces
-  are printed for failures.
+  normally allowed random input (steps that violate a PROPERTY are allowed on
+  purpose - the model checker wants to find violations);
+- detects property violations ONLINE: after each successful step it checks the
+  sticky `fsm.property_violation` record; on a hit it prints the
+  property-specific counterexample (which run + label, trigger step + vars at
+  trigger for obligations, violation step + vars, full input/output trace),
+  sets status `property-violated:<label>`, and exits 1;
+- assumption monitors prune environment branches online through the handler
+  path - including liveness assumptions like `always(be[5] input_is(Tick))`;
+- reports outcomes using the `codegen_mc::McStatus` taxonomy (completed,
+  property violation, unexpected event, assumption stop).
 
 Because the generated binary cannot depend on this crate, `rust_mc.rs` contains
 embedded copies of the parsing helpers (`parse_violation_spec`,
@@ -135,15 +175,18 @@ the embedded copy, and extend the tests.
 5. **MC = production core + runtime**, not a separate translation: the checked
    system and the shipped system are literally the same code, which is what
    makes model-checking results meaningful for production.
-6. **Warnings, not errors, for the untranslated property subset** (e.g. liveness
-   with `bounded_eventually`): generation succeeds and tells the user exactly
-   what was skipped.
+6. **Online monitors from one shared plan** (Phase 3, D-P3-4/D-P3-5): every
+   in-subset prop/assume - including bounded liveness - is monitored online via
+   the `MonitorPlan` compiled once in `src/monitor.rs`; only out-of-subset
+   formulas (R1-R4) are skipped, with a warning that tells the user exactly what
+   was skipped (identical text in every backend).
 
 ## 6. Known limitations
 
 - Only the first module of a multi-module file is generated by the CLI;
   aggregate tooling handles multi-file crates instead.
-- The translated property subset is safety-oriented; liveness constructs outside
-  it are dropped with warnings (see `DESIGN.md` §Model-checking constraints).
+- Only formulas outside the monitor-compilability restrictions R1-R4 are
+  skipped (with a warning); everything in-subset - including bounded liveness -
+  is monitored online (see `DESIGN.md` section 21).
 - Identifier mangling escapes Rust keywords but does not perform full name
   resolution against user code that includes the generated file.

@@ -413,3 +413,23 @@ sed -n "<start>,<end>p" TASKS.md            # one specific entry by line range
 - BUILD.md section 4 updated to actuals: 162 -> 171 modules, 492 -> 513 tests, 120/125 -> 125/125 snippets, 219 -> 224 examples. `tests/training_test.rs` needed no changes (counts computed dynamically).
 - Left for task 21's BUILD.md sync: section 3 main-test count line ("125 pass" vs current 170) and section 5's dated Phase 2 baseline - recorded in the status file.
 - `cargo test --no-fail-fast` 170/170 green; fmt clean. Next in defined order: task 21 (docs sync).
+
+## 2026-10-17 21:05 — Phase 3 task 21: docs sync - all 7 design-relevant docs updated to final Phase 3 state
+
+### Interpretation & plan
+
+- Requested: execute Phase 3 task 21 per `docs/roadmap/PHASE_3_TASK_21.md` - sync DESIGN.md, KB.md, BUILD.md, CODEGEN.md, RUST.md, C.md, START.md with the final Phase 3 state (D-P3-1..6, monitor semantics, R1-R4, CLI flag, task-23 grammar); docs-only, no code or PHASE_*.md changes.
+- Plan: read target sections surgically (grep + sed), verify every claim against actual generated output (example 41 both backends) and parser source, edit in place, grep-audit for stale claims.
+
+### Report
+
+- `DESIGN.md`: §5.10 always[N] + D-P3-3 monitor semantics block (+ fixed a non-parsing example); §6 formula EBNF rewritten for the task-23 grammar (formula-level ||/->/&&/!, non_boolean_expr fallthrough, expression ladder, atom_call at formula level); §7 additive bounded_always IR note; §12 subset marked implemented; D8 cell + §19 bullet stale "liveness skipped" claims replaced with Phase 3 pointers; NEW §21 with D-P3-1..D-P3-6 comparison tables (section-20 style) + R1-R4 text.
+- `KB.md`: §1 state table (Phase 3 row, 42/12 examples, 170 tests, 513 generated, 224 SFT); §2.6 always[N] + monitor note + task-23 grammar fix documented; §3.9 example; §4.2 src/monitor.rs row + codegen_fsm legacy note; §7 "Resolved during Phases 1-3"; §13.2/13.5/13.6 Phase 3 update notes (post-hoc/liveness-skipped claims replaced).
+- `BUILD.md`: §3 counts (170 main w/ breakdown, 513 generated, 42/12 examples) + Other-suites paragraph now covers monitor_integration + backend_parity suites; §4 --with-property-monitors rows; §5 baseline updated to post-Phase 3.
+- `CODEGEN.md`: BackendOptions.with_property_monitors + CodegenRequest field + parse rule, NEW §5.4 shared monitor compiler (R1-R4, identical warnings), Phase 3 testing conventions (flag sensitivity both backends, parity suite, monitor integration), invariant 6.
+- `src/backends/RUST.md`: §2.1 anatomy updated (Sample, StepError::PropertyViolation debug-gated, post-hoc functions GONE), NEW §2.3 online monitors (Mon_* structs, gating, D-P3-6), §4 MC online detection + counterexample format, §5/§6 R1-R4 wording.
+- `src/backends/C.md` (correction 11a): §4 full monitor-parity description (mon_* structs, rfs_sample_t, #ifdef RFS_PROPERTY_MONITORS, RFS_PROPERTY_VIOLATION + prop_label/prop_step/prop_trigger_step), §5 online detection + same counterexample fields + parity pointer.
+- `START.md`: §1 snapshot 2026-10-17 (Phase 3 IMPLEMENTED, close-out = task 22; next work Phase 4; 170/170 + 513/513 + 42/12 + 224), §7 count 513.
+- Grep audit passed: remaining post-hoc/liveness-skipped mentions are only intentional decision-record references or frozen historical docs (TASKS.md, PHASE_1_STATUS.md, task files).
+- Incident: one long KB.md insertion was written as literal placeholder text (argument elided in transit); detected by re-read, fixed, repo-wide scan clean.
+- No code changes; no test re-run needed (docs-only). Next in defined order: task 22 (close-out).

@@ -485,10 +485,8 @@ impl<'a> Gen<'a> {
             }
         }
         for a in &self.module.assumptions {
-            let selected = matches!(
-                self.options.assumptions,
-                codegen::AssumptionSelection::All
-            ) || matches!(&self.options.assumptions, codegen::AssumptionSelection::Labels(l) if l.iter().any(|x| x == &a.name));
+            let selected = matches!(self.options.assumptions, codegen::AssumptionSelection::All)
+                || matches!(&self.options.assumptions, codegen::AssumptionSelection::Labels(l) if l.iter().any(|x| x == &a.name));
             if !selected {
                 continue;
             }
@@ -546,12 +544,18 @@ impl<'a> Gen<'a> {
         let props: Vec<String> = if self.property_names.is_empty() {
             vec!["0".into()]
         } else {
-            self.property_names.iter().map(|s| format!("\"{}\"", s)).collect()
+            self.property_names
+                .iter()
+                .map(|s| format!("\"{}\"", s))
+                .collect()
         };
         let assumes: Vec<String> = if self.active_assumes.is_empty() {
             vec!["0".into()]
         } else {
-            self.active_assumes.iter().map(|s| format!("\"{}\"", s)).collect()
+            self.active_assumes
+                .iter()
+                .map(|s| format!("\"{}\"", s))
+                .collect()
         };
         // `RFS_UNUSED`: the label tables exist for MC/test runtimes and user
         // code (D-P3-4); a production TU without them referenced must not
@@ -560,10 +564,26 @@ impl<'a> Gen<'a> {
             self.code,
             "#if defined(__GNUC__) || defined(__clang__)\n#define RFS_UNUSED __attribute__((unused))\n#else\n#define RFS_UNUSED\n#endif"
         );
-        let _ = writeln!(self.code, "static const char* PROPERTY_LABELS[] RFS_UNUSED = {{{}}};", props.join(", "));
-        let _ = writeln!(self.code, "static const int N_PROPERTY_LABELS RFS_UNUSED = {};", self.property_names.len());
-        let _ = writeln!(self.code, "static const char* ASSUME_LABELS[] RFS_UNUSED = {{{}}};", assumes.join(", "));
-        let _ = writeln!(self.code, "static const int N_ASSUME_LABELS RFS_UNUSED = {};", self.active_assumes.len());
+        let _ = writeln!(
+            self.code,
+            "static const char* PROPERTY_LABELS[] RFS_UNUSED = {{{}}};",
+            props.join(", ")
+        );
+        let _ = writeln!(
+            self.code,
+            "static const int N_PROPERTY_LABELS RFS_UNUSED = {};",
+            self.property_names.len()
+        );
+        let _ = writeln!(
+            self.code,
+            "static const char* ASSUME_LABELS[] RFS_UNUSED = {{{}}};",
+            assumes.join(", ")
+        );
+        let _ = writeln!(
+            self.code,
+            "static const int N_ASSUME_LABELS RFS_UNUSED = {};",
+            self.active_assumes.len()
+        );
         Ok(())
     }
 
@@ -584,26 +604,54 @@ impl<'a> Gen<'a> {
         let mut sigs: Vec<String> = Vec::new();
         let mut blocks: Vec<String> = Vec::new();
         let mut next_id = 0usize;
-        self.render_node(&plan.root, &mut next_id, &mut fields, &mut inits, &mut sigs, &mut blocks, &m, &input_pats, &output_pats)?;
+        self.render_node(
+            &plan.root,
+            &mut next_id,
+            &mut fields,
+            &mut inits,
+            &mut sigs,
+            &mut blocks,
+            &m,
+            &input_pats,
+            &output_pats,
+        )?;
 
-        let kind = if plan.is_assumption { "assumption" } else { "property" };
+        let kind = if plan.is_assumption {
+            "assumption"
+        } else {
+            "property"
+        };
         let mut out = String::new();
         for (i, p) in input_pats.iter().enumerate() {
             match self.input_is_sample_helper_c(&m, i, p) {
                 Some(h) => out.push_str(&h),
-                None => return Err(format!("monitor '{}': unresolvable input pattern", plan.label)),
+                None => {
+                    return Err(format!(
+                        "monitor '{}': unresolvable input pattern",
+                        plan.label
+                    ))
+                }
             }
         }
         for (i, p) in output_pats.iter().enumerate() {
             match self.output_has_sample_helper_c(&m, i, p) {
                 Some(h) => out.push_str(&h),
-                None => return Err(format!("monitor '{}': unresolvable output pattern", plan.label)),
+                None => {
+                    return Err(format!(
+                        "monitor '{}': unresolvable output pattern",
+                        plan.label
+                    ))
+                }
             }
         }
         let sig_fns: Vec<String> = sigs
             .iter()
             .enumerate()
-            .map(|(i, e)| format!("static inline bool mon_{m}_sig_{i}(const rfs_sample_t* s) {{ return {e}; }}\n"))
+            .map(|(i, e)| {
+                format!(
+                    "static inline bool mon_{m}_sig_{i}(const rfs_sample_t* s) {{ return {e}; }}\n"
+                )
+            })
             .collect();
         let _ = writeln!(
             out,
@@ -648,14 +696,21 @@ impl<'a> Gen<'a> {
                     "    m->n{id}_now = ({cond}) && !({sig_expr});\n    if (m->n{id}_now) {{ m->n{id}_failed = true; }}"
                 ));
             }
-            MonNode::Obligation { bound, trigger, body, range } => {
+            MonNode::Obligation {
+                bound,
+                trigger,
+                body,
+                range,
+            } => {
                 let tsig_expr = self.gen_signal_c(trigger, m, input_pats, output_pats)?;
                 sigs.push(tsig_expr.clone());
                 let bsig_expr = self.gen_signal_c(body, m, input_pats, output_pats)?;
                 sigs.push(bsig_expr.clone());
                 fields.push(format!("    bool n{id}_failed;"));
                 fields.push(format!("    int n{id}_trigger_step;"));
-                inits.push(format!("m->n{id}_failed = false; m->n{id}_trigger_step = -1;"));
+                inits.push(format!(
+                    "m->n{id}_failed = false; m->n{id}_trigger_step = -1;"
+                ));
                 if *bound >= 1 {
                     fields.push(format!("    bool n{id}_pending;"));
                     fields.push(format!("    long long n{id}_remaining;"));
@@ -676,7 +731,11 @@ impl<'a> Gen<'a> {
                     ));
                 }
             }
-            MonNode::DelayedCheck { antecedent, consequent, range } => {
+            MonNode::DelayedCheck {
+                antecedent,
+                consequent,
+                range,
+            } => {
                 let asig_expr = self.gen_signal_c(antecedent, m, input_pats, output_pats)?;
                 sigs.push(asig_expr.clone());
                 let csig_expr = self.gen_signal_c(consequent, m, input_pats, output_pats)?;
@@ -700,7 +759,17 @@ impl<'a> Gen<'a> {
                 let mut child_ids: Vec<usize> = Vec::new();
                 for c in children {
                     child_ids.push(*next_id);
-                    self.render_node(c, next_id, fields, inits, sigs, blocks, m, input_pats, output_pats)?;
+                    self.render_node(
+                        c,
+                        next_id,
+                        fields,
+                        inits,
+                        sigs,
+                        blocks,
+                        m,
+                        input_pats,
+                        output_pats,
+                    )?;
                 }
                 fields.push(format!("    bool n{id}_failed;"));
                 fields.push(format!("    int n{id}_trigger_step;"));
@@ -711,7 +780,11 @@ impl<'a> Gen<'a> {
                 // Per-sample composition over the children's CURRENT failure
                 // status (a disjunction fails only while ALL children fail at
                 // this sample; a conjunction while ANY child fails).
-                let join = if matches!(node, MonNode::And(_)) { " || " } else { " && " };
+                let join = if matches!(node, MonNode::And(_)) {
+                    " || "
+                } else {
+                    " && "
+                };
                 let any_all = child_ids
                     .iter()
                     .map(|c| format!("m->n{c}_now"))
@@ -806,7 +879,12 @@ impl<'a> Gen<'a> {
 
     /// Helper: does the sample input match this pattern? (`NULL` input -
     /// sample 0 - never matches.)
-    fn input_is_sample_helper_c(&self, m: &str, idx: usize, pattern: &EventPattern) -> Option<String> {
+    fn input_is_sample_helper_c(
+        &self,
+        m: &str,
+        idx: usize,
+        pattern: &EventPattern,
+    ) -> Option<String> {
         let cond = self.input_match_cond(pattern)?;
         Some(format!(
             "static inline bool mon_{m}_in_{idx}(const rfs_sample_t* s) {{ if (!s->input) return false; const input_t* inp = s->input; return {cond}; }}\n"
@@ -814,7 +892,12 @@ impl<'a> Gen<'a> {
     }
 
     /// Helper: does the sample contain an output matching this pattern?
-    fn output_has_sample_helper_c(&self, m: &str, idx: usize, pattern: &OutputPattern) -> Option<String> {
+    fn output_has_sample_helper_c(
+        &self,
+        m: &str,
+        idx: usize,
+        pattern: &OutputPattern,
+    ) -> Option<String> {
         let cond = self.output_match_cond(pattern)?;
         Some(format!(
             "static inline bool mon_{m}_out_{idx}(const rfs_sample_t* s) {{ for (int i = 0; i < s->n_outputs; i++) {{ const output_t* o = &s->outputs[i]; if ({cond}) return true; }} return false; }}\n"
@@ -889,7 +972,6 @@ impl<'a> Gen<'a> {
             steps = steps.join("\n"),
         )
     }
-
 
     /// C condition for an input matching a pattern (over `inp`).
     fn input_match_cond(&self, pattern: &EventPattern) -> Option<String> {
@@ -1055,7 +1137,9 @@ impl<'a> Gen<'a> {
         let prop_fields = if self.has_prop() {
             let f = "prop_monitors_t prop_monitors;\n    char prop_label[64];\n    int prop_step;\n    int prop_trigger_step;";
             match self.prop_mode {
-                PropertyMonitorMode::Gated => format!("\n#ifdef RFS_PROPERTY_MONITORS\n    {f}\n#endif\n"),
+                PropertyMonitorMode::Gated => {
+                    format!("\n#ifdef RFS_PROPERTY_MONITORS\n    {f}\n#endif\n")
+                }
                 _ => format!(" {f}"),
             }
         } else {
@@ -1486,7 +1570,11 @@ fn collect_signal_patterns<'p>(
         }
     }
     match node {
-        MonNode::DelayedCheck { antecedent, consequent, .. } => {
+        MonNode::DelayedCheck {
+            antecedent,
+            consequent,
+            ..
+        } => {
             push(antecedent, input_pats, output_pats);
             push(consequent, input_pats, output_pats);
         }

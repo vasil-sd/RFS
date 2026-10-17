@@ -9,13 +9,17 @@
 //! (`--bound 8 --runs 20 --seed 777`): the point is determinism + equality,
 //! not coverage depth.
 //!
-//! Known recorded state (see PHASE_3_TASK_17_STATUS.md):
+//! Known recorded state (see PHASE_3_TASK_17_STATUS.md; the second bullet was
+//! resolved by task 24):
 //! - natural random-run violations at the pinned seed: `13_properties_safety`
 //!   (`no_bad`, run 0) and `41_property_monitors` (`fin_acked_bounded`, run
 //!   19) - a legitimate environment behavior, identical in both backends;
-//! - `13_properties_safety` FAILS its own generated test in BOTH backends by
-//!   design (D-P3-6): its representative-input walk ToBad -> Bad violates its
-//!   own `no_bad` property, and `test` codegen always includes monitors.
+//! - all property-bearing examples' generated test executables pass in BOTH
+//!   backends. (Task 17 had pinned `13_properties_safety` as failing in both:
+//!   its representative-input walk ToBad -> Bad violated its own `no_bad`
+//!   property while `test` codegen always includes monitors, D-P3-6. Task 24
+//!   fixed the spec - a `Stay` self-loop declared first keeps the walk in
+//!   Good; see PHASE_3_TASK_24_STATUS.md.)
 
 use std::collections::{BTreeMap, HashMap};
 use std::path::{Path, PathBuf};
@@ -430,14 +434,8 @@ fn generated_test_executables_parity_all_property_bearing_examples() {
             failing.push(name);
         }
     }
-    // Pinned current state: only 13_properties_safety fails - and it fails in
-    // BOTH backends by design (D-P3-6): its representative-input walk
-    // ToBad -> Bad violates its own `no_bad` property, and `test` codegen
-    // always includes monitors. A follow-up task resolves the example/test-plan
-    // mismatch; when it lands, this pin becomes an empty list.
-    assert_eq!(
-        failing,
-        vec!["13_properties_safety.rfs"],
-        "unexpected failing set: {failing:?}"
-    );
+    // Pinned current state: no example fails its own generated test in either
+    // backend. (Task 24 resolved the former 13_properties_safety failure -
+    // see PHASE_3_TASK_24_STATUS.md.)
+    assert!(failing.is_empty(), "unexpected failing set: {failing:?}");
 }

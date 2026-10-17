@@ -146,11 +146,18 @@ changed, with the reason recorded. Run `cargo run -- validate --input rfs exampl
 
 ## Task corrections
 
-(to be filled during execution)
+| Correction | Description + rationale |
+|------------|-------------------------|
+| Fix applied as Option A variant: added `Stay` self-loop event (not a reorder) | The literal Option A ("reorder inputs so the representative walk stays in Good") is infeasible for this spec shape: from `Good` the only defined transition is `ToBad -> Bad`, so no input ordering yields an OK step from `Good` - the walk has zero candidates regardless of order (verified by reading the walk logic in `src/backends/rust_test.rs` / `c_test.rs`: first candidate in declaration order that steps without error). Applied the minimal spec change within Option A's spirit instead: new event `Stay` with a self-loop on `Good`, declared FIRST, so the representative walk stays in `Good` and respects `no_bad`; random MC runs can still pick `ToBad` and find natural violations (verified: at the pinned params the violation is unchanged - run 0, step 1). |
+| Option B rejected (assumption blocking ToBad) | An assumption `input_is(ToBad) == false` would make the walk's only candidate step fail via the assumption handler instead of the property monitor - the positive walk still has zero OK steps from `Good` (`ToGood` is unexpected there), so `positive_sequence_runs` would still fail. It would also change MC reachable states / add `assumption_stops`, defeating the example's purpose (MC must still find natural `no_bad` violations). |
+| Option C not needed | The spec-level fix works, so no shared TestPlan rule change in `src/codegen_test.rs`; every other example's generated tests are untouched (verified: 498/498 aggregate pass). No design-decision change. |
+| Scope expansion: training snippet copies of the old spec | The aggregate generated-test crate (`cargo generate-code-tests`) also includes `training/*/snippets/valid/**`: three categories (`examples_explain`, `model_checking_properties`, `model_checking_space`) contained verbatim copies of the OLD example-13 spec as `snippet_0031.rfs`, and their generated `positive_sequence_runs` failed identically (3 failures remained after fixing the example itself). Updated the three jsonl entries (user spec block; in `examples_explain` also the assistant response's event/transition counts) and re-ran `cargo extract-training-snippets && cargo build-training`. Required to actually unblock task 18 (`cargo test-generated-code` must pass). |
+| Incidental: pre-existing fmt drift in `src/backends/c_fsm.rs` | `cargo fmt --check` was already red at HEAD (18 hunks, all in `c_fsm.rs`, from Phase 3 monitor work - verified by stashing this task's changes). Ran `cargo fmt` (pure reformatting, no semantic change) to restore the standing "fmt green" rule; without it task 22's close-out checklist (`cargo fmt --check`) would fail. |
+| Environmental: cargo rustc-probe stdin corruption + poisoned probe cache | Fresh toolchain probes (`rustc - ...` / `clippy-driver rustc - ...`) received stale text from earlier session commands on their stdin (recurrence of the task 17/23 incident class); additionally `target/.rustc_info.json` had CACHED a failed probe and replayed it on every subsequent run, so even a fixed environment kept failing. The task-17 FIFO workaround no longer works in this session (verified: probe still received stale text). Working fix found: delete the poisoned `target/.rustc_info.json` AND run cargo with an LD_PRELOAD shim forcing `read(0)` to return EOF (see "Other important findings"). |
 
 ### Changes in design decisions
 
-(None anticipated; option C would add one - record it there if chosen.)
+(None - option C was not chosen; D-P3-6 stands, `no_bad` unchanged.)
 
 ## Other information
 

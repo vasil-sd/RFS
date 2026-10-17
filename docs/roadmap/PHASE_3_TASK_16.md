@@ -109,11 +109,11 @@ the Rust values from Action 3. Rationale: per-language gating, identical semanti
   harness naturally shares setup - record final count in status file).
 
 ## Task exit criteria
-- [ ] Buggy spec: both backends' MC exit 1, same label + same trigger/deadline steps.
-- [ ] Correct spec: both backends' MC exit 0 within bound, zero property violations.
-- [ ] Rust debug production build returns `Err(StepError::PropertyViolation)` on the violating sequence.
-- [ ] C `-DRFS_PROPERTY_MONITORS` build reports `RFS_PROPERTY_VIOLATION` with label/step equal to the Rust values.
-- [ ] `cargo test --no-fail-fast` fully green including the new suite.
+- [x] Buggy spec: both backends' MC exit 1, same label + same trigger/deadline steps.
+- [x] Correct spec: both backends' MC exit 0 within bound, zero property violations.
+- [x] Rust debug production build returns `Err(StepError::PropertyViolation)` on the violating sequence.
+- [x] C `-DRFS_PROPERTY_MONITORS` build reports `RFS_PROPERTY_VIOLATION` with label/step equal to the Rust values.
+- [x] `cargo test --no-fail-fast` fully green including the new suite.
 
 ## Non-goals
 - No changes to MC runtimes or backends. Any behavioral divergence found here is a
@@ -121,6 +121,13 @@ the Rust values from Action 3. Rationale: per-language gating, identical semanti
   this task file's execution.
 - No release-build (zero-cost) assertion for Rust: `cfg(debug_assertions)` gating is
   pinned by task 15's codegen-level tests; driving a release build here adds little.
+
+## Task corrections
+
+| Correction | Description + rationale |
+|---|---|
+| Action 1 output format calibrated to the real MC wire format | Both MC runtimes print `run N property violation: <label>` plus `trigger step:` / `violation step:` lines (not a `property-violated:<label>` status string as in the task Context). Tests parse these lines; cross-backend equality AND pinned values (`fin_acked_bounded`, trigger 1, violation 5) are asserted - the buggy walk is fully deterministic (one allowed input per state), so the pins are seed-independent. Behavior matches D-P3-3/D-P3-6; no plan correction needed. |
+| Action 2 bound selected as 4 (not a larger "reasonable" value) | At bound >= 5 the random environment can LEGITIMATELY violate `fin_acked_bounded` (never send the Ack within 5 samples of the Fin) - a real property violation, not a false positive. Bound 4 is the largest horizon where no property can be confirmed for any seed/run count, making "zero violations" provable; runs=100 with fixed seed 12345 exercises many walks. |
 
 ## Other information
 

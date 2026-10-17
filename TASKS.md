@@ -317,3 +317,20 @@ sed -n "<start>,<end>p" TASKS.md            # one specific entry by line range
 - Task corrections recorded in `PHASE_3_TASK_15.md`: off-output marker calibration (task-file shorthand "off has neither Mon_ structs" inaccurate), observed CLI rejection, stale 3-example list (actually 15; TLA files live in `examples/valid/tla_adapted/`). No plan corrections - behavior matches D-P3-6.
 - Verification: `cargo test --no-fail-fast` fully green - lib 86, codegen_test 23, examples 3, frontend 41, integration 2, library_comparison 4, training 4 (163 total). Clippy: no NEW warnings from this change (pre-existing e0bc3cb dirt remains, owed before task 22). `tests/codegen_test.rs` rustfmt-clean (`c_fsm.rs` pre-existing fmt diffs untouched).
 - Full details: `docs/roadmap/PHASE_3_TASK_15_STATUS.md`.
+
+---
+
+## 2026-10-17 05:59 — Task 16 executed: monitor integration suite, end-to-end in both backends
+
+### Interpretation & plan
+
+- Pending work from tasks 23/13/15 committed first (commit `031fa87`), per user instruction; then user gate "let's execute task 16" - next in agreed order 23 -> 13 -> 15 -> 16.
+- Per `PHASE_3_TASK_16.md`: new `tests/monitor_integration_test.rs` with 4 tests: (a) buggy spec -> MC catches the bug with property-specific output, cross-compared; (b) correct spec passes within bound (no false positives); (c)+(d) Rust/C production debug monitors surface the violation at the step API with identical values. Tests only - no backend changes (non-goal).
+
+### Report
+
+- `tests/monitor_integration_test.rs` (new, 4 tests): buggy variant of example 41 (Ack transition dropped) -> BOTH MCs exit 1 with SAME label `fin_acked_bounded`, trigger step 1, violation/deadline step 5 (walk fully deterministic: one allowed input per state - pins are seed-independent); unmodified example 41 at `--bound 4 --runs 100` (fixed seed) -> BOTH exit 0, `property_violations=0`, identical summary field sets; Rust debug production driver (no `-O`) -> steps 1-4 Ok, step 5 `Err(StepError::PropertyViolation { label: "fin_acked_bounded", step: 5 })`; C `-DRFS_PROPERTY_MONITORS` driver -> step 5 `RFS_PROPERTY_VIOLATION` with prop_label/prop_step/prop_trigger_step equal to the Rust values.
+- Task corrections recorded in `PHASE_3_TASK_16.md`: Action 1's `property-violated:<label>` shorthand does not match the actual MC output (`run N property violation: <label>` + trigger/violation step lines) - assertions calibrated to the real wire format; Action 2 bound selected as 4 because at bound >= 5 the random environment can legitimately violate `fin_acked_bounded` (real violation, not a false positive), while bound 4 makes zero violations provable for any seed/run count. No plan corrections.
+- Verification: `cargo test --no-fail-fast` fully green - lib 86, codegen_test 23, examples 3, frontend 41, integration_example 2, monitor_integration 4 (new), library_comparison 4, training 4 (167 total). Clippy: 0 findings in the new file; `tests/monitor_integration_test.rs` rustfmt-clean. No backend divergence observed (all cross-backend values equal, incl. summary counts) - no follow-up task needed.
+- Findings: gcc -Wall emits pre-existing warnings on GENERATED C code (`-Wmaybe-uninitialized`, unused params in monitor signal helpers); C MC trace lacks a trailing newline after its last step line - both cosmetic/out-of-scope, same bucket as the pre-existing e0bc3cb clippy/fmt dirt owed before task 22.
+- Full details: `docs/roadmap/PHASE_3_TASK_16_STATUS.md`.

@@ -81,10 +81,10 @@ warning-free check in the task status file.
 - Parser-constraint coverage lives in task 23 (not here).
 
 ## Task exit criteria
-- [ ] Task 23 completed first; example 42 parses UNMODIFIED with the expected AST shape.
-- [ ] `cargo run -q -- validate --input rfs examples/valid` exits 0 (all valid examples).
-- [ ] codegen rust + c, production/test/mc, on examples 41 and 42: zero "outside monitor subset" warnings; monitor structs present for every prop/assume label in both backends.
-- [ ] `cargo test --no-fail-fast` fully green (codegen_test 19/19, examples_test 3/3, lib incl. task 23's new tests).
+- [x] Task 23 completed first; example 42 parses UNMODIFIED with the expected AST shape.
+- [x] `cargo run -q -- validate --input rfs examples/valid` exits 0 (all valid examples).
+- [x] codegen rust + c, production/test/mc, on examples 41 and 42: zero "outside monitor subset" warnings; monitor structs present for every prop/assume label in both backends.
+- [x] `cargo test --no-fail-fast` fully green (codegen_test 19/19, examples_test 3/3, lib incl. task 23's new tests).
 
 ## Non-goals
 - No file changes expected; if verification fails, stop and record a correction

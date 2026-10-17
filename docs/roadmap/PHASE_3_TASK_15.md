@@ -101,15 +101,23 @@ backends and assert ZERO "outside monitor subset" warnings. Rationale: exit crit
 - 4 new tests in `tests/codegen_test.rs` (exact count recorded in status file).
 
 ## Task exit criteria
-- [ ] All 4 new tests present and passing; `cargo test --no-fail-fast` fully green.
-- [ ] Rust AND C production flag on/off outputs verified different with correct markers.
-- [ ] mc/test monitor inclusion asserted for both backends.
-- [ ] Zero skip warnings asserted for all property-bearing valid examples in both backends.
+- [x] All 4 new tests present and passing; `cargo test --no-fail-fast` fully green.
+- [x] Rust AND C production flag on/off outputs verified different with correct markers.
+- [x] mc/test monitor inclusion asserted for both backends.
+- [x] Zero skip warnings asserted for all property-bearing valid examples in both backends.
 
 ## Non-goals
 - No changes to codegen source or CLI parsing (tests only). If a mismatch between
   behavior and D-P3-6 is found: record a plan correction + new task; do not fix
   backend code inside this task.
+
+## Task corrections
+
+| Correction | Description + rationale |
+|---|---|
+| Action 1/2 "off has neither" calibrated to the real off-output shape | The flag does NOT remove the per-label `Mon_*` struct definitions from Rust production output (they are emitted in both modes); what it gates is the `StepError::PropertyViolation` variant, the `PropertyViolation` struct, the `PropMonitors` aggregate + stepping calls - all under `#[cfg(debug_assertions)]`. C off-output keeps the stable wire format (`RFS_PROPERTY_VIOLATION` enum value, `prop_label`/`prop_step`/`prop_trigger_step` result fields) but has no `RFS_PROPERTY_MONITORS` define, no `rfs_property_violation_t`, no `prop_monitors` state. Tests assert these exact marker sets (verified against generated output before writing). Behavior matches D-P3-6; no plan correction needed. |
+| Action 3 observed CLI behavior: flag REJECTED for mc/test | `parse_codegen_args` returns the error "--with-property-monitors is only valid for the production command; test and mc always include property monitors" for both `mc` and `test`. This is the D-P3-6 "not accepted/needed" path anticipated by the task file's Other information - the test asserts the error message. |
+| Action 4 example list was stale: 15 property-bearing files, not (33, 41, 42) | Dynamic enumeration found top-level 04, 13, 14, 15, 16, 24, 37, 41, 42 + tla_adapted 31-36 (the TLA adaptations live in `examples/valid/tla_adapted/`, missed by a top-level-only glob). All 15 x both backends compile with ZERO "outside monitor subset" warnings (empirically verified before writing the test), so the zero-warnings assertion holds as written. |
 
 ## Other information
 

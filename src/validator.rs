@@ -1037,8 +1037,8 @@ mod tests {
 
     #[test]
     fn bounded_always_zero_bound_nested_is_error() {
-        // Bare expression children of `&&` must be parenthesized (the parser
-        // absorbs following boolean operators into one Expr node).
+        // Parenthesized left operand kept for readability; since the task 23
+        // grammar fix bare `state == A && always[0] (...)` parses identically.
         let m = module_from(
             "module m { enum State { A } initial A prop p : always ((state == A) && always[0] (state == A)) ; }",
         );

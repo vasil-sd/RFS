@@ -160,18 +160,29 @@ to confirm example 42 now parses UNMODIFIED (hand-off to task 13).
 
 ## Task exit criteria
 
-- [ ] `state == A && output_has(O)`, `state == A || output_has(O)`, and `state == A && (output_has(O))` parse (previously all failed).
-- [ ] Pure-expression conjunction in a property parses as `Formula::And(Expr, Expr)`; precedence `a && b || c` -> `Or(And(a,b),c)`.
-- [ ] Previously-working shapes still parse identically (reordered, parenthesized, comparison mixes); transition-guard tests unchanged and green.
-- [ ] Printer round-trips (rfs->json->rfs, json->rfs->rfs) for the new shapes with no redundant parens.
-- [ ] `always (state == A && output_has(O))` compiles in the monitor compiler (plan-structure test).
-- [ ] `cargo test --no-fail-fast` fully green; `examples/valid/42_bounded_liveness_protocol.rfs` parses unmodified.
+- [x] `state == A && output_has(O)`, `state == A || output_has(O)`, and `state == A && (output_has(O))` parse (previously all failed).
+- [x] Pure-expression conjunction in a property parses as `Formula::And(Expr, Expr)`; precedence `a && b || c` -> `Or(And(a,b),c)`.
+- [x] Previously-working shapes still parse identically (reordered, parenthesized, comparison mixes); transition-guard tests unchanged and green.
+- [x] Printer round-trips (rfs->json->rfs, json->rfs->rfs) for the new shapes with no redundant parens.
+- [x] `always (state == A && output_has(O))` compiles in the monitor compiler (plan-structure test).
+- [x] `cargo test --no-fail-fast` fully green; `examples/valid/42_bounded_liveness_protocol.rfs` parses unmodified.
 
 ## Non-goals
 - No IR_VERSION bump (additive parse-shape change only; old JSON still deserializes).
 - No changes to transition guards or any non-formula expression context.
 - No documentation updates here - task 21 documents the fixed grammar in KB/DESIGN.
 - No changes to examples (example 42 keeps its original text).
+
+## Task corrections
+
+| Correction | Description + rationale |
+|---|---|
+| Printer scope expanded beyond "only if needed" | The pre-fix `needs_parens` rules blocked the required minimal output for the new shapes, so they were re-derived for the fixed grammar (see "Changes in design decisions"): `Formula::And` now prints bare in every formula context (left-associative and tighter than `||`/`->`; the only exception is as the direct inner of `!`, handled by the `Not` printing arm, which was extended to parenthesize `Or`/`And` inners so `!(a && b)` still round-trips); `Formula::Or` prints bare except in And-child and Implies-left positions where a following `&&`/`->` would otherwise bind tighter to its left operand; plain `Expr` children print bare under `||`/`&&`, while an `Expr` that still carries `LogicAnd`/`LogicOr` (reachable only from old JSON IR) keeps its parentheses via the new `expr_has_boolean_op` helper. |
+| Existing tests pinning the pre-fix shape updated (Action 4, expected) | `printer::tests::formula_printing_keeps_implicit_precedence` asserted the printed text `prop p : state == A \|\| state != A -> true ;`, which pinned the old Expr-level shape `Implies(Expr(LogicOr), ...)`; under the fixed grammar the same source parses as `Or(Expr, Implies)` and prints `state == A \|\| (state != A -> true)`. The assertion was updated to the new Formula-level shape (plus a fully-bare `&&`/`\|\|` case). Stale comments also updated: `formula_precedence_roundtrips` (the "parser quirk" note is obsolete - `->` now binds tighter than `||`; formula-level Or/And are reachable bare) and the correction-4a comment in `validator::tests::bounded_always_zero_bound_nested_is_error` (bare expression children of `&&` no longer need parentheses). |
+
+### Changes in design decisions
+
+- Printer parenthesization contract (no IR/semantics change): minimal output for formula-level booleans with plain-expression operands (`x == y && z == w`, no redundant parens); old-shape JSON IR (Expr nodes carrying `LogicAnd`/`LogicOr`) still prints semantically equivalently via retained parentheses. Round-trip safety (rfs->json->rfs, json->rfs->rfs) is pinned by the extended `formula_precedence_roundtrips` cases and `formula_and_or_with_expr_children_print_minimal`.
 
 ## Other information
 

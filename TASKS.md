@@ -261,3 +261,59 @@ sed -n "<start>,<end>p" TASKS.md            # one specific entry by line range
 - `PHASE_3_TASK_13.md` updated: now verification-only - example 42 parses unchanged post task 23 (AST shape check), zero-warning monitor check both backends; parser pin tests moved to task 23.
 - `PHASE_3_TASK_21.md` updated: KB/DESIGN document the FIXED grammar (formula-level &&/||, non-boolean expr fallthrough, EBNF update) instead of a workaround constraint.
 - Execution order on approval: 23 -> 13 -> 15 -> 16 -> 17 -> 18 -> 19 -> 20 -> 21 -> 22, each gated by "let's execute the task".
+
+---
+
+## 2026-10-16 23:11 — Task 23 executed: formula-level boolean grammar fix in parser/printer (+ tests) [entry appended belatedly on 2026-10-17]
+
+### Interpretation & plan
+
+- User gate "let's execute the task"; task 23 first in agreed order 23 -> 13 -> 15 -> ...
+- Per `PHASE_3_TASK_23.md`: restrict `primary_formula` fallthrough to the non-boolean expr level, re-derive printer parens, add pin tests, verify example 42 parses unmodified.
+
+### Report
+
+- `src/parser.rs`: `primary_formula` fallthrough redirected to new named wrapper `non_boolean_expr` (the `equality` level) with rationale comment; 6 new unit tests (mixed conjunction/disjunction shapes, pre-fix regression guards, pure-expr `Formula::And(Expr, Expr)` shape, `a && b || c` precedence, comparison mix).
+- `src/printer.rs`: `needs_parens` re-derived for the fixed grammar (`Formula::And` bare in every formula context; `Formula::Or` parenthesized only in And-child/Implies-left positions; plain `Expr` children bare under `&&`/`||`); new `expr_has_boolean_op` helper keeps old-JSON `Expr(LogicAnd/LogicOr)` shapes parenthesized; `Not` arm extended to parenthesize `Or`/`And` inners; 1 test updated, 1 added, 6 round-trip cases added.
+- `src/monitor.rs`: +1 plan-structure test (`always (state == A && output_has(Send(Ack)))` = And of two per-sample RangeChecks - mixed conjunctions are in-subset, no R1-R4 change).
+- `src/validator.rs`: stale correction-4a comment updated; no behavior change.
+- Example 42 parses UNMODIFIED (git diff empty); `retry_responds` keeps original antecedent order. No IR_VERSION bump.
+- Verification: `cargo test --no-fail-fast` fully green - lib 86, codegen_test 19 (was 16/19 pre-fix), examples_test 3 (was 2/3), frontend 41, integration 2, library_comparison 4, training 4.
+- Findings: (a) pre-existing clippy/fmt dirt from e0bc3cb in `src/backends/c_fsm.rs` etc. (11 lib warnings + 18 fmt sites) - out of task scope, MUST fix before task 22 close-out; (b) toolchain incident: corrupted cargo rustc probe led to accidental deletion of the toolchain `rustc` binary; restored from a same-build copy in the studio sandbox toolchain (`/opt/rust-old/usr/bin/rustc` is 1.58.1 - do NOT use); single-binary recovery is undocumented in TOOLCHAIN.md (task 21 candidate).
+- Full details: `docs/roadmap/PHASE_3_TASK_23_STATUS.md`.
+
+---
+
+## 2026-10-16 23:39 — Task 13 executed: examples 41/42 monitor verification (verification-only) [entry appended belatedly on 2026-10-17]
+
+### Interpretation & plan
+
+- User gate "let's execute the task"; per updated `PHASE_3_TASK_13.md` (post task 23): verify example 42 parses unmodified with expected AST, zero "outside monitor subset" warnings in codegen for both backends x production/test/mc on examples 41+42, validate all valid examples, full suite.
+
+### Report
+
+- All four exit criteria met with NO file changes:
+  - Example 42 UNMODIFIED parses; `retry_responds` = `always(implies(and(expr(eq(state,Sending)),output_has(Sent)),bounded_eventually[8](or(output_has(Sent),input_is(Ack)))))`.
+  - `cargo run -q -- validate --input rfs examples/valid` (43 files) exit 0 (pre-existing validator warnings only).
+  - Codegen matrix 14 runs (rust x {production,test,mc} x {41,42} + c x {production-nomon,production-mon,test,mc} x {41,42}): zero "outside monitor subset" warnings in every run; monitor struct present for EVERY prop/assume label (Rust: `Mon_<label>`, production structs `#[cfg(debug_assertions)]`-gated; C: `mon_<label>_{t,new,step}`).
+  - `cargo test --no-fail-fast` fully green (lib 86, codegen 19, examples 3, frontend 41, integration 2, comparison 4, training 4).
+- Findings: C production WITHOUT the flag emits assumption monitors but no property monitors (by design per D-P3-6: C emission is flag-gated vs Rust compile-time gating) - input to task 15's assertions. Task-file Action 1 shorthand listed the `And` operands in reverse order; actual AST keeps source order (criterion intent satisfied).
+- Full details: `docs/roadmap/PHASE_3_TASK_13_STATUS.md`.
+
+---
+
+## 2026-10-17 05:15 — Task 15 executed: codegen tests for --with-property-monitors option sensitivity + per-command coverage (both backends)
+
+### Interpretation & plan
+
+- User gate "let's execute the task" after review of `PHASE_3_TASK_15.md`; next in order 23 -> 13 -> 15 -> ....
+- Per task file: 4 new tests in `tests/codegen_test.rs` pinning D-P3-6 (Rust production flag on/off, C production mirror, mc/test unconditional monitors + CLI flag rejection, zero skip warnings over all property-bearing valid examples). Tests only - no codegen/CLI source changes.
+
+### Report
+
+- `tests/codegen_test.rs`: 4 new tests (19 -> 23): `rust_production_flag_toggles_property_monitors`, `c_production_flag_toggles_property_monitors`, `mc_and_test_always_include_property_monitors`, `no_skip_warnings_for_in_subset_properties_both_backends` (new end-of-file section). No existing test modified.
+- Pre-test empirical scan (scratch test, deleted afterwards): 15 property-bearing valid examples (top-level 04, 13, 14, 15, 16, 24, 37, 41, 42 + tla_adapted 31-36) x both backends, production flag on - ALL zero "outside monitor subset" warnings, so the Action 4 assertion holds as written.
+- Key pinned facts: Rust off-output has NO `PropertyViolation`/`PropMonitors`/`#[cfg(debug_assertions)]` at all (per-label `Mon_*` structs are emitted in both modes; the flag gates aggregate+stepping+StepError variant, debug-gated); C off-output keeps the stable `rfs_status_t` wire format but has no `RFS_PROPERTY_MONITORS` define / `rfs_property_violation_t` / `prop_monitors`; CLI REJECTS the flag for mc/test ("only valid for the production command") - D-P3-6 not-accepted path, asserted in-test.
+- Task corrections recorded in `PHASE_3_TASK_15.md`: off-output marker calibration (task-file shorthand "off has neither Mon_ structs" inaccurate), observed CLI rejection, stale 3-example list (actually 15; TLA files live in `examples/valid/tla_adapted/`). No plan corrections - behavior matches D-P3-6.
+- Verification: `cargo test --no-fail-fast` fully green - lib 86, codegen_test 23, examples 3, frontend 41, integration 2, library_comparison 4, training 4 (163 total). Clippy: no NEW warnings from this change (pre-existing e0bc3cb dirt remains, owed before task 22). `tests/codegen_test.rs` rustfmt-clean (`c_fsm.rs` pre-existing fmt diffs untouched).
+- Full details: `docs/roadmap/PHASE_3_TASK_15_STATUS.md`.

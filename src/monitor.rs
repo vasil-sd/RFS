@@ -89,7 +89,11 @@ pub enum MonNode {
     /// the antecedent evaluated at s - 1. The register starts false, so the
     /// first checkable sample is vacuous (D-P3-3). Stateless apart from the
     /// register; no trigger step (per-sample failure semantics).
-    DelayedCheck { antecedent: SignalExpr, consequent: SignalExpr, range: AnchorRange },
+    DelayedCheck {
+        antecedent: SignalExpr,
+        consequent: SignalExpr,
+        range: AnchorRange,
+    },
     /// `expr` must hold at every sample in `range`. Violation at the first
     /// failing sample inside the range. Stateless: evaluated against the
     /// current sample index on every step.
@@ -204,9 +208,8 @@ fn compile_check(f: &Formula, range: AnchorRange, in_temporal: bool) -> Result<M
                 let antecedent = compile_signal(left).ok_or_else(|| {
                     "implication antecedent must be temporal-operator-free".to_string()
                 })?;
-                let consequent = compile_signal(inner).ok_or_else(|| {
-                    "next body must be temporal-operator-free".to_string()
-                })?;
+                let consequent = compile_signal(inner)
+                    .ok_or_else(|| "next body must be temporal-operator-free".to_string())?;
                 Ok(MonNode::DelayedCheck {
                     antecedent,
                     consequent,
@@ -447,8 +450,15 @@ fn step_node(
             now
         }
         (
-            MonState::DelayedCheck { prev_antecedent, failed },
-            MonNode::DelayedCheck { antecedent, consequent, range },
+            MonState::DelayedCheck {
+                prev_antecedent,
+                failed,
+            },
+            MonNode::DelayedCheck {
+                antecedent,
+                consequent,
+                range,
+            },
         ) => {
             if !*failed && range.contains(s) && *prev_antecedent && !eval(consequent) {
                 *failed = true;
@@ -663,6 +673,33 @@ mod tests {
         match plan("state == A").root {
             MonNode::RangeCheck { ref range, .. } => assert_eq!(*range, AnchorRange::all()),
             other => panic!("expected RangeCheck, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn plan_structure_mixed_conjunction_is_in_subset() {
+        // Task 23: formula-level `&&` mixing a state comparison and an I/O
+        // atom (previously unparseable, now Formula::And) compiles as a
+        // per-sample signal conjunction under R1-R4.
+        let p = plan("always (state == A && output_has(Send(Ack)))");
+        match &p.root {
+            MonNode::And(children) => {
+                assert_eq!(
+                    children.len(),
+                    2,
+                    "expected two conjuncts, got {:?}",
+                    children
+                );
+                for c in children {
+                    match c {
+                        MonNode::RangeCheck { ref range, .. } => {
+                            assert_eq!(*range, AnchorRange::all())
+                        }
+                        other => panic!("expected RangeCheck conjunct, got {:?}", other),
+                    }
+                }
+            }
+            other => panic!("expected And of per-sample checks, got {:?}", other),
         }
     }
 

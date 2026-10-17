@@ -324,18 +324,44 @@ enum Fctx {
     AndChild,
 }
 
+/// Whether an expression still carries formula-level boolean operators
+/// (`&&`/`||`). After the Phase 3 grammar fix (task 23) the parser builds
+/// `Formula::And`/`Formula::Or` for formula-level booleans, so such shapes
+/// only survive from old JSON IR; printing them bare under a following
+/// `&&`/`||` would change their meaning, so they keep their parentheses.
+fn expr_has_boolean_op(e: &Expr) -> bool {
+    match e {
+        Expr::Int { .. } | Expr::Bool { .. } | Expr::Path { .. } => false,
+        Expr::Unary { expr, .. } => expr_has_boolean_op(expr),
+        Expr::Binary { op, left, right } => {
+            matches!(op, BinOp::LogicAnd | BinOp::LogicOr)
+                || expr_has_boolean_op(left)
+                || expr_has_boolean_op(right)
+        }
+    }
+}
+
 /// Whether a formula node must be parenthesized in the given context to
 /// re-parse to an equal IR.
 ///
-/// Background: the parser's `primary_formula` falls through to the full
-/// expression grammar, so any bare boolean text (identifier/literal/`!` start)
-/// is absorbed into a single `Expr` node that swallows following `&&`/`||`
-/// operators. Consequently:
-/// - `Formula::Or`/`Formula::And` only re-parse from parenthesized text;
-/// - `Expr`/`Not` children must be parenthesized where a `||` or `&&`
-///   operator follows (Or/And child positions);
-/// - `Implies` must be parenthesized where `&&` follows or where another `->`
-///   would re-associate it (And-child, Implies-left);
+/// Background: since the Phase 3 grammar fix (task 23) `primary_formula`
+/// falls through only to the NON-BOOLEAN expression level, so formula-level
+/// `&&`/`||` are parsed by `and_formula`/`or_formula` into
+/// `Formula::And`/`Formula::Or`, each operand independently. Consequently:
+/// - `Formula::And` re-parses bare in every formula context (left-associative,
+///   tighter than `||` and `->`); the only exception is as the direct inner of
+///   `!`, handled by the `Not` printing arm;
+/// - `Formula::Or` re-parses bare at top level, under another `||` (left-
+///   associative), and right of `->`; it must be parenthesized where a `&&`
+///   or `->` would otherwise bind tighter to its left operand (And-child,
+///   Implies-left);
+/// - a plain `Expr` child prints bare under `||`/`&&`; an `Expr` that still
+///   carries `LogicAnd`/`LogicOr` (old JSON IR only) keeps parentheses;
+/// - `Not` children must be parenthesized where a `||` or `&&` operator
+///   follows (Or/And child positions);
+/// - `Implies` must be parenthesized where a boolean operator follows or
+///   where another `->` would re-associate it (And-child, Implies-left,
+///   Or-child);
 /// - temporal/atom keyword nodes are recognized as formula atoms and are safe
 ///   bare everywhere.
 fn needs_parens(f: &Formula, ctx: Fctx) -> bool {
@@ -346,9 +372,10 @@ fn needs_parens(f: &Formula, ctx: Fctx) -> bool {
         | Formula::BoundedEventually { .. }
         | Formula::InputIs { .. }
         | Formula::OutputHas { .. } => false,
-        Formula::Expr { .. } | Formula::Not { .. } => {
-            matches!(ctx, Fctx::OrChild | Fctx::AndChild)
+        Formula::Expr { expr } => {
+            matches!(ctx, Fctx::OrChild | Fctx::AndChild) && expr_has_boolean_op(expr)
         }
+        Formula::Not { .. } => matches!(ctx, Fctx::OrChild | Fctx::AndChild),
         // An implication must be parenthesized where a boolean operator
         // follows: its right side would otherwise absorb the following
         // `||`/`&&` into one expression (Or/And child positions), or it could
@@ -356,7 +383,8 @@ fn needs_parens(f: &Formula, ctx: Fctx) -> bool {
         Formula::Implies { .. } => {
             matches!(ctx, Fctx::AndChild | Fctx::ImpliesLeft | Fctx::OrChild)
         }
-        Formula::Or { .. } | Formula::And { .. } => true,
+        Formula::And { .. } => false,
+        Formula::Or { .. } => matches!(ctx, Fctx::AndChild | Fctx::ImpliesLeft),
     }
 }
 
@@ -387,9 +415,12 @@ fn print_formula_ctx(f: &Formula, ctx: Fctx) -> String {
         Formula::Not { inner } => {
             // The inner text always starts a fresh formula after `!`. A nested
             // implication must be parenthesized because bare `!a -> b`
-            // re-parses as `(!a) -> b`.
+            // re-parses as `(!a) -> b`; likewise a nested `&&`/`||` group,
+            // because bare `!a && b` re-parses as `(!a) && b`.
             let inner_text = match inner.as_ref() {
-                Formula::Implies { .. } => format!("({})", print_formula_ctx(inner, Fctx::Top)),
+                Formula::Implies { .. } | Formula::Or { .. } | Formula::And { .. } => {
+                    format!("({})", print_formula_ctx(inner, Fctx::Top))
+                }
                 other => print_formula_ctx(other, Fctx::Top),
             };
             format!("!{}", inner_text)
@@ -553,21 +584,31 @@ mod tests {
     #[test]
     fn formula_precedence_roundtrips() {
         let cases = [
-            // Parser quirk: bare `a || b -> c` parses as `(a || b) -> c`
-            // because the expression grammar absorbs `||` before `->` is seen.
+            // Task 23 grammar: `->` binds tighter than `||`, so bare
+            // `a || b -> c` parses as `a || (b -> c)`; the printer keeps the
+            // implication parenthesized.
             "state == A || state != A -> true",
-            // Parenthesized left operand produces a formula-level Or node.
+            // Parenthesized left operand produces a formula-level Or node
+            // (now also reachable bare - task 23).
             "(state == A) || (state != A) -> true",
             "state == A && state != A -> false",
             "!(state == A)",
             "next (state == A)",
             "always (input_is(E) -> output_has(O))",
             "bounded_eventually[3] (state != A)",
-            // Formula-level Or/And nodes (reachable only via explicit parens).
+            // Formula-level Or/And nodes (bare since task 23; parens still
+            // accepted).
             "(state == A || state == B) -> true",
             "true -> (state == A && state == B)",
             "((state == A) || (state == B))",
             "((state == A) && (state == B))",
+            // Task 23 mixed atom kinds (previously unparseable).
+            "state == A && output_has(O)",
+            "state == A || output_has(O)",
+            "output_has(O) && state == A",
+            "(state == A) && output_has(O)",
+            "state == A && state != A || state == B",
+            "!(state == A && state == B)",
             // Nested implications and mixed structures.
             "(state == A -> state == B) -> true",
             "state == A -> (state == B -> true)",
@@ -585,9 +626,41 @@ mod tests {
 
     #[test]
     fn formula_printing_keeps_implicit_precedence() {
-        let ir = parse_source("module m { enum State { A, B } initial A event E prop p : state == A || state != A -> true ; }").expect("parse");
+        // Task 23 grammar: formula-level `&&` is tighter than `||`, and an
+        // implication right of `||` must be parenthesized (bare it would
+        // re-associate). Plain-expression operands print bare.
+        let ir = parse_source("module m { enum State { A, B } initial A event E prop p1 : state == A && state != A || state == B ; prop p2 : state == A || state != A -> true ; }").expect("parse");
         let text = print_ir(&ir);
-        assert!(text.contains("prop p : state == A || state != A -> true ;"));
+        assert!(text.contains("prop p1 : state == A && state != A || state == B ;"));
+        assert!(text.contains("prop p2 : state == A || (state != A -> true) ;"));
+    }
+
+    #[test]
+    fn formula_and_or_with_expr_children_print_minimal() {
+        // Task 23: formula-level booleans with plain-expression operands print
+        // without redundant parentheses and round-trip in both directions.
+        let src = "module m { enum State { A, B } initial A prop p1 : state == A && state == B ; prop p2 : state == A || state == B ; prop p3 : !(state == A && state == B) ; }";
+        let (ir, rfs2) = roundtrip_rfs(src).expect("rfs round-trip");
+        assert!(
+            rfs2.contains("prop p1 : state == A && state == B ;"),
+            "p1 over-parenthesized: {}",
+            rfs2
+        );
+        assert!(
+            rfs2.contains("prop p2 : state == A || state == B ;"),
+            "p2 over-parenthesized: {}",
+            rfs2
+        );
+        // The Not arm keeps its group parenthesized (bare `!a && b` would
+        // re-parse as `(!a) && b`).
+        assert!(
+            rfs2.contains("prop p3 : !(state == A && state == B) ;"),
+            "p3 must keep inner parens: {}",
+            rfs2
+        );
+        // json -> rfs direction.
+        let json = serde_json::to_string(&ir).expect("serialize");
+        roundtrip_json(&json).expect("json round-trip");
     }
 
     #[test]

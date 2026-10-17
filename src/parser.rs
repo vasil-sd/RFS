@@ -1274,8 +1274,23 @@ fn primary_formula(i: &str) -> IResult<&str, Formula> {
         let (i4, _) = p_tag(")", i3)?;
         return Ok((i4, inner));
     }
-    let (i2, e) = expr(i)?;
+    // Fallthrough: a bare non-keyword operand is a NON-BOOLEAN expression
+    // (comparisons and below). The full `expr` grammar must NOT be used here:
+    // its `logic_or`/`logic_and` levels would mis-consume identifier-looking
+    // formula atoms as variable paths - in `state == S && output_has(O)` the
+    // old fallthrough absorbed `output_has` as an `Expr::Path` and left
+    // `(O)` as trailing input. Formula-level `&&`/`||` are handled by
+    // `and_formula`/`or_formula`, each operand parsed independently via
+    // `primary_formula`, so `output_has(...)` reaches its keyword branch.
+    let (i2, e) = non_boolean_expr(i)?;
     Ok((i2, Formula::Expr { expr: e }))
+}
+
+/// Non-boolean expression level (comparisons and below): the fallthrough
+/// entry point for formula operands. See the comment at the call site in
+/// `primary_formula` for why the full `expr` grammar is forbidden here.
+fn non_boolean_expr(i: &str) -> IResult<&str, Expr> {
+    equality(i)
 }
 
 fn identifier(i: &str) -> IResult<&str, String> {
@@ -1402,6 +1417,159 @@ mod tests {
         let ir = parse_source(source).expect("parse formula");
         assert_eq!(ir.modules[0].properties.len(), 1);
         printer::roundtrip_rfs(source).expect("rfs round-trip");
+    }
+
+    // -- Task 23: formula-level boolean operators with mixed atom kinds ----
+
+    #[test]
+    fn mixed_conjunction_state_comparison_left_parses() {
+        // The exact pre-fix failing shape: a bare state comparison on the
+        // LEFT of `&&` with a non-comparison right operand. Before the fix
+        // the expr fallthrough absorbed `output_has` as a variable path and
+        // left `(O)` as trailing input.
+        let source =
+            "module m { enum State { A } initial A event E output O prop p : state == A && output_has(O) ; }";
+        let ir = parse_source(source).expect("mixed conjunction must parse");
+        match &ir.modules[0].properties[0].formula {
+            Formula::And { left, right } => {
+                assert!(
+                    matches!(&**left, Formula::Expr { expr }
+                        if matches!(expr, Expr::Binary { op: BinOp::Eq, .. })),
+                    "left operand must be the state comparison, got {:?}",
+                    left
+                );
+                assert!(
+                    matches!(&**right, Formula::OutputHas { .. }),
+                    "right operand must be output_has, got {:?}",
+                    right
+                );
+            }
+            other => panic!("expected formula-level And, got {:?}", other),
+        }
+        printer::roundtrip_rfs(source).expect("rfs round-trip");
+    }
+
+    #[test]
+    fn mixed_disjunction_state_comparison_left_parses() {
+        let source =
+            "module m { enum State { A } initial A event E output O prop p : state == A || output_has(O) ; }";
+        let ir = parse_source(source).expect("mixed disjunction must parse");
+        match &ir.modules[0].properties[0].formula {
+            Formula::Or { left, right } => {
+                assert!(
+                    matches!(&**left, Formula::Expr { .. }),
+                    "left must be the state comparison, got {:?}",
+                    left
+                );
+                assert!(
+                    matches!(&**right, Formula::OutputHas { .. }),
+                    "right must be output_has, got {:?}",
+                    right
+                );
+            }
+            other => panic!("expected formula-level Or, got {:?}", other),
+        }
+        printer::roundtrip_rfs(source).expect("rfs round-trip");
+    }
+
+    #[test]
+    fn pre_fix_working_shapes_still_parse() {
+        // Shapes that already worked before the fix must parse unchanged:
+        // reordered operands, left-parenthesized state comparison, and
+        // comparison/comparison mixes.
+        let shapes: [(&str, bool); 4] = [
+            ("output_has(O) && state == A", true),
+            ("(state == A) && output_has(O)", true),
+            ("state == A && state == B", true),
+            ("state != A || state == B", false),
+        ];
+        for (formula, is_and) in shapes {
+            let source = format!(
+                "module m {{ enum State {{ A, B }} initial A event E output O prop p : {} ; }}",
+                formula
+            );
+            let ir =
+                parse_source(&source).unwrap_or_else(|e| panic!("must parse '{}': {}", formula, e));
+            let top_is_and = match &ir.modules[0].properties[0].formula {
+                Formula::And { .. } => true,
+                Formula::Or { .. } => false,
+                other => panic!("'{}': expected And/Or top node, got {:?}", formula, other),
+            };
+            assert_eq!(
+                top_is_and, is_and,
+                "'{}': wrong top boolean operator",
+                formula
+            );
+        }
+    }
+
+    #[test]
+    fn pure_expr_conjunction_parses_as_formula_and() {
+        // Task 23 consequence: a pure-expression conjunction in a property now
+        // parses as Formula::And(Expr, Expr) instead of
+        // Expr(Binary(LogicAnd)) - the old shape is only reachable from JSON.
+        let source = "module m { enum State { A } initial A prop p : x && y ; }";
+        let ir = parse_source(source).expect("pure-expression conjunction must parse");
+        match &ir.modules[0].properties[0].formula {
+            Formula::And { left, right } => {
+                assert!(
+                    matches!(&**left, Formula::Expr { expr } if matches!(expr, Expr::Path { .. })),
+                    "left must be a bare path, got {:?}",
+                    left
+                );
+                assert!(
+                    matches!(&**right, Formula::Expr { expr } if matches!(expr, Expr::Path { .. })),
+                    "right must be a bare path, got {:?}",
+                    right
+                );
+            }
+            other => panic!("expected Formula::And of two Exprs, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn formula_level_precedence_and_tighter_than_or() {
+        // `a && b || c` -> Or(And(a, b), c) at the formula level.
+        let source = "module m { enum State { A } initial A prop p : x && y || z ; }";
+        let ir = parse_source(source).expect("parse");
+        match &ir.modules[0].properties[0].formula {
+            Formula::Or { left, right } => {
+                assert!(
+                    matches!(&**left, Formula::And { .. }),
+                    "left must be the And group, got {:?}",
+                    left
+                );
+                assert!(
+                    matches!(&**right, Formula::Expr { .. }),
+                    "right must be a bare expr, got {:?}",
+                    right
+                );
+            }
+            other => panic!("expected Or(And(..), ..), got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn comparison_mix_keeps_both_comparisons() {
+        // `x == y && z == w` keeps both comparisons intact as separate
+        // formula operands.
+        let source = "module m { enum State { A } initial A prop p : x == y && z == w ; }";
+        let ir = parse_source(source).expect("parse");
+        match &ir.modules[0].properties[0].formula {
+            Formula::And { left, right } => {
+                assert!(
+                    matches!(&**left, Formula::Expr { expr } if matches!(expr, Expr::Binary { op: BinOp::Eq, .. })),
+                    "left must be the first comparison, got {:?}",
+                    left
+                );
+                assert!(
+                    matches!(&**right, Formula::Expr { expr } if matches!(expr, Expr::Binary { op: BinOp::Eq, .. })),
+                    "right must be the second comparison, got {:?}",
+                    right
+                );
+            }
+            other => panic!("expected And of two comparisons, got {:?}", other),
+        }
     }
 
     #[test]

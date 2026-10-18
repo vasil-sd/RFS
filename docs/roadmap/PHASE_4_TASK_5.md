@@ -158,6 +158,13 @@ Add a codegen-level test pinning the identical warning text.
 - Engine/fixpoint analysis (tasks 6/7), first liveness example (task 6), benchmark
   specs (task 8), docs (task 13), training data (task 12).
 
+## Task corrections
+
+| Correction | Description + rationale |
+|------------|-------------------------|
+| EBNF block contradicted its own pinned consequence for `!a until b` | Context's EBNF (`unary_formula : "!" unary_formula \| until_formula` with `until_formula : primary_formula { "until" primary_formula }`) parses `!a until b` as `!(a until b)` - after consuming `!`, the recursive call descends into `until_formula` and absorbs the whole chain. But Context's pinned consequence, the stated ladder ("or > impl > and > unary > until > primary", i.e. `!` binds TIGHTER than `until`) and standard PSL/CTL all require `(!a) until b`. The exit criteria pin the consequences, so the implementation follows them: negation moved BELOW the until level - `unary_formula = until_formula`, `until_formula = neg_operand { "until" neg_operand }` (left-assoc), `neg_operand = "!" neg_operand \| primary_formula`. All four pinned consequences hold; for every input without a bare `until` token the parse is structurally identical to the pre-task grammar (full suite green). |
+| OPEN QUESTION resolved with the default | D-P4-8's illustrative example ("`a && b until c` parses as `(a && b) until c`") contradicts its own production; per this file's stated default, the PINNED PRODUCTION was implemented: `until` binds tighter than `&&`, so `a && b until c` = `a && (b until c)` (test-pinned). The user was informed at task start and did not object; no plan correction recorded. |
+
 ## Other information
 - Resolve the OPEN QUESTION (D-P4-8 example inconsistency) at task start before
   writing parser code - one line to the user is enough; default = implement the

@@ -1182,9 +1182,39 @@ fn and_formula(i: &str) -> IResult<&str, Formula> {
 }
 
 fn unary_formula(i: &str) -> IResult<&str, Formula> {
+    until_formula(i)
+}
+
+/// `until_formula = neg_operand { "until" neg_operand }` (left-associative).
+/// Operands are negation expressions: `!` binds TIGHTER than `until`
+/// (standard PSL/CTL convention), so `!a until b` parses as `(!a) until b`
+/// and `!!a until b` as `(!(!a)) until b`. Compound boolean operands require
+/// parentheses: `(a && b) until c`. The keyword is matched whole, so an
+/// identifier such as `until_b` never acts as the operator.
+fn until_formula(i: &str) -> IResult<&str, Formula> {
+    let (mut i, mut left) = neg_operand(i)?;
+    loop {
+        let (i_ws, _) = p_space0(i)?;
+        if let Ok((i_op, _)) = soft_keyword(i_ws, "until") {
+            let (i2, right) = neg_operand(i_op)?;
+            left = Formula::Until {
+                left: Box::new(left),
+                right: Box::new(right),
+            };
+            i = i2;
+        } else {
+            return Ok((i_ws, left));
+        }
+    }
+}
+
+/// Negation level below `until` (the former unary body): `!` chains bind
+/// tighter than `until`, looser than nothing - a negation operand is either
+/// `!` another negation operand or a primary.
+fn neg_operand(i: &str) -> IResult<&str, Formula> {
     let (i, _) = p_space0(i)?;
     if let Ok((i_op, _)) = p_tag("!", i) {
-        let (i2, inner) = unary_formula(i_op)?;
+        let (i2, inner) = neg_operand(i_op)?;
         return Ok((
             i2,
             Formula::Not {
@@ -1251,6 +1281,18 @@ fn primary_formula(i: &str) -> IResult<&str, Formula> {
             i9,
             Formula::BoundedEventually {
                 bound,
+                inner: Box::new(inner),
+            },
+        ));
+    }
+    if let Ok((i2, _)) = soft_keyword(i, "eventually") {
+        let (i2, _) = p_space0(i2)?;
+        let (i3, _) = p_tag("(", i2)?;
+        let (i4, inner) = formula(i3)?;
+        let (i5, _) = p_tag(")", i4)?;
+        return Ok((
+            i5,
+            Formula::Eventually {
                 inner: Box::new(inner),
             },
         ));
@@ -1649,6 +1691,230 @@ mod tests {
         assert!(
             parse_source(source).is_err(),
             "unquoted version must not parse"
+        );
+    }
+
+    // -- Task 5: liveness operators (D-P4-8) ---------------------------------
+
+    /// Parse `source` as the body of property `p` in a minimal module with
+    /// boolean vars a/b/c and an identifier var `until_b`, and return the
+    /// formula.
+    fn prop_formula(source: &str) -> Formula {
+        let full = format!(
+            "module m {{ enum State {{ A }} initial A event E \
+             var a: bool init false var b: bool init false var c: bool init false \
+             var until_b: bool init false prop p : {} ; }}",
+            source
+        );
+        parse_source(&full)
+            .unwrap_or_else(|e| panic!("must parse '{}': {}", source, e))
+            .modules[0]
+            .properties[0]
+            .formula
+            .clone()
+    }
+
+    fn atom(name: &str) -> Formula {
+        Formula::Expr {
+            expr: Expr::Path {
+                path: vec![name.to_string()],
+            },
+        }
+    }
+
+    #[test]
+    fn until_binds_tighter_than_and() {
+        // Pinned consequence: `a && b until c` = `a && (b until c)`.
+        let f = prop_formula("a && b until c");
+        assert_eq!(
+            f,
+            Formula::And {
+                left: Box::new(atom("a")),
+                right: Box::new(Formula::Until {
+                    left: Box::new(atom("b")),
+                    right: Box::new(atom("c")),
+                }),
+            },
+        );
+    }
+
+    #[test]
+    fn until_is_left_associative() {
+        // Pinned consequence: `a until b until c` = `(a until b) until c`.
+        let f = prop_formula("a until b until c");
+        assert_eq!(
+            f,
+            Formula::Until {
+                left: Box::new(Formula::Until {
+                    left: Box::new(atom("a")),
+                    right: Box::new(atom("b")),
+                }),
+                right: Box::new(atom("c")),
+            },
+        );
+    }
+
+    #[test]
+    fn negation_binds_tighter_than_until() {
+        // Pinned consequence: `!a until b` = `(!a) until b`; chains too.
+        let f = prop_formula("!a until b");
+        assert_eq!(
+            f,
+            Formula::Until {
+                left: Box::new(Formula::Not {
+                    inner: Box::new(atom("a")),
+                }),
+                right: Box::new(atom("b")),
+            },
+        );
+        let f = prop_formula("!!a until b");
+        assert_eq!(
+            f,
+            Formula::Until {
+                left: Box::new(Formula::Not {
+                    inner: Box::new(Formula::Not {
+                        inner: Box::new(atom("a")),
+                    }),
+                }),
+                right: Box::new(atom("b")),
+            },
+        );
+    }
+
+    #[test]
+    fn compound_until_operands_require_parens() {
+        // `(a && b) until c` and `a until (b || c)` parse with the boolean
+        // group inside the parentheses.
+        let f = prop_formula("(a && b) until c");
+        assert_eq!(
+            f,
+            Formula::Until {
+                left: Box::new(Formula::And {
+                    left: Box::new(atom("a")),
+                    right: Box::new(atom("b")),
+                }),
+                right: Box::new(atom("c")),
+            },
+        );
+        let f = prop_formula("a until (b || c)");
+        assert_eq!(
+            f,
+            Formula::Until {
+                left: Box::new(atom("a")),
+                right: Box::new(Formula::Or {
+                    left: Box::new(atom("b")),
+                    right: Box::new(atom("c")),
+                }),
+            },
+        );
+    }
+
+    #[test]
+    fn eventually_primary_with_nested_boolean_formula() {
+        let f = prop_formula("eventually (a)");
+        assert_eq!(
+            f,
+            Formula::Eventually {
+                inner: Box::new(atom("a")),
+            },
+        );
+        // The body is a full formula: boolean connectives and temporal
+        // operators parse inside (scope restrictions are task 6's concern).
+        let f = prop_formula("eventually (a || b)");
+        assert_eq!(
+            f,
+            Formula::Eventually {
+                inner: Box::new(Formula::Or {
+                    left: Box::new(atom("a")),
+                    right: Box::new(atom("b")),
+                }),
+            },
+        );
+        let f = prop_formula("eventually (always (a))");
+        assert_eq!(
+            f,
+            Formula::Eventually {
+                inner: Box::new(Formula::Always {
+                    inner: Box::new(atom("a")),
+                }),
+            },
+        );
+    }
+
+    #[test]
+    fn liveness_shapes_roundtrip() {
+        for source in [
+            "eventually (a)",
+            "eventually (a || b)",
+            "a until b",
+            "a until b until c",
+            "!a until b",
+            "(a && b) until c",
+            "a && b until c",
+            "eventually (a) && b until c",
+        ] {
+            let full = format!(
+                "module m {{ enum State {{ A }} initial A event E \
+                 var a: bool init false var b: bool init false var c: bool init false \
+                 prop p : {} ; }}",
+                source
+            );
+            printer::roundtrip_rfs(&full)
+                .unwrap_or_else(|e| panic!("round-trip failed for '{}': {}", source, e));
+        }
+    }
+
+    #[test]
+    fn liveness_malformed_shapes_rejected() {
+        // `eventually` requires parentheses.
+        assert!(
+            prop_formula_err("eventually a"),
+            "eventually without parens"
+        );
+        // Missing right operand / closing paren.
+        assert!(prop_formula_err("a until"), "until without right operand");
+        assert!(
+            prop_formula_err("eventually (a"),
+            "unclosed eventually body"
+        );
+    }
+
+    fn prop_formula_err(source: &str) -> bool {
+        let full = format!(
+            "module m {{ enum State {{ A }} initial A event E \
+             var a: bool init false var b: bool init false var c: bool init false \
+             prop p : {} ; }}",
+            source
+        );
+        parse_source(&full).is_err()
+    }
+
+    #[test]
+    fn until_keyword_not_shadowed_in_expression_contexts() {
+        // `until_b` is an identifier in expression contexts: it must not act
+        // as the formula-level operator.
+        let f = prop_formula("a == until_b");
+        assert!(
+            matches!(&f, Formula::Expr { expr } if matches!(
+                expr,
+                Expr::Binary {
+                    op: BinOp::Eq,
+                    right,
+                    ..
+                } if matches!(&**right, Expr::Path { path } if path == &["until_b"])
+            )),
+            "'a == until_b' must parse as an equality expression, got {:?}",
+            f
+        );
+        // At the formula level too: `a && until_b` keeps `until_b` as a plain
+        // atom (no Until node).
+        let f = prop_formula("a && until_b");
+        assert_eq!(
+            f,
+            Formula::And {
+                left: Box::new(atom("a")),
+                right: Box::new(atom("until_b")),
+            },
         );
     }
 }

@@ -279,6 +279,13 @@ fn compile_check(f: &Formula, range: AnchorRange, in_temporal: bool) -> Result<M
                 range,
             })
         }
+        Formula::Eventually { .. } | Formula::Until { .. } => {
+            // Liveness operators (D-P4-8) are outside the monitor subset:
+            // they need unbounded future analysis that a per-sample monitor
+            // cannot express. Codegen in every backend emits the identical
+            // "outside the monitor subset; skipped" warning (MC-only).
+            Err("liveness operators (eventually/until) are outside the monitor subset".into())
+        }
         _ => {
             // Bare signal (Expr/InputIs/OutputHas): asserts at its position.
             let s = compile_signal(f)
@@ -829,6 +836,18 @@ mod tests {
         ));
         // Implication with temporal consequent other than be[N].
         assert!(plan_err("state == A -> always (state == B)"));
+    }
+
+    #[test]
+    fn plan_structure_rejects_liveness_operators() {
+        // D-P4-8/D-P4-9: ANY formula containing eventually/until is outside
+        // the monitor subset - top-level and nested under other operators.
+        assert!(plan_err("eventually (state == A)"));
+        assert!(plan_err("state == A until state == B"));
+        assert!(plan_err("!state == A until state == B"));
+        assert!(plan_err("always (eventually (state == A))"));
+        assert!(plan_err("state == A && eventually (state == B)"));
+        assert!(plan_err("next (eventually (state == A))"));
     }
 
     fn plan_err(src: &str) -> bool {

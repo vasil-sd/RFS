@@ -281,10 +281,12 @@ fn bounded_always_error(f: &Formula) -> Option<String> {
         | Formula::Next { inner }
         | Formula::Always { inner }
         | Formula::BoundedAlways { inner, .. }
-        | Formula::BoundedEventually { inner, .. } => bounded_always_error(inner),
+        | Formula::BoundedEventually { inner, .. }
+        | Formula::Eventually { inner } => bounded_always_error(inner),
         Formula::And { left, right }
         | Formula::Or { left, right }
-        | Formula::Implies { left, right } => {
+        | Formula::Implies { left, right }
+        | Formula::Until { left, right } => {
             bounded_always_error(left).or_else(|| bounded_always_error(right))
         }
         _ => None,
@@ -610,7 +612,10 @@ impl ExprType {
 
 pub fn is_safety_formula(f: &Formula) -> bool {
     match f {
-        Formula::BoundedEventually { .. } => false,
+        // Liveness obligations are not safety formulas (D-P4-8).
+        Formula::BoundedEventually { .. } | Formula::Eventually { .. } | Formula::Until { .. } => {
+            false
+        }
         Formula::Not { inner }
         | Formula::Next { inner }
         | Formula::Always { inner }
@@ -631,14 +636,20 @@ pub fn type_formula(f: &Formula, env: &Env) -> Result<(), String> {
         }
         Formula::InputIs { pattern } => check_pattern_group(pattern, env, true),
         Formula::OutputHas { pattern } => check_output_pattern_group(pattern, env),
+        // `eventually (p)` produces a boolean formula; its body must
+        // type-check as boolean like any other temporal body.
         Formula::Not { inner }
         | Formula::Next { inner }
         | Formula::Always { inner }
         | Formula::BoundedAlways { inner, .. }
-        | Formula::BoundedEventually { inner, .. } => type_formula(inner, env),
+        | Formula::BoundedEventually { inner, .. }
+        | Formula::Eventually { inner } => type_formula(inner, env),
+        // `p until q` produces a boolean formula; both operands must
+        // type-check as boolean.
         Formula::And { left, right }
         | Formula::Or { left, right }
-        | Formula::Implies { left, right } => {
+        | Formula::Implies { left, right }
+        | Formula::Until { left, right } => {
             type_formula(left, env)?;
             type_formula(right, env)
         }
@@ -1083,5 +1094,83 @@ mod tests {
         assert!(validate_module(&m)
             .iter()
             .any(|e| e.message.contains("duplicate property/assumption name")));
+    }
+
+    // -- Task 5: liveness operator typing (D-P4-8) ----------------------------
+
+    fn liveness_module(formula: &str) -> Module {
+        module_from(&format!(
+            "module m {{ enum State {{ A }} initial A event E \
+             var flag: bool init false var x: bit<8> init 0 prop p : {} ; }}",
+            formula
+        ))
+    }
+
+    #[test]
+    fn liveness_operands_must_be_boolean_accepted() {
+        for formula in [
+            "eventually (flag)",
+            "eventually (flag || x == 1)",
+            "flag until x == 0",
+            "!flag until x == 1",
+            "(flag && x == 2) until flag",
+        ] {
+            let m = liveness_module(formula);
+            assert!(
+                validate_module(&m).is_empty(),
+                "'{}' must validate: {:?}",
+                formula,
+                validate_module(&m)
+            );
+        }
+    }
+
+    #[test]
+    fn liveness_operands_must_be_boolean_rejected() {
+        // Non-boolean operand to `eventually`.
+        let m = liveness_module("eventually (x)");
+        assert!(
+            validate_module(&m)
+                .iter()
+                .any(|e| e.message.contains("must be bool")),
+            "'eventually (x)' must be rejected with a bool diagnostic"
+        );
+        // Non-boolean left / right operand of `until`.
+        for formula in ["x until flag", "flag until x"] {
+            let m = liveness_module(formula);
+            assert!(
+                validate_module(&m)
+                    .iter()
+                    .any(|e| e.message.contains("must be bool")),
+                "'{}' must be rejected with a bool diagnostic",
+                formula
+            );
+        }
+    }
+
+    #[test]
+    fn bounded_always_check_reaches_into_liveness_operands() {
+        // The always[N] >= 1 bound check recurses through liveness operators.
+        for formula in [
+            "eventually (always[0] (flag))",
+            "flag until always[0] (flag)",
+        ] {
+            let m = liveness_module(formula);
+            assert!(
+                validate_module(&m)
+                    .iter()
+                    .any(|e| e.message.contains("always[N] requires N >= 1")),
+                "'{}' must carry the always[N] bound error",
+                formula
+            );
+        }
+    }
+
+    #[test]
+    fn liveness_operators_are_not_safety_formulas() {
+        let m = liveness_module("eventually (flag)");
+        assert!(!is_safety_formula(&m.properties[0].formula));
+        let m = liveness_module("flag until x == 0");
+        assert!(!is_safety_formula(&m.properties[0].formula));
     }
 }

@@ -315,6 +315,10 @@ fn print_expr_min(e: &Expr, min_prec: u8) -> String {
 /// - `ImpliesRight`: right of `->`; parsed by `impl_formula`, followed by
 ///   `->` or nothing.
 /// - `AndChild`: child of `&&`; parsed by `unary_formula`, followed by `&&`.
+/// - `UntilLeft`: left operand of `until`; parsed by `neg_operand`, followed
+///   by `until` (left-associative: a nested `Until` re-parses bare).
+/// - `UntilRight`: right operand of `until`; parsed by a single
+///   `neg_operand` (a nested `Until` must be parenthesized).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Fctx {
     Top,
@@ -322,6 +326,8 @@ enum Fctx {
     OrChild,
     ImpliesRight,
     AndChild,
+    UntilLeft,
+    UntilRight,
 }
 
 /// Whether an expression still carries formula-level boolean operators
@@ -370,21 +376,40 @@ fn needs_parens(f: &Formula, ctx: Fctx) -> bool {
         | Formula::Always { .. }
         | Formula::BoundedAlways { .. }
         | Formula::BoundedEventually { .. }
+        | Formula::Eventually { .. }
         | Formula::InputIs { .. }
         | Formula::OutputHas { .. } => false,
         Formula::Expr { expr } => {
-            matches!(ctx, Fctx::OrChild | Fctx::AndChild) && expr_has_boolean_op(expr)
+            matches!(
+                ctx,
+                Fctx::OrChild | Fctx::AndChild | Fctx::UntilLeft | Fctx::UntilRight
+            ) && expr_has_boolean_op(expr)
         }
+        // `!` binds tighter than `until`, so a Not operand re-parses bare in
+        // until positions (`!a until b` = `(!a) until b`).
         Formula::Not { .. } => matches!(ctx, Fctx::OrChild | Fctx::AndChild),
         // An implication must be parenthesized where a boolean operator
         // follows: its right side would otherwise absorb the following
         // `||`/`&&` into one expression (Or/And child positions), or it could
-        // be re-associated with an outer `->` (left of `->`).
-        Formula::Implies { .. } => {
-            matches!(ctx, Fctx::AndChild | Fctx::ImpliesLeft | Fctx::OrChild)
-        }
-        Formula::And { .. } => false,
-        Formula::Or { .. } => matches!(ctx, Fctx::AndChild | Fctx::ImpliesLeft),
+        // be re-associated with an outer `->` (left of `->`). In until
+        // positions any bare boolean connective would bind tighter than
+        // `until` and change the grouping.
+        Formula::Implies { .. } => matches!(
+            ctx,
+            Fctx::AndChild | Fctx::ImpliesLeft | Fctx::OrChild | Fctx::UntilLeft | Fctx::UntilRight
+        ),
+        // `&&` binds looser than `until`: bare in every context EXCEPT as an
+        // until operand, where `a && b until c` would re-parse as
+        // `a && (b until c)`.
+        Formula::And { .. } => matches!(ctx, Fctx::UntilLeft | Fctx::UntilRight),
+        Formula::Or { .. } => matches!(
+            ctx,
+            Fctx::AndChild | Fctx::ImpliesLeft | Fctx::UntilLeft | Fctx::UntilRight
+        ),
+        // Left-associative: a nested until on the LEFT re-parses bare
+        // (`a until b until c` = `(a until b) until c`); on the RIGHT it must
+        // be parenthesized.
+        Formula::Until { .. } => matches!(ctx, Fctx::UntilRight),
     }
 }
 
@@ -416,11 +441,14 @@ fn print_formula_ctx(f: &Formula, ctx: Fctx) -> String {
             // The inner text always starts a fresh formula after `!`. A nested
             // implication must be parenthesized because bare `!a -> b`
             // re-parses as `(!a) -> b`; likewise a nested `&&`/`||` group,
-            // because bare `!a && b` re-parses as `(!a) && b`.
+            // because bare `!a && b` re-parses as `(!a) && b`; and a nested
+            // `until`, because bare `!a until b` re-parses as `(!a) until b`
+            // (`!` binds tighter than `until`).
             let inner_text = match inner.as_ref() {
-                Formula::Implies { .. } | Formula::Or { .. } | Formula::And { .. } => {
-                    format!("({})", print_formula_ctx(inner, Fctx::Top))
-                }
+                Formula::Implies { .. }
+                | Formula::Or { .. }
+                | Formula::And { .. }
+                | Formula::Until { .. } => format!("({})", print_formula_ctx(inner, Fctx::Top)),
                 other => print_formula_ctx(other, Fctx::Top),
             };
             format!("!{}", inner_text)
@@ -448,6 +476,16 @@ fn print_formula_ctx(f: &Formula, ctx: Fctx) -> String {
             "bounded_eventually[{}] ({})",
             bound,
             print_formula_ctx(inner, Fctx::Top)
+        ),
+        // The parentheses are mandatory by the grammar (`eventually` is a
+        // primary alternative: `"eventually" "(" formula ")"`).
+        Formula::Eventually { inner } => {
+            format!("eventually ({})", print_formula_ctx(inner, Fctx::Top))
+        }
+        Formula::Until { left, right } => format!(
+            "{} until {}",
+            print_formula_ctx(left, Fctx::UntilLeft),
+            print_formula_ctx(right, Fctx::UntilRight)
         ),
     };
     if needs_parens(f, ctx) {
@@ -695,5 +733,84 @@ module m {
         let ir = parse_source("module m { enum State { A, B } initial A event E transition A on E { next B; } prop p : always (state == A) ; }").expect("parse");
         let json = serde_json::to_string(&ir).expect("serialize");
         roundtrip_json(&json).expect("json -> rfs -> json round-trip");
+    }
+
+    // -- Task 5: liveness operator rendering (D-P4-8) -------------------------
+
+    fn prop_module(formula: &str) -> String {
+        format!(
+            "module m {{ enum State {{ A }} initial A event E \
+             var a: bool init false var b: bool init false var c: bool init false \
+             prop p : {} ; }}",
+            formula
+        )
+    }
+
+    #[test]
+    fn liveness_formula_roundtrips_both_directions() {
+        // Every shape prints in canonical minimal-parenthesis form (the input
+        // string IS the canonical output) and round-trips both directions:
+        // rfs -> json -> rfs and json -> rfs -> json.
+        let cases = [
+            "eventually (a)",
+            "eventually (a || b)",
+            "eventually (always (a))",
+            "a until b",
+            "a until b until c",
+            "!a until b",
+            "!!a until b",
+            "(a && b) until c",
+            "a until (b || c)",
+            "a && b until c",
+            "eventually (a) && b",
+            "!(a until b)",
+            "a -> b until c",
+        ];
+        for c in cases {
+            let src = prop_module(c);
+            let (ir, text) = roundtrip_rfs(&src)
+                .unwrap_or_else(|e| panic!("rfs round-trip failed for '{}': {}", c, e));
+            assert!(
+                text.contains(c),
+                "canonical printing changed '{}' : {}",
+                c,
+                text
+            );
+            let json = serde_json::to_string(&ir).expect("serialize");
+            roundtrip_json(&json)
+                .unwrap_or_else(|e| panic!("json round-trip failed for '{}': {}", c, e));
+        }
+    }
+
+    #[test]
+    fn pre_liveness_ir_json_still_deserializes() {
+        // D-P4-8: additive IR - a JSON document written before
+        // eventually/until existed (no new variant kinds) must still
+        // deserialize; no IR_VERSION bump.
+        let ir = parse_source(
+            "module m { enum State { A, B } initial A event E transition A on E { next B; } prop p : always (state == A -> next (state == B)) ; }",
+        )
+        .expect("parse");
+        assert_eq!(ir.ir_version, 0);
+        let json = serde_json::to_string(&ir).expect("serialize");
+        // The document contains no liveness variant kinds.
+        assert!(!json.contains("\"eventually\"") && !json.contains("\"until\""));
+        let back: Ir =
+            serde_json::from_str(&json).expect("pre-liveness IR JSON must still deserialize");
+        assert_eq!(ir, back);
+    }
+
+    #[test]
+    fn liveness_printing_exact_shapes() {
+        // Left-associative until chains stay bare; right-nested until gets
+        // parens; boolean groups in until positions get parens.
+        let ir = parse_source(&prop_module("a until b until c")).expect("parse");
+        assert!(print_ir(&ir).contains("prop p : a until b until c ;"));
+
+        let ir = parse_source(&prop_module("!(a until b)")).expect("parse");
+        assert!(print_ir(&ir).contains("prop p : !(a until b) ;"));
+
+        let ir = parse_source(&prop_module("(a && b) until c")).expect("parse");
+        assert!(print_ir(&ir).contains("prop p : (a && b) until c ;"));
     }
 }

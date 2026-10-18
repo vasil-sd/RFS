@@ -209,6 +209,21 @@ pub enum Formula {
         bound: u64,
         inner: Box<Formula>,
     },
+    /// `eventually (inner)`: liveness obligation - the body must hold at some
+    /// future sample (D-P4-8; engine semantics land in task 6). Additive
+    /// Phase 4 variant (no IR_VERSION bump).
+    Eventually {
+        inner: Box<Formula>,
+    },
+    /// `left until right`: WEAK until (D-P4-8) - left must hold at every
+    /// sample before the first sample where right holds; if right never
+    /// holds, the obligation is vacuously satisfied. Strong until is
+    /// expressible as `p until q && eventually q`. Additive Phase 4 variant
+    /// (no IR_VERSION bump).
+    Until {
+        left: Box<Formula>,
+        right: Box<Formula>,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

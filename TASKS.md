@@ -505,3 +505,23 @@ sed -n "<start>,<end>p" TASKS.md            # one specific entry by line range
 - Verification: `cargo test` **184/184**; clippy (via RUSTC_WORKSPACE_WRAPPER workaround) back to the 12-warning baseline, zero from new code; `cargo fmt --check` clean; **all 36 generated C MC outputs compile with plain gcc -Wall at zero warnings**; parity spot check (exact mode, all 9 property-bearing examples): status + summary-line fields + counterexample fields **9/9 identical** Rust vs C, exit codes match (0/1/2 verified); overlapping-transitions spec: C det 4 states vs `--nondet` 5 (matches Rust); `generate-code-tests` 171 + `test-generated-code` **513/513**.
 - New: `docs/roadmap/PHASE_4_TASK_3_STATUS.md` (template 2.5.2); task corrections appended to PHASE_4_TASK_3.md (4 entries).
 - Next in defined order: task 4 (parity suite migration to exact mode).
+
+## 2026-10-18 16:10 — Phase 4 task 5: liveness operators in the property language (eventually/until, D-P4-8)
+
+### Interpretation & plan
+
+- Requested: execute Phase 4 task 5 per `docs/roadmap/PHASE_4_TASK_5.md` - add `eventually (p)` as a new primary and infix `until` on a new precedence level (parser, additive IR, printer round-trip, validator typing, monitor-subset boundary with identical skip warning). NO example files yet (task 6 lands the first); tree green at every step.
+- Plan: read parser/ir/printer/validator/monitor sources; implement per the pinned EBNF + parse consequences; pin all four precedence consequences in unit tests; extend the R1-R4 out-of-subset mechanism with a liveness check; codegen-level test for the identical warning text.
+
+### Report
+
+- `src/parser.rs`: new `until_formula` level (`neg_operand { "until" neg_operand }`, left-assoc) + `eventually "(" formula ")"` primary alternative. **Task correction:** the task file's EBNF block contradicted its own pinned consequence for `!a until b` (EBNF gives `!(a until b)`; pinned consequence + ladder + standard PSL/CTL give `(!a) until b`) - implemented per the pinned consequence by moving negation BELOW the until level (`neg_operand = "!" neg_operand | primary_formula`). For every input without a bare `until` token the parse is structurally unchanged. OPEN QUESTION resolved with the stated default: `a && b until c` = `a && (b until c)` (pinned production; user informed, no objection). 8 unit tests pin the precedence table incl. left-associativity, unary interaction, parenthesized compound operands, malformed-shape rejection, and `until` not shadowing identifiers in expression contexts.
+- `src/ir.rs`: additive `Formula::Eventually { inner }` / `Formula::Until { left, right }`; NO IR_VERSION bump (stays 0); pre-liveness JSON deserialization test-pinned.
+- `src/printer.rs`: `Fctx::UntilLeft`/`UntilRight`; minimal-parenthesis rendering (`a until b` bare, left-assoc chains bare, boolean groups parenthesized in until positions); the `Not` arm now also parenthesizes an inner `Until`. Both-direction round-trip test-pinned for 13 canonical shapes.
+- `src/validator.rs`: liveness operands must type-check as boolean ("must be bool" diagnostics); `is_safety_formula` false for both operators; `always[N] >= 1` bound check recurses through them. 4 unit tests.
+- `src/monitor.rs` + `tests/codegen_test.rs`: explicit out-of-subset arm - ANY formula containing eventually/until fails compilation -> IDENTICAL "outside the monitor subset; skipped" warning in both backends' production codegen (exact text test-pinned).
+- Verification: `cargo test` **201/201** (was 184, +17 new); examples_test unchanged **42 valid / 12 invalid**; clippy at the 12-warning baseline (11 lib + 1 codegen_test), zero from this task; `cargo fmt --check` clean.
+- Environment: working toolchain = rustc 1.99.0 at `/workspace/host/rustup/toolchains/stable-x86_64-unknown-linux-gnu/bin` with `CARGO_HOME=/opt/unsloth-studio/sandbox/__LOCALID_nkBnQA0/.cargo`. Hit a PERSISTENT variant of the stale-stdin probe incident: cargo's target-info probe (`rustc - ...`) read stale session text even with cargo's stdin on `/dev/null` (the probe's stdin is not reliably cargo's fd 0 in this sandbox). Working workaround: `RUSTC_WRAPPER` script forcing `< /dev/null` for `-` probes, handling both arg shapes (with/without the extra compiler-name arg prepended when RUSTC_WORKSPACE_WRAPPER is set).
+- Note: the root TASKS.md has no task 4 entry (task 4 was recorded only in `docs/roadmap/TASKS.md`) - pre-existing log gap from the task 4 session, left as-is.
+- New: `docs/roadmap/PHASE_4_TASK_5_STATUS.md` (template 2.5.2); task corrections appended to PHASE_4_TASK_5.md (2 entries).
+- Next in defined order: task 6 (liveness engine - Rust).

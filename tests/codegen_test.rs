@@ -774,6 +774,39 @@ fn no_skip_warnings_for_in_subset_properties_both_backends() {
 }
 
 #[test]
+fn liveness_properties_skip_with_identical_warning_both_backends() {
+    // D-P4-8/D-P4-9: ANY formula containing eventually/until is outside the
+    // monitor subset; production codegen in BOTH backends must emit the
+    // identical skip warning (MC-only properties).
+    let source = "module m {\n  enum State { A, B }\n  initial A\n  event E\n  var flag: bool init false\n  transition A on E { next B; }\n  prop live : eventually (flag) ;\n  prop wait : !flag until flag ;\n  assume env : state == A until state == B ;\n}\n";
+    let ir = rfs::parse_source(source).expect("liveness module should parse");
+    let module = &ir.modules[0];
+    let options = codegen::BackendOptions {
+        assumptions: codegen::AssumptionSelection::All,
+        steps: 4,
+        with_property_monitors: true,
+
+        ..codegen::BackendOptions::default()
+    };
+    let mut warnings_by_backend: Vec<Vec<String>> = Vec::new();
+    for backend_name in ["rust", "c"] {
+        let backend = codegen::get_backend(backend_name).unwrap();
+        let out = codegen::CodegenCommandKind::Production
+            .run(backend, module, &options)
+            .unwrap_or_else(|e| panic!("{} production failed: {:?}", backend_name, e));
+        warnings_by_backend.push(out.warnings);
+    }
+    // Identical warning text in the same order in both backends.
+    assert_eq!(warnings_by_backend[0], warnings_by_backend[1]);
+    let expected = vec![
+        "property 'live' is outside the monitor subset; skipped",
+        "property 'wait' is outside the monitor subset; skipped",
+        "assume 'env' is outside the monitor subset; skipped",
+    ];
+    assert_eq!(warnings_by_backend[0], expected);
+}
+
+#[test]
 fn mc_exact_flags_embedded_as_runtime_defaults() {
     // D-P4-7: codegen-time flags are embedded as defaults, overridable at
     // runtime. Each flag must change the generated output as expected.

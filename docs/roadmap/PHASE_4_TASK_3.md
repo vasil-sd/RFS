@@ -104,6 +104,15 @@ C rendering/algorithm), never a format change on the Rust side.
 - Liveness analysis (task 7), container switch / performance tuning (task 10),
   SMT (task 11).
 
+## Task corrections (optional)
+
+| Correction | Description + rationale |
+|------------|-------------------------|
+| `src/backends/c_fsm.rs` added to affected files | Nondet successor enumeration needs every enabled transition's effect, which the core's first-match `fsm_step` cannot expose. Added `pub(crate) fn render_mc_step_all_c(module)` (plus a private `mc_pattern_cond` mirroring the pattern part of `transition_block_c`) that renders a generated `mc_step_all(state, vars, in, out) -> int` from the same IR with the same helpers (`gen_expr_c`, `output_expr_c`, `Ctx`/`Env`) as `fsm_step`, so det (first effect) and nondet (all effects) agree by construction. |
+| Pre-existing `gcc -Wall` warnings in core output fixed | The task's hard requirement is zero warnings on generated C MC output, but the Phase 3 core already produced `-Wmaybe-uninitialized` warnings (`output_t outs[MAX_OUTPUTS];` passed to `rfs_commit` with `n_out = 0` for emit-less transitions) - reproduced on the pristine tree. Fixed in `transition_block_c`/on_error rendering by zero-initializing: `output_t outs[MAX_OUTPUTS] = {0};`. Generated core text changes, behavior identical; all 513 generated tests still pass. |
+| Parity suite bar vs task-3 bar | `tests/backend_parity_test.rs::compile_c` only asserts gcc success (not zero warnings); the stricter no-warning bar was enforced manually: all 36 generated C MC outputs compile with plain `gcc -Wall` at zero warnings. The suite itself is untouched (task 4 migrates it). |
+| Shared printers moved ahead of the exact engine | `print_vars`/`print_trace` were defined inside the fuzz runtime; the exact engine references them, so they moved to a shared section emitted before both runtimes (single definition, same text as Phase 3 - C trace format unchanged). The fuzz runtime's `main` became `run_fuzz(argc, argv)` with a new dispatching `main`, mirroring task 2. |
+
 ## Other information
 - If the sorted-vector visited set makes any example unreasonably slow (> ~60s),
   note it in the status file - task 10 decides on open addressing with benchmark

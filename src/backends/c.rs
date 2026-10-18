@@ -92,9 +92,9 @@ const TEST_INFO: BackendCommandInfo = BackendCommandInfo {
 
 const MC_INFO: BackendCommandInfo = BackendCommandInfo {
     name: "mc",
-    summary: "Bounded model-checker executable (same CLI wire format as Rust MC)",
-    usage: "rfs codegen c mc <spec.rfs|spec.json> [--out FILE]",
-    options: "--assumes ... as production; runtime flags: --bound, --runs, --seed, --violate, --unexpected-prob",
+    summary: "Generate a model-checker C executable (exact reachable-state search by default; fuzz mode retained)",
+    usage: "rfs codegen c mc <spec.rfs|spec.json> [--out FILE] [--assumes all|none|l1,l2] [--mode exact|fuzz] [--max-states N] [--nondet] [--timeout-sec N]",
+    options: "--assumes all|none|label1,label2  assumptions active in the generated binary (default: all)\n      --mode exact|fuzz           model-checking mode (default: exact)\n      --max-states N              state limit for exact mode (default: 1000000)\n      --nondet                    every enabled transition is a successor (exact mode)\n      --timeout-sec N             wall-clock limit, 0 = off (not parity-guaranteed)\n      --out FILE                  write generated source to FILE (default: stdout)\n      The generated binary accepts at runtime: --mode exact|fuzz, --max-states N,\n      --nondet, --timeout-sec N, --assumes ...; fuzz mode additionally: --bound N,\n      --runs N, --seed N, --violate label:prob:percent%,... , --unexpected-prob P",
 };
 
 /// The registered C backend (see `CODEGEN.md` for the plugin contract).

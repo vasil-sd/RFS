@@ -41,7 +41,7 @@ Phase state (2026-10-18):
 | 1 - Minimal end-to-end demonstrator | COMPLETE | `PHASE_1.md`, `PHASE_1_STATUS.md` |
 | 2 - Core DSL and production code generation | COMPLETE | `PHASE_2.md`, `PHASE_2_STATUS.md` |
 | 3 - PSL-like properties and monitors | COMPLETE | `PHASE_3.md`, `PHASE_3_PLAN.md`, `PHASE_3_TASK_{13,15-24}.md` (+ `_STATUS` files), `PHASE_3_STATUS.md` |
-| 4 - Scalable model checking | in progress (task 2 of 14 done) | `PHASE_4.md`, `PHASE_4_PLAN.md`, `PHASE_4_TASK_{1,2}.md` (+ `_STATUS`) |
+| 4 - Scalable model checking | in progress (task 3 of 14 done) | `PHASE_4.md`, `PHASE_4_PLAN.md`, `PHASE_4_TASK_{1,2,3}.md` (+ `_STATUS`) |
 | 5 - Full toolchain and production integration | not started | `PHASE_5.md` |
 | 6 - Production hardening and v1.0 | not started | `PHASE_6.md` |
 

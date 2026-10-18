@@ -1257,7 +1257,7 @@ impl<'a> Gen<'a> {
             let _ = writeln!(self.code, "    {{");
             let _ = writeln!(
                 self.code,
-                "        output_t outs[MAX_OUTPUTS]; int n_out = {};",
+                "        output_t outs[MAX_OUTPUTS] = {{0}}; int n_out = {};",
                 outs.len()
             );
             for (i, o) in outs.iter().enumerate() {
@@ -1432,7 +1432,7 @@ impl<'a> Gen<'a> {
         }
         let _ = writeln!(
             out,
-            "            output_t outs[MAX_OUTPUTS]; int n_out = {};",
+            "            output_t outs[MAX_OUTPUTS] = {{0}}; int n_out = {};",
             outs.len()
         );
         for (i, o) in outs.iter().enumerate() {
@@ -1588,5 +1588,304 @@ fn collect_signal_patterns<'p>(
                 collect_signal_patterns(c, input_pats, output_pats);
             }
         }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Exact MC runtime support (Phase 4, D-P4-11)
+// ---------------------------------------------------------------------------
+
+/// Render the `mc_step_all` function used by the exact C MC runtime: for
+/// `(state, input)`, the effects of EVERY enabled transition in firing order
+/// (deterministic mode uses only the first effect; nondet mode explores all).
+/// The on_error fallback is appended when no transition matched. Rendered from
+/// the same IR with the same helpers as `fsm_step`, so both paths agree by
+/// construction.
+pub(crate) fn render_mc_step_all_c(module: &Module) -> Result<String, String> {
+    let options = BackendOptions::default();
+    let mut warnings = Vec::new();
+    let gen = Gen::new(module, &options, PropertyMonitorMode::Off, &mut warnings)
+        .map_err(|e| e.join("; "))?;
+    gen.render_mc_step_all_body()
+}
+
+impl<'a> Gen<'a> {
+    /// Pattern condition for `mc_step_all` (mirrors the pattern part of
+    /// `transition_block_c`; `in` is a local parameter there).
+    fn mc_pattern_cond(&self, t: &Transition) -> Result<String, String> {
+        match &t.pattern.variant {
+            None => {
+                let variants: Vec<&VariantInfo> = self
+                    .variants
+                    .inputs
+                    .iter()
+                    .filter(|v| v.group == t.pattern.group)
+                    .collect();
+                if variants.is_empty() {
+                    return Err(format!("unknown event group '{}'", t.pattern.group));
+                }
+                let arms: Vec<String> = variants
+                    .iter()
+                    .map(|v| format!("in.kind == INPUT_{}", v.unique_name.to_uppercase()))
+                    .collect();
+                Ok(arms.join(" || "))
+            }
+            Some(PatternVariant::Unit { name }) => {
+                let v = self
+                    .variants
+                    .input_variant(&t.pattern.group, name)
+                    .ok_or_else(|| {
+                        format!(
+                            "unknown event variant '{}' in group '{}'",
+                            name, t.pattern.group
+                        )
+                    })?;
+                if !v.fields.is_empty() {
+                    return Err("unit pattern on struct variant".into());
+                }
+                Ok(format!("in.kind == INPUT_{}", v.unique_name.to_uppercase()))
+            }
+            Some(PatternVariant::Struct { name, fields }) => {
+                let v = self
+                    .variants
+                    .input_variant(&t.pattern.group, name)
+                    .ok_or_else(|| {
+                        format!(
+                            "unknown event variant '{}' in group '{}'",
+                            name, t.pattern.group
+                        )
+                    })?;
+                if v.fields.len() != fields.len() {
+                    return Err("pattern field count mismatch".into());
+                }
+                let pl = format!("in.payload.input_{}", v.unique_name.to_lowercase());
+                let mut conds: Vec<String> =
+                    vec![format!("in.kind == INPUT_{}", v.unique_name.to_uppercase())];
+                for (i, pf) in fields.iter().enumerate() {
+                    let fname = c_ident(&v.fields[i].0);
+                    match &pf.pattern {
+                        PatternExpr::Int { value } => conds.push(format!(
+                            "{}.{} == {}",
+                            pl,
+                            fname,
+                            int_c_literal(*value, None)
+                        )),
+                        PatternExpr::Bool { value } => conds.push(format!(
+                            "{}.{} == {}",
+                            pl,
+                            fname,
+                            if *value { "true" } else { "false" }
+                        )),
+                        PatternExpr::EnumVariant { path } => {
+                            let base = c_ident(&path[0]);
+                            let rest = path[1..]
+                                .iter()
+                                .map(|x| c_ident(x).to_uppercase())
+                                .collect::<Vec<_>>()
+                                .join("_");
+                            conds.push(format!(
+                                "{}.{} == {}_{}",
+                                pl,
+                                fname,
+                                base.to_uppercase(),
+                                rest
+                            ));
+                        }
+                        _ => {}
+                    }
+                }
+                Ok(conds.join(" && "))
+            }
+        }
+    }
+
+    /// Render the full `mc_step_all` C function (see [`render_mc_step_all_c`]).
+    fn render_mc_step_all_body(&self) -> Result<String, String> {
+        let m = self.module;
+        let mut out = String::new();
+        out.push_str(
+            "typedef struct { state_t next_state; vars_t next_vars; output_t outputs[MAX_OUTPUTS]; int n_outputs; int transition_id; } mc_effect_t;\n",
+        );
+        out.push_str("static int mc_step_all(state_t state, const vars_t* vars, input_t in, mc_effect_t* out) {\n    int n = 0;\n");
+
+        // Per-state firing order (identical to emit_fsm_impl).
+        let mut state_order: Vec<&str> = Vec::new();
+        let mut by_state: std::collections::HashMap<&str, Vec<usize>> =
+            std::collections::HashMap::new();
+        for (idx, t) in m.transitions.iter().enumerate() {
+            if !by_state.contains_key(t.state.as_str()) {
+                state_order.push(t.state.as_str());
+            }
+            by_state.entry(t.state.as_str()).or_default().push(idx);
+        }
+        for st in &state_order {
+            let mut idxs: Vec<usize> = by_state.get(st).unwrap().clone();
+            idxs.sort_by_key(|&k| std::cmp::Reverse(m.transitions[k].priority.unwrap_or(0)));
+            out.push_str(&format!(
+                "    if (state == STATE_{}) {{\n",
+                c_ident(st).to_uppercase()
+            ));
+            for idx in idxs {
+                let t = &m.transitions[idx];
+                let cond = self.mc_pattern_cond(t)?;
+                out.push_str(&format!("        if ({}) {{\n", cond));
+
+                // Bindings as locals (same order/semantics as transition_block_c).
+                let mut env = Env::for_module(m);
+                let mut ctx = Ctx::default();
+                for v in &m.vars {
+                    ctx.names
+                        .insert(v.name.clone(), format!("vars->{}", c_ident(&v.name)));
+                }
+                ctx.state_variants = m
+                    .enums
+                    .iter()
+                    .find(|e| e.name == "State")
+                    .map(|e| e.variants.iter().cloned().collect())
+                    .unwrap_or_default();
+                ctx.names.insert("state".into(), "state".into());
+                if let Some(PatternVariant::Struct { name, fields, .. }) = &t.pattern.variant {
+                    let v = self
+                        .variants
+                        .input_variant(&t.pattern.group, name)
+                        .ok_or("pattern variant lookup")?;
+                    let pl = format!("in.payload.input_{}", v.unique_name.to_lowercase());
+                    for (i, pf) in fields.iter().enumerate() {
+                        if let PatternExpr::Bind { name } = &pf.pattern {
+                            let fname = c_ident(&v.fields[i].0);
+                            let ty = c_type(&v.fields[i].1).map_err(|e| e.to_string())?;
+                            out.push_str(&format!(
+                                "            {} {} = {}.{};\n",
+                                ty,
+                                c_ident(name),
+                                pl,
+                                fname
+                            ));
+                            env.bindings.insert(
+                                name.clone(),
+                                crate::validator::type_to_expr_type(&v.fields[i].1),
+                            );
+                        }
+                    }
+                }
+                for name in env.bindings.keys() {
+                    ctx.names.insert(name.clone(), c_ident(name));
+                }
+
+                // Guard.
+                if let Some(g) = &t.guard {
+                    let gexpr = gen_expr_c(g, &env, &ctx, m)?;
+                    out.push_str(&format!("            if ({}) {{\n", gexpr));
+                }
+
+                // Effect body (no commit: collect into `out[n]`).
+                let outs: Vec<String> = t
+                    .emits
+                    .iter()
+                    .map(|o| self.output_expr_c(o, &env, &ctx))
+                    .collect::<Result<_, _>>()?;
+                out.push_str("            {\n");
+                out.push_str("                output_t outs[MAX_OUTPUTS];\n");
+                out.push_str(&format!("                int n_out = {};\n", outs.len()));
+                for (i, o) in outs.iter().enumerate() {
+                    out.push_str(&format!("                outs[{}] = {};\n", i, o));
+                }
+                out.push_str(&format!(
+                    "                state_t next_state = STATE_{};\n",
+                    c_ident(&t.next_state).to_uppercase()
+                ));
+                if m.vars.is_empty() {
+                    out.push_str("                vars_t new_vars = *vars;\n");
+                } else {
+                    out.push_str("                vars_t new_vars = *vars;\n");
+                    for a in &t.assignments {
+                        let ty = c_type(
+                            m.vars
+                                .iter()
+                                .find(|v| v.name == a.var)
+                                .map(|v| &v.ty)
+                                .unwrap_or(&Type::Bool),
+                        )
+                        .map_err(|e| e.to_string())?;
+                        out.push_str(&format!(
+                            "                {} tmp_{} = {};\n",
+                            ty,
+                            c_ident(&a.var),
+                            gen_expr_c(&a.value, &env, &ctx, m)?
+                        ));
+                    }
+                    for a in &t.assignments {
+                        out.push_str(&format!(
+                            "                new_vars.{} = tmp_{};\n",
+                            c_ident(&a.var),
+                            c_ident(&a.var)
+                        ));
+                    }
+                }
+                out.push_str("                out[n].next_state = next_state;\n");
+                out.push_str("                out[n].next_vars = new_vars;\n");
+                out.push_str(
+                    "                for (int i = 0; i < n_out && i < MAX_OUTPUTS; i++) out[n].outputs[i] = outs[i];\n",
+                );
+                out.push_str("                out[n].n_outputs = n_out;\n");
+                out.push_str(&format!(
+                    "                out[n].transition_id = {};\n",
+                    idx
+                ));
+                out.push_str("                n++;\n");
+                out.push_str("            }\n");
+                if t.guard.is_some() {
+                    out.push_str("            }\n");
+                }
+                out.push_str("        }\n");
+            }
+            out.push_str("    }\n");
+        }
+
+        // on_error fallback: fires only when no transition matched the input.
+        if let Some(oe) = &m.on_error {
+            let env = Env::for_module(m);
+            let mut ctx = Ctx::default();
+            for v in &m.vars {
+                ctx.names
+                    .insert(v.name.clone(), format!("vars->{}", c_ident(&v.name)));
+            }
+            ctx.state_variants = m
+                .enums
+                .iter()
+                .find(|e| e.name == "State")
+                .map(|e| e.variants.iter().cloned().collect())
+                .unwrap_or_default();
+            ctx.names.insert("state".into(), "state".into());
+            let outs: Vec<String> = oe
+                .emits
+                .iter()
+                .map(|o| self.output_expr_c(o, &env, &ctx))
+                .collect::<Result<_, _>>()?;
+            out.push_str("    if (n == 0) {\n");
+            out.push_str("        output_t outs[MAX_OUTPUTS];\n");
+            out.push_str(&format!("        int n_out = {};\n", outs.len()));
+            for (i, o) in outs.iter().enumerate() {
+                out.push_str(&format!("        outs[{}] = {};\n", i, o));
+            }
+            out.push_str(&format!(
+                "        out[n].next_state = STATE_{};\n",
+                c_ident(&oe.next_state).to_uppercase()
+            ));
+            out.push_str("        out[n].next_vars = *vars;\n");
+            out.push_str(
+                "        for (int i = 0; i < n_out && i < MAX_OUTPUTS; i++) out[n].outputs[i] = outs[i];\n",
+            );
+            out.push_str("        out[n].n_outputs = n_out;\n");
+            out.push_str("        out[n].transition_id = -1; // on_error fallback\n");
+            out.push_str("        n++;\n");
+            out.push_str("    }\n");
+        }
+
+        if m.transitions.is_empty() && m.on_error.is_none() {
+            out.push_str("    (void)state; (void)vars; (void)in; (void)out;\n");
+        }
+        out.push_str("    return n;\n}\n");
+        Ok(out)
     }
 }

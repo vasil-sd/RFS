@@ -488,3 +488,20 @@ sed -n "<start>,<end>p" TASKS.md            # one specific entry by line range
 - Manual exit criteria all green: spec 37 -> PASS (complete) exit 0; buggy 04 -> FAIL property-violation label=syn_ack step=1 + Phase-3 counterexample, exit 1; spec 04 -> FAIL deadlock at Established (genuine sink), exit 1; `--max-states 1` -> UNKNOWN exit 2; overlapping-transitions spec: det 4 states vs `--nondet` 5 states; `--mode fuzz --seed 12345` unchanged.
 - New: `docs/roadmap/PHASE_4_TASK_2_STATUS.md` (template 2.5.2); task corrections appended to PHASE_4_TASK_2.md (6 entries).
 - Next in defined order: task 3 (exact engine - C backend mirror).
+
+## 2026-10-18 13:05 — Phase 4 task 3: exact BFS engine in C MC binaries (plan-driven mirror, gcc -Wall clean, parity green)
+
+### Interpretation & plan
+
+- Requested: execute Phase 4 task 3 per `docs/roadmap/PHASE_4_TASK_3.md` - mirror task 2's exact engine in the generated C backend (same algorithm, same summary line, same counterexample fields), visited set = sorted vector + binary search, gcc -Wall clean, parity spot check against Rust on all property-bearing examples.
+- Plan: study c_fsm.rs core (tagged-union inputs, enum states, monitor naming, rfs_commit); add render_mc_step_all_c to c_fsm.rs; rewrite c_mc.rs around the plan; update c.rs MC_INFO; verify gcc -Wall + parity manually.
+
+### Report
+
+- New generated exact runtime (c_mc.rs): `all_inputs()` (canonical enumeration from plan abstraction; uint64_t loop counters so no bit<8> wrap), `config_bytes` (plan layout, fixed-width types -> identical bytes to Rust), BFS with sorted-vector visited set + binary search (documented container choice for task 10), parent pointers, det = first effect of `mc_step_all`, `--nondet` = all effects; monitors stepped at sample index depth+1 via Phase 3 C monitor code; assumption pruning; deadlock detection; pinned line `model-check summary: status=... states=N transitions=M max_depth=D[ reason=... label=... step=S]`; exit codes 0/1/2; memory estimate with the SAME formula as Rust; counterexample replay via `rfs_commit` reusing the Phase 3 C trace format.
+- `src/backends/c_fsm.rs`: new `pub(crate) render_mc_step_all_c` (+ private `mc_pattern_cond`) - renders `mc_step_all(state, vars, in, out)` (every enabled transition in firing order + on_error fallback as transition_id=-1) from the same IR/helpers as `fsm_step`.
+- Pre-existing gcc -Wall warnings fixed: emit-less transitions passed an uninitialized outputs array to `rfs_commit` (`-Wmaybe-uninitialized`, reproduced on pristine tree) -> zero-init `= {0}` in transition_block_c/on_error rendering (generated core text changes, behavior identical).
+- Shared printers (`print_vars`/`print_trace`) moved ahead of both runtimes; fuzz runtime's `main` -> `run_fuzz(argc, argv)` + dispatching `main`, mirroring task 2. `c.rs` MC_INFO updated.
+- Verification: `cargo test` **184/184**; clippy (via RUSTC_WORKSPACE_WRAPPER workaround) back to the 12-warning baseline, zero from new code; `cargo fmt --check` clean; **all 36 generated C MC outputs compile with plain gcc -Wall at zero warnings**; parity spot check (exact mode, all 9 property-bearing examples): status + summary-line fields + counterexample fields **9/9 identical** Rust vs C, exit codes match (0/1/2 verified); overlapping-transitions spec: C det 4 states vs `--nondet` 5 (matches Rust); `generate-code-tests` 171 + `test-generated-code` **513/513**.
+- New: `docs/roadmap/PHASE_4_TASK_3_STATUS.md` (template 2.5.2); task corrections appended to PHASE_4_TASK_3.md (4 entries).
+- Next in defined order: task 4 (parity suite migration to exact mode).

@@ -6,11 +6,11 @@
 //!
 //! Reference spec: `examples/valid/41_property_monitors.rfs`. The buggy
 //! variant drops the Ack-handling transition, so a Fin can never be answered
-//! and `fin_acked_bounded` must expire. All runs use FIXED seeds; the buggy
-//! MC walk is in fact fully deterministic (exactly one allowed input per
-//! state: Send(Fin) from Idle, then Tick forever in SentFin), so the asserted
-//! step numbers are seed-independent. The production drivers (Rust + C) share
-//! the same violating sequence and must report the same label/step values.
+//! and `fin_acked_bounded` must expire. Phase 4 (task 4, D-P4-14): the MC runs
+//! are in SEEDLESS EXACT mode - the deterministic BFS traversal pins which
+//! violation is reported first, and the asserted values were re-pinned from
+//! actual engine output. The production drivers (Rust + C) share the same
+//! violating sequence and must report the same label/step values.
 
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -139,10 +139,8 @@ fn parse_mc_violation(stdout: &str) -> Option<McViolation> {
     let mut violation = None;
     for line in stdout.lines() {
         let t = line.trim_start();
-        if let Some(rest) = t.strip_prefix("run ") {
-            if let Some(l) = rest.split_once(" property violation: ") {
-                label = Some(l.1.trim().to_string());
-            }
+        if let Some(l) = t.strip_prefix("property violation: ") {
+            label = Some(l.trim().to_string());
         } else if let Some(n) = t.strip_prefix("trigger step: ") {
             trigger = n.parse().ok();
         } else if let Some(n) = t.strip_prefix("violation step: ") {
@@ -178,12 +176,9 @@ fn mc_buggy_run(backend_name: &str, dir: &Path) -> McViolation {
         .expect("write Rust MC source");
         compile_rust(&p, &dir.join("mc"));
     }
-    // Bound 10 covers the deadline (sample 5) with margin; fixed seed per
-    // task file. The walk is deterministic anyway (one allowed input/state).
+    // Seedless exact mode (D-P4-14): the deterministic BFS traversal finds
+    // the first violation; no bound/runs/seed flags apply.
     let out = Command::new(dir.join("mc"))
-        .args([
-            "--mode", "fuzz", "--bound", "10", "--runs", "5", "--seed", "42",
-        ])
         .output()
         .expect("run generated MC binary");
     let stdout = String::from_utf8_lossy(&out.stdout).to_string();
@@ -223,9 +218,11 @@ fn mc_catches_injected_bug_both_backends() {
         "violation (deadline) step must match across backends"
     );
 
-    // Pinned values: Send(Fin) at sample 1 triggers fin_acked_bounded (bound
-    // 5); with the Ack transition gone the body can never hold, so the
-    // violation is confirmed at sample 1 + 5 - 1 = 5.
+    // Re-pinned values (task 4): Send(Fin) at sample 1 triggers
+    // fin_acked_bounded (bound 5); with the Ack transition gone the body can
+    // never hold, so the violation is confirmed at sample 1 + 5 - 1 = 5. The
+    // step values are unchanged from the fuzz-era pins (the walk was already
+    // deterministic); the driving mode and summary format changed.
     assert_eq!(rust_v.label, "fin_acked_bounded");
     assert_eq!(rust_v.trigger_step, 1);
     assert_eq!(rust_v.violation_step, 5);
@@ -268,33 +265,25 @@ fn mc_good_run(backend_name: &str, dir: &Path) -> Vec<(String, String)> {
         std::fs::write(&p, src).expect("write Rust MC source");
         compile_rust(&p, &dir.join("mc"));
     }
-    // Bound 4 is chosen so that NO property can be confirmed within the
-    // horizon, for any seed or run count: fin_acked_bounded needs trigger +
-    // 4 samples (sample 5) to expire; retries_bounded_window needs 6 ticks
-    // (and only checks samples 0..9); the safety invariants are unreachable
-    // in a violating form. Zero violations is therefore provable, not lucky.
+    // Seedless exact mode (D-P4-14): the full reachable graph is explored.
+    // The correct spec has NO property violation anywhere in it - but it does
+    // have a terminal state, so exact mode reports FAIL(deadlock), not pass.
+    // The monitor no-false-positive claim is: reason must be `deadlock`, and
+    // no property violation may be reported.
     let out = Command::new(dir.join("mc"))
-        .args([
-            "--mode", "fuzz", "--bound", "4", "--runs", "100", "--seed", "12345",
-        ])
         .output()
         .expect("run generated MC binary");
     let stdout = String::from_utf8_lossy(&out.stdout).to_string();
-    assert_eq!(
-        out.status.code(),
-        Some(0),
-        "[{backend_name}] correct spec: MC must exit 0 within bound; stdout:\n{stdout}"
-    );
     assert!(
         !stdout.contains("property violation"),
-        "[{backend_name}] no property violation may be reported; stdout:\n{stdout}"
+        "[{backend_name}] no property violation may be reported (no false positives); stdout:\n{stdout}"
     );
     parse_mc_summary(&stdout)
         .unwrap_or_else(|| panic!("[{backend_name}] summary line missing; stdout:\n{stdout}"))
 }
 
 #[test]
-fn mc_correct_spec_passes_within_bound_both_backends() {
+fn mc_correct_spec_reports_no_property_violation_both_backends() {
     let rust_dir = scratch("mc_good_rust");
     let c_dir = scratch("mc_good_c");
     let rust_s = mc_good_run("rust", &rust_dir);
@@ -309,23 +298,50 @@ fn mc_correct_spec_passes_within_bound_both_backends() {
     assert_eq!(
         summary_keys(&rust_s),
         vec![
-            "runs",
-            "bound",
-            "completed",
-            "unexpected",
-            "assumption_stops",
-            "property_violations"
+            "status",
+            "states",
+            "transitions",
+            "max_depth",
+            "reason",
+            "label",
+            "step"
         ]
     );
-    // ...and zero property violations on the correct spec (no false positives).
+    // ...and the re-pinned exact-mode result (task 4): the correct spec has a
+    // terminal state, so exact mode reports FAIL(deadlock) at depth 3 - and
+    // crucially NO property violation (no monitor false positives).
     for (name, summary) in [("rust", &rust_s), ("c", &c_s)] {
-        let pv = summary
-            .iter()
-            .find(|(k, _)| k == "property_violations")
-            .expect("property_violations field");
+        let get = |k: &str| {
+            summary
+                .iter()
+                .find(|(kk, _)| kk == k)
+                .map(|(_, v)| v.as_str())
+        };
+        assert_eq!(get("status"), Some("fail"), "[{name}] status: {summary:?}");
         assert_eq!(
-            pv.1, "0",
-            "[{name}] correct spec must have zero property violations: {summary:?}"
+            get("reason"),
+            Some("deadlock"),
+            "[{name}] reason must be deadlock (no property violation): {summary:?}"
+        );
+        assert_eq!(
+            get("step"),
+            Some("3"),
+            "[{name}] re-pinned deadlock depth: {summary:?}"
+        );
+        assert_eq!(
+            get("states"),
+            Some("7"),
+            "[{name}] re-pinned states: {summary:?}"
+        );
+        assert_eq!(
+            get("transitions"),
+            Some("6"),
+            "[{name}] re-pinned transitions: {summary:?}"
+        );
+        assert_eq!(
+            get("max_depth"),
+            Some("3"),
+            "[{name}] re-pinned max_depth: {summary:?}"
         );
     }
 }

@@ -1,34 +1,23 @@
-//! Phase 3 backend-parity differential suite (task 17): the backend parity
-//! principle made executable - Rust and C model checkers run on identical
-//! specs/seeds must produce indistinguishable results, and both backends'
-//! generated test executables must agree on every example.
+//! Phase 4 backend-parity differential suite (task 4, D-P4-14): the backend
+//! parity principle made executable - Rust and C model checkers run in EXACT
+//! mode on identical specs must produce indistinguishable results, and both
+//! backends' generated test executables must agree on every example.
 //!
 //! Scope: ALL valid examples carrying `prop`/`assume` declarations, enumerated
 //! DYNAMICALLY (including `examples/valid/tla_adapted/`) so future additions
-//! are covered automatically. Run parameters are pinned and SMALL
-//! (`--bound 8 --runs 20 --seed 777`): the point is determinism + equality,
-//! not coverage depth.
+//! are covered automatically. Exact mode is seedless and deterministic: the
+//! traversal order pins which violation/deadlock is reported first, so the
+//! expected VALUES below were re-pinned from actual engine output (task 4,
+//! action 2) - they deliberately differ from the Phase 3 fuzz-era pins.
 //!
-//! Known recorded state (see PHASE_3_TASK_17_STATUS.md; the second bullet was
-//! resolved by task 24):
-//! - natural random-run violations at the pinned seed: `13_properties_safety`
-//!   (`no_bad`, run 0) and `41_property_monitors` (`fin_acked_bounded`, run
-//!   19) - a legitimate environment behavior, identical in both backends;
-//! - all property-bearing examples' generated test executables pass in BOTH
-//!   backends. (Task 17 had pinned `13_properties_safety` as failing in both:
-//!   its representative-input walk ToBad -> Bad violated its own `no_bad`
-//!   property while `test` codegen always includes monitors, D-P3-6. Task 24
-//!   fixed the spec - a `Stay` self-loop declared first keeps the walk in
-//!   Good; see PHASE_3_TASK_24_STATUS.md.)
+//! Fuzz mode stays covered by the codegen flag-sensitivity tests and task 2's
+//! spot check; this suite no longer drives `--mode fuzz`.
 
-use std::collections::{BTreeMap, HashMap};
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::{LazyLock, Mutex};
 
-const BOUND: &str = "8";
-const RUNS: &str = "20";
-const SEED: &str = "777";
 /// gcc location (plan assumption 5, verified since Phase 2).
 const GCC: &str = "/usr/bin/gcc";
 
@@ -215,18 +204,8 @@ struct McOutcome {
 
 fn run_mc(spec: &Path, backend_name: &str, extra_args: &[String]) -> McOutcome {
     let bin = mc_binary(spec, backend_name);
-    let mut args: Vec<String> = vec![
-        // Phase 4: exact mode is the default; these parity tests pin the
-        // Phase 3 fuzz behavior (D-P4-7).
-        "--mode".into(),
-        "fuzz".into(),
-        "--bound".into(),
-        BOUND.into(),
-        "--runs".into(),
-        RUNS.into(),
-        "--seed".into(),
-        SEED.into(),
-    ];
+    // Exact mode is the default (D-P4-7): seedless, deterministic traversal.
+    let mut args: Vec<String> = Vec::new();
     args.extend_from_slice(extra_args);
     let out = Command::new(&bin)
         .args(&args)
@@ -238,178 +217,363 @@ fn run_mc(spec: &Path, backend_name: &str, extra_args: &[String]) -> McOutcome {
     }
 }
 
-/// The property-specific counterexample fields printed by both MC runtimes.
-/// `trigger_step` is None for plain per-sample checks (no obligation trigger).
+/// One exact-mode run, fully parsed: status, summary-line fields and the
+/// counterexample fields (D-P4-4 wire format; identical in both backends).
 #[derive(Debug, Clone, PartialEq, Eq)]
-struct McViolation {
-    run: usize,
-    label: String,
+struct McExact {
+    exit_code: i32,
+    /// `status=` field of the machine line.
+    status: String,
+    states: usize,
+    transitions: usize,
+    max_depth: usize,
+    /// Fail suffix fields (None on pass/unknown).
+    reason: Option<String>,
+    label: Option<String>,
+    step: Option<usize>,
+    /// Human-line counterexample fields.
     trigger_step: Option<usize>,
-    violation_step: usize,
+    violation_step: Option<usize>,
+    deadlock_depth: Option<usize>,
 }
 
-fn parse_mc_violation(stdout: &str) -> Option<McViolation> {
-    let mut run = None;
+fn parse_exact(stdout: &str, exit_code: i32) -> McExact {
+    let mut status = String::new();
+    let mut states = 0usize;
+    let mut transitions = 0usize;
+    let mut max_depth = 0usize;
+    let mut reason = None;
     let mut label = None;
-    let mut trigger = None;
-    let mut violation = None;
+    let mut step = None;
     for line in stdout.lines() {
-        let t = line.trim_start();
-        if let Some(rest) = t.strip_prefix("run ") {
-            if let Some(l) = rest.split_once(" property violation: ") {
-                run = l.0.parse().ok();
-                label = Some(l.1.trim().to_string());
+        if let Some(rest) = line.strip_prefix("model-check summary: ") {
+            for tok in rest.split_whitespace() {
+                if let Some((k, v)) = tok.split_once('=') {
+                    match k {
+                        "status" => status = v.to_string(),
+                        "states" => states = v.parse().unwrap_or(0),
+                        "transitions" => transitions = v.parse().unwrap_or(0),
+                        "max_depth" => max_depth = v.parse().unwrap_or(0),
+                        "reason" => reason = Some(v.to_string()),
+                        "label" => label = Some(v.to_string()),
+                        "step" => step = Some(v.parse().unwrap_or(0)),
+                        _ => {}
+                    }
+                }
             }
-        } else if let Some(n) = t.strip_prefix("trigger step: ") {
-            trigger = n.parse().ok();
-        } else if let Some(n) = t.strip_prefix("violation step: ") {
-            violation = n.parse().ok();
         }
     }
-    match (run, label, trigger, violation) {
-        (Some(r), Some(l), t, Some(v)) => Some(McViolation {
-            run: r,
-            label: l,
-            trigger_step: t,
-            violation_step: v,
-        }),
-        _ => None,
+    let mut trigger_step = None;
+    let mut violation_step = None;
+    let mut deadlock_depth = None;
+    for line in stdout.lines() {
+        let t = line.trim_start();
+        if let Some(n) = t.strip_prefix("trigger step: ") {
+            trigger_step = n.parse().ok();
+        } else if let Some(n) = t.strip_prefix("violation step: ") {
+            violation_step = n.parse().ok();
+        } else if let Some(rest) = t.strip_prefix("deadlock: configuration at depth ") {
+            deadlock_depth = rest.split_whitespace().next().and_then(|d| d.parse().ok());
+        }
     }
-}
-
-/// Parse `model-check summary: k=v ...` into (key, value) pairs in order.
-fn parse_mc_summary(stdout: &str) -> Option<Vec<(String, String)>> {
-    let line = stdout
-        .lines()
-        .find(|l| l.starts_with("model-check summary: "))?;
-    Some(
-        line["model-check summary: ".len()..]
-            .split_whitespace()
-            .filter_map(|t| {
-                t.split_once('=')
-                    .map(|(k, v)| (k.to_string(), v.to_string()))
-            })
-            .collect(),
-    )
+    McExact {
+        exit_code,
+        status,
+        states,
+        transitions,
+        max_depth,
+        reason,
+        label,
+        step,
+        trigger_step,
+        violation_step,
+        deadlock_depth,
+    }
 }
 
 // ---------------------------------------------------------------------------
-// Action 1: same-seed MC runs over all property-bearing examples
+// Action 1: exact-mode differential runs over all property-bearing examples
 // ---------------------------------------------------------------------------
 
 #[test]
-fn mc_same_seed_runs_parity_all_property_bearing_examples() {
+fn mc_exact_runs_parity_all_property_bearing_examples() {
     for spec in property_bearing_examples() {
         let name = example_name(&spec);
         let rust = run_mc(&spec, "rust", &[]);
         let c = run_mc(&spec, "c", &[]);
         assert_eq!(
             rust.exit_code, c.exit_code,
-            "[{name}] exit codes must match (same spec + seed)"
+            "[{name}] exit codes must match (same spec, deterministic traversal)"
         );
-        if rust.exit_code == Some(0) {
-            let rs = parse_mc_summary(&rust.stdout)
-                .unwrap_or_else(|| panic!("[rust {name}] summary line missing: {}", rust.stdout));
-            let cs = parse_mc_summary(&c.stdout)
-                .unwrap_or_else(|| panic!("[c {name}] summary line missing: {}", c.stdout));
-            assert_eq!(
-                rs, cs,
-                "[{name}] summary fields must be identical (same spec + seed)"
-            );
-        } else {
-            // Violation path: both backends must have reported a violation;
-            // field-by-field comparison happens in the Action 2 test.
-            assert!(
-                parse_mc_violation(&rust.stdout).is_some()
-                    && parse_mc_violation(&c.stdout).is_some(),
-                "[{name}] non-zero exit without a property-violation report"
-            );
-        }
+        let re = parse_exact(&rust.stdout, rust.exit_code.unwrap_or(-1));
+        let ce = parse_exact(&c.stdout, c.exit_code.unwrap_or(-1));
+        assert_eq!(
+            re, ce,
+            "[{name}] exact-mode results must be field-identical across backends\n[rust]\n{}\n[c]\n{}",
+            rust.stdout, c.stdout
+        );
     }
 }
 
 // ---------------------------------------------------------------------------
-// Action 2: violation parity (natural + forced)
+// Action 2: re-pinned exact-mode values (D-P4-14)
 // ---------------------------------------------------------------------------
 
+/// One pinned exact-mode expectation per property-bearing example.
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct Pinned {
+    exit_code: i32,
+    status: &'static str,
+    states: usize,
+    transitions: usize,
+    max_depth: usize,
+    reason: Option<&'static str>,
+    label: Option<&'static str>,
+    step: Option<usize>,
+    trigger_step: Option<usize>,
+    violation_step: Option<usize>,
+}
+
+fn pinned(name: &str) -> Pinned {
+    // Re-pinned from ACTUAL exact-mode output (task 4, action 2). Exact BFS
+    // reports the first bad event in deterministic traversal order - deadlocks
+    // at terminal states now surface on several examples that the fuzz walk
+    // never reported. Old fuzz-era pins: natural violations only on
+    // 13_properties_safety (no_bad) and 41_property_monitors
+    // (fin_acked_bounded, forced trigger=1/violation=5).
+    match name {
+        "04_tcp_handshake_like.rfs" => Pinned {
+            exit_code: 1,
+            status: "fail",
+            states: 4,
+            transitions: 3,
+            max_depth: 2,
+            reason: Some("deadlock"),
+            label: Some("-"),
+            step: Some(2),
+            trigger_step: None,
+            violation_step: None,
+        },
+        "13_properties_safety.rfs" => Pinned {
+            exit_code: 1,
+            status: "fail",
+            states: 1,
+            transitions: 2,
+            max_depth: 0,
+            reason: Some("property-violation"),
+            label: Some("no_bad"),
+            step: Some(1),
+            trigger_step: None,
+            violation_step: Some(1),
+        },
+        "14_assumptions_tick.rfs" => Pinned {
+            exit_code: 0,
+            status: "pass-complete",
+            states: 258,
+            transitions: 258,
+            max_depth: 257,
+            reason: None,
+            label: None,
+            step: None,
+            trigger_step: None,
+            violation_step: None,
+        },
+        "15_bounded_eventually.rfs" => Pinned {
+            exit_code: 1,
+            status: "fail",
+            states: 3,
+            transitions: 2,
+            max_depth: 2,
+            reason: Some("deadlock"),
+            label: Some("-"),
+            step: Some(2),
+            trigger_step: None,
+            violation_step: None,
+        },
+        "16_next_property.rfs" => Pinned {
+            exit_code: 1,
+            status: "fail",
+            states: 2,
+            transitions: 1,
+            max_depth: 1,
+            reason: Some("deadlock"),
+            label: Some("-"),
+            step: Some(1),
+            trigger_step: None,
+            violation_step: None,
+        },
+        "24_event_no_payload_properties.rfs" => Pinned {
+            exit_code: 0,
+            status: "pass-complete",
+            states: 1,
+            transitions: 1,
+            max_depth: 0,
+            reason: None,
+            label: None,
+            step: None,
+            trigger_step: None,
+            violation_step: None,
+        },
+        "37_assumption_demo.rfs" => Pinned {
+            exit_code: 0,
+            status: "pass-complete",
+            states: 2,
+            transitions: 3,
+            max_depth: 1,
+            reason: None,
+            label: None,
+            step: None,
+            trigger_step: None,
+            violation_step: None,
+        },
+        "41_property_monitors.rfs" => Pinned {
+            exit_code: 1,
+            status: "fail",
+            states: 7,
+            transitions: 6,
+            max_depth: 3,
+            reason: Some("deadlock"),
+            label: Some("-"),
+            step: Some(3),
+            trigger_step: None,
+            violation_step: None,
+        },
+        "42_bounded_liveness_protocol.rfs" => Pinned {
+            exit_code: 1,
+            status: "fail",
+            states: 6,
+            transitions: 5,
+            max_depth: 3,
+            reason: Some("deadlock"),
+            label: Some("-"),
+            step: Some(2),
+            trigger_step: None,
+            violation_step: None,
+        },
+        "31_traffic_light_tla.rfs" => Pinned {
+            exit_code: 0,
+            status: "pass-complete",
+            states: 3,
+            transitions: 3,
+            max_depth: 2,
+            reason: None,
+            label: None,
+            step: None,
+            trigger_step: None,
+            violation_step: None,
+        },
+        "32_tcp_endpoint_tla.rfs" => Pinned {
+            exit_code: 1,
+            status: "fail",
+            states: 11,
+            transitions: 14,
+            max_depth: 3,
+            reason: Some("deadlock"),
+            label: Some("-"),
+            step: Some(3),
+            trigger_step: None,
+            violation_step: None,
+        },
+        "33_german_transfer_tla.rfs" => Pinned {
+            exit_code: 1,
+            status: "fail",
+            states: 4,
+            transitions: 3,
+            max_depth: 2,
+            reason: Some("deadlock"),
+            label: Some("-"),
+            step: Some(2),
+            trigger_step: None,
+            violation_step: None,
+        },
+        "34_single_lane_bridge_tla.rfs" => Pinned {
+            exit_code: 0,
+            status: "pass-complete",
+            states: 3,
+            transitions: 4,
+            max_depth: 1,
+            reason: None,
+            label: None,
+            step: None,
+            trigger_step: None,
+            violation_step: None,
+        },
+        "35_bounded_buffer_tla.rfs" => Pinned {
+            exit_code: 0,
+            status: "pass-complete",
+            states: 3,
+            transitions: 4,
+            max_depth: 2,
+            reason: None,
+            label: None,
+            step: None,
+            trigger_step: None,
+            violation_step: None,
+        },
+        "36_echo_node_tla.rfs" => Pinned {
+            exit_code: 1,
+            status: "fail",
+            states: 5,
+            transitions: 4,
+            max_depth: 2,
+            reason: Some("deadlock"),
+            label: Some("-"),
+            step: Some(2),
+            trigger_step: None,
+            violation_step: None,
+        },
+        other => panic!(
+            "no pinned exact-mode expectation for {other} - add one (re-pin from actual output)"
+        ),
+    }
+}
+
 #[test]
-fn mc_violation_parity_natural_and_forced() {
-    // Natural violations under the pinned parameters: compare field by field
-    // whenever observed, and pin the currently-observed set so a silent change
-    // (new violating example, LCG/param drift) fails loudly.
-    let mut natural: BTreeMap<String, McViolation> = BTreeMap::new();
+fn mc_exact_results_match_re_pinned_values() {
+    let mut n_pass = 0usize;
+    let mut n_fail = 0usize;
     for spec in property_bearing_examples() {
         let name = example_name(&spec);
         let rust = run_mc(&spec, "rust", &[]);
         let c = run_mc(&spec, "c", &[]);
-        match (
-            parse_mc_violation(&rust.stdout),
-            parse_mc_violation(&c.stdout),
-        ) {
-            (Some(rv), Some(cv)) => {
-                assert_eq!(
-                    rv, cv,
-                    "[{name}] natural violation must be field-identical across backends"
-                );
-                natural.insert(name, rv);
-            }
-            (None, None) => {}
-            other => panic!("[{name}] violation observed in only ONE backend: {other:?}"),
+        let pin = pinned(&name);
+        for (backend, out) in [("rust", &rust), ("c", &c)] {
+            assert_eq!(
+                out.exit_code,
+                Some(pin.exit_code),
+                "[{backend} {name}] exit code drifted from the re-pinned value; stdout:\n{}",
+                out.stdout
+            );
+            let e = parse_exact(&out.stdout, pin.exit_code);
+            assert_eq!(e.status, pin.status, "[{backend} {name}] status drifted");
+            assert_eq!(
+                (e.states, e.transitions, e.max_depth),
+                (pin.states, pin.transitions, pin.max_depth),
+                "[{backend} {name}] summary fields drifted; stdout:\n{}",
+                out.stdout
+            );
+            assert_eq!(
+                (e.reason.as_deref(), e.label.as_deref(), e.step),
+                (pin.reason, pin.label, pin.step),
+                "[{backend} {name}] fail-suffix fields drifted; stdout:\n{}",
+                out.stdout
+            );
+            assert_eq!(
+                (e.trigger_step, e.violation_step),
+                (pin.trigger_step, pin.violation_step),
+                "[{backend} {name}] counterexample fields drifted; stdout:\n{}",
+                out.stdout
+            );
+        }
+        if pin.status == "pass-complete" {
+            n_pass += 1;
+        } else {
+            n_fail += 1;
         }
     }
-    // Pinned at --bound 8 --runs 20 --seed 777 (deterministic):
-    assert_eq!(
-        natural.len(),
-        2,
-        "natural-violation set changed: {natural:?}"
-    );
-    assert_eq!(natural["13_properties_safety.rfs"].label, "no_bad");
-    assert_eq!(
-        natural["41_property_monitors.rfs"].label,
-        "fin_acked_bounded"
-    );
-
-    // Forced violation in BOTH backends: example 41, property fin_acked_bounded
-    // (its bounded obligation can be forced to expire; the other properties of
-    // this FSM are unviolable - e.g. Closed is only reachable via an Ack that
-    // sets ack_received). Compare the counterexample field by field.
-    let examples = property_bearing_examples();
-    let ex41 = examples
-        .iter()
-        .find(|p| example_name(p) == "41_property_monitors.rfs")
-        .expect("example 41 present");
-    const FORCED_LABEL: &str = "fin_acked_bounded";
-    let forced_args = vec!["--violate".to_string(), FORCED_LABEL.to_string()];
-    let rust = run_mc(ex41, "rust", &forced_args);
-    let c = run_mc(ex41, "c", &forced_args);
-    assert_eq!(
-        rust.exit_code,
-        Some(1),
-        "[rust] forced violation must exit 1: {}",
-        rust.stdout
-    );
-    assert_eq!(
-        c.exit_code,
-        Some(1),
-        "[c] forced violation must exit 1: {}",
-        c.stdout
-    );
-    let rv = parse_mc_violation(&rust.stdout)
-        .unwrap_or_else(|| panic!("[rust] forced counterexample missing: {}", rust.stdout));
-    let cv = parse_mc_violation(&c.stdout)
-        .unwrap_or_else(|| panic!("[c] forced counterexample missing: {}", c.stdout));
-    assert_eq!(
-        rv.label, FORCED_LABEL,
-        "forced label must be the requested one"
-    );
-    assert_eq!(
-        rv, cv,
-        "forced violation must be field-identical across backends"
-    );
-    // Pinned (deterministic at the pinned seed): same values as the natural
-    // 41-violation - trigger at sample 1, deadline at sample 1 + 5 - 1 = 5.
-    assert_eq!(rv.trigger_step, Some(1));
-    assert_eq!(rv.violation_step, 5);
+    // Pinned current state: 6 pass-complete, 9 fail (1 property violation on
+    // 13_properties_safety, 8 deadlocks at terminal states).
+    assert_eq!((n_pass, n_fail), (6, 9), "pass/fail split drifted");
 }
 
 // ---------------------------------------------------------------------------

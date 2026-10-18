@@ -103,3 +103,11 @@ production-monitor coverage intact.
   it - do not lower the engine default here.
 - The generated-test-executable half of the parity suite (both backends' `test`
   command outputs) is unaffected by this migration - leave it as is.
+
+## Task corrections (during execution)
+
+| Correction | Description + rationale |
+|------------|-------------------------|
+| Correct-spec test reinterpreted, not just re-pinned | The old `mc_correct_spec_passes_within_bound_both_backends` asserted exit 0 within a fuzz horizon. In exact mode the full reachable graph of example 41 is explored and it has a terminal state, so the honest result is FAIL(deadlock) at depth 3 - a real finding, not a false positive. The test was renamed to `mc_correct_spec_reports_no_property_violation_both_backends` and now pins the deadlock values while keeping the no-false-positive claim via `reason=deadlock` + absence of any property-violation report. |
+| Forced-violation subtest removed | The old Action 2 test's `--violate fin_acked_bounded` part exercised a fuzz-only mechanism (forced assumption/violation injection). Exact mode finds violations deterministically without forcing, so the subtest was dropped; its pinned values (trigger=1, violation=5) live on in the re-pinned table where still applicable. |
+| Re-pin scope: all 15 examples | The task said "re-pin from actual output"; the strongest form pins EVERY property-bearing example's full exact-mode result (status + states/transitions/max_depth + fail suffix + counterexample fields), so any silent engine drift fails loudly. 6 pass-complete / 9 fail (1 property violation, 8 deadlocks). |

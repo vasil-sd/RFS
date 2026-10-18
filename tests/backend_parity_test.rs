@@ -109,6 +109,8 @@ fn generate(backend_name: &str, command: rfs::codegen::CodegenCommandKind, spec:
         assumptions: rfs::codegen::AssumptionSelection::All,
         steps: 4,
         with_property_monitors: false,
+
+        ..rfs::codegen::BackendOptions::default()
     };
     command
         .run(backend, &ir.modules[0], &options)
@@ -214,6 +216,10 @@ struct McOutcome {
 fn run_mc(spec: &Path, backend_name: &str, extra_args: &[String]) -> McOutcome {
     let bin = mc_binary(spec, backend_name);
     let mut args: Vec<String> = vec![
+        // Phase 4: exact mode is the default; these parity tests pin the
+        // Phase 3 fuzz behavior (D-P4-7).
+        "--mode".into(),
+        "fuzz".into(),
         "--bound".into(),
         BOUND.into(),
         "--runs".into(),

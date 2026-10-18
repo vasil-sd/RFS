@@ -32,6 +32,30 @@ pub enum AssumptionSelection {
     Labels(Vec<String>),
 }
 
+/// Model-checking mode for the `mc` command (Phase 4, D-P4-7).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum McMode {
+    /// Exact reachable-state search (the Phase 4 default).
+    #[default]
+    Exact,
+    /// Legacy seeded-random bounded runs (kept behind `--mode fuzz`).
+    Fuzz,
+}
+
+impl std::str::FromStr for McMode {
+    type Err = String;
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s.trim() {
+            "exact" => Ok(Self::Exact),
+            "fuzz" => Ok(Self::Fuzz),
+            other => Err(format!(
+                "unknown mc mode '{}'; expected exact or fuzz",
+                other
+            )),
+        }
+    }
+}
+
 impl std::str::FromStr for AssumptionSelection {
     type Err = String;
     fn from_str(s: &str) -> Result<Self, Self::Err> {
@@ -62,6 +86,17 @@ pub struct BackendOptions {
     /// `production` command accepts this option; `test` and `mc` always
     /// include property monitors, so they ignore it.
     pub with_property_monitors: bool,
+    /// MC mode (Phase 4, D-P4-7): exact reachable-state search (default)
+    /// or legacy fuzz. Only the `mc` command uses this; embedded in the
+    /// generated binary as the runtime default.
+    pub mc_mode: McMode,
+    /// Exact-mode state limit default (`--max-states`, D-P4-7).
+    pub mc_max_states: usize,
+    /// Exact-mode nondeterministic successor enumeration default (`--nondet`).
+    pub mc_nondet: bool,
+    /// Exact-mode wall-clock timeout default in seconds (`--timeout-sec`; 0 =
+    /// off, NOT parity-guaranteed).
+    pub mc_timeout_sec: u64,
 }
 
 impl Default for BackendOptions {
@@ -70,6 +105,10 @@ impl Default for BackendOptions {
             assumptions: AssumptionSelection::All,
             steps: 4,
             with_property_monitors: false,
+            mc_mode: McMode::Exact,
+            mc_max_states: crate::codegen_mc::EXACT_DEFAULT_MAX_STATES,
+            mc_nondet: false,
+            mc_timeout_sec: crate::codegen_mc::EXACT_DEFAULT_TIMEOUT_SEC,
         }
     }
 }
@@ -185,6 +224,16 @@ pub fn common_help() -> String {
     );
     let _ = writeln!(
         s,
+        "  --mode exact|fuzz                mc only: model-checking mode (default: exact)"
+    );
+    let _ = writeln!(
+        s,
+        "  --max-states N                   mc only: state limit for exact mode (default: 1000000)"
+    );
+    let _ = writeln!(s, "  --nondet                         mc only: every enabled transition is a successor (exact mode)");
+    let _ = writeln!(s, "  --timeout-sec N                  mc only: wall-clock limit, 0 = off (default: 0; not parity-guaranteed)");
+    let _ = writeln!(
+        s,
         "  --out FILE                         write generated source to FILE (default: stdout)"
     );
     let _ = writeln!(s);
@@ -285,6 +334,10 @@ pub enum CodegenRequest {
         assumptions: AssumptionSelection,
         steps: usize,
         with_property_monitors: bool,
+        mc_mode: McMode,
+        mc_max_states: usize,
+        mc_nondet: bool,
+        mc_timeout_sec: u64,
     },
 }
 
@@ -341,6 +394,10 @@ pub fn parse_codegen_args(args: &[String]) -> Result<CodegenRequest, Vec<String>
     let mut assumptions = AssumptionSelection::default();
     let mut steps = 4usize;
     let mut with_property_monitors = false;
+    let mut mc_mode = McMode::default();
+    let mut mc_max_states = crate::codegen_mc::EXACT_DEFAULT_MAX_STATES;
+    let mut mc_nondet = false;
+    let mut mc_timeout_sec = crate::codegen_mc::EXACT_DEFAULT_TIMEOUT_SEC;
     let mut i = 2;
     while i < rest.len() {
         match rest[i].as_str() {
@@ -377,6 +434,28 @@ pub fn parse_codegen_args(args: &[String]) -> Result<CodegenRequest, Vec<String>
                     with_property_monitors = true;
                 }
             }
+            "--mode" => {
+                i += 1;
+                match rest.get(i) {
+                    Some(v) => mc_mode = v.parse().unwrap_or_default(),
+                    None => errors.push("--mode requires a value (exact|fuzz)".into()),
+                }
+            }
+            "--max-states" => {
+                i += 1;
+                match rest.get(i).and_then(|v| v.parse::<usize>().ok()) {
+                    Some(n) => mc_max_states = n,
+                    None => errors.push("--max-states requires a numeric argument".into()),
+                }
+            }
+            "--nondet" => mc_nondet = true,
+            "--timeout-sec" => {
+                i += 1;
+                match rest.get(i).and_then(|v| v.parse::<u64>().ok()) {
+                    Some(n) => mc_timeout_sec = n,
+                    None => errors.push("--timeout-sec requires a numeric argument".into()),
+                }
+            }
             other if other.starts_with('-') => errors.push(format!("unknown option: {}", other)),
             other => errors.push(format!("unexpected extra argument: {}", other)),
         }
@@ -392,6 +471,10 @@ pub fn parse_codegen_args(args: &[String]) -> Result<CodegenRequest, Vec<String>
             assumptions,
             steps,
             with_property_monitors,
+            mc_mode,
+            mc_max_states,
+            mc_nondet,
+            mc_timeout_sec,
         },
         errors,
     )

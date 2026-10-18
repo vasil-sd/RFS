@@ -112,6 +112,8 @@ fn generate(
         assumptions: rfs::codegen::AssumptionSelection::All,
         steps: 4,
         with_property_monitors,
+
+        ..rfs::codegen::BackendOptions::default()
     };
     command
         .run(backend, &ir.modules[0], &options)
@@ -179,7 +181,9 @@ fn mc_buggy_run(backend_name: &str, dir: &Path) -> McViolation {
     // Bound 10 covers the deadline (sample 5) with margin; fixed seed per
     // task file. The walk is deterministic anyway (one allowed input/state).
     let out = Command::new(dir.join("mc"))
-        .args(["--bound", "10", "--runs", "5", "--seed", "42"])
+        .args([
+            "--mode", "fuzz", "--bound", "10", "--runs", "5", "--seed", "42",
+        ])
         .output()
         .expect("run generated MC binary");
     let stdout = String::from_utf8_lossy(&out.stdout).to_string();
@@ -270,7 +274,9 @@ fn mc_good_run(backend_name: &str, dir: &Path) -> Vec<(String, String)> {
     // (and only checks samples 0..9); the safety invariants are unreachable
     // in a violating form. Zero violations is therefore provable, not lucky.
     let out = Command::new(dir.join("mc"))
-        .args(["--bound", "4", "--runs", "100", "--seed", "12345"])
+        .args([
+            "--mode", "fuzz", "--bound", "4", "--runs", "100", "--seed", "12345",
+        ])
         .output()
         .expect("run generated MC binary");
     let stdout = String::from_utf8_lossy(&out.stdout).to_string();

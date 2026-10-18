@@ -256,6 +256,10 @@ fn cmd_codegen(args: &[String]) -> ExitCode {
             assumptions,
             steps,
             with_property_monitors,
+            mc_mode,
+            mc_max_states,
+            mc_nondet,
+            mc_timeout_sec,
         }) => {
             let Some(backend) = codegen::get_backend(&backend_name) else {
                 eprintln!(
@@ -287,6 +291,10 @@ fn cmd_codegen(args: &[String]) -> ExitCode {
                 assumptions,
                 steps,
                 with_property_monitors,
+                mc_mode,
+                mc_max_states,
+                mc_nondet,
+                mc_timeout_sec,
             };
             match command.run(backend, &ir.modules[0], &options) {
                 Err(errors) => {

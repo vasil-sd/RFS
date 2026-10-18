@@ -1448,3 +1448,181 @@ fn width_from_type(ty: &ExprType, expected: Option<&ExprType>) -> Result<u32, St
         _ => Err("expected bitvector".into()),
     }
 }
+
+/// Render the `mc_step_all` function used by the exact MC runtime (Phase 4,
+/// D-P4-11): for `(state, input)`, the effects of EVERY enabled transition in
+/// firing order (deterministic mode uses only the first effect; nondet mode
+/// explores all). The on_error fallback is appended when no transition
+/// matched. Rendered from the same IR with the same helpers as `Fsm::step`,
+/// so both paths agree by construction.
+pub(crate) fn render_mc_step_all(module: &Module) -> Result<String, String> {
+    let options = BackendOptions::default();
+    let variants = codegen_fsm::build_variants(module);
+    let gen = Gen {
+        module,
+        options: &options,
+        code: String::new(),
+        variants,
+        prop_mode: PropertyMonitorMode::Off,
+        assume_plans: vec![],
+        prop_plans: vec![],
+        active_assumes: vec![],
+        property_names: vec![],
+    };
+
+    let mut out = String::new();
+    // Group-match helpers for multi-variant groups referenced by group-level
+    // patterns (the core renders these as `self.input_matches_group_*`
+    // methods; here they are free functions).
+    let mut groups_needed: HashSet<String> = HashSet::new();
+    for t in &module.transitions {
+        if t.pattern.variant.is_none() {
+            let g = module
+                .events
+                .iter()
+                .find(|g| g.name == t.pattern.group)
+                .ok_or("unknown event group")?;
+            if g.variants.len() > 1 {
+                groups_needed.insert(g.name.clone());
+            }
+        }
+    }
+    for gname in &groups_needed {
+        let arms: Vec<String> = gen
+            .variants
+            .inputs
+            .iter()
+            .filter(|v| v.group == *gname)
+            .map(|v| {
+                if v.fields.is_empty() {
+                    format!("Input::{}", rust_ident(&v.unique_name))
+                } else {
+                    format!("Input::{} {{ .. }}", rust_ident(&v.unique_name))
+                }
+            })
+            .collect();
+        out.push_str(&format!(
+            "fn mc_input_matches_group_{}(input: Input) -> bool {{ matches!(input, {}) }}\n",
+            snake(gname),
+            arms.join(" | ")
+        ));
+    }
+
+    out.push_str(
+        "#[derive(Debug, Clone)]\npub struct McEffect { pub next_state: State, pub next_vars: Vars, pub outputs: Vec<Output>, pub transition_id: usize }\n",
+    );
+    out.push_str("pub fn mc_step_all(state: State, vars: &Vars, input: Input) -> Vec<McEffect> {\n    let mut out = Vec::new();\n");
+
+    // Per-state firing order (identical to emit_fsm_impl).
+    let mut state_order: Vec<&str> = Vec::new();
+    let mut by_state: HashMap<&str, Vec<usize>> = HashMap::new();
+    for (idx, t) in module.transitions.iter().enumerate() {
+        if !by_state.contains_key(t.state.as_str()) {
+            state_order.push(t.state.as_str());
+        }
+        by_state.entry(t.state.as_str()).or_default().push(idx);
+    }
+    for st in &state_order {
+        let mut idxs: Vec<usize> = by_state.get(st).unwrap().clone();
+        idxs.sort_by_key(|&k| std::cmp::Reverse(module.transitions[k].priority.unwrap_or(0)));
+        for idx in idxs {
+            let t = &module.transitions[idx];
+            out.push_str(&format!(
+                "    if state == State::{} {{\n",
+                rust_ident(&t.state)
+            ));
+            let (pattern_code, env) = gen.pattern_block_open(t)?;
+            let pattern_code =
+                pattern_code.replace("self.input_matches_group_", "mc_input_matches_group_");
+            out.push_str(&pattern_code);
+
+            let mut ctx = ExprCtx::new(module);
+            ctx.names.insert("state".into(), "state".into());
+            for v in &module.vars {
+                ctx.names
+                    .insert(v.name.clone(), format!("vars.{}", rust_ident(&v.name)));
+            }
+            for name in env.bindings.keys() {
+                ctx.names.insert(name.clone(), name.clone());
+            }
+            let guard_cond = match &t.guard {
+                Some(g) => format!("({})", gen_expr(g, &env, &ctx)?),
+                None => "true".into(),
+            };
+            out.push_str(&format!("    if {} {{\n", guard_cond));
+
+            let outputs: Vec<String> = t
+                .emits
+                .iter()
+                .map(|o| gen.output_expr(o, &env, &ctx))
+                .collect::<Result<_, _>>()?;
+            let outputs_expr = if outputs.is_empty() {
+                "Vec::new()".into()
+            } else {
+                format!("vec![{}]", outputs.join(", "))
+            };
+            out.push_str(&format!("        let outputs = {};\n", outputs_expr));
+            out.push_str(&format!(
+                "        let next_state = State::{};\n",
+                rust_ident(&t.next_state)
+            ));
+
+            if module.vars.is_empty() {
+                out.push_str("        let new_vars = Vars;\n");
+            } else {
+                out.push_str("        let new_vars = {\n");
+                for a in &t.assignments {
+                    out.push_str(&format!(
+                        "            let tmp_{} = {};\n",
+                        snake(&a.var),
+                        gen_expr(&a.value, &env, &ctx)?
+                    ));
+                }
+                out.push_str("            let mut new_vars = vars.clone();\n");
+                for a in &t.assignments {
+                    out.push_str(&format!(
+                        "            new_vars.{} = tmp_{};\n",
+                        rust_ident(&a.var),
+                        snake(&a.var)
+                    ));
+                }
+                out.push_str("            new_vars\n        };\n");
+            }
+            out.push_str(&format!(
+                "        out.push(McEffect {{ next_state, next_vars: new_vars, outputs, transition_id: {} }});\n",
+                idx
+            ));
+            out.push_str("    }\n");
+            out.push_str(&gen.pattern_block_close(t)?);
+            out.push_str("}\n");
+        }
+    }
+
+    // on_error fallback: fires only when no transition matched the input.
+    if let Some(oe) = &module.on_error {
+        let env = Env::for_module(module);
+        let mut ctx = ExprCtx::new(module);
+        ctx.names.insert("state".into(), "state".into());
+        for v in &module.vars {
+            ctx.names
+                .insert(v.name.clone(), format!("vars.{}", rust_ident(&v.name)));
+        }
+        let outputs: Vec<String> = oe
+            .emits
+            .iter()
+            .map(|o| gen.output_expr(o, &env, &ctx))
+            .collect::<Result<_, _>>()?;
+        let outputs_expr = if outputs.is_empty() {
+            "Vec::new()".into()
+        } else {
+            format!("vec![{}]", outputs.join(", "))
+        };
+        out.push_str(&format!(
+            "    if out.is_empty() {{\n        let outputs = {};\n        out.push(McEffect {{ next_state: State::{}, next_vars: vars.clone(), outputs, transition_id: usize::MAX }});\n    }}\n",
+            outputs_expr,
+            rust_ident(&oe.next_state)
+        ));
+    }
+    out.push_str("    out\n}\n");
+    Ok(out)
+}

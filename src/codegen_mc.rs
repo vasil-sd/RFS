@@ -141,6 +141,114 @@ pub fn parse_assume_selection(s: &str, known: &[&str]) -> Vec<String> {
     }
 }
 
+// ---------------------------------------------------------------------------
+// Exact reachable-state mode (Phase 4, D-P4-4/D-P4-7)
+// ---------------------------------------------------------------------------
+
+/// Outcome taxonomy of one exact model-checking run (shared by all backends).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ExactStatus {
+    /// The reachable graph was fully explored and no property was violated.
+    PassComplete,
+    /// A property violation or deadlock was found (see [`FailReason`]).
+    Fail,
+    /// The state limit (or timeout) was reached before completion; the result
+    /// is incomplete. Never a completeness claim.
+    UnknownStateLimit,
+}
+
+/// Why an exact run failed (D-P4-4).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FailReason {
+    /// A safety property monitor confirmed a violation.
+    PropertyViolation,
+    /// A liveness obligation was violated (task 6+).
+    LivenessViolation,
+    /// A reachable configuration has no successor at all.
+    Deadlock,
+}
+
+impl FailReason {
+    /// Wire name in the summary line (`reason=<r>`).
+    pub fn wire(&self) -> &'static str {
+        match self {
+            FailReason::PropertyViolation => "property-violation",
+            FailReason::LivenessViolation => "liveness-violation",
+            FailReason::Deadlock => "deadlock",
+        }
+    }
+}
+
+impl ExactStatus {
+    /// Wire name in the summary line (`status=<s>`).
+    pub fn wire(&self) -> &'static str {
+        match self {
+            ExactStatus::PassComplete => "pass-complete",
+            ExactStatus::Fail => "fail",
+            ExactStatus::UnknownStateLimit => "unknown-state-limit",
+        }
+    }
+
+    /// Human-facing text (the phase's `PASS (complete)` / `FAIL` /
+    /// `UNKNOWN (state limit reached)`).
+    pub fn human(&self) -> &'static str {
+        match self {
+            ExactStatus::PassComplete => "PASS (complete)",
+            ExactStatus::Fail => "FAIL",
+            ExactStatus::UnknownStateLimit => "UNKNOWN (state limit reached)",
+        }
+    }
+
+    /// Process exit code: 0 = pass-complete, 1 = fail, 2 = unknown.
+    pub fn exit_code(&self) -> i32 {
+        match self {
+            ExactStatus::PassComplete => 0,
+            ExactStatus::Fail => 1,
+            ExactStatus::UnknownStateLimit => 2,
+        }
+    }
+}
+
+/// The machine-readable summary line (D-P4-4), exact format - parity-checked
+/// across backends:
+///
+/// ```text
+/// model-check summary: status=<s> states=N transitions=M max_depth=D
+/// ```
+/// plus, on fail, ` reason=<r> label=<L> step=S` (deadlock uses `label=-`
+/// and the depth of the dead configuration as `step`).
+pub fn exact_summary_line(
+    status: ExactStatus,
+    states: usize,
+    transitions: usize,
+    max_depth: usize,
+    fail: Option<(FailReason, &str, usize)>,
+) -> String {
+    let mut s = format!(
+        "model-check summary: status={} states={} transitions={} max_depth={}",
+        status.wire(),
+        states,
+        transitions,
+        max_depth
+    );
+    if let Some((reason, label, step)) = fail {
+        s.push_str(&format!(
+            " reason={} label={} step={}",
+            reason.wire(),
+            label,
+            step
+        ));
+    }
+    s
+}
+
+/// Codegen-time defaults for the exact-mode runtime flags (D-P4-7). Embedded
+/// as constants in the generated binary; overridable at runtime.
+pub const EXACT_DEFAULT_MAX_STATES: usize = 1_000_000;
+/// `--timeout-sec` default: 0 = off. Wall-clock only, NOT parity-guaranteed,
+/// never used by parity/benchmark assertions.
+pub const EXACT_DEFAULT_TIMEOUT_SEC: u64 = 0;
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -172,5 +280,51 @@ mod tests {
         assert_eq!(c.runs, 20);
         assert_eq!(c.seed, 12345);
         assert_eq!(McPhase::ALL.len(), 3);
+    }
+
+    #[test]
+    fn exact_summary_line_format() {
+        assert_eq!(
+            exact_summary_line(ExactStatus::PassComplete, 123, 456, 7, None),
+            "model-check summary: status=pass-complete states=123 transitions=456 max_depth=7"
+        );
+        assert_eq!(
+            exact_summary_line(
+                ExactStatus::Fail,
+                10,
+                20,
+                3,
+                Some((FailReason::PropertyViolation, "p", 5))
+            ),
+            "model-check summary: status=fail states=10 transitions=20 max_depth=3 reason=property-violation label=p step=5"
+        );
+        assert_eq!(
+            exact_summary_line(
+                ExactStatus::Fail,
+                10,
+                20,
+                4,
+                Some((FailReason::Deadlock, "-", 4))
+            ),
+            "model-check summary: status=fail states=10 transitions=20 max_depth=4 reason=deadlock label=- step=4"
+        );
+    }
+
+    #[test]
+    fn exact_status_wire_human_exit() {
+        assert_eq!(ExactStatus::PassComplete.wire(), "pass-complete");
+        assert_eq!(ExactStatus::Fail.wire(), "fail");
+        assert_eq!(ExactStatus::UnknownStateLimit.wire(), "unknown-state-limit");
+        assert_eq!(ExactStatus::PassComplete.human(), "PASS (complete)");
+        assert_eq!(ExactStatus::Fail.human(), "FAIL");
+        assert_eq!(
+            ExactStatus::UnknownStateLimit.human(),
+            "UNKNOWN (state limit reached)"
+        );
+        assert_eq!(ExactStatus::PassComplete.exit_code(), 0);
+        assert_eq!(ExactStatus::Fail.exit_code(), 1);
+        assert_eq!(ExactStatus::UnknownStateLimit.exit_code(), 2);
+        assert_eq!(EXACT_DEFAULT_MAX_STATES, 1_000_000);
+        assert_eq!(EXACT_DEFAULT_TIMEOUT_SEC, 0);
     }
 }

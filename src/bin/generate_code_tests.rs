@@ -54,6 +54,7 @@ fn main() -> ExitCode {
         assumptions,
         steps: test_steps,
         with_property_monitors: false,
+        ..codegen::BackendOptions::default()
     };
     match rust_test::generate_aggregate_test_crate(&files, &options) {
         Ok(crate_) => {

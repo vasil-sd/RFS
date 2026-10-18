@@ -87,6 +87,8 @@ fn all_rust_commands_generate_for_valid_examples() {
         assumptions: codegen::AssumptionSelection::All,
         steps: 4,
         with_property_monitors: false,
+
+        ..codegen::BackendOptions::default()
     };
     for path in &files {
         let ir = parse_module(path);
@@ -120,11 +122,15 @@ fn rust_production_flag_toggles_property_monitors() {
         assumptions: codegen::AssumptionSelection::All,
         steps: 4,
         with_property_monitors: false,
+
+        ..codegen::BackendOptions::default()
     };
     let on_opts = codegen::BackendOptions {
         assumptions: codegen::AssumptionSelection::All,
         steps: 4,
         with_property_monitors: true,
+
+        ..codegen::BackendOptions::default()
     };
     let off = codegen::CodegenCommandKind::Production
         .run(backend, &ir.modules[0], &off_opts)
@@ -180,11 +186,15 @@ fn steps_option_changes_test_generation() {
         assumptions: Default::default(),
         steps: 1,
         with_property_monitors: false,
+
+        ..codegen::BackendOptions::default()
     };
     let big = codegen::BackendOptions {
         assumptions: Default::default(),
         steps: 6,
         with_property_monitors: false,
+
+        ..codegen::BackendOptions::default()
     };
     let a = codegen::CodegenCommandKind::UnitTests
         .run(backend, &ir.modules[0], &small)
@@ -242,6 +252,7 @@ fn cli_parses_generate_with_options() {
             assumptions,
             steps,
             with_property_monitors,
+            ..
         } => {
             assert_eq!(backend_name, "rust");
             assert_eq!(command, codegen::CodegenCommandKind::UnitTests);
@@ -326,6 +337,8 @@ fn aggregate_codegen_succeeds_for_valid_examples_and_training_snippets() {
         assumptions: codegen::AssumptionSelection::All,
         steps: 4,
         with_property_monitors: false,
+
+        ..codegen::BackendOptions::default()
     };
     let crate_ = rfs::backends::rust_test::generate_aggregate_test_crate(&files, &options)
         .expect("aggregate codegen should succeed");
@@ -342,6 +355,8 @@ fn model_checker_codegen_contains_main() {
         assumptions: codegen::AssumptionSelection::All,
         steps: 0,
         with_property_monitors: false,
+
+        ..codegen::BackendOptions::default()
     };
     let mc = codegen::CodegenCommandKind::ModelChecker
         .run(backend, &ir.modules[0], &options)
@@ -362,6 +377,8 @@ fn priority_10_arm_precedes_priority_1_in_generated_step() {
         assumptions: codegen::AssumptionSelection::All,
         steps: 4,
         with_property_monitors: false,
+
+        ..codegen::BackendOptions::default()
     };
     let out = codegen::CodegenCommandKind::Production
         .run(backend, &ir.modules[0], &options)
@@ -388,6 +405,8 @@ fn on_error_fallback_replaces_unexpected_event_error() {
         assumptions: codegen::AssumptionSelection::All,
         steps: 4,
         with_property_monitors: false,
+
+        ..codegen::BackendOptions::default()
     };
     let out = codegen::CodegenCommandKind::Production
         .run(backend, &ir.modules[0], &options)
@@ -406,6 +425,8 @@ fn version_header_becomes_spec_version_constant() {
         assumptions: codegen::AssumptionSelection::All,
         steps: 4,
         with_property_monitors: false,
+
+        ..codegen::BackendOptions::default()
     };
     let out = codegen::CodegenCommandKind::Production
         .run(backend, &ir.modules[0], &options)
@@ -424,6 +445,8 @@ fn generated_negative_test_asserts_on_error_landing() {
         assumptions: codegen::AssumptionSelection::All,
         steps: 4,
         with_property_monitors: false,
+
+        ..codegen::BackendOptions::default()
     };
     let out = codegen::CodegenCommandKind::UnitTests
         .run(backend, &ir.modules[0], &options)
@@ -460,6 +483,8 @@ fn all_c_commands_generate_for_valid_examples() {
         assumptions: rfs::codegen::AssumptionSelection::All,
         steps: 4,
         with_property_monitors: false,
+
+        ..codegen::BackendOptions::default()
     };
     for path in &files {
         let ir = parse_module(path);
@@ -516,11 +541,15 @@ fn c_production_flag_toggles_property_monitors() {
         assumptions: rfs::codegen::AssumptionSelection::All,
         steps: 4,
         with_property_monitors: false,
+
+        ..codegen::BackendOptions::default()
     };
     let on_opts = rfs::codegen::BackendOptions {
         assumptions: rfs::codegen::AssumptionSelection::All,
         steps: 4,
         with_property_monitors: true,
+
+        ..codegen::BackendOptions::default()
     };
     let off = rfs::codegen::CodegenCommandKind::Production
         .run(backend, &ir.modules[0], &off_opts)
@@ -578,6 +607,8 @@ fn c_production_matches_rust_semantics_on_endpoint_protocol() {
         assumptions: rfs::codegen::AssumptionSelection::All,
         steps: 4,
         with_property_monitors: false,
+
+        ..codegen::BackendOptions::default()
     };
     let out = rfs::codegen::CodegenCommandKind::Production
         .run(backend, &ir.modules[0], &options)
@@ -611,6 +642,8 @@ fn mc_and_test_always_include_property_monitors() {
         assumptions: codegen::AssumptionSelection::All,
         steps: 4,
         with_property_monitors: false,
+
+        ..codegen::BackendOptions::default()
     };
     // Rust: monitor aggregate + StepError variant present despite flag off.
     let rust = codegen::get_backend("rust").unwrap();
@@ -707,6 +740,8 @@ fn no_skip_warnings_for_in_subset_properties_both_backends() {
             assumptions: codegen::AssumptionSelection::All,
             steps: 4,
             with_property_monitors: true,
+
+            ..codegen::BackendOptions::default()
         };
         for path in &property_files {
             let ir = parse_module(path);
@@ -735,5 +770,104 @@ fn no_skip_warnings_for_in_subset_properties_both_backends() {
                 );
             }
         }
+    }
+}
+
+#[test]
+fn mc_exact_flags_embedded_as_runtime_defaults() {
+    // D-P4-7: codegen-time flags are embedded as defaults, overridable at
+    // runtime. Each flag must change the generated output as expected.
+    let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    let ir = parse_module(&root.join("examples/valid/02_counter.rfs"));
+    let backend = codegen::get_backend("rust").unwrap();
+    let module = &ir.modules[0];
+
+    fn gen(
+        module: &rfs::ir::Module,
+        backend: &codegen::Backend,
+        opts: &codegen::BackendOptions,
+    ) -> String {
+        codegen::CodegenCommandKind::ModelChecker
+            .run(backend, module, opts)
+            .unwrap()
+            .code
+    }
+
+    let base = codegen::BackendOptions {
+        ..Default::default()
+    };
+    let out = gen(module, backend, &base);
+    // Exact mode is the default (D-P4-7).
+    assert!(out.contains("const DEFAULT_MODE: u8 = 0;"));
+    assert!(out.contains("const DEFAULT_MAX_STATES: usize = 1000000;"));
+    assert!(out.contains("const DEFAULT_NONDET: bool = false;"));
+    assert!(out.contains("const DEFAULT_TIMEOUT_SEC: u64 = 0;"));
+    // The exact engine and the mode dispatch are present.
+    assert!(out.contains("fn run_exact()"));
+    assert!(out.contains("fn run_fuzz()"));
+    assert!(out.contains("fn main()"));
+
+    let fuzz = codegen::BackendOptions {
+        mc_mode: codegen::McMode::Fuzz,
+        ..Default::default()
+    };
+    assert!(gen(module, backend, &fuzz).contains("const DEFAULT_MODE: u8 = 1;"));
+
+    let limited = codegen::BackendOptions {
+        mc_max_states: 5000,
+        ..Default::default()
+    };
+    assert!(gen(module, backend, &limited).contains("const DEFAULT_MAX_STATES: usize = 5000;"));
+
+    let nondet = codegen::BackendOptions {
+        mc_nondet: true,
+        ..Default::default()
+    };
+    assert!(gen(module, backend, &nondet).contains("const DEFAULT_NONDET: bool = true;"));
+
+    let timed = codegen::BackendOptions {
+        mc_timeout_sec: 30,
+        ..Default::default()
+    };
+    assert!(gen(module, backend, &timed).contains("const DEFAULT_TIMEOUT_SEC: u64 = 30;"));
+}
+
+#[test]
+fn mc_flag_parsing_roundtrip() {
+    let req = codegen::parse_codegen_args(&argss(
+        "rust mc spec.rfs --mode fuzz --max-states 777 --nondet --timeout-sec 9",
+    ))
+    .unwrap();
+    match req {
+        codegen::CodegenRequest::Generate {
+            mc_mode,
+            mc_max_states,
+            mc_nondet,
+            mc_timeout_sec,
+            ..
+        } => {
+            assert_eq!(mc_mode, codegen::McMode::Fuzz);
+            assert_eq!(mc_max_states, 777);
+            assert!(mc_nondet);
+            assert_eq!(mc_timeout_sec, 9);
+        }
+        _ => panic!("expected Generate request"),
+    }
+    // Defaults when the flags are absent.
+    let req = codegen::parse_codegen_args(&argss("rust mc spec.rfs")).unwrap();
+    match req {
+        codegen::CodegenRequest::Generate {
+            mc_mode,
+            mc_max_states,
+            mc_nondet,
+            mc_timeout_sec,
+            ..
+        } => {
+            assert_eq!(mc_mode, codegen::McMode::Exact);
+            assert_eq!(mc_max_states, 1000000);
+            assert!(!mc_nondet);
+            assert_eq!(mc_timeout_sec, 0);
+        }
+        _ => panic!("expected Generate request"),
     }
 }

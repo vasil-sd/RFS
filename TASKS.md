@@ -469,3 +469,22 @@ sed -n "<start>,<end>p" TASKS.md            # one specific entry by line range
 - RFS syntax gotchas hit while writing test specs: pattern bindings are bare identifiers (`on E(V(x))`, not `$x`); output decls need a variant inside outer parens (`output O(P(y: bool))`), emits `emit O(P(y));`.
 - New: `docs/roadmap/PHASE_4_TASK_1_STATUS.md` (template 2.5.2). No task corrections needed (planned actions executed as designed).
 - Next in defined order: task 2 (exact engine - Rust backend).
+
+## 2026-10-18 11:30 — Phase 4 task 2: exact BFS engine in Rust MC binaries (plan-driven, det+nondet, pinned summary)
+
+### Interpretation & plan
+
+- Requested: execute Phase 4 task 2 per `docs/roadmap/PHASE_4_TASK_2.md` - shared exact-mode concepts in codegen_mc.rs; exact BFS runtime in rust_mc.rs (config = plan-packed bytes, visited set + parent pointers, canonical successors, assumption pruning, deadlock/unexpected semantics, counterexample replay in Phase 3 trace format, stats + memory estimate); new flags `--mode/--max-states/--nondet/--timeout-sec` (codegen-time defaults, runtime-overridable); fuzz mode retained behind `--mode fuzz`; flag-sensitivity tests.
+- Plan: study core stepping internals; add `render_mc_step_all` to rust_fsm.rs (enabler for nondet); rewrite rust_mc.rs around the plan; wire flags; verify all exit criteria manually + via suites.
+
+### Report
+
+- New generated exact runtime (rust_mc.rs): `all_inputs()` (canonical enumeration from plan abstraction), `config_bytes` (plan layout: state bits + var slots + monitor persistent-state bits), BFS with visited set at enqueue + parent pointers, det = first effect of `mc_step_all`, `--nondet` = all effects; monitors stepped at sample index depth+1; assumption pruning via Phase 3 handlers; deadlock = no successor at all (first in BFS order, counterexample path); unexpected inputs terminate their path and are counted; pinned line `model-check summary: status=... states=N transitions=M max_depth=D[ reason=... label=... step=S]`; exit codes 0/1/2; memory estimate `states * (CONFIG_TOTAL_BYTES + 32)`; counterexample replay reuses Phase 3 trace print.
+- `src/backends/rust_fsm.rs`: new `pub(crate) render_mc_step_all` - renders `mc_step_all(state, vars, input) -> Vec<McEffect>` (every enabled transition in firing order + on_error fallback) from the same IR/helpers as `Fsm::step`, so det/nondet agree by construction.
+- `src/codegen_mc.rs`: `ExactStatus`/`FailReason` (+wire), `exact_summary_line`, human text, exit codes, default consts; 2 tests. `src/codegen.rs`: `McMode` + 4 BackendOptions/request fields + CLI parsing + help. `src/backends/rust.rs` MC_INFO, `src/main.rs` pass-through.
+- Task 1 offset bug fixed in `src/mc_plan.rs` (var slots start at state_bits; `MonitorStateLayout.offset_bits` absolute) - found by smoke test (configs collapsed to one hash).
+- Phase 3 MC suites pinned to `--mode fuzz` (backend_parity run_mc, monitor_integration x2); same-seed behavior verified unchanged. Mechanical `..BackendOptions::default()` ripple in bins + tests.
+- Verification: `cargo test` **184/184** (lib 98, codegen_test 25 incl. 2 new flag tests); clippy (via RUSTC_WORKSPACE_WRAPPER workaround - sandbox clippy probe broken, pre-existing) back to 12-warning baseline, zero from new code; `cargo fmt --check` clean; `generate-code-tests` 171 + `test-generated-code` **513/513** with regenerated MC outputs.
+- Manual exit criteria all green: spec 37 -> PASS (complete) exit 0; buggy 04 -> FAIL property-violation label=syn_ack step=1 + Phase-3 counterexample, exit 1; spec 04 -> FAIL deadlock at Established (genuine sink), exit 1; `--max-states 1` -> UNKNOWN exit 2; overlapping-transitions spec: det 4 states vs `--nondet` 5 states; `--mode fuzz --seed 12345` unchanged.
+- New: `docs/roadmap/PHASE_4_TASK_2_STATUS.md` (template 2.5.2); task corrections appended to PHASE_4_TASK_2.md (6 entries).
+- Next in defined order: task 3 (exact engine - C backend mirror).

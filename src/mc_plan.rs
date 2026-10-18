@@ -65,6 +65,9 @@ pub struct FieldSpec {
 pub struct VariantInputSpec {
     pub group: String,
     pub variant: String,
+    /// Collision-free name of the flattened input constructor (the name used
+    /// in the generated `Input` enum).
+    pub unique_name: String,
     /// Per declared field, in declaration order.
     pub fields: Vec<FieldSpec>,
 }
@@ -129,6 +132,9 @@ impl MonitorNodeState {
 pub struct MonitorStateLayout {
     pub label: String,
     pub is_assumption: bool,
+    /// Absolute bit offset of this monitor's block within the configuration
+    /// (assigned by `config_encoding`).
+    pub offset_bits: u32,
     /// Total bits of this monitor's transition state (0 for monitors made of
     /// pure per-sample checks).
     pub total_bits: u32,
@@ -220,6 +226,7 @@ impl McPlan {
                     VariantInputSpec {
                         group: v.group.clone(),
                         variant: v.variant.clone(),
+                        unique_name: v.unique_name.clone(),
                         fields: v
                             .fields
                             .iter()
@@ -238,8 +245,8 @@ impl McPlan {
                 })
                 .collect(),
         };
-        let monitors = monitor_layouts(module, assumptions);
-        let encoding = config_encoding(module, &monitors);
+        let mut monitors = monitor_layouts(module, assumptions);
+        let encoding = config_encoding(module, &mut monitors);
         let traversal = traversal_spec(module, &abstraction);
         McPlan {
             abstraction,
@@ -459,6 +466,7 @@ fn layout_for(plan: &MonitorPlan) -> MonitorStateLayout {
     MonitorStateLayout {
         label: plan.label.clone(),
         is_assumption: plan.is_assumption,
+        offset_bits: 0,
         total_bits: offset,
         nodes,
     }
@@ -512,7 +520,7 @@ fn walk_node(
 // Configuration encoding + traversal spec
 // ---------------------------------------------------------------------------
 
-fn config_encoding(module: &Module, monitors: &[MonitorStateLayout]) -> ConfigEncoding {
+fn config_encoding(module: &Module, monitors: &mut [MonitorStateLayout]) -> ConfigEncoding {
     let state_count = module
         .enums
         .iter()
@@ -522,7 +530,7 @@ fn config_encoding(module: &Module, monitors: &[MonitorStateLayout]) -> ConfigEn
     let state_bits = ceil_log2(state_count as u64);
 
     let mut var_slots = Vec::new();
-    let mut offset = 0u32;
+    let mut offset = state_bits;
     for v in &module.vars {
         let width = type_bits(&v.ty, module);
         var_slots.push(VarSlot {
@@ -532,7 +540,12 @@ fn config_encoding(module: &Module, monitors: &[MonitorStateLayout]) -> ConfigEn
         });
         offset += width;
     }
-    let vars_bits = offset;
+    let vars_bits = offset - state_bits;
+    let mut mon_offset = state_bits + vars_bits;
+    for m in monitors.iter_mut() {
+        m.offset_bits = mon_offset;
+        mon_offset += m.total_bits;
+    }
     let monitors_bits: u32 = monitors.iter().map(|m| m.total_bits).sum();
     let total_bits = state_bits + vars_bits + monitors_bits;
     let total_bytes = (total_bits as usize).div_ceil(8);
@@ -694,13 +707,16 @@ mod tests {
         assert_eq!(e.state_bits, 1);
         assert_eq!(e.vars_bits, 4);
         assert_eq!(e.var_slots[0].name, "counter");
-        assert_eq!(e.var_slots[0].offset_bits, 0);
+        // Var slots start after the state index (1 bit).
+        assert_eq!(e.var_slots[0].offset_bits, 1);
         assert_eq!(e.var_slots[0].width_bits, 4);
 
         // Monitors: `uses_w` = always(input_is(...)) and `env_u` =
         // always(!input_is(...)) are both pure per-sample RangeChecks -> no
         // persistent state (0 bits each).
         assert_eq!(e.monitors.len(), 2);
+        // Monitor blocks start after state + vars (1 + 4 = 5 bits).
+        assert_eq!(e.monitors[0].offset_bits, 5);
         assert_eq!(e.monitors[0].label, "uses_w");
         assert!(!e.monitors[0].is_assumption);
         assert_eq!(e.monitors[0].total_bits, 0);

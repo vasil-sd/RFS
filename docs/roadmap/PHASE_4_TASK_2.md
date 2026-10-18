@@ -165,6 +165,17 @@ generation unchanged for existing flag combinations.
 - C backend mirror (task 3), parity-suite migration (task 4), liveness analysis
   (tasks 5-7), `--threads` (task 10), SMT mode (task 11).
 
+## Task corrections (optional)
+
+| Correction | Description + rationale |
+|------------|-------------------------|
+| `src/backends/rust_fsm.rs` added to affected files | Nondet successor enumeration (D-P4-11) needs every enabled transition's effect, which the core's first-match `step_with_handler` cannot expose. Added one `pub(crate) fn render_mc_step_all(module)` that renders a generated `mc_step_all(state, vars, input) -> Vec<McEffect>` from the same IR with the same private helpers (`pattern_block_open`, `output_expr`, `gen_expr`) as `Fsm::step`, so det (first effect) and nondet (all effects) agree by construction. Multi-variant group patterns get free-function `mc_input_matches_group_*` helpers instead of the core's `self.` methods. |
+| Phase 3 MC test suites pinned to `--mode fuzz` | Exact mode is now the default (D-P4-7), so `tests/backend_parity_test.rs` (`run_mc`) and `tests/monitor_integration_test.rs` (2 invocations) pass `--mode fuzz` to keep testing the Phase 3 behavior; verified byte-identical summaries at pinned seeds. |
+| `BackendOptions` struct-update ripple | Adding the four mc fields required `..BackendOptions::default()` in `src/bin/generate_code_tests.rs`, `src/bin/test_generated_code.rs`, and all `tests/*.rs` initializers, plus `..` in one `CodegenRequest::Generate` pattern in `tests/codegen_test.rs`. Mechanical, no behavior change. |
+| Deadlock/timeout semantics pinned during implementation | Deadlock = a reachable configuration with NO successor at all (every input unexpected or pruned by an active assumption); first such config in BFS order wins, counterexample = path to it (`label=-`, `step` = its depth). Timeout reports `unknown-state-limit` (exit 2) with a human-line note; the machine line stays in the D-P4-4 taxonomy. An assumption violated at sample 0 panics, identical to Phase 3 `Fsm::new`. Memory estimate formula: `states * (CONFIG_TOTAL_BYTES + 32)` (config key bytes + parent tuple + depth + slack) - task 3 must use the same formula. `transitions` counts every fired effect examined (incl. later-pruned/violating ones). |
+| Config-encoding offset bug found by smoke test | Task 1's `ConfigEncoding` placed var slots at offset 0 (overlapping the state index) and monitors had no absolute base offset; fixed in `src/mc_plan.rs` (var slots start at `state_bits`; `MonitorStateLayout.offset_bits` assigned by `config_encoding`) with the task-1 test updated to assert the corrected layout. Caught because the first exact run collapsed distinct configurations into one hash. |
+| Environment: `cargo clippy --all-targets` broken in sandbox | Pre-existing (reproduces on pristine tree): cargo's clippy-driver probe receives another process's error text on stdin ("unknown start of token"). Workaround used for verification: `RUSTC_WORKSPACE_WRAPPER=<toolchain>/clippy-driver cargo check --all-targets`. Result: back to the 12-warning baseline, zero from new code. |
+
 ## Other information
 - Do NOT change the Phase 3 trace-print format - it is parity-pinned by
   `tests/backend_parity_test.rs`; task 4 re-pins VALUES, not formats.

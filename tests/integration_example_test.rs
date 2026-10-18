@@ -23,6 +23,8 @@ fn generate_fsm_source(out_dir: &Path) -> PathBuf {
         assumptions: rfs::codegen::AssumptionSelection::All,
         steps: 4,
         with_property_monitors: false,
+
+        ..rfs::codegen::BackendOptions::default()
     };
     let out = rfs::codegen::CodegenCommandKind::Production
         .run(backend, &ir.modules[0], &options)

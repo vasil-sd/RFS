@@ -6,6 +6,7 @@ pub mod codegen_test;
 pub mod error;
 pub mod frontend;
 pub mod ir;
+pub mod mc_plan;
 pub mod monitor;
 pub mod parser;
 pub mod printer;

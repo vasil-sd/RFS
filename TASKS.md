@@ -450,3 +450,22 @@ sed -n "<start>,<end>p" TASKS.md            # one specific entry by line range
 - Task correction (recorded in PHASE_3_TASK_22.md): protocol step s required syncing the `START.md` section 1 snapshot (still said "only ... remain (task 22)") - minimal edit: IMPLEMENTED -> COMPLETE, removed task-22 parenthetical; not in the original affected-files table.
 - Commit: Phase 3 implementation was already committed incrementally per task (protocol step t): `e0bc3cb`..`752702a`; this close-out commit covers only bookkeeping files (PHASE_3_STATUS.md, PHASE_3_TASK_22_STATUS.md, INTRO.md, START.md, TASKS.md, PHASE_3_TASK_22.md correction). Working tree clean after commit.
 - Next entry point: `docs/roadmap/PHASE_4.md`, planning trigger "let's make a plan for Phase 4".
+
+## 2026-10-18 08:45 — Phase 4 task 1: shared MC plan module src/mc_plan.rs (abstraction + encoding + traversal)
+
+### Interpretation & plan
+
+- Requested: execute Phase 4 task 1 per `docs/roadmap/PHASE_4_TASK_1.md` - create the codegen-time plan module computed ONCE from the validated IR and embedded verbatim in both generated MC binaries (D-P4-1..3): input-abstraction analysis, configuration bit-encoding layout, traversal spec + unit tests. No backend consumes it yet; no generated output may change.
+- Plan: study IR/monitor/codegen_fsm sources; implement `McPlan::compute(module, assumptions)` with the three components; 10 unit tests covering all five reference kinds, abstraction, determinism, canonical order; full BUILD.md §5 verification.
+
+### Report
+
+- New `src/mc_plan.rs` (~640 lines): `InputAbstraction` (per-variant per-field concrete/abstracted + canonical `ValueDomain` or representative value), `ConfigEncoding` (state bits + var slots + per-monitor persistent-state layout, node ids preorder matching backend `n{id}` naming; sticky failed/trigger_step excluded by live-config invariant), `TraversalSpec` (value domains, per-state transition firing order = priority desc then declaration order, assumption labels). Pure function of (module, AssumptionSelection); `Clone + PartialEq`.
+- Reference rules implemented (D-P4-3): guard/emit-arg/assignment use of a binding -> concrete; property/assumption `input_is` with constraining field literal (Int/Bool/EnumVariant) -> concrete; binding alone, wildcards, and binds in `input_is` do NOT reference.
+- Monitor state bits: Obligation bound>=1 = pending 1 + remaining ceil(log2(bound+1)); DelayedCheck = antecedent 1; RangeCheck/And/Or/Obligation{bound==0} = 0. Verified against `src/monitor.rs`: `p -> be[N](q)` = single root Obligation, `p -> next q` = single root DelayedCheck, bare `always(signal)` = RangeCheck.
+- `src/lib.rs`: +1 line (`pub mod mc_plan;`).
+- Tests: 10 new in `mc_plan::tests`; `cargo test` **180/180** (lib 96 = 86+10); clippy back to the 12-warning baseline, zero from mc_plan.rs (fixed 3: 2 redundant u32 casts, manual div_ceil); `cargo fmt --check` clean; `cargo test-generated-code` **513/513** without regeneration (no codegen output change).
+- Environment issue found: `cargo clippy --all-targets` is broken in this sandbox - cargo's clippy-driver probe receives another process's error text on stdin ("unknown start of token"); pre-existing (reproduces on pristine tree via git stash). Workaround: `RUSTC_WORKSPACE_WRAPPER=<toolchain>/clippy-driver cargo check --all-targets`. Recorded in the status file for future sessions.
+- RFS syntax gotchas hit while writing test specs: pattern bindings are bare identifiers (`on E(V(x))`, not `$x`); output decls need a variant inside outer parens (`output O(P(y: bool))`), emits `emit O(P(y));`.
+- New: `docs/roadmap/PHASE_4_TASK_1_STATUS.md` (template 2.5.2). No task corrections needed (planned actions executed as designed).
+- Next in defined order: task 2 (exact engine - Rust backend).

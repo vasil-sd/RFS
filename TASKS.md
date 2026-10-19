@@ -608,3 +608,19 @@ sed -n "<start>,<end>p" TASKS.md            # one specific entry by line range
 - Semantic bugs found+fixed: shift-amount width mismatch (NULL from z3), oversized-literal comparison wrap (`counter < 256` on bit<8> -> spurious FAIL), double-widening of literal sides, z3 5.3.1 API deltas in the C engine (Z3_L_UNDEF / no Z3_del_solver / Z3_del_context).
 - Verification: default `cargo test` **227/227** (was 222; +5 unit tests incl. structural Rust-vs-C op-sequence parity); with feature **229/229** (+2 e2e integration tests, `tests/smt_bounded_test.rs`, byte-identity gate on FAIL/liveness/PASS wide-bitvector specs); clippy/fmt at baseline; 22-spec e2E sweep byte-identical across backends (0 fails); SMT-found safety + liveness violations also found by exact mode.
 - Details: `docs/roadmap/PHASE_4_TASK_11_STATUS.md`.
+
+## 2026-10-19 23:26 — Phase 4 task 12: training data for eventually/until + exact MC statuses, input abstraction, liveness counterexamples
+
+### Interpretation & plan
+
+- Requested: execute Phase 4 task 12 per `docs/roadmap/PHASE_4_TASK_12.md` - add SFT examples covering the Phase 4 language + MC changes (eventually/until syntax + weak-until semantics, exact MC statuses, input abstraction, liveness counterexamples), regenerate snippets + aggregate, keep `cargo test-training` green.
+- Plan: (1) inspect existing jsonl format in both target categories; (2) add temporal-logic entries to `properties_temporal_logic`; (3) add model-checking entries to `model_checking_properties`; (4) regenerate snippets + aggregate and run tests. Every tool output quoted in the new entries was captured from REAL runs on 2026-10-19 (Rust backend, `rustc --edition 2021 -O`), not reconstructed.
+
+### Report
+
+- `training/properties_temporal_logic/rfs_training.jsonl` 15->18 lines: (a) eventually/until syntax + precedence (`!` tighter than until; `&&`/`||` looser; left-assoc) + WEAK-until semantics + strong-until encoding `p until q && eventually q`, with a valid ARQ-lite spec; (b) invalid variants with VERBATIM diagnostics - `eventually` without parens -> parse error "trailing input after RFS source", non-boolean operand -> validator "formula expression must be bool, found Bit(8)"; (c) D-P4-9 scope: deeper nesting (`always (eventually (...))`) validates fine but MC codegen prints a diagnostic and skips the property; monitor-subset boundary (liveness = MC-only, identical skip warning in production/test codegen).
+- `training/model_checking_properties/rfs_training.jsonl` 39->43 lines: (a) exact-MC status taxonomy pass-complete/fail/unknown-state-limit with exit codes 0/1/2 + pinned summary-line format + statistics block; (b) liveness counterexample = lasso (prefix + one cycle iteration, `step` = cycle start, human fields formula/violation step/cycle length/note); (c) input abstraction D-P4-3 with a bit<4>+bit<32> Ack payload spec (unused fields -> single representative values, 6-state run); (d) unknown-state-limit report + truncated-analysis soundness (FAIL inside explored part always trustworthy; never a false pass-complete).
+- Regenerated: snippets 125 valid/125 invalid -> **130 valid / 127 invalid**; aggregate `all_rfs_training.jsonl` **224 -> 231** lines. Per-category old->new recorded in the status file for task 14.
+- Verification: `cargo test-training` 4/4; full `cargo test` **227/227** (unchanged - training data adds no Rust tests; snippet suites green on the new snippets); clippy at baseline (1 pre-existing codegen_test warning, zero new); `cargo fmt --check` clean.
+- Finding: the missing-parens case for `eventually` surfaces as the GENERIC parse error "trailing input after RFS source" (the formula ladder falls through to a non-boolean expression), not a dedicated "eventually requires parentheses" diagnostic - recorded in the status file for task 13 / future parser work.
+- Docs: `docs/roadmap/PHASE_4_TASK_12_STATUS.md` (new, template 2.5.2); `docs/roadmap/INTRO.md` phase table -> "task 12 of 14 done".

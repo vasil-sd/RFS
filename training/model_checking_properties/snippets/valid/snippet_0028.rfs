@@ -1,13 +1,21 @@
-module never_ack {
-  enum State { Idle, Pending }
-  initial Idle
-  event Req
-  event Tick
-  transition Idle on Req {
-    next Pending;
+module mode_machine {
+  enum State { Running }
+  initial Running
+  enum Mode { Normal, Fast, Error }
+  var mode: Mode init Mode::Normal
+  event SetFast
+  event SetError
+  event Reset
+  transition Running on SetFast where mode == Mode::Normal {
+    next Running;
+    set mode = Mode::Fast;
   }
-  transition Pending on Tick {
-    next Pending;
+  transition Running on SetError where mode != Mode::Error {
+    next Running;
+    set mode = Mode::Error;
   }
-  prop must_return : always (input_is(Req) -> bounded_eventually[3] (state == Idle)) ;
+  transition Running on Reset {
+    next Running;
+    set mode = Mode::Normal;
+  }
 }

@@ -1,12 +1,8 @@
-module subset_check {
-  enum State { A, B }
-  initial A
+module nested {
+  enum State { Idle, Done }
+  initial Idle
   event Go
-  transition A on Go {
-    next B;
-  }
-  prop ok_obligation : always (input_is(Go) -> bounded_eventually[3] (state == B)) ;
-  prop bad_not_be : !bounded_eventually[3] (state == B) ;
-  prop bad_next_be : next (bounded_eventually[3] (state == A)) ;
-  prop bad_nested_always : always (always[2] (state == A)) ;
+  transition Idle on Go { next Done; }
+  transition Done on Go { next Done; }
+  prop p : always (eventually (state == Done)) ;
 }

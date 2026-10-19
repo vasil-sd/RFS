@@ -1,22 +1,10 @@
-module multi_event_group {
-  enum State { S }
-  initial S
-  event Msg(A)
-  event Msg(B(x: bit<4>))
-  event Msg(C(y: bool))
-  output SawA
-  output SawB
-  output SawC
-  transition S on Msg(A) {
-    next S;
-    emit SawA;
-  }
-  transition S on Msg(B(x)) where x > 0 {
-    next S;
-    emit SawB;
-  }
-  transition S on Msg(C(y)) where y == true {
-    next S;
-    emit SawC;
-  }
+module liv_fail {
+  enum State { A, B }
+  initial A
+  event Tick
+  var go_b: bool init false
+  transition A on Tick where !go_b { next A; }
+  transition A on Tick where go_b { next B; set go_b = true; }
+  transition B on Tick { next B; }
+  prop reaches_b : eventually (state == B) ;
 }

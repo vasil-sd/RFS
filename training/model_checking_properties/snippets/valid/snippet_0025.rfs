@@ -1,11 +1,18 @@
-module event_no_payload_properties {
+module enum_types {
   enum State { S }
   initial S
-  event Ping
-  output PongOut
-  transition S on Ping {
+  enum Color { Red, Green, Blue }
+  var color: Color init Color::Red
+  event ToGreen
+  event ToBlue
+  output IsGreen
+  transition S on ToGreen where color != Color::Green {
     next S;
-    emit PongOut;
+    set color = Color::Green;
   }
-  prop ping_pong : always (input_is(Ping) -> output_has(PongOut)) ;
+  transition S on ToBlue where color == Color::Green {
+    next S;
+    set color = Color::Blue;
+    emit IsGreen;
+  }
 }

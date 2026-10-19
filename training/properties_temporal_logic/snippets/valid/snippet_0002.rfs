@@ -1,16 +1,22 @@
-module startup {
-  enum State { Boot, Run, Error }
-  initial Boot
-  event Ready
-  event Fault
-  transition Boot on Ready {
-    next Run;
+module liv_pass {
+  # Small ARQ-like sender: every Tick either sends the next frame or
+  # acknowledges the oldest one; completion is forced in 6 steps.
+  enum State { Working, Done }
+  initial Working
+  event Tick
+  var sent: bit<2> init 0
+  var acked: bit<2> init 0
+  transition Working on Tick where sent == 3 && acked == 3 { next Done; }
+  transition Working on Tick where sent < 3 {
+    priority 1;
+    next Working;
+    set sent = sent + 1;
   }
-  transition Boot on Fault {
-    next Error;
+  transition Working on Tick where acked < sent {
+    next Working;
+    set acked = acked + 1;
   }
-  transition Run on Fault {
-    next Error;
-  }
-  prop no_early_error : always[4] (state != Error) ;
+  transition Done on Tick { next Done; }
+  prop completes : eventually (state == Done) ;
+  prop window_until_done : sent - acked <= 3 until (state == Done) ;
 }

@@ -1,3 +1,9 @@
-prop finishes : always (
-  input_is(Req) -> bounded_eventually[5] (input_is(Ack) || output_has(GiveUp))
-) ;
+module ev_noparen {
+  enum State { Idle, Done }
+  initial Idle
+  event Go
+  transition Idle on Go {
+    next Done;
+  }
+  prop p : eventually state == Done ;
+}

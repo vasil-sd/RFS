@@ -1,20 +1,20 @@
-module timer_zero {
-  enum State { Ready, Waiting }
-  initial Ready
-  var timer: bit<4> init 0
-  event Start
-  event Tick
-  output Expired
-  transition Ready on Start {
-    next Waiting;
-    set timer = 5;
+module shifts {
+  enum State { S }
+  initial S
+  var window: bit<8> init 1
+  event Left
+  event Right
+  output Wide
+  transition S on Left where window < 128 {
+    next S;
+    set window = window << 1;
   }
-  transition Waiting on Tick where timer > 0 {
-    next Waiting;
-    set timer = timer - 1;
+  transition S on Right where window > 1 {
+    next S;
+    set window = window >> 1;
   }
-  transition Waiting on Tick where timer == 0 {
-    next Ready;
-    emit Expired;
+  transition S on Left where window == 128 {
+    next S;
+    emit Wide;
   }
 }

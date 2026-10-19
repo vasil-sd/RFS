@@ -1,18 +1,19 @@
-module var_init_enum {
-  enum State { S }
-  initial S
-  enum Phase { Init, Run, Done }
-  var phase: Phase init Phase::Init
-  event Begin
-  event End
-  output Running
-  transition S on Begin where phase == Phase::Init {
-    next S;
-    set phase = Phase::Run;
-    emit Running;
+module ticked_service {
+  enum State { Idle, Busy }
+  initial Idle
+  event Req
+  event Tick
+  output Done
+  transition Idle on Req {
+    next Busy;
   }
-  transition S on End where phase == Phase::Run {
-    next S;
-    set phase = Phase::Done;
+  transition Idle on Tick {
+    next Idle;
   }
+  transition Busy on Tick {
+    next Idle;
+    emit Done;
+  }
+  assume env_ticks : always (bounded_eventually[5] (input_is(Tick))) ;
+  prop busy_resolves : always (state == Busy -> bounded_eventually[5] (output_has(Done))) ;
 }

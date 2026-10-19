@@ -1,1 +1,9 @@
-prop exclusive : always (!(a_active && b_active)) ;
+module ev_nonbool {
+  enum State { A }
+  initial A
+  event E
+  var flag: bool init false
+  var x: bit<8> init 0
+  transition A on E { next A; }
+  prop p : eventually (x) ;
+}

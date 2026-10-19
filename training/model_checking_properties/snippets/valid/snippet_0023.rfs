@@ -1,4 +1,16 @@
-module empty_module {
-  enum State { A }
-  initial A
+module deliver {
+  # One-frame protocol: the out-of-band Ack carries a bit<32> checksum and
+  # a sequence number that the protocol never inspects.
+  enum State { Waiting, Sent, Done }
+  initial Waiting
+  event Tick
+  event Ack(Header(seq: bit<4>, checksum: bit<32>))
+  assume env_tick : always (bounded_eventually[2] (input_is(Tick))) ;
+  transition Waiting on Tick { next Sent; }
+  transition Waiting on Ack(Header(seq, checksum)) { next Waiting; }
+  transition Sent on Tick { next Done; }
+  transition Sent on Ack(Header(seq, checksum)) { next Sent; }
+  transition Done on Tick { next Done; }
+  transition Done on Ack(Header(seq, checksum)) { next Done; }
+  prop completes : eventually (state == Done) ;
 }

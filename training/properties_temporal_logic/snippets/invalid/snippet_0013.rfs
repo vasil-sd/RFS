@@ -1,1 +1,1 @@
-prop one_mode : always (mode1 == Mode::Idle || mode2 == Mode::Idle) ;
+prop exclusive : always (!(a_active && b_active)) ;

@@ -1,9 +1,22 @@
-module next_property {
-  enum State { A, B }
-  initial A
-  event Go
-  transition A on Go {
-    next B;
+module multi_event_group {
+  enum State { S }
+  initial S
+  event Msg(A)
+  event Msg(B(x: bit<4>))
+  event Msg(C(y: bool))
+  output SawA
+  output SawB
+  output SawC
+  transition S on Msg(A) {
+    next S;
+    emit SawA;
   }
-  prop goes_to_b : always (input_is(Go) -> next (state == B)) ;
+  transition S on Msg(B(x)) where x > 0 {
+    next S;
+    emit SawB;
+  }
+  transition S on Msg(C(y)) where y == true {
+    next S;
+    emit SawC;
+  }
 }

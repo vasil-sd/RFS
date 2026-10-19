@@ -1,24 +1,16 @@
-module request_response {
-  enum State { Idle, Waiting }
-  initial Idle
-  event Req
-  event Resp
-  event Tick
-  output SendResp
-  var timer: bit<3> init 2
-  transition Idle on Req {
-    next Waiting;
-    emit SendResp;
-    set timer = 2;
+module output_payloads {
+  enum State { S }
+  initial S
+  event Ok
+  event Err
+  output Reply(Ok(code: bit<8>))
+  output Reply(Err(msg: bit<8>))
+  transition S on Ok {
+    next S;
+    emit Reply(Ok(1));
   }
-  transition Waiting on Resp {
-    next Idle;
-  }
-  transition Waiting on Tick where timer > 0 {
-    next Waiting;
-    set timer = timer - 1;
-  }
-  transition Waiting on Tick where timer == 0 {
-    next Idle;
+  transition S on Err {
+    next S;
+    emit Reply(Err(2));
   }
 }

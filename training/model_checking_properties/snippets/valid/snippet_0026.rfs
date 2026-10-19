@@ -1,21 +1,11 @@
-module mode_machine {
-  enum State { Running }
-  initial Running
-  enum Mode { Normal, Fast, Error }
-  var mode: Mode init Mode::Normal
-  event SetFast
-  event SetError
-  event Reset
-  transition Running on SetFast where mode == Mode::Normal {
-    next Running;
-    set mode = Mode::Fast;
+module event_no_payload_properties {
+  enum State { S }
+  initial S
+  event Ping
+  output PongOut
+  transition S on Ping {
+    next S;
+    emit PongOut;
   }
-  transition Running on SetError where mode != Mode::Error {
-    next Running;
-    set mode = Mode::Error;
-  }
-  transition Running on Reset {
-    next Running;
-    set mode = Mode::Normal;
-  }
+  prop ping_pong : always (input_is(Ping) -> output_has(PongOut)) ;
 }

@@ -167,7 +167,8 @@
 
 | # | Task | Correction type | Description + rationale |
 |---|------|-----------------|--------------------------|
-| - | - | - | (none yet) |
+| 10a. | 10. | Deferred subtask (retroactive entry - originally recorded only in the task status file) | Action 4 (`--threads N` level-parallel BFS) deferred: task 9 data shows no benchmark needs it (largest run ~1.1 s vs the ~30 s per-spec budget) and canonical violation selection under parallel expansion looked fragile; revisit trigger recorded in `PHASE_4_TASK_10_STATUS.md`. |
+| 10b. | new task 10B | Added task | Revives the deferred `--threads` with a corrected design agreed with the user (2026-10-19): determinism comes from CANONICAL SELECTION with arbitrary parallel work distribution - results are a pure function of the spec, byte-identical to `--threads 1` for any N in both backends (no RNG/seed; every existing pin stays valid) - plus an opt-in `--fast` early-abort mode documented as non-parity (sound: never a false pass). Rejected alternatives recorded in the task file: shared-seed RNG controlling thread switching (cannot make real-time interleavings reproducible) and RNG-driven exploration order (new per-seed pin surface + cross-backend PRNG parity requirement). See `PHASE_4_TASK_10B.md`. |
 
 ## Other information
 

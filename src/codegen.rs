@@ -40,6 +40,10 @@ pub enum McMode {
     Exact,
     /// Legacy seeded-random bounded runs (kept behind `--mode fuzz`).
     Fuzz,
+    /// SMT-based bounded model checking with z3 (Phase 4 task 11, optional):
+    /// k-step unrolling over bitvectors; sound FAIL within bound / otherwise
+    /// incomplete (clearly labeled). Generated binaries link libz3.
+    SmtBounded,
 }
 
 impl std::str::FromStr for McMode {
@@ -48,8 +52,9 @@ impl std::str::FromStr for McMode {
         match s.trim() {
             "exact" => Ok(Self::Exact),
             "fuzz" => Ok(Self::Fuzz),
+            "smt-bounded" => Ok(Self::SmtBounded),
             other => Err(format!(
-                "unknown mc mode '{}'; expected exact or fuzz",
+                "unknown mc mode '{}'; expected exact, fuzz or smt-bounded",
                 other
             )),
         }
@@ -97,6 +102,13 @@ pub struct BackendOptions {
     /// Exact-mode wall-clock timeout default in seconds (`--timeout-sec`; 0 =
     /// off, NOT parity-guaranteed).
     pub mc_timeout_sec: u64,
+    /// Exact-mode parallel level expansion default (`--threads`, task 10B;
+    /// 1 = sequential. N > 1 keeps results byte-identical to 1 via canonical
+    /// commit; `--fast` is runtime-only and non-parity).
+    pub mc_threads: usize,
+    /// SMT-mode unrolling bound default (`--smt-bound`, task 11; the generated
+    /// binary also accepts runtime `--bound N`).
+    pub mc_smt_bound: usize,
 }
 
 impl Default for BackendOptions {
@@ -109,6 +121,8 @@ impl Default for BackendOptions {
             mc_max_states: crate::codegen_mc::EXACT_DEFAULT_MAX_STATES,
             mc_nondet: false,
             mc_timeout_sec: crate::codegen_mc::EXACT_DEFAULT_TIMEOUT_SEC,
+            mc_threads: crate::codegen_mc::EXACT_DEFAULT_THREADS,
+            mc_smt_bound: crate::codegen_mc::SMT_DEFAULT_BOUND,
         }
     }
 }
@@ -224,14 +238,22 @@ pub fn common_help() -> String {
     );
     let _ = writeln!(
         s,
-        "  --mode exact|fuzz                mc only: model-checking mode (default: exact)"
+        "  --mode exact|fuzz|smt-bounded   mc only: model-checking mode (default: exact;\n                               smt-bounded generates a z3-based bounded checker - incomplete by design)"
     );
     let _ = writeln!(
         s,
         "  --max-states N                   mc only: state limit for exact mode (default: 1000000)"
     );
     let _ = writeln!(s, "  --nondet                         mc only: every enabled transition is a successor (exact mode)");
-    let _ = writeln!(s, "  --timeout-sec N                  mc only: wall-clock limit, 0 = off (default: 0; not parity-guaranteed)");
+    let _ = writeln!(
+        s,
+        "  --threads N                      mc only: parallel level expansion for exact mode\n                               (default: 1). Deterministic - results are byte-identical to\n                               --threads 1 for any N. The generated binary also accepts\n                               runtime --threads N and --fast (non-parity early abort)."
+    );
+    let _ = writeln!(s, "  --smt-bound N                    mc only: unrolling bound k for smt-bounded mode (default: 10); the generated binary also accepts runtime --bound N");
+    let _ = writeln!(
+        s,
+        "  --timeout-sec N                  mc only: wall-clock limit, 0 = off (default: 0).\n                               Wall-clock ONLY - NOT parity-guaranteed (the same spec can\n                               time out on one machine and not another); never used by\n                               parity or benchmark assertions."
+    );
     let _ = writeln!(
         s,
         "  --out FILE                         write generated source to FILE (default: stdout)"
@@ -338,6 +360,8 @@ pub enum CodegenRequest {
         mc_max_states: usize,
         mc_nondet: bool,
         mc_timeout_sec: u64,
+        mc_threads: usize,
+        mc_smt_bound: usize,
     },
 }
 
@@ -398,6 +422,8 @@ pub fn parse_codegen_args(args: &[String]) -> Result<CodegenRequest, Vec<String>
     let mut mc_max_states = crate::codegen_mc::EXACT_DEFAULT_MAX_STATES;
     let mut mc_nondet = false;
     let mut mc_timeout_sec = crate::codegen_mc::EXACT_DEFAULT_TIMEOUT_SEC;
+    let mut mc_threads = crate::codegen_mc::EXACT_DEFAULT_THREADS;
+    let mut mc_smt_bound = crate::codegen_mc::SMT_DEFAULT_BOUND;
     let mut i = 2;
     while i < rest.len() {
         match rest[i].as_str() {
@@ -438,7 +464,7 @@ pub fn parse_codegen_args(args: &[String]) -> Result<CodegenRequest, Vec<String>
                 i += 1;
                 match rest.get(i) {
                     Some(v) => mc_mode = v.parse().unwrap_or_default(),
-                    None => errors.push("--mode requires a value (exact|fuzz)".into()),
+                    None => errors.push("--mode requires a value (exact|fuzz|smt-bounded)".into()),
                 }
             }
             "--max-states" => {
@@ -454,6 +480,20 @@ pub fn parse_codegen_args(args: &[String]) -> Result<CodegenRequest, Vec<String>
                 match rest.get(i).and_then(|v| v.parse::<u64>().ok()) {
                     Some(n) => mc_timeout_sec = n,
                     None => errors.push("--timeout-sec requires a numeric argument".into()),
+                }
+            }
+            "--threads" => {
+                i += 1;
+                match rest.get(i).and_then(|v| v.parse::<usize>().ok()) {
+                    Some(n) if n > 0 => mc_threads = n,
+                    _ => errors.push("--threads requires a positive integer argument".into()),
+                }
+            }
+            "--smt-bound" => {
+                i += 1;
+                match rest.get(i).and_then(|v| v.parse::<usize>().ok()) {
+                    Some(n) if n > 0 => mc_smt_bound = n,
+                    _ => errors.push("--smt-bound requires a positive integer argument".into()),
                 }
             }
             other if other.starts_with('-') => errors.push(format!("unknown option: {}", other)),
@@ -475,6 +515,8 @@ pub fn parse_codegen_args(args: &[String]) -> Result<CodegenRequest, Vec<String>
             mc_max_states,
             mc_nondet,
             mc_timeout_sec,
+            mc_threads,
+            mc_smt_bound,
         },
         errors,
     )

@@ -44,6 +44,7 @@ SMT output compiles per section 5.3.
 | Parser-library comparison (nom vs chumsky smoke) | `cargo test --test library_comparison` | 4 pass |
 | Training-set structure/snippets/aggregation/freshness | `cargo test-training` (= `cargo test training`) | 4 pass |
 | Generated-code aggregate unit tests (separate crate under `target/rfs_codegen_tests`) | `cargo test-generated-code` | **513 pass** |
+| Benchmark MC suite (Phase 4 task 9: specs 43/44/45 x both backends in exact mode, inline FAIL variants, JSON report; task 10B adds the `--threads` parity gate + `--fast` smoke) | `cargo test --test benchmark_mc_test` | 5 pass; all three benchmarks pass-complete in BOTH backends with metrics identical to the task 6/8 record (165/330/22, 129985/519940/276, 11098/99882/22); FAIL variants pinned (safety `holder_no_request` step 1; liveness `up2_served`, cycle length 3); `--threads 1/2/4` byte-identical to each other and across backends on all five workloads; `target/mc_benchmarks.json` written + per-backend table printed (wall-clock informational only) |
 
 Other suites: `tests/frontend_test.rs` covers all four conversion combinations, strict
 extension handling, output placement, collision guard, err-file generation, and
@@ -53,7 +54,11 @@ argument parsing; `tests/monitor_integration_test.rs` (Phase 3) drives an inject
 through the MC in BOTH backends and exercises debug-gated production monitors;
 `tests/backend_parity_test.rs` (Phase 3) is the cross-backend differential suite -
 same-seed MC runs over all property-bearing examples must be field-identical, and both
-backends' generated test executables must agree on every example.
+backends' generated test executables must agree on every example;
+`tests/benchmark_mc_test.rs` (Phase 4 task 9) drives the three benchmark specs
+(43/44/45) through both backends in exact mode - pass-complete statuses, pinned
+deterministic metrics, inline FAIL variants with counterexample parity, and a JSON
+report (`target/mc_benchmarks.json`, development artifact, wall-clock informational).
 
 ## 4. Common commands (cargo aliases in `.cargo/config.toml`)
 

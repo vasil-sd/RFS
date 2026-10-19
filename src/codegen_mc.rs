@@ -248,6 +248,14 @@ pub const EXACT_DEFAULT_MAX_STATES: usize = 1_000_000;
 /// `--timeout-sec` default: 0 = off. Wall-clock only, NOT parity-guaranteed,
 /// never used by parity/benchmark assertions.
 pub const EXACT_DEFAULT_TIMEOUT_SEC: u64 = 0;
+/// `--threads` default: 1 (sequential). N > 1 enables level-parallel
+/// expansion with canonical commit - results stay byte-identical to N = 1
+/// (task 10B); `--fast` is a runtime-only non-parity flag.
+pub const EXACT_DEFAULT_THREADS: usize = 1;
+/// SMT-mode unrolling bound default (task 11): k steps. The generated binary
+/// also accepts runtime `--bound N`. Small by design - SMT mode is bug hunting
+/// on larger bitvectors, not a completeness tool.
+pub const SMT_DEFAULT_BOUND: usize = 10;
 
 #[cfg(test)]
 mod tests {

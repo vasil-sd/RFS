@@ -27,6 +27,20 @@ pub fn generate_model_checker(
     module: &Module,
     options: &BackendOptions,
 ) -> Result<CodegenOutput, Vec<String>> {
+    // SMT bounded mode (task 11): a standalone libz3-based binary - no FSM
+    // core, no exact/fuzz runtimes. The spec section is rendered from the
+    // shared plan (smt_plan/smt_emit) so both backends build identical
+    // constraints (parity by construction, D-P4-12).
+    if options.mc_mode == McMode::SmtBounded {
+        let plan = McPlan::compute(module, &options.assumptions);
+        let spec = crate::smt_plan::build_smt_spec(module, &plan).map_err(|e| vec![e])?;
+        let code = crate::smt_emit::emit_c_spec(&spec)
+            + &SMT_ENGINE_C.replace("{BOUND}", &options.mc_smt_bound.to_string());
+        return Ok(CodegenOutput {
+            code,
+            warnings: Vec::new(),
+        });
+    }
     // The model checker reuses the production FSM core without unit tests.
     // Property monitors are always included (D-P3-6).
     let prod = crate::backends::c_fsm::generate_core(
@@ -373,7 +387,7 @@ fn exact_codegen_c(
     s.push_str(
         "// ---- exact reachable-state engine (Phase 4; same wire format as the Rust MC) ----\n",
     );
-    s.push_str("#include <time.h>\n");
+    s.push_str("#include <time.h>\n#include <pthread.h>\n#include <stdatomic.h>\n");
     // Codegen-time defaults for the runtime flags (D-P4-7).
     let mode_const = if options.mc_mode == McMode::Fuzz {
         1
@@ -393,9 +407,14 @@ fn exact_codegen_c(
         "#define DEFAULT_TIMEOUT_SEC {}\n",
         options.mc_timeout_sec
     ));
+    s.push_str(&format!("#define DEFAULT_THREADS {}\n", options.mc_threads));
     s.push_str(&format!(
         "#define CONFIG_TOTAL_BYTES {}\n",
         plan.encoding.total_bytes
+    ));
+    s.push_str(&format!(
+        "#define MONITORS_BITS {}\n",
+        plan.encoding.monitors_bits
     ));
     s.push_str(&format!(
         "#define STATE_BITS {}\n",
@@ -764,6 +783,104 @@ static int mc_step_successor(const mc_node_t* node, int depth, const input_t* in
     if (prop_monitors_step(&out_node->prop, &sample, idx, &pv2)) { *pv = pv2; return 2; }
     out_node->state = eff->next_state;
     out_node->vars = eff->next_vars;
+    return 0;
+}
+
+// Parallel level expansion (task 10B): one successor outcome per evaluated
+// (input, effect) pair - computed in phase A (possibly on worker threads),
+// committed sequentially in canonical order in phase B. kind: 0 unexpected,
+// 1 pruned, 2 violation, 3 success.
+typedef struct {
+    int kind;
+    int iidx;
+    int tid;
+    int step;
+    char label[64];
+    mc_node_t node; // successor (kind 3)
+} mc_outcome_t;
+
+typedef struct {
+    mc_outcome_t* v;
+    int n, cap;
+} mc_outcomes_t;
+
+static void mc_outcomes_push(mc_outcomes_t* o, const mc_outcome_t* x) {
+    if (o->n == o->cap) {
+        int ncap = o->cap ? o->cap * 2 : 8;
+        mc_outcome_t* nv = (mc_outcome_t*)realloc(o->v, (size_t)ncap * sizeof(mc_outcome_t));
+        if (!nv) { fprintf(stderr, "out of memory\n"); exit(2); }
+        o->v = nv;
+        o->cap = ncap;
+    }
+    o->v[o->n++] = *x;
+}
+
+/// Expands configs [lo, hi) of the current level into per-config outcome
+/// lists (indexed by cid - level_start). Pure with respect to the shared
+/// engine state, so workers may run it in parallel on disjoint ranges.
+static void mc_expand_range(
+    const mc_node_t* nodes, const int* depth_arr, input_t* inputs, int n_inputs,
+    int nondet, const char** active, int n_active,
+    int level_start, int lo, int hi,
+    mc_outcomes_t* outs, atomic_int* abort_flag, int fast) {
+    for (int cid = lo; cid < hi; cid++) {
+        if (fast && atomic_load_explicit(abort_flag, memory_order_relaxed)) continue;
+        mc_node_t node = nodes[cid];
+        int d = depth_arr[cid];
+        int found_violation = 0;
+        for (int iidx = 0; iidx < n_inputs; iidx++) {
+            input_t in = inputs[iidx];
+            mc_effect_t effs[MC_MAX_EFFECTS];
+            int n_eff = mc_step_all(node.state, &node.vars, in, effs);
+            if (n_eff == 0) {
+                mc_outcome_t x; memset(&x, 0, sizeof(x));
+                x.kind = 0; x.iidx = iidx;
+                mc_outcomes_push(&outs[cid - level_start], &x);
+                continue;
+            }
+            int n_sel = nondet ? n_eff : 1;
+            for (int e = 0; e < n_sel; e++) {
+                const mc_effect_t* eff = &effs[e];
+                mc_node_t succ;
+                rfs_property_violation_t pv;
+                int r = mc_step_successor(&node, d, &in, eff, active, n_active, &succ, &pv);
+                mc_outcome_t x; memset(&x, 0, sizeof(x));
+                x.iidx = iidx; x.tid = eff->transition_id;
+                if (r == 1) {
+                    x.kind = 1;
+                } else if (r == 2) {
+                    x.kind = 2; x.step = pv.step;
+                    strncpy(x.label, pv.label, sizeof(x.label) - 1);
+                    found_violation = 1;
+                } else {
+                    x.kind = 3; x.node = succ;
+                }
+                mc_outcomes_push(&outs[cid - level_start], &x);
+            }
+        }
+        if (fast && found_violation) atomic_store_explicit(abort_flag, 1, memory_order_relaxed);
+    }
+}
+
+typedef struct {
+    const mc_node_t* nodes;
+    const int* depth_arr;
+    input_t* inputs;
+    int n_inputs;
+    int nondet;
+    const char** active;
+    int n_active;
+    int level_start, lo, hi;
+    mc_outcomes_t* outs;
+    atomic_int* abort_flag;
+    int fast;
+} mc_worker_arg_t;
+
+static void* mc_expand_worker(void* p) {
+    mc_worker_arg_t* a = (mc_worker_arg_t*)p;
+    mc_expand_range(a->nodes, a->depth_arr, a->inputs, a->n_inputs, a->nondet,
+                    a->active, a->n_active, a->level_start, a->lo, a->hi,
+                    a->outs, a->abort_flag, a->fast);
     return 0;
 }
 
@@ -1446,13 +1563,18 @@ static int run_exact(int argc, char** argv) {
     int max_states = DEFAULT_MAX_STATES;
     int nondet = DEFAULT_NONDET;
     long timeout_sec = DEFAULT_TIMEOUT_SEC;
+    int threads = DEFAULT_THREADS;
+    int fast = 0;
     const char* assumes_arg = "all";
     for (int i = 1; i < argc; i++) {
         if (strcmp(argv[i], "--max-states") == 0 && i + 1 < argc) max_states = atoi(argv[++i]);
         else if (strcmp(argv[i], "--nondet") == 0) nondet = 1;
         else if (strcmp(argv[i], "--timeout-sec") == 0 && i + 1 < argc) timeout_sec = atol(argv[++i]);
+        else if (strcmp(argv[i], "--threads") == 0 && i + 1 < argc) threads = atoi(argv[++i]);
+        else if (strcmp(argv[i], "--fast") == 0) fast = 1;
         else if (strcmp(argv[i], "--assumes") == 0 && i + 1 < argc) assumes_arg = argv[++i];
     }
+    if (threads < 1) threads = 1;
 
     // Active assumptions: "all", "none", or a comma-separated label list.
     char assume_buf[512];
@@ -1545,79 +1667,156 @@ static int run_exact(int argc, char** argv) {
     int* fail_trans = 0;
     int is_deadlock = 0;
 
+    // Parallel level expansion (task 10B): with --threads N > 1, phase A
+    // computes every successor outcome of the current level in parallel
+    // (workers own disjoint config ranges; no shared mutable state), and
+    // phase B commits them SEQUENTIALLY in canonical order - visited insert
+    // at enqueue, parent/depth/adj pushes, first violation, deadlock check -
+    // exactly as the single-threaded engine does. Results are therefore a
+    // pure function of the spec: byte-identical to --threads 1 for any N.
+    // --fast (non-parity): phase A stops scheduling work once any worker
+    // finds a violation, and the first found violation is reported.
     while (level_start < level_end && status == 0) {
         if (timeout_sec > 0 && mc_elapsed_sec(&t0) >= timeout_sec) { status = 3; break; }
         int next_start = n_nodes;
-        for (int cid = level_start; cid < level_end; cid++) {
-            mc_node_t node = nodes[cid];
+        int n_level = level_end - level_start;
+        int n_threads = threads < n_level ? threads : n_level;
+
+        // Phase A: expand the level. Per-config outcome lists in canonical
+        // position order (input x effect).
+        mc_outcomes_t* outs = (mc_outcomes_t*)calloc((size_t)n_level, sizeof(mc_outcomes_t));
+        if (!outs) { fprintf(stderr, "out of memory\n"); exit(2); }
+        atomic_int abort_flag = 0;
+        if (n_threads <= 1) {
+            mc_expand_range(nodes, depth_arr, inputs, n_inputs, nondet, active, n_active,
+                            level_start, level_start, level_end, outs, &abort_flag, fast);
+        } else {
+            int nw = n_threads < 64 ? n_threads : 64;
+            pthread_t tids[64];
+            mc_worker_arg_t* args = (mc_worker_arg_t*)malloc((size_t)nw * sizeof(mc_worker_arg_t));
+            if (!args) { fprintf(stderr, "out of memory\n"); exit(2); }
+            int n_spawned = 0;
+            int chunk = (n_level + nw - 1) / nw;
+            for (int w = 0; w < nw; w++) {
+                int lo = level_start + w * chunk;
+                if (lo >= level_end) break;
+                int hi = level_start + (w + 1) * chunk;
+                if (hi > level_end) hi = level_end;
+                args[w].nodes = nodes; args[w].depth_arr = depth_arr;
+                args[w].inputs = inputs; args[w].n_inputs = n_inputs;
+                args[w].nondet = nondet; args[w].active = active; args[w].n_active = n_active;
+                args[w].level_start = level_start; args[w].lo = lo; args[w].hi = hi;
+                args[w].outs = outs; args[w].abort_flag = &abort_flag; args[w].fast = fast;
+                if (pthread_create(&tids[n_spawned], 0, mc_expand_worker, &args[w]) == 0) {
+                    n_spawned++;
+                } else {
+                    // Fallback: run this range inline (results stay canonical).
+                    mc_expand_range(nodes, depth_arr, inputs, n_inputs, nondet, active, n_active,
+                                    level_start, lo, hi, outs, &abort_flag, fast);
+                }
+            }
+            for (int w = 0; w < n_spawned; w++) pthread_join(tids[w], 0);
+            free(args);
+        }
+
+        // --fast early abort (non-parity): report the first violation found.
+        // Which configs were expanded before the abort is race-dependent, so
+        // states/transitions/label may vary between runs (never a false pass).
+        if (fast && n_threads > 1 && atomic_load_explicit(&abort_flag, memory_order_relaxed)) {
+            int found = 0;
+            for (int cid = level_start; cid < level_end && !found; cid++) {
+                mc_outcomes_t* o = &outs[cid - level_start];
+                for (int k = 0; k < o->n; k++) {
+                    if (o->v[k].kind != 2) continue;
+                    status = 4;
+                    fail_wire = "property-violation";
+                    strncpy(fail_label, o->v[k].label, sizeof(fail_label) - 1);
+                    fail_label[sizeof(fail_label) - 1] = 0;
+                    fail_step = o->v[k].step;
+                    n_fail_steps = depth_arr[cid] + 1;
+                    fail_cid = (int*)malloc((size_t)n_fail_steps * sizeof(int));
+                    fail_input = (int*)malloc((size_t)n_fail_steps * sizeof(int));
+                    fail_trans = (int*)malloc((size_t)n_fail_steps * sizeof(int));
+                    mc_fill_path(parent_id, parent_input, parent_trans, depth_arr, cid, fail_cid, fail_input, fail_trans);
+                    fail_cid[depth_arr[cid]] = cid;
+                    fail_input[depth_arr[cid]] = o->v[k].iidx;
+                    fail_trans[depth_arr[cid]] = o->v[k].tid;
+                    found = 1;
+                    break;
+                }
+            }
+            // Unreachable: the flag is only set after a Violation outcome is
+            // stored. If it ever triggers, report unknown (never a false pass).
+            if (!found) status = 2;
+            for (int k2 = 0; k2 < n_level; k2++) free(outs[k2].v);
+            free(outs);
+            goto done;
+        }
+
+        // Phase B: sequential canonical commit - identical to the pre-task-10B
+        // single-threaded order for every observable counter and pointer.
+        for (int cid = level_start; cid < level_end && status == 0; cid++) {
             int d = depth_arr[cid];
             int any_successor = 0;
-            for (int iidx = 0; iidx < n_inputs; iidx++) {
-                input_t in = inputs[iidx];
-                mc_effect_t effs[MC_MAX_EFFECTS];
-                int n_eff = mc_step_all(node.state, &node.vars, in, effs);
-                if (n_eff == 0) {
+            mc_outcomes_t* o = &outs[cid - level_start];
+            for (int k = 0; k < o->n; k++) {
+                if (o->v[k].kind == 0) {
                     // Input matches no transition and there is no on_error:
                     // this path terminates (D-P4-5); the configuration itself
-                    // may still have other successors.
+                    // may still have other successors. (No transition was
+                    // evaluated, so `transitions` is untouched - as before.)
                     unexpected++;
-                    if (first_unexp_cid < 0) { first_unexp_cid = cid; first_unexp_idx = iidx; }
+                    if (first_unexp_cid < 0) { first_unexp_cid = cid; first_unexp_idx = o->v[k].iidx; }
                     continue;
                 }
-                int n_sel = nondet ? n_eff : 1;
-                for (int e = 0; e < n_sel; e++) {
-                    const mc_effect_t* eff = &effs[e];
-                    transitions++;
-                    mc_node_t succ;
-                    rfs_property_violation_t pv;
-                    int r = mc_step_successor(&node, d, &in, eff, active, n_active, &succ, &pv);
-                    if (r == 1) continue; // pruned by an active assumption
-                    if (r == 2) {
-                        status = 4;
-                        fail_wire = "property-violation";
-                        strncpy(fail_label, pv.label, sizeof(fail_label) - 1);
-                        fail_label[sizeof(fail_label) - 1] = 0;
-                        fail_step = pv.step;
-                        n_fail_steps = d + 1;
-                        fail_cid = (int*)malloc((size_t)n_fail_steps * sizeof(int));
-                        fail_input = (int*)malloc((size_t)n_fail_steps * sizeof(int));
-                        fail_trans = (int*)malloc((size_t)n_fail_steps * sizeof(int));
-                        mc_fill_path(parent_id, parent_input, parent_trans, depth_arr, cid, fail_cid, fail_input, fail_trans);
-                        fail_cid[d] = cid;
-                        fail_input[d] = iidx;
-                        fail_trans[d] = eff->transition_id;
-                        goto done;
-                    }
-                    any_successor = 1;
-                    uint8_t key[CONFIG_TOTAL_BYTES];
-                    config_bytes(succ.state, &succ.vars, &succ.prop, &succ.assume, key);
-                    int tcid = mc_visited_find(visited, visited_idx, n_visited, key);
-                    if (tcid < 0) {
-                        if (n_nodes >= max_states) { status = 2; goto done; }
-                        mc_visited_insert(visited, visited_idx, &n_visited, key, n_nodes);
-                        parent_id[n_nodes] = cid;
-                        parent_input[n_nodes] = iidx;
-                        parent_trans[n_nodes] = eff->transition_id;
-                        depth_arr[n_nodes] = d + 1;
-                        if (d + 1 > max_depth) max_depth = d + 1;
-                        nodes[n_nodes++] = succ;
-                        tcid = n_nodes - 1;
-                    }
-                    // Graph edge: recorded for every Success outcome, including
-                    // edges to already-visited configs (mirror of the Rust engine).
-                    if ((size_t)adj_n == adj_cap) {
-                        size_t ncap = adj_cap * 2;
-                        mc_edge_t* ne = (mc_edge_t*)realloc(adj_edges, ncap * sizeof(mc_edge_t));
-                        if (!ne) { fprintf(stderr, "out of memory\n"); exit(2); }
-                        adj_edges = ne;
-                        adj_cap = ncap;
-                    }
-                    adj_edges[adj_n].input_idx = iidx;
-                    adj_edges[adj_n].trans_id = eff->transition_id;
-                    adj_edges[adj_n].target = tcid;
-                    adj_count[cid]++;
-                    adj_n++;
+                transitions++;
+                if (o->v[k].kind == 1) continue; // pruned by an active assumption
+                if (o->v[k].kind == 2) {
+                    status = 4;
+                    fail_wire = "property-violation";
+                    strncpy(fail_label, o->v[k].label, sizeof(fail_label) - 1);
+                    fail_label[sizeof(fail_label) - 1] = 0;
+                    fail_step = o->v[k].step;
+                    n_fail_steps = d + 1;
+                    fail_cid = (int*)malloc((size_t)n_fail_steps * sizeof(int));
+                    fail_input = (int*)malloc((size_t)n_fail_steps * sizeof(int));
+                    fail_trans = (int*)malloc((size_t)n_fail_steps * sizeof(int));
+                    mc_fill_path(parent_id, parent_input, parent_trans, depth_arr, cid, fail_cid, fail_input, fail_trans);
+                    fail_cid[d] = cid;
+                    fail_input[d] = o->v[k].iidx;
+                    fail_trans[d] = o->v[k].tid;
+                    goto free_outs;
                 }
+                any_successor = 1;
+                mc_node_t succ = o->v[k].node;
+                uint8_t key[CONFIG_TOTAL_BYTES];
+                config_bytes(succ.state, &succ.vars, &succ.prop, &succ.assume, key);
+                int tcid = mc_visited_find(visited, visited_idx, n_visited, key);
+                if (tcid < 0) {
+                    if (n_nodes >= max_states) { status = 2; goto free_outs; }
+                    mc_visited_insert(visited, visited_idx, &n_visited, key, n_nodes);
+                    parent_id[n_nodes] = cid;
+                    parent_input[n_nodes] = o->v[k].iidx;
+                    parent_trans[n_nodes] = o->v[k].tid;
+                    depth_arr[n_nodes] = d + 1;
+                    if (d + 1 > max_depth) max_depth = d + 1;
+                    nodes[n_nodes++] = succ;
+                    tcid = n_nodes - 1;
+                }
+                // Graph edge: recorded for every Success outcome, including
+                // edges to already-visited configs (mirror of the Rust engine).
+                if ((size_t)adj_n == adj_cap) {
+                    size_t ncap = adj_cap * 2;
+                    mc_edge_t* ne = (mc_edge_t*)realloc(adj_edges, ncap * sizeof(mc_edge_t));
+                    if (!ne) { fprintf(stderr, "out of memory\n"); exit(2); }
+                    adj_edges = ne;
+                    adj_cap = ncap;
+                }
+                adj_edges[adj_n].input_idx = o->v[k].iidx;
+                adj_edges[adj_n].trans_id = o->v[k].tid;
+                adj_edges[adj_n].target = tcid;
+                adj_count[cid]++;
+                adj_n++;
             }
             complete[cid] = 1;
             if (!any_successor) {
@@ -1634,9 +1833,12 @@ static int run_exact(int argc, char** argv) {
                 fail_trans = (int*)malloc((size_t)(n_fail_steps ? n_fail_steps : 1) * sizeof(int));
                 mc_fill_path(parent_id, parent_input, parent_trans, depth_arr, cid, fail_cid, fail_input, fail_trans);
                 is_deadlock = 1;
-                goto done;
+                goto free_outs;
             }
         }
+free_outs:
+        for (int k2 = 0; k2 < n_level; k2++) free(outs[k2].v);
+        free(outs);
         level_start = next_start;
         level_end = n_nodes;
     }
@@ -1712,6 +1914,10 @@ done:
     printf("\n");
     printf("  unexpected terminations: %d\n", unexpected);
     if (first_unexp_cid >= 0) printf("  first unexpected: config %d input index %d\n", first_unexp_cid, first_unexp_idx);
+    // Statistics block (task 10): identical field set and format in both
+    // backends - monitor size is the encoded bit width of all property +
+    // assumption monitors (deterministic; feeds CONFIG_TOTAL_BYTES).
+    printf("  monitor size: %u bits\n", MONITORS_BITS);
     printf("  memory estimate: %llu bytes\n", (unsigned long long)mem_est);
 
     if (status == 4) {
@@ -1940,3 +2146,324 @@ static int run_fuzz(int argc, char** argv) {{
         cand_list = cand_list
     )
 }
+
+const SMT_ENGINE_C: &str = r#"
+
+// ===== SMT bounded-mode runtime (task 11) =====
+// C mirror of SMT_ENGINE_RUST: same step-variable names, same constraint
+// construction order, same z3 operations, same output format and exit codes.
+#define DEFAULT_BOUND {BOUND}u
+
+static uint64_t smt_read_bv(Z3_context c, Z3_model m, Z3_ast e) {
+    Z3_ast v = 0;
+    if (!Z3_model_eval(c, m, e, true, &v)) { fprintf(stderr, "error: model evaluation failed\n"); exit(2); }
+    uint64_t u = 0;
+    if (!Z3_get_numeral_uint64(c, v, &u)) { fprintf(stderr, "error: non-numeral model value\n"); exit(2); }
+    return u;
+}
+
+static int smt_read_bool(Z3_context c, Z3_model m, Z3_ast e) {
+    Z3_ast v = 0;
+    if (!Z3_model_eval(c, m, e, true, &v)) { fprintf(stderr, "error: model evaluation failed\n"); exit(2); }
+    Z3_lbool b = Z3_get_bool_value(c, v);
+    if (b != Z3_L_TRUE && b != Z3_L_FALSE) { fprintf(stderr, "error: non-boolean model value\n"); exit(2); }
+    return b == Z3_L_TRUE;
+}
+
+/// Witness trace (pinned format - identical in both backends).
+static void smt_print_trace(Z3_context c, unsigned k, Z3_model m, const Z3_ast *s_vars, const Z3_ast *v_vars, const Z3_ast *ev_vars, const Z3_ast *fld_vars) {
+    printf("witness trace (solver model; bound k=%u):\n", k);
+    for (unsigned i = 0; i < k; i++) {
+        unsigned si = (unsigned)smt_read_bv(c, m, s_vars[i]);
+        printf("  step %u: state=%s vars={", i, STATES[si]);
+        for (unsigned j = 0; j < N_VARS; j++) {
+            if (j > 0) printf(", ");
+            uint64_t val = smt_read_bv(c, m, v_vars[(size_t)i * N_VARS + j]);
+            if (VAR_IS_BOOL[j]) printf("%s=%s", VAR_NAMES[j], val != 0 ? "true" : "false");
+            else printf("%s=%llu", VAR_NAMES[j], (unsigned long long)val);
+        }
+        printf("} ");
+        if (N_CLASSES > 1) {
+            unsigned ci = (unsigned)smt_read_bv(c, m, ev_vars[i]);
+            int first = 1;
+            printf("event=%s(", CLASS_NAMES[ci]);
+            for (unsigned g = 0; g < N_FIELDS; g++) {
+                if (FIELD_POS[g].c != ci) continue;
+                if (!first) printf(", ");
+                first = 0;
+                uint64_t val = smt_read_bv(c, m, fld_vars[(size_t)i * N_FIELDS + g]);
+                if (FIELD_IS_BOOL[g]) printf("%s=%s", FIELD_NAMES[g], val != 0 ? "true" : "false");
+                else printf("%s=%llu", FIELD_NAMES[g], (unsigned long long)val);
+            }
+            printf(")");
+        } else {
+            printf("event=-");
+        }
+        printf("\n");
+    }
+}
+
+static int run_smt(int argc, char **argv) {
+    // Runtime flags.
+    unsigned bound = DEFAULT_BOUND;
+    for (int ai = 1; ai < argc; ai++) {
+        if (strcmp(argv[ai], "--bound") == 0 && ai + 1 < argc) {
+            char *end = 0;
+            unsigned long v = strtoul(argv[ai + 1], &end, 10);
+            if (end != argv[ai + 1] && *end == '\0') bound = (unsigned)v;
+        }
+    }
+    unsigned k = bound > 1u ? bound : 1u;
+
+    Z3_context c = Z3_mk_context(0);
+
+    // ---- Step variables (fixed names/order - parity-critical) ----
+    Z3_ast *s_vars = malloc(k * sizeof(Z3_ast));
+    Z3_ast *v_vars = malloc((size_t)k * (N_VARS ? N_VARS : 1) * sizeof(Z3_ast));
+    Z3_ast *ev_vars = N_CLASSES > 1 ? malloc(k * sizeof(Z3_ast)) : 0;
+    Z3_ast *fld_vars = malloc((size_t)k * (N_FIELDS ? N_FIELDS : 1) * sizeof(Z3_ast));
+    char name[64];
+    for (unsigned i = 0; i < k; i++) {
+        snprintf(name, sizeof name, "s_%u", i);
+        s_vars[i] = Z3_mk_fresh_const(c, name, Z3_mk_bv_sort(c, STATE_BITS));
+        for (unsigned j = 0; j < N_VARS; j++) {
+            snprintf(name, sizeof name, "v_%u_%u", i, j);
+            v_vars[(size_t)i * N_VARS + j] = Z3_mk_fresh_const(c, name, Z3_mk_bv_sort(c, VAR_WIDTHS[j]));
+        }
+        if (N_CLASSES > 1) {
+            snprintf(name, sizeof name, "ev_%u", i);
+            ev_vars[i] = Z3_mk_fresh_const(c, name, Z3_mk_bv_sort(c, CLS_BITS));
+        }
+        for (unsigned g = 0; g < N_FIELDS; g++) {
+            snprintf(name, sizeof name, "fld_%u_%u", i, g);
+            fld_vars[(size_t)i * N_FIELDS + g] = Z3_mk_fresh_const(c, name, Z3_mk_bv_sort(c, FIELD_WIDTHS[g]));
+        }
+    }
+
+    // ---- Base constraints: initial configuration + k-step unrolling ----
+    size_t base_n = 0, base_cap = 0;
+    Z3_ast *base = 0;
+#define BASE_PUSH(a) do { \
+        if (base_n == base_cap) { \
+            base_cap = base_cap ? base_cap * 2 : 16; \
+            base = realloc(base, base_cap * sizeof(Z3_ast)); \
+        } \
+        base[base_n++] = (a); \
+    } while (0)
+
+    BASE_PUSH(Z3_mk_eq(c, s_vars[0], z3_num(c, STATE_BITS, INITIAL_STATE)));
+    for (unsigned j = 0; j < N_VARS; j++) {
+        BASE_PUSH(Z3_mk_eq(c, v_vars[j], z3_num(c, VAR_WIDTHS[j], VAR_INITS[j])));
+    }
+
+    Z3_ast *alive = malloc(k * sizeof(Z3_ast));
+    alive[0] = Z3_mk_true(c);
+    int ret = 0;
+    for (unsigned i = 0; i + 1 < k; i++) {
+        const Z3_ast *vi = &v_vars[(size_t)i * N_VARS];
+        const Z3_ast *fldi = &fld_vars[(size_t)i * N_FIELDS];
+        // enabled_t = state match ∧ class match ∧ guard (firing order).
+        Z3_ast *enableds = malloc((N_TRANS ? N_TRANS : 1) * sizeof(Z3_ast));
+        for (unsigned t = 0; t < N_TRANS; t++) {
+            Z3_ast en = Z3_mk_eq(c, s_vars[i], z3_num(c, STATE_BITS, TRANS[t].state));
+            if (N_CLASSES > 1) {
+                Z3_ast pair[2] = { en, Z3_mk_eq(c, ev_vars[i], z3_num(c, CLS_BITS, TRANS[t].cls)) };
+                en = Z3_mk_and(c, 2, pair);
+            }
+            Z3_ast pair2[2] = { en, GUARD_FNS[t](c, s_vars[i], vi, fldi) };
+            enableds[t] = Z3_mk_and(c, 2, pair2);
+        }
+        // fire_t = enabled_t ∧ no earlier transition enabled (first match).
+        Z3_ast *fires = malloc((N_TRANS ? N_TRANS : 1) * sizeof(Z3_ast));
+        Z3_ast prefix = 0;
+        for (unsigned t = 0; t < N_TRANS; t++) {
+            if (prefix) {
+                Z3_ast pair[2] = { Z3_mk_not(c, prefix), enableds[t] };
+                fires[t] = Z3_mk_and(c, 2, pair);
+            } else {
+                Z3_ast pair[2] = { enableds[t], Z3_mk_true(c) };
+                fires[t] = Z3_mk_and(c, 2, pair);
+            }
+            // The and-true keeps the node fresh (no aliasing of enableds);
+            // z3 rewrites it to `en` - the Rust backend does the same op.
+            if (prefix) {
+                Z3_ast pair[2] = { prefix, enableds[t] };
+                prefix = Z3_mk_or(c, 2, pair);
+            } else {
+                Z3_ast pair[2] = { enableds[t], Z3_mk_true(c) };
+                prefix = Z3_mk_and(c, 2, pair);
+            }
+        }
+        Z3_ast any_fire;
+        if (N_TRANS == 0) {
+            any_fire = Z3_mk_false(c);
+        } else {
+            Z3_ast pair[2] = { fires[0], Z3_mk_true(c) };
+            any_fire = Z3_mk_and(c, 2, pair);
+            for (unsigned t = 1; t < N_TRANS; t++) {
+                Z3_ast pair[2] = { any_fire, fires[t] };
+                any_fire = Z3_mk_or(c, 2, pair);
+            }
+        }
+        Z3_ast apair[2] = { alive[i], any_fire };
+        alive[i + 1] = Z3_mk_and(c, 2, apair);
+        if (N_TRANS == 0) {
+            // No transitions: deadlocked from step 0; state/vars frozen.
+            BASE_PUSH(Z3_mk_eq(c, s_vars[i], s_vars[i + 1]));
+            for (unsigned j = 0; j < N_VARS; j++) {
+                BASE_PUSH(Z3_mk_eq(c, v_vars[(size_t)i * N_VARS + j], v_vars[(size_t)(i + 1) * N_VARS + j]));
+            }
+        } else {
+            // Next state: ITE chain over firing transitions (last first).
+            Z3_ast chain = z3_num(c, STATE_BITS, TRANS[N_TRANS - 1].next_state);
+            for (long u = (long)N_TRANS - 2; u >= 0; u--) {
+                chain = Z3_mk_ite(c, fires[u], z3_num(c, STATE_BITS, TRANS[u].next_state), chain);
+            }
+            BASE_PUSH(Z3_mk_eq(c, Z3_mk_ite(c, any_fire, chain, s_vars[i]), s_vars[i + 1]));
+            // Next vars: per-var ITE chains (unchanged when unassigned).
+            for (unsigned j = 0; j < N_VARS; j++) {
+                Z3_ast acc = 0;
+                for (long t = (long)N_TRANS - 1; t >= 0; t--) {
+                    if (ASGN_MAP[t][j]) {
+                        Z3_ast e = ASGN_FNS[t][j](c, s_vars[i], vi, fldi);
+                        acc = Z3_mk_ite(c, fires[t], e, acc ? acc : v_vars[(size_t)i * N_VARS + j]);
+                    } else if (acc) {
+                        acc = Z3_mk_ite(c, fires[t], v_vars[(size_t)i * N_VARS + j], acc);
+                    }
+                }
+                Z3_ast next_v;
+                if (acc) {
+                    next_v = Z3_mk_ite(c, any_fire, acc, v_vars[(size_t)i * N_VARS + j]);
+                } else {
+                    next_v = Z3_mk_ite(c, any_fire, v_vars[(size_t)i * N_VARS + j], v_vars[(size_t)i * N_VARS + j]);
+                }
+                BASE_PUSH(Z3_mk_eq(c, next_v, v_vars[(size_t)(i + 1) * N_VARS + j]));
+            }
+        }
+        free(enableds);
+        free(fires);
+    }
+
+    // ---- Queries (fixed order: safety, then liveness; declaration order) ----
+    for (unsigned p = 0; p < N_PROPS; p++) {
+        if (PROP_KINDS[p] != 0) continue;
+        // viol_p = ∃i<k: alive_i ∧ ¬phi_p(i).
+        Z3_ast viol = 0;
+        for (unsigned i = 0; i < k; i++) {
+            Z3_ast phi = PROP_FNS[p](c, s_vars[i], &v_vars[(size_t)i * N_VARS], &fld_vars[(size_t)i * N_FIELDS]);
+            Z3_ast pair[2] = { alive[i], Z3_mk_not(c, phi) };
+            Z3_ast bad = Z3_mk_and(c, 2, pair);
+            if (viol) {
+                Z3_ast opair[2] = { viol, bad };
+                viol = Z3_mk_or(c, 2, opair);
+            } else {
+                viol = bad;
+            }
+        }
+        Z3_solver solver = Z3_mk_solver(c);
+        for (size_t bi = 0; bi < base_n; bi++) Z3_solver_assert(c, solver, base[bi]);
+        Z3_solver_assert(c, solver, viol);
+        Z3_lbool r = Z3_solver_check(c, solver);
+        if (r == Z3_L_TRUE) {
+            Z3_model m = Z3_solver_get_model(c, solver);
+            unsigned vstep = 0;
+            for (unsigned i = 0; i < k; i++) {
+                Z3_ast phi = PROP_FNS[p](c, s_vars[i], &v_vars[(size_t)i * N_VARS], &fld_vars[(size_t)i * N_FIELDS]);
+                if (smt_read_bool(c, m, alive[i]) && !smt_read_bool(c, m, phi)) { vstep = i; break; }
+            }
+            printf("FAIL\n");
+            printf("model-check summary: status=fail mode=smt-bounded bound=%u reason=property-violation label=%s step=%u\n", k, PROP_NAMES[p], vstep);
+            printf("property violation: %s\n", PROP_NAMES[p]);
+            printf("  violation step: %u\n", vstep);
+            smt_print_trace(c, k, m, s_vars, v_vars, ev_vars, fld_vars);
+            ret = 1; goto done;
+        } else if (r == Z3_L_UNDEF) {
+            printf("UNKNOWN (solver inconclusive within bound %u)\n", k);
+            printf("model-check summary: status=unknown mode=smt-bounded bound=%u\n", k);
+            ret = 2; goto done;
+        }
+    }
+    for (unsigned p = 0; p < N_PROPS; p++) {
+        if (PROP_KINDS[p] != 1) continue;
+        // never_p = phi_p holds at no alive step within the bound.
+        Z3_ast never = 0;
+        for (unsigned i = 0; i < k; i++) {
+            Z3_ast phi = PROP_FNS[p](c, s_vars[i], &v_vars[(size_t)i * N_VARS], &fld_vars[(size_t)i * N_FIELDS]);
+            Z3_ast pair[2] = { alive[i], phi };
+            Z3_ast n = Z3_mk_not(c, Z3_mk_and(c, 2, pair));
+            if (never) {
+                Z3_ast apair[2] = { never, n };
+                never = Z3_mk_and(c, 2, apair);
+            } else {
+                never = n;
+            }
+        }
+        // cycle = ∃a<b: identical (state, vars) - an infinite path.
+        Z3_ast cyc = 0;
+        for (unsigned a = 0; a < k; a++) {
+            for (unsigned b = a + 1; b < k; b++) {
+                Z3_ast eq = Z3_mk_eq(c, s_vars[a], s_vars[b]);
+                for (unsigned j = 0; j < N_VARS; j++) {
+                    Z3_ast pair[2] = { eq, Z3_mk_eq(c, v_vars[(size_t)a * N_VARS + j], v_vars[(size_t)b * N_VARS + j]) };
+                    eq = Z3_mk_and(c, 2, pair);
+                }
+                if (cyc) {
+                    Z3_ast opair[2] = { cyc, eq };
+                    cyc = Z3_mk_or(c, 2, opair);
+                } else {
+                    cyc = eq;
+                }
+            }
+        }
+        if (cyc) {
+            Z3_solver solver = Z3_mk_solver(c);
+            for (size_t bi = 0; bi < base_n; bi++) Z3_solver_assert(c, solver, base[bi]);
+            Z3_solver_assert(c, solver, never);
+            Z3_solver_assert(c, solver, cyc);
+            Z3_lbool r = Z3_solver_check(c, solver);
+            if (r == Z3_L_TRUE) {
+                Z3_model m = Z3_solver_get_model(c, solver);
+                // Find the cycle pair from the model (first in order).
+                unsigned pa = 0, pb = 1; int found = 0;
+                for (unsigned a = 0; a < k && !found; a++) {
+                    for (unsigned b = a + 1; b < k; b++) {
+                        int same = smt_read_bv(c, m, s_vars[a]) == smt_read_bv(c, m, s_vars[b]);
+                        for (unsigned j = 0; j < N_VARS && same; j++) {
+                            same = smt_read_bv(c, m, v_vars[(size_t)a * N_VARS + j]) == smt_read_bv(c, m, v_vars[(size_t)b * N_VARS + j]);
+                        }
+                        if (same) { pa = a; pb = b; found = 1; break; }
+                    }
+                }
+                printf("FAIL\n");
+                printf("model-check summary: status=fail mode=smt-bounded bound=%u reason=liveness-violation label=%s step=%u\n", k, PROP_NAMES[p], pa);
+                printf("liveness violation: %s\n", PROP_NAMES[p]);
+                printf("  violation step: %u\n", pa);
+                printf("  cycle length: %u\n", pb - pa);
+                smt_print_trace(c, k, m, s_vars, v_vars, ev_vars, fld_vars);
+                ret = 1; goto done;
+            } else if (r == Z3_L_UNDEF) {
+                printf("UNKNOWN (solver inconclusive within bound %u)\n", k);
+                printf("model-check summary: status=unknown mode=smt-bounded bound=%u\n", k);
+                ret = 2; goto done;
+            }
+        }
+    }
+    // No violation found within the bound (incomplete - no claim).
+    printf("PASS WITHIN BOUND %u (incomplete - no completeness claim)\n", k);
+    printf("model-check summary: status=pass-within-bound mode=smt-bounded bound=%u\n", k);
+
+done:
+    free(s_vars);
+    free(v_vars);
+    if (ev_vars) free(ev_vars);
+    free(fld_vars);
+    free(base);
+    free(alive);
+    Z3_del_context(c);
+    return ret;
+}
+
+int main(int argc, char **argv) {
+    return run_smt(argc, argv);
+}
+"#;

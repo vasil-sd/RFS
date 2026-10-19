@@ -53,3 +53,14 @@
 - `tests/backend_parity_test.rs`: pin entries for both specs + split re-pinned (7,9)->(9,9) (same practice as task 6's example 43).
 - Verification: cargo test **217/217**; clippy 11 lib + 1 codegen_test baseline (zero new); fmt clean; generated-code tests **522/522** (was 513); gcc -Wall sweep all 45 examples zero warnings.
 - Details: `docs/roadmap/PHASE_4_TASK_8_STATUS.md` (full sizing table + bug list + notes for tasks 9/10/12/13).
+
+## Phase 4 - Scalable model checking (task 11 of 14)
+
+### Task 11: SMT bounded mode (OPTIONAL) — COMPLETE (2026-10-19, gate outcome A: implemented)
+- Feasibility gate PASSED: z3 5.3.1 at `/workspace/host/z3` + `z3` crate 0.21.1 / z3-sys 0.13.1 scratch build solved a bitvector query (TOOLCHAIN.md section 5 unchanged - no reinstall needed).
+- `--mode smt-bounded` (third mc mode) in BOTH backends, feature-gated (`[features] smt = ["dep:z3"]`; default build unaffected): k-step unrolling of the transition system over bitvectors from a SHARED plan (`src/smt_plan.rs`) rendered by a SHARED emitter (`src/smt_emit.rs`) - parity by construction (D-P4-12); per-backend runtimes (`SMT_ENGINE_RUST` / `SMT_ENGINE_C`) build structurally identical z3 constraints, pinned summary lines (`mode=smt-bounded bound=k`), exit codes 0 pass-within-bound / 1 fail / 2 unknown, results clearly labeled INCOMPLETE.
+- Liveness via k-liveness (never + cycle query); safety via `∃i alive_i ∧ ¬phi`; first-match firing order preserved; bool vars as BV(1) with z3-Bool contexts; exact-MC shift semantics (`amount >= width -> 0`) and full-value literal comparisons encoded faithfully (zero-extend/guard/truncate + comparison widening).
+- v1 scope rejections (shared error text both backends): no assumptions, no on_error blocks, no enum-typed vars; property formulas = top-level always/eventually over boolean combinations of expressions.
+- Semantic bugs found+fixed during development: shift-amount width mismatch (NULL from z3), oversized-literal comparison wrap (`counter < 256` on bit<8> -> spurious FAIL), double-widening of literal sides, z3 5.3.1 API deltas in the C engine (Z3_L_UNDEF / no Z3_del_solver / Z3_del_context).
+- Verification: default `cargo test` **227/227** (was 222; +5 unit tests incl. structural Rust-vs-C op-sequence parity); with feature **229/229** (+2 e2e integration tests, `tests/smt_bounded_test.rs`, byte-identity gate on FAIL/liveness/PASS wide-bitvector specs); clippy/fmt at baseline; 22-spec e2E sweep: all SMT-compatible valid examples byte-identical across backends (0 fails); cross-check: SMT-found safety + liveness violations also found by exact mode.
+- Details: `docs/roadmap/PHASE_4_TASK_11_STATUS.md`.

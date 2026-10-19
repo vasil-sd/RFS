@@ -25,6 +25,19 @@ pub fn generate_model_checker(
     module: &Module,
     options: &BackendOptions,
 ) -> Result<CodegenOutput, Vec<String>> {
+    // SMT bounded mode (task 11): a standalone z3-based binary - no FSM core,
+    // no exact/fuzz runtimes. The spec section is rendered from the shared
+    // plan (smt_plan/smt_emit) so both backends build identical constraints.
+    if options.mc_mode == McMode::SmtBounded {
+        let plan = McPlan::compute(module, &options.assumptions);
+        let spec = crate::smt_plan::build_smt_spec(module, &plan).map_err(|e| vec![e])?;
+        let code = crate::smt_emit::emit_rust_spec(&spec)
+            + &SMT_ENGINE_RUST.replace("{BOUND}", &options.mc_smt_bound.to_string());
+        return Ok(CodegenOutput {
+            code,
+            warnings: Vec::new(),
+        });
+    }
     // The model checker reuses the production FSM core without unit tests.
     // Property monitors are always included (D-P3-6).
     let fsm_options = BackendOptions {
@@ -81,8 +94,16 @@ fn exact_codegen(
         options.mc_timeout_sec
     ));
     s.push_str(&format!(
+        "const DEFAULT_THREADS: usize = {};\n",
+        options.mc_threads
+    ));
+    s.push_str(&format!(
         "const CONFIG_TOTAL_BYTES: usize = {};\n",
         plan.encoding.total_bytes
+    ));
+    s.push_str(&format!(
+        "const MONITORS_BITS: usize = {};\n",
+        plan.encoding.monitors_bits
     ));
 
     // all_inputs(): canonical enumeration (D-P4-2) - variants in declaration
@@ -813,12 +834,60 @@ fn liv_note(graph: &LivGraph, prop: &LivProperty, w: &LivWitness) -> String {
 "#;
 /// The exact-mode entry point (generated verbatim into every MC binary).
 const EXACT_RUN: &str = r#"
+/// One successor outcome of a config expansion (task 10B): computed in
+/// parallel (phase A), committed sequentially in canonical order (phase B).
+enum LevelOutcome {
+    /// Input with no matching transition and no on_error (D-P4-5 path end).
+    Unexpected(usize),
+    /// Successor pruned by an active assumption.
+    Pruned,
+    /// Property violation at this successor.
+    Violation { iidx: usize, tid: usize, label: String, step: usize, trigger: Option<usize> },
+    /// Valid successor configuration.
+    Success { iidx: usize, tid: usize, node: Node },
+}
+
+/// Expands one config over all inputs x effects. Pure (no shared state), so
+/// phase A may call it from multiple threads on disjoint configs.
+fn expand_config(
+    cid: usize,
+    nodes: &Vec<Node>,
+    depth: &Vec<usize>,
+    inputs: &[Input],
+    nondet: bool,
+    active_assumes: &[String],
+) -> Vec<LevelOutcome> {
+    let node = nodes[cid].clone();
+    let d = depth[cid];
+    let mut outs = Vec::new();
+    for (iidx, input) in inputs.iter().enumerate() {
+        let effects = mc_step_all(node.state.clone(), &node.vars, *input);
+        if effects.is_empty() {
+            outs.push(LevelOutcome::Unexpected(iidx));
+            continue;
+        }
+        let sel: Vec<&McEffect> = if nondet { effects.iter().collect() } else { vec![&effects[0]] };
+        for eff in sel {
+            match step_successor(&node, d, *input, eff, active_assumes) {
+                StepOutcome::Pruned => outs.push(LevelOutcome::Pruned),
+                StepOutcome::Violation(label, step, trigger) => {
+                    outs.push(LevelOutcome::Violation { iidx, tid: eff.transition_id, label, step, trigger });
+                }
+                StepOutcome::Success(n) => outs.push(LevelOutcome::Success { iidx, tid: eff.transition_id, node: n }),
+            }
+        }
+    }
+    outs
+}
+
 fn run_exact() -> ! {
     // Runtime flags (codegen-time defaults, D-P4-7).
     let args: Vec<String> = std::env::args().collect();
     let mut max_states = DEFAULT_MAX_STATES;
     let mut nondet = DEFAULT_NONDET;
     let mut timeout_sec = DEFAULT_TIMEOUT_SEC;
+    let mut threads = DEFAULT_THREADS;
+    let mut fast = false;
     let mut assumes_arg = "all".to_string();
     let mut i = 1;
     while i < args.len() {
@@ -826,6 +895,8 @@ fn run_exact() -> ! {
             "--max-states" => { i += 1; max_states = args.get(i).and_then(|x| x.parse().ok()).unwrap_or(DEFAULT_MAX_STATES); }
             "--nondet" => { nondet = true; }
             "--timeout-sec" => { i += 1; timeout_sec = args.get(i).and_then(|x| x.parse().ok()).unwrap_or(DEFAULT_TIMEOUT_SEC); }
+            "--threads" => { i += 1; threads = args.get(i).and_then(|x| x.parse().ok()).unwrap_or(DEFAULT_THREADS); }
+            "--fast" => { fast = true; }
             "--assumes" => { i += 1; assumes_arg = args.get(i).cloned().unwrap_or_else(|| "all".into()); }
             _ => {}
         }
@@ -876,60 +947,139 @@ fn run_exact() -> ! {
     let mut fail_path: Vec<(usize, usize, usize)> = Vec::new();
     let mut is_deadlock = false;
 
+    // Parallel level expansion (task 10B): with --threads N > 1, phase A
+    // computes every successor outcome of the current level in parallel
+    // (workers own disjoint frontier chunks; no shared mutable state), and
+    // phase B commits them SEQUENTIALLY in canonical order - visited insert
+    // at enqueue, parent/depth/adj pushes, first violation, deadlock check -
+    // exactly as the single-threaded engine does. Results are therefore a
+    // pure function of the spec: byte-identical to --threads 1 for any N.
+    // --fast (non-parity): phase A stops scheduling work once any worker
+    // finds a violation, and the first found violation is reported.
     'outer: while !frontier.is_empty() {
         if timeout_sec > 0 && start.elapsed().as_secs() >= timeout_sec { status = 3; break; }
         let mut next_frontier: Vec<usize> = Vec::new();
-        for &cid in &frontier {
-            let node = nodes[cid].clone();
-            let d = depth[cid];
-            let mut any_successor = false;
-            for (iidx, input) in inputs.iter().enumerate() {
-                let effects = mc_step_all(node.state.clone(), &node.vars, *input);
-                if effects.is_empty() {
-                    // Input matches no transition and there is no on_error:
-                    // this path terminates (D-P4-5); the configuration itself
-                    // may still have other successors.
-                    unexpected += 1;
-                    if first_unexpected.is_none() { first_unexpected = Some((cid, iidx)); }
-                    continue;
+        let n_threads = threads.min(frontier.len());
+
+        // Phase A: expand the level - sequentially (n_threads == 1) or in
+        // parallel over disjoint frontier chunks. Outcomes per config are in
+        // canonical position order (input x effect).
+        let abort = std::sync::atomic::AtomicBool::new(false);
+        let outcomes: Vec<Vec<LevelOutcome>> = if n_threads <= 1 {
+            frontier.iter().map(|&cid| expand_config(cid, &nodes, &depth, &inputs, nondet, &active_assumes)).collect()
+        } else {
+            // Shared read-only state as pre-bound references: each worker
+            // closure captures only Copy values (references + primitives), so
+            // no engine data is moved and loop variables are never shared.
+            let nodes_ref = &nodes;
+            let depth_ref = &depth;
+            let inputs_ref = &inputs;
+            let assumes_ref = &active_assumes;
+            let frontier_ref = &frontier;
+            let abort_ref = &abort;
+            std::thread::scope(|s| {
+                let mut handles = Vec::new();
+                let chunk = (frontier.len() + n_threads - 1) / n_threads;
+                for w in 0..n_threads {
+                    let lo = w * chunk;
+                    if lo >= frontier.len() { break; }
+                    let range = (lo, ((w + 1) * chunk).min(frontier.len()));
+                    handles.push(s.spawn(move || {
+                        frontier_ref[range.0..range.1].iter().map(|&cid| {
+                            if fast && abort_ref.load(std::sync::atomic::Ordering::Relaxed) { return Vec::new(); }
+                            let outs = expand_config(cid, nodes_ref, depth_ref, inputs_ref, nondet, assumes_ref);
+                            if fast && outs.iter().any(|o| matches!(o, LevelOutcome::Violation { .. })) {
+                                abort_ref.store(true, std::sync::atomic::Ordering::Relaxed);
+                            }
+                            outs
+                        }).collect::<Vec<_>>()
+                    }));
                 }
-                let sel: Vec<&McEffect> = if nondet { effects.iter().collect() } else { vec![&effects[0]] };
-                for eff in sel {
-                    transitions += 1;
-                    match step_successor(&node, d, *input, eff, &active_assumes) {
-                        StepOutcome::Pruned => {}
-                        StepOutcome::Violation(label, step, _trigger) => {
-                            status = 4; fail_wire = "property-violation"; fail_label = label; fail_step = step;
-                            let mut p = path_to(&parent, cid);
-                            p.push((cid, iidx, eff.transition_id));
-                            fail_path = p;
-                            break 'outer;
-                        }
-                        StepOutcome::Success(n) => {
-                            any_successor = true;
-                            let bytes = config_bytes(n.state.clone(), &n.vars, &n.prop, &n.assume);
-                            let tcid = match visited.get(&bytes).copied() {
-                                Some(x) => x,
-                                None => {
-                                    if nodes.len() >= max_states { status = 2; break 'outer; }
-                                    visited.insert(bytes, nodes.len());
-                                    parent.push(Some((cid, iidx, eff.transition_id)));
-                                    depth.push(d + 1);
-                                    if d + 1 > max_depth { max_depth = d + 1; }
-                                    adj.push(Vec::new());
-                                    complete.push(false);
-                                    nodes.push(n);
-                                    next_frontier.push(nodes.len() - 1);
-                                    nodes.len() - 1
-                                }
-                            };
-                            // Graph edge: recorded for every Success outcome,
-                            // including edges to already-visited configs.
-                            adj[cid].push((iidx, eff.transition_id, tcid));
-                        }
+                // Flatten the per-worker chunks (in frontier order) into one
+                // outcome vec per config.
+                handles
+                    .into_iter()
+                    .map(|h| h.join().unwrap())
+                    .collect::<Vec<_>>()
+                    .into_iter()
+                    .flatten()
+                    .collect::<Vec<_>>()
+            })
+        };
+
+        // --fast early abort (non-parity): report the first violation found.
+        // Which configs were expanded before the abort is race-dependent, so
+        // states/transitions/label may vary between runs (never a false pass).
+        if fast && n_threads > 1 && abort.load(std::sync::atomic::Ordering::Relaxed) {
+            'scan: for (j, &cid) in frontier.iter().enumerate() {
+                for out in &outcomes[j] {
+                    if let LevelOutcome::Violation { iidx, tid, label, step, .. } = out {
+                        status = 4; fail_wire = "property-violation"; fail_label = label.clone(); fail_step = *step;
+                        let mut p = path_to(&parent, cid);
+                        p.push((cid, *iidx, *tid));
+                        fail_path = p;
+                        break 'scan;
                     }
                 }
             }
+            // Unreachable: the flag is only set after a Violation outcome is
+            // stored. If it ever triggers, report unknown (never a false pass).
+            if status != 4 { status = 2; }
+            break 'outer;
+        }
+
+        // Phase B: sequential canonical commit - identical to the pre-task-10B
+        // single-threaded order for every observable counter and pointer.
+        'level: for (j, &cid) in frontier.iter().enumerate() {
+            let d = depth[cid];
+            let mut any_successor = false;
+            for out in &outcomes[j] {
+                match out {
+                    LevelOutcome::Unexpected(iidx) => {
+                        // Input matches no transition and there is no on_error:
+                        // this path terminates (D-P4-5); the configuration itself
+                        // may still have other successors. (No transition was
+                        // evaluated, so `transitions` is untouched - as before.)
+                        unexpected += 1;
+                        if first_unexpected.is_none() { first_unexpected = Some((cid, *iidx)); }
+                    }
+                    LevelOutcome::Pruned => {
+                        transitions += 1;
+                    }
+                    LevelOutcome::Violation { iidx, tid, label, step, .. } => {
+                        transitions += 1;
+                        status = 4; fail_wire = "property-violation"; fail_label = label.clone(); fail_step = *step;
+                        let mut p = path_to(&parent, cid);
+                        p.push((cid, *iidx, *tid));
+                        fail_path = p;
+                        break 'level;
+                    }
+                    LevelOutcome::Success { iidx, tid, node } => {
+                        transitions += 1;
+                        any_successor = true;
+                        let bytes = config_bytes(node.state.clone(), &node.vars, &node.prop, &node.assume);
+                        let tcid = match visited.get(&bytes).copied() {
+                            Some(x) => x,
+                            None => {
+                                if nodes.len() >= max_states { status = 2; break 'level; }
+                                visited.insert(bytes, nodes.len());
+                                parent.push(Some((cid, *iidx, *tid)));
+                                depth.push(d + 1);
+                                if d + 1 > max_depth { max_depth = d + 1; }
+                                adj.push(Vec::new());
+                                complete.push(false);
+                                nodes.push(node.clone());
+                                next_frontier.push(nodes.len() - 1);
+                                nodes.len() - 1
+                            }
+                        };
+                        // Graph edge: recorded for every Success outcome,
+                        // including edges to already-visited configs.
+                        adj[cid].push((*iidx, *tid, tcid));
+                    }
+                }
+            }
+            if status == 4 || status == 2 { break 'outer; }
             complete[cid] = true;
             if !any_successor {
                 // Deadlock (D-P4-5): no successor at all - every input was
@@ -980,6 +1130,10 @@ fn run_exact() -> ! {
     println!("{}", exact_summary_line(st_wire, states, transitions, max_depth, fail));
     println!("  unexpected terminations: {}", unexpected);
     if let Some((cid, iidx)) = first_unexpected { println!("  first unexpected: config {} input index {}", cid, iidx); }
+    // Statistics block (task 10): identical field set and format in both
+    // backends - monitor size is the encoded bit width of all property +
+    // assumption monitors (deterministic; feeds CONFIG_TOTAL_BYTES).
+    println!("  monitor size: {} bits", MONITORS_BITS);
     println!("  memory estimate: {} bytes", mem_est);
 
     if status == 4 {
@@ -1207,5 +1361,292 @@ fn run_fuzz() {
     }
 
     println!("model-check summary: runs={} bound={} completed={} unexpected={} assumption_stops={} property_violations={}", runs, bound, completed, unexpected_count, assumption_stops, property_violations);
+}
+"#;
+
+/// SMT bounded-mode runtime (task 11). `{BOUND}` is replaced with the
+/// codegen-time default (`--smt-bound`). The generated file = spec section
+/// (smt_emit) + this engine. Parity-critical conventions: step variables are
+/// z3 constants with fixed names declared in a fixed order; constraints are
+/// asserted in a fixed order; queries run in a fixed order (safety properties
+/// in declaration order, then liveness properties in declaration order). The
+/// C backend mirrors all of this exactly.
+const SMT_ENGINE_RUST: &str = r#"
+// ===== SMT bounded-mode runtime (task 11) =====
+const DEFAULT_BOUND: usize = {BOUND};
+
+use z3::{Config, Model, SatResult, Solver, with_z3_config};
+
+fn smt_read_bv(m: &Model, e: &BV) -> u64 {
+    m.eval(e, true).expect("model evaluation").as_u64().expect("numeral value")
+}
+
+fn smt_read_bool(m: &Model, e: &Bool) -> bool {
+    m.eval(e, true).expect("model evaluation").as_bool().expect("bool value")
+}
+
+/// Two-argument boolean connectives (z3 0.21 exposes variadic associated
+/// functions; this wrapper keeps the rendered call sites uniform and maps to
+/// Z3_mk_and/Z3_mk_or with two args - identical to the C backend).
+fn b_and(a: &Bool, b: &Bool) -> Bool { Bool::and(&[a, b]) }
+fn b_or(a: &Bool, b: &Bool) -> Bool { Bool::or(&[a, b]) }
+
+/// Witness trace (pinned format - identical in both backends).
+fn smt_print_trace(k: usize, m: &Model, s_vars: &[BV], v_vars: &[Vec<BV>], ev_vars: Option<&[BV]>, fld_vars: &[Vec<BV>]) {
+    println!("witness trace (solver model; bound k={k}):");
+    for i in 0..k {
+        let si = smt_read_bv(m, &s_vars[i]) as usize;
+        let mut vs = String::new();
+        for j in 0..VAR_NAMES.len() {
+            if j > 0 { vs.push_str(", "); }
+            let val = smt_read_bv(m, &v_vars[i][j]);
+            if VAR_IS_BOOL[j] {
+                vs.push_str(&format!("{}={}", VAR_NAMES[j], if val != 0 { "true" } else { "false" }));
+            } else {
+                vs.push_str(&format!("{}={}", VAR_NAMES[j], val));
+            }
+        }
+        let ev = if N_CLASSES > 1 {
+            let ci = smt_read_bv(m, &ev_vars.expect("event vars")[i]) as usize;
+            let mut fs = String::new();
+            for g in 0..FIELD_POS.len() {
+                if FIELD_POS[g].0 != ci { continue; }
+                if !fs.is_empty() { fs.push_str(", "); }
+                let val = smt_read_bv(m, &fld_vars[i][g]);
+                if FIELD_IS_BOOL[g] {
+                    fs.push_str(&format!("{}={}", FIELD_NAMES[g], if val != 0 { "true" } else { "false" }));
+                } else {
+                    fs.push_str(&format!("{}={}", FIELD_NAMES[g], val));
+                }
+            }
+            format!("event={}({fs})", CLASS_NAMES[ci])
+        } else {
+            "event=-".to_string()
+        };
+        println!("  step {i}: state={} vars={{{vs}}} {ev}", STATES[si]);
+    }
+}
+
+fn run_smt() -> i32 {
+    // Runtime flags.
+    let args: Vec<String> = std::env::args().collect();
+    let mut bound = DEFAULT_BOUND;
+    let mut ai = 1;
+    while ai < args.len() {
+        if args[ai] == "--bound" {
+            ai += 1;
+            bound = args.get(ai).and_then(|x| x.parse().ok()).unwrap_or(DEFAULT_BOUND);
+        }
+        ai += 1;
+    }
+    let k = bound.max(1);
+    let cfg = Config::new();
+    with_z3_config(&cfg, || {
+        // ---- Step variables (fixed names/order - parity-critical) ----
+        let s_vars: Vec<BV> = (0..k).map(|i| BV::new_const(format!("s_{i}"), STATE_BITS)).collect();
+        let v_vars: Vec<Vec<BV>> = (0..k)
+            .map(|i| VAR_WIDTHS.iter().enumerate().map(|(j, &w)| BV::new_const(format!("v_{i}_{j}"), w)).collect())
+            .collect();
+        let ev_vars: Option<Vec<BV>> = if N_CLASSES > 1 {
+            Some((0..k).map(|i| BV::new_const(format!("ev_{i}"), CLS_BITS)).collect())
+        } else {
+            None
+        };
+        let fld_vars: Vec<Vec<BV>> = (0..k)
+            .map(|i| FIELD_WIDTHS.iter().enumerate().map(|(g, &w)| BV::new_const(format!("fld_{i}_{g}"), w)).collect())
+            .collect();
+
+        // ---- Base constraints: initial configuration + k-step unrolling ----
+        let mut base: Vec<Bool> = vec![s_vars[0].eq(&BV::from_u64(INITIAL_STATE, STATE_BITS))];
+        for j in 0..VAR_WIDTHS.len() {
+            base.push(v_vars[0][j].eq(&BV::from_u64(VAR_INITS[j], VAR_WIDTHS[j])));
+        }
+        let guards = guard_fns();
+        let asgns = asgn_fns();
+        let mut alive: Vec<Bool> = vec![Bool::from_bool(true)];
+        for i in 0..k - 1 {
+            // enabled_t = state match ∧ class match ∧ guard (firing order).
+            let mut enableds: Vec<Bool> = Vec::new();
+            for t in 0..TRANS.len() {
+                let mut en = s_vars[i].eq(&BV::from_u64(TRANS[t].0 as u64, STATE_BITS));
+                if N_CLASSES > 1 {
+                    en = b_and(&en, &ev_vars.as_ref().unwrap()[i].eq(&BV::from_u64(TRANS[t].2 as u64, CLS_BITS)));
+                }
+                en = b_and(&en, &guards[t](i));
+                enableds.push(en);
+            }
+            // fire_t = enabled_t ∧ no earlier transition enabled (first match).
+            let mut fires: Vec<Bool> = Vec::new();
+            let mut prefix_or: Option<Bool> = None;
+            for t in 0..TRANS.len() {
+                let fire = match &prefix_or {
+                    Some(p) => b_and(&p.not(), &enableds[t]),
+                    None => b_and(&enableds[t], &Bool::from_bool(true)),
+                };
+                // The and-true keeps the node fresh (no move out of the vec);
+                // z3 rewrites it to `en` - the C backend does the same op.
+                let new_prefix = match prefix_or {
+                    Some(p) => b_or(&p, &enableds[t]),
+                    None => b_and(&enableds[t], &Bool::from_bool(true)),
+                };
+                fires.push(fire);
+                prefix_or = Some(new_prefix);
+            }
+            let any_fire = if fires.is_empty() {
+                Bool::from_bool(false)
+            } else {
+                let mut acc: Option<Bool> = None;
+                for f in &fires {
+                    acc = Some(match acc {
+                        Some(a) => b_or(&a, f),
+                        None => b_and(f, &Bool::from_bool(true)),
+                    });
+                }
+                acc.expect("non-empty fires")
+            };
+            alive.push(b_and(&alive[i], &any_fire));
+            if TRANS.is_empty() {
+                // No transitions: deadlocked from step 0; state/vars frozen.
+                base.push(s_vars[i].eq(&s_vars[i + 1]));
+                for j in 0..VAR_WIDTHS.len() {
+                    base.push(v_vars[i][j].eq(&v_vars[i + 1][j]));
+                }
+            } else {
+                // Next state: ITE chain over firing transitions (last first).
+                let mut chain: BV = BV::from_u64(TRANS[TRANS.len() - 1].1 as u64, STATE_BITS);
+                for t in (0..TRANS.len() - 1).rev() {
+                    chain = fires[t].ite(&BV::from_u64(TRANS[t].1 as u64, STATE_BITS), &chain);
+                }
+                base.push(any_fire.ite(&chain, &s_vars[i]).eq(&s_vars[i + 1]));
+                // Next vars: per-var ITE chains (unchanged when unassigned).
+                for j in 0..VAR_WIDTHS.len() {
+                    let mut acc: Option<BV> = None;
+                    for t in (0..TRANS.len()).rev() {
+                        if ASGN_MAP[t][j] {
+                            let e = asgns[t][j](i);
+                            acc = Some(match acc {
+                                Some(a) => fires[t].ite(&e, &a),
+                                None => fires[t].ite(&e, &v_vars[i][j]),
+                            });
+                        } else if let Some(a) = acc {
+                            acc = Some(fires[t].ite(&v_vars[i][j], &a));
+                        }
+                    }
+                    let next_v = match acc {
+                        Some(a) => any_fire.ite(&a, &v_vars[i][j]),
+                        None => any_fire.ite(&v_vars[i][j], &v_vars[i][j]),
+                    };
+                    base.push(next_v.eq(&v_vars[i + 1][j]));
+                }
+            }
+        }
+
+        // ---- Queries (fixed order: safety, then liveness; declaration order) ----
+        let props = prop_fns();
+        for p in 0..PROP_KINDS.len() {
+            if PROP_KINDS[p] != 0 { continue; }
+            // viol_p = ∃i<k: alive_i ∧ ¬phi_p(i).
+            let mut viol: Option<Bool> = None;
+            for i in 0..k {
+                let phi = props[p](i);
+                let bad = b_and(&alive[i], &phi.not());
+                viol = Some(match viol { Some(v) => b_or(&v, &bad), None => bad });
+            }
+            let solver = Solver::new();
+            for b in &base { solver.assert(b); }
+            solver.assert(viol.expect("property formula"));
+            match solver.check() {
+                SatResult::Sat => {
+                    let m = solver.get_model().expect("model");
+                    let mut vstep = 0usize;
+                    for i in 0..k {
+                        if smt_read_bool(&m, &alive[i]) && !smt_read_bool(&m, &props[p](i)) {
+                            vstep = i;
+                            break;
+                        }
+                    }
+                    println!("FAIL");
+                    println!("model-check summary: status=fail mode=smt-bounded bound={k} reason=property-violation label={} step={vstep}", PROP_NAMES[p]);
+                    println!("property violation: {}", PROP_NAMES[p]);
+                    println!("  violation step: {vstep}");
+                    smt_print_trace(k, &m, &s_vars, &v_vars, ev_vars.as_deref(), &fld_vars);
+                    return 1;
+                }
+                SatResult::Unsat => {}
+                SatResult::Unknown => {
+                    println!("UNKNOWN (solver inconclusive within bound {k})");
+                    println!("model-check summary: status=unknown mode=smt-bounded bound={k}");
+                    return 2;
+                }
+            }
+        }
+        for p in 0..PROP_KINDS.len() {
+            if PROP_KINDS[p] != 1 { continue; }
+            // never_p = phi_p holds at no alive step within the bound.
+            let mut never: Option<Bool> = None;
+            for i in 0..k {
+                let phi = props[p](i);
+                let n = b_and(&alive[i], &phi).not();
+                never = Some(match never { Some(v) => b_and(&v, &n), None => n });
+            }
+            // cycle = ∃a<b: identical (state, vars) - an infinite path.
+            let mut cyc: Option<Bool> = None;
+            for a in 0..k {
+                for b in (a + 1)..k {
+                    let mut eq = s_vars[a].eq(&s_vars[b]);
+                    for j in 0..VAR_WIDTHS.len() {
+                        eq = b_and(&eq, &v_vars[a][j].eq(&v_vars[b][j]));
+                    }
+                    cyc = Some(match cyc { Some(c) => b_or(&c, &eq), None => eq });
+                }
+            }
+            if let Some(c) = cyc {
+                let solver = Solver::new();
+                for b in &base { solver.assert(b); }
+                solver.assert(never.expect("liveness formula"));
+                solver.assert(&c);
+                match solver.check() {
+                    SatResult::Sat => {
+                        let m = solver.get_model().expect("model");
+                        // Find the cycle pair from the model (first in order).
+                        let cfgs: Vec<(u64, Vec<u64>)> = (0..k)
+                            .map(|i| {
+                                let s = smt_read_bv(&m, &s_vars[i]);
+                                let vs: Vec<u64> = (0..VAR_WIDTHS.len()).map(|j| smt_read_bv(&m, &v_vars[i][j])).collect();
+                                (s, vs)
+                            })
+                            .collect();
+                        let mut pair = (0usize, 1usize);
+                        'outer: for a in 0..k {
+                            for b in (a + 1)..k {
+                                if cfgs[a] == cfgs[b] { pair = (a, b); break 'outer; }
+                            }
+                        }
+                        println!("FAIL");
+                        println!("model-check summary: status=fail mode=smt-bounded bound={k} reason=liveness-violation label={} step={}", PROP_NAMES[p], pair.0);
+                        println!("liveness violation: {}", PROP_NAMES[p]);
+                        println!("  violation step: {}", pair.0);
+                        println!("  cycle length: {}", pair.1 - pair.0);
+                        smt_print_trace(k, &m, &s_vars, &v_vars, ev_vars.as_deref(), &fld_vars);
+                        return 1;
+                    }
+                    SatResult::Unsat => {}
+                    SatResult::Unknown => {
+                        println!("UNKNOWN (solver inconclusive within bound {k})");
+                        println!("model-check summary: status=unknown mode=smt-bounded bound={k}");
+                        return 2;
+                    }
+                }
+            }
+        }
+        // No violation found within the bound (incomplete - no claim).
+        println!("PASS WITHIN BOUND {k} (incomplete - no completeness claim)");
+        println!("model-check summary: status=pass-within-bound mode=smt-bounded bound={k}");
+        0
+    })
+}
+
+fn main() {
+    std::process::exit(run_smt());
 }
 "#;

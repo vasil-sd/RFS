@@ -540,3 +540,21 @@ sed -n "<start>,<end>p" TASKS.md            # one specific entry by line range
 - `tests/backend_parity_test.rs`: 4 new liveness parity tests (example 43 byte-identity; 10 inline variants exit+full-stdout identity; pinned lasso fields both backends; truncated-mode soundness); `compile_c` now asserts zero gcc warnings.
 - Verification: cargo test 217/217 (was 213); clippy at the 12-warning HEAD baseline (stash-diff verified, zero new); fmt clean; all 43 generated C MC binaries compile with `gcc -Wall` at zero warnings (one-shot check).
 - Logs: `docs/roadmap/TASKS.md` (task 7 section) + `docs/roadmap/PHASE_4_TASK_7_STATUS.md`.
+
+## 2026-10-19 $(date +%H:%M) — Phase 4 task 8: benchmark specs (token ring + elevator) with safety/liveness/abstraction stress; C sub-byte wrap gap closed
+
+### Interpretation & plan
+
+- Add the two remaining D-P4-13 protocol-like benchmark specs per `PHASE_4_TASK_8.md`: `examples/valid/44_token_ring.rfs` (4-node token ring) and `examples/valid/45_elevator.rfs` (elevator), each correct (exact MC -> pass-complete) with safety + liveness properties, deliberately unused wide payload fields (abstraction stress), and concrete wide fields for state-count contrast; record sizing data for tasks 9/10.
+
+### Report
+
+- `examples/valid/44_token_ring.rfs` (new): token circulates on Tick (bit<2> wrap 3->0); pending requests granted on arrival; safety `holder_no_request`, liveness `req_granted_1/2/3` (top-level eventually, non-vacuous via init) + `req_granted_1_bounded` (every-instance bounded check); Request carries unused bit<16> payload (abstracted), token `data: bit<8>` is the concrete wide field.
+- `examples/valid/45_elevator.rfs` (new): 4 floors, State {Idle,Up,Down} as direction; startup calls up@2 + down@3 (non-vacuous `up2_served`/`down3_served`); safety `idle_no_local_call`; presses at the current floor served in-step without state change (momentum preserved - a reset-to-Idle design let press-spam trap the elevator forever, MC-found); call vectors bit<8> concrete wide fields, user_id bit<16> abstracted.
+- **Pre-existing C backend gap closed** (`src/backends/c_fsm.rs`): `+`/`-`/`*` now masked to the RFS bit width after the C cast (was: wrapped at C type width - all bit<N<=8 are uint8_t). The ring's bit<2> wrap was the first spec to exercise it: C reported FAIL where Rust passed. All 45 generated C MC binaries re-verified gcc -Wall clean.
+- `tests/backend_parity_test.rs`: pin entries for both specs (129985/519940/276 and 11098/99882/22, pass-complete) + split re-pinned (7,9)->(9,9).
+- Sizing data recorded (status file): ring ~130k states (~1s), elevator ~11k (~0.08s); ring without `data` = 2032 states (~64x contrast); abstracted payloads keep input enumeration at 5/9 per step vs ~262k/524k concrete (infeasible).
+- MC-found design traps documented in spec headers + status file: coincident-deadline spurious deadlock with two bounded_eventually assumptions over disjoint events (keep one assumption per benchmark spec); `pos+1` wrap at top floor (masks from `1<<pos` only); bounded-obligation state blow-up (~N countdown states per pending config - two bound-80s blew the elevator past 1M states, dropped); flat property formulas (leading `(` is a formula group, not an expression sub-paren).
+- Non-vacuity: ring without grant arm -> FAIL holder_no_request step 1; elevator without Idle go-up arm -> FAIL liveness up2_served (lasso).
+- Verification: cargo test **217/217** (parity auto-pickup green on both specs); clippy 11 lib + 1 codegen_test baseline (zero new); fmt clean; generated-code tests **522/522** (was 513); gcc -Wall sweep all 45 examples zero warnings.
+- Logs: `docs/roadmap/TASKS.md` (task 8 section) + `docs/roadmap/PHASE_4_TASK_8_STATUS.md`.

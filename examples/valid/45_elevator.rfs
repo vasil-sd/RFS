@@ -1,0 +1,196 @@
+# Phase 4 benchmark (task 8): 4-floor elevator with safety + liveness.
+#
+# The elevator moves one floor per Tick. While moving it stops to serve any
+# pending call at the current floor (both directions, one stop); it reverses
+# direction only at the ends and waits (Idle) when no call is anywhere. A
+# press at the floor the elevator is currently at is served immediately (one
+# stop clears both call vectors there), so a press never leaves a pending
+# local bit behind; calls pressed elsewhere are served on the next visit.
+# Two calls wait at startup: an up-call at floor 2 and a down-call at floor 3.
+#
+# Liveness "every call is eventually served": up2_served / down3_served check
+# the two startup calls (non-vacuous: both are pending at init). Per-instance
+# bounded liveness (always (pending -> bounded_eventually[N] cleared)) lives in
+# spec 44 instead: each such obligation adds ~N countdown states to every
+# config where the bit is set, which blew this spec past the Phase 4 sizing
+# target (1M+ states with two bound-80 obligations).
+#
+# Note: only ONE environment assumption (env_tick). Two independent
+# bounded_eventually assumptions over disjoint event sets admit prefixes where
+# both countdowns reach their deadline on the same sample - no single input can
+# satisfy both, so every successor is pruned and exact MC reports a spurious
+# deadlock. Kept out of this benchmark spec on purpose.
+#
+# Abstraction stress: CallUp/CallDown carry a bit<16> user_id the protocol
+# never inspects - input abstraction (D-P4-3) collapses it to one
+# representative, so the state space is independent of its width. The call
+# vectors are CONCRETE wide fields (bit<8>, only bits 0-3 used): 16x16
+# combinations multiply the state space.
+module elevator {
+  enum State { Idle, Up, Down }
+  initial Idle
+
+  event Tick
+  event CallUp(F(floor: bit<2>, user_id: bit<16>))
+  event CallDown(F(floor: bit<2>, user_id: bit<16>))
+
+  output Serve(S(floor: bit<2>))
+
+  var pos: bit<2>      init 0   # current floor (0 = bottom, 3 = top)
+  var up_calls: bit<8> init 4   # pending up-calls, one bit per floor; only bits 0-3 used
+  var down_calls: bit<8> init 8 # pending down-calls, one bit per floor; only bits 0-3 used
+
+  assume env_tick : always (bounded_eventually[5] (input_is(Tick))) ;
+
+  # Safety: the elevator never idles while a passenger waits at its floor
+  # (holds at every sample: presses at the current floor are served in the
+  # same step, and stops clear both call vectors there).
+  prop idle_no_local_call : always (state == Idle -> up_calls & (1 << pos) == 0 && down_calls & (1 << pos) == 0) ;
+
+  # Liveness: the two startup calls are eventually served.
+  prop up2_served : eventually (up_calls & 4 == 0) ;
+  prop down3_served : eventually (down_calls & 8 == 0) ;
+
+  # Passengers press calls (the user_id is never inspected - input
+  # abstraction collapses it to one value). A press at the floor the elevator
+  # is currently at is served immediately: one stop clears BOTH call vectors
+  # at that floor (and the pressing passenger boards) WITHOUT losing the
+  # current state - staying in Up/Down is what makes up2_served / down3_served
+  # hold against an environment that spams presses at the current floor
+  # (any reset to Idle would let a press interrupt every ascent attempt). A
+  # press elsewhere sets the pending bit; it is served on the next visit.
+  transition Idle on CallUp(F(floor, user_id)) where floor == pos {
+    priority 2;
+    next Idle;
+    emit Serve(S(pos));
+    set up_calls = up_calls & ~(1 << pos);
+    set down_calls = down_calls & ~(1 << pos);
+  }
+  transition Idle on CallUp(F(floor, user_id)) where floor != pos {
+    priority 1;
+    next Idle;
+    set up_calls = up_calls | (1 << floor);
+  }
+  transition Up on CallUp(F(floor, user_id)) where floor == pos {
+    priority 2;
+    next Up;
+    emit Serve(S(pos));
+    set up_calls = up_calls & ~(1 << pos);
+    set down_calls = down_calls & ~(1 << pos);
+  }
+  transition Up on CallUp(F(floor, user_id)) where floor != pos {
+    priority 1;
+    next Up;
+    set up_calls = up_calls | (1 << floor);
+  }
+  transition Down on CallUp(F(floor, user_id)) where floor == pos {
+    priority 2;
+    next Down;
+    emit Serve(S(pos));
+    set up_calls = up_calls & ~(1 << pos);
+    set down_calls = down_calls & ~(1 << pos);
+  }
+  transition Down on CallUp(F(floor, user_id)) where floor != pos {
+    priority 1;
+    next Down;
+    set up_calls = up_calls | (1 << floor);
+  }
+  transition Idle on CallDown(F(floor, user_id)) where floor == pos {
+    priority 2;
+    next Idle;
+    emit Serve(S(pos));
+    set up_calls = up_calls & ~(1 << pos);
+    set down_calls = down_calls & ~(1 << pos);
+  }
+  transition Idle on CallDown(F(floor, user_id)) where floor != pos {
+    priority 1;
+    next Idle;
+    set down_calls = down_calls | (1 << floor);
+  }
+  transition Up on CallDown(F(floor, user_id)) where floor == pos {
+    priority 2;
+    next Up;
+    emit Serve(S(pos));
+    set up_calls = up_calls & ~(1 << pos);
+    set down_calls = down_calls & ~(1 << pos);
+  }
+  transition Up on CallDown(F(floor, user_id)) where floor != pos {
+    priority 1;
+    next Up;
+    set down_calls = down_calls | (1 << floor);
+  }
+  transition Down on CallDown(F(floor, user_id)) where floor == pos {
+    priority 2;
+    next Down;
+    emit Serve(S(pos));
+    set up_calls = up_calls & ~(1 << pos);
+    set down_calls = down_calls & ~(1 << pos);
+  }
+  transition Down on CallDown(F(floor, user_id)) where floor != pos {
+    priority 1;
+    next Down;
+    set down_calls = down_calls | (1 << floor);
+  }
+
+  # Moving up: stop to serve a call at the current floor (arrived with it
+  # pending); otherwise keep going up. After serving the last demand the
+  # elevator finishes its ascent to the top before reversing or waiting - a
+  # documented simplification; at the top, reverse if a call waits below.
+  transition Up on Tick where ((up_calls | down_calls) & (1 << pos)) != 0 {
+    priority 3;
+    next Idle;
+    emit Serve(S(pos));
+    set up_calls = up_calls & ~(1 << pos);
+    set down_calls = down_calls & ~(1 << pos);
+  }
+  transition Up on Tick where pos < 3 {
+    priority 2;
+    next Up;
+    set pos = pos + 1;
+  }
+  transition Up on Tick where pos == 3 && ((up_calls | down_calls) & ((1 << pos) - 1)) != 0 {
+    priority 1;
+    next Down;
+  }
+  transition Up on Tick {
+    next Idle;
+  }
+
+  # Moving down: mirror image of the Up arms.
+  transition Down on Tick where ((up_calls | down_calls) & (1 << pos)) != 0 {
+    priority 3;
+    next Idle;
+    emit Serve(S(pos));
+    set up_calls = up_calls & ~(1 << pos);
+    set down_calls = down_calls & ~(1 << pos);
+  }
+  transition Down on Tick where pos > 0 {
+    priority 2;
+    next Down;
+    set pos = pos - 1;
+  }
+  transition Down on Tick where pos == 0 && ((up_calls | down_calls) & ~((1 << (pos + 1)) - 1)) != 0 {
+    priority 1;
+    next Up;
+  }
+  transition Down on Tick {
+    next Idle;
+  }
+
+  # Idle: head to the nearest demand (up first), or wait when no call is
+  # anywhere. No serve arm here: state Idle never has a pending call at the
+  # current floor (idle_no_local_call).
+  # Call at some floor strictly above pos: floors >= pos minus the current
+  # floor (built from `1 << pos` - `pos + 1` would wrap at the top floor).
+  transition Idle on Tick where ((up_calls | down_calls) & (~((1 << pos) - 1) & ~(1 << pos))) != 0 {
+    priority 2;
+    next Up;
+  }
+  transition Idle on Tick where ((up_calls | down_calls) & ((1 << pos) - 1)) != 0 {
+    priority 1;
+    next Down;
+  }
+  transition Idle on Tick {
+    next Idle;
+  }
+}

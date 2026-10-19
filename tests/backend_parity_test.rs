@@ -479,6 +479,34 @@ fn pinned(name: &str) -> Pinned {
             trigger_step: None,
             violation_step: None,
         },
+        // Phase 4 benchmark specs (task 8). The token ring is the first spec
+        // whose bit<2> arithmetic WRAPS (holder 3 -> 0): it exposed and pinned
+        // the C backend's missing sub-byte modular mask on +,-,* (c_fsm.rs),
+        // which previously let holder run past 3 in generated C.
+        "44_token_ring.rfs" => Pinned {
+            exit_code: 0,
+            status: "pass-complete",
+            states: 129985,
+            transitions: 519940,
+            max_depth: 276,
+            reason: None,
+            label: None,
+            step: None,
+            trigger_step: None,
+            violation_step: None,
+        },
+        "45_elevator.rfs" => Pinned {
+            exit_code: 0,
+            status: "pass-complete",
+            states: 11098,
+            transitions: 99882,
+            max_depth: 22,
+            reason: None,
+            label: None,
+            step: None,
+            trigger_step: None,
+            violation_step: None,
+        },
         "31_traffic_light_tla.rfs" => Pinned {
             exit_code: 0,
             status: "pass-complete",
@@ -600,10 +628,11 @@ fn mc_exact_results_match_re_pinned_values() {
             n_fail += 1;
         }
     }
-    // Pinned current state: 7 pass-complete, 9 fail (1 property violation on
+    // Pinned current state: 9 pass-complete, 9 fail (1 property violation on
     // 13_properties_safety, 8 deadlocks at terminal states). Example 43 is the
-    // first liveness-bearing spec (task 6): pass-complete in both backends.
-    assert_eq!((n_pass, n_fail), (7, 9), "pass/fail split drifted");
+    // first liveness-bearing spec (task 6): pass-complete in both backends;
+    // examples 44/45 are the Phase 4 benchmark specs (task 8): pass-complete.
+    assert_eq!((n_pass, n_fail), (9, 9), "pass/fail split drifted");
 }
 
 // ---------------------------------------------------------------------------

@@ -409,8 +409,16 @@ fn gen_expr_c(e: &Expr, env: &Env, ctx: &Ctx, module: &Module) -> Result<String,
                         _ => "*",
                     };
                     let body = format!("({}) {} ({})", l, sym, r);
-                    if width.is_some() {
-                        Ok(format!("({})({})", ctype(&ty), body))
+                    if let Some(w) = width {
+                        // bit<N> arithmetic is modular at N bits (parity with
+                        // the Rust backend's wrapping ops): C types are wider
+                        // than sub-byte RFS widths, so mask after the cast.
+                        Ok(format!(
+                            "({})(({}) & ({}))",
+                            ctype(&ty),
+                            body,
+                            mask_c_expr(w)
+                        ))
                     } else {
                         Ok(format!("({})", body))
                     }

@@ -1,0 +1,73 @@
+# Phase 4 benchmark (task 8): 4-node token ring with safety + liveness.
+#
+# A single token circulates the ring; on every Tick it passes to the next
+# node in ring order (bit<2> addition wraps 3 -> 0). A node with a pending
+# request is granted when the token arrives at it: its flag clears and a
+# Grant is emitted. Nodes may request only while they do not hold the token.
+#
+# Liveness "every request is eventually granted": nodes 1-3 request at
+# startup (req init 14); req_granted_* check that each startup request is
+# cleared, and flags are cleared ONLY on grant (safety invariant
+# holder_no_request). The bounded property checks EVERY instance of node 1's
+# requests (the environment may re-request at any time): the token needs at
+# most 3 hops and env_tick bounds each hop to 5 samples.
+#
+# Abstraction stress: Request carries a bit<16> payload the protocol never
+# inspects - input abstraction (D-P4-3) collapses it to one representative,
+# so the state space is independent of its width. The token's carried frame
+# ID (data: bit<8>) is a CONCRETE wide field: updated on every pass but never
+# inspected, it multiplies the state space by 256 and shows the contrast.
+module token_ring {
+  enum State { Running }
+  initial Running
+
+  event Tick
+  event Request(R(node: bit<2>, payload: bit<16>))
+
+  output Grant(G(node: bit<2>, frame: bit<8>))
+  output Pass(P(from: bit<2>, to: bit<2>))
+
+  var holder: bit<2> init 0   # current token holder (ring position)
+  var req: bit<8>    init 14  # pending request flags, one per node; only bits 0-3 used
+  var data: bit<8>   init 0   # frame ID carried by the token, +1 each pass (concrete wide field)
+
+  assume env_tick : always (bounded_eventually[5] (input_is(Tick))) ;
+
+  # Safety: the current holder never has a pending request - flags are only
+  # cleared on grant, at the granting step.
+  prop holder_no_request : always (req & (1 << holder) == 0) ;
+
+  # Liveness: every startup request is eventually granted (nodes 1-3).
+  prop req_granted_1 : eventually (req & 2 == 0) ;
+  prop req_granted_2 : eventually (req & 4 == 0) ;
+  prop req_granted_3 : eventually (req & 8 == 0) ;
+
+  # Liveness (bounded, every instance): node 1's request is granted within
+  # 25 samples of being set.
+  prop req_granted_1_bounded : always (req & 2 != 0 -> bounded_eventually[25] (req & 2 == 0)) ;
+
+  # A node requests the token (only while it does not hold it). The payload
+  # is never inspected - input abstraction collapses it to one value.
+  transition Running on Request(R(node, payload)) where node != holder {
+    next Running;
+    set req = req | (1 << node);
+  }
+
+  # Token passes to the next node in ring order. If that node has a pending
+  # request it is granted: flag clears and a Grant is emitted.
+  transition Running on Tick where ((req & (1 << (holder + 1))) != 0) {
+    priority 2;
+    next Running;
+    emit Grant(G(holder + 1, data));
+    set req = req & ~(1 << (holder + 1));
+    set holder = holder + 1;
+    set data = data + 1;
+  }
+  transition Running on Tick {
+    priority 1;
+    next Running;
+    emit Pass(P(holder, holder + 1));
+    set holder = holder + 1;
+    set data = data + 1;
+  }
+}

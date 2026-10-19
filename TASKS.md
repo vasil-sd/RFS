@@ -558,3 +558,53 @@ sed -n "<start>,<end>p" TASKS.md            # one specific entry by line range
 - Non-vacuity: ring without grant arm -> FAIL holder_no_request step 1; elevator without Idle go-up arm -> FAIL liveness up2_served (lasso).
 - Verification: cargo test **217/217** (parity auto-pickup green on both specs); clippy 11 lib + 1 codegen_test baseline (zero new); fmt clean; generated-code tests **522/522** (was 513); gcc -Wall sweep all 45 examples zero warnings.
 - Logs: `docs/roadmap/TASKS.md` (task 8 section) + `docs/roadmap/PHASE_4_TASK_8_STATUS.md`.
+
+## 2026-10-18 14:23 — Phase 4 task 4: parity suites migrated to seedless exact mode, values re-pinned [merged from docs/roadmap/TASKS.md on 2026-10-19]
+
+### Interpretation & plan
+
+- Requested: execute Phase 4 task 4 per `docs/roadmap/PHASE_4_TASK_4.md` - migrate both parity suites from same-seed fuzz to seedless exact mode (D-P4-14) and re-pin all values from actual deterministic output.
+- Provenance: the task 4 session appended its log only to `docs/roadmap/TASKS.md` (created by mistake; merged into this file on 2026-10-19, then removed). Original completion time not recorded - timestamp is the commit time of `32e6e3e`.
+
+### Report
+
+- `tests/backend_parity_test.rs` + `tests/monitor_integration_test.rs`: same-seed fuzz -> seedless exact mode; all values re-pinned from actual deterministic output.
+- Re-pin: 6 pass-complete / 9 fail across all 15 property-bearing examples - 8 NEW deadlock findings (terminal states the fuzz walk never reported) + 1 property violation (`13_properties_safety`/`no_bad`, step 1); `41_property_monitors` now reports its depth-3 deadlock before any property violation.
+- Correct-spec test reinterpreted: exact mode explores the full graph, so example 41's terminal state is a legitimate FAIL(deadlock); no-false-positive claim preserved via reason + absence of property violations.
+- Verification: cargo test 184/184; field-identity Rust vs C on all 15 examples; no fuzz assertions remain in either suite; clippy/fmt at baseline.
+- Details: `docs/roadmap/PHASE_4_TASK_4_STATUS.md` (full old->new diff table).
+
+## 2026-10-19 03:03 — Phase 4 task 6: liveness engine in Rust MC binaries + first liveness example (43_sliding_window) [merged from docs/roadmap/TASKS.md on 2026-10-19]
+
+### Interpretation & plan
+
+- Requested: execute Phase 4 task 6 per `docs/roadmap/PHASE_4_TASK_6.md` - liveness engine (per-obligation bad-set analysis, D-P4-10) in Rust MC binaries + first liveness example.
+- Provenance: the task 6 session appended its log only to `docs/roadmap/TASKS.md` (merged into this file on 2026-10-19, then removed). Timestamp = commit time of `a200cf9`.
+
+### Report
+
+- Per-obligation bad-set analysis on the completed reachable graph: per-leaf progress automata (safety ok/bad, eventually wait/done, until ok/sat/bad), product BFS + stay-edge SCC limit-vector enumeration + top-level skeleton evaluation; edge-based labels so `input_is`/`output_has` in obligation bodies depend on the edge taken.
+- **Plan correction (D-P4-10):** the plan text's weak-until equation (backward reach to gfp(¬q∧¬p)) is actually the STRONG-until one - diverges from D-P4-8 semantics on 185/1200 random tiny graphs. Implemented corrected equation: backward reachability staying in ¬q to {pos: ¬p(pos)}; verified against brute-force lasso enumeration (1200 equation + 2000 full-algorithm checks, 0 mismatches).
+- Counterexamples: lasso (prefix + cycle) in Phase 3 trace format; summary `reason=liveness-violation label=<L> step=<cycle start>`; human fields formula/violation step/cycle length/note. Bounded mode: truncated analysis - sound FAIL when the witness lies inside, else `unknown-state-limit`; never a false pass-complete (both directions test-pinned).
+- `--nondet` strong transition fairness (D-P4-11): bad cycle must be fair (every enabled successor of each cycle state is taken on the cycle) -> stay-edge restriction to closed, fully expanded configs; discriminator test-pinned (det FAIL vs nondet pass-complete).
+- Deeper nesting / non-boolean operands -> codegen diagnostic (property skipped, binary still compiles/runs); liveness diagnostics surface as codegen warnings.
+- Example 43 (`examples/valid/43_sliding_window.rfs`): sliding-window ARQ sender (window 4 over seq 0..8), Tick-driven + out-of-band `Ack(Seq(seq: bit<4>, checksum: bit<32>))` with unused payload fields -> input abstraction collapses to ONE representative Ack. Safety `always (next_seq - acked <= 4)` + liveness `eventually (state == Done)` under the timing assumption + `(next_seq - acked <= 4) until (state == Done)`. Exact MC: **pass-complete, states=165 transitions=330 max_depth=22** (pinned; parity split re-pinned 6/9 -> 7/9).
+- Verification: cargo test 213/213 (was 204, +9 new liveness integration tests); all pre-existing pins unchanged; clippy at 12-warning baseline; fmt clean.
+- Details: `docs/roadmap/PHASE_4_TASK_6_STATUS.md`.
+
+## 2026-10-19 22:32 — Phase 4 task 11: SMT bounded mode (optional, feature-gated) in both MC backends [merged from docs/roadmap/TASKS.md on 2026-10-19]
+
+### Interpretation & plan
+
+- Requested: execute Phase 4 task 11 per `docs/roadmap/PHASE_4_TASK_11.md` - feasibility gate first (z3 availability + scratch build), then optional `--mode smt-bounded` in BOTH backends if the gate passes. Gate outcome A: implemented.
+- Provenance: the task 11 session appended its log only to `docs/roadmap/TASKS.md` (merged into this file on 2026-10-19, then removed). Timestamp = commit time of `f79dabd`, which recorded tasks 9-11 together.
+
+### Report
+
+- Feasibility gate PASSED: z3 5.3.1 at `/workspace/host/z3` + `z3` crate 0.21.1 / z3-sys 0.13.1 scratch build solved a bitvector query (TOOLCHAIN.md section 5 unchanged - no reinstall needed).
+- `--mode smt-bounded` (third mc mode) in BOTH backends, feature-gated (`[features] smt = ["dep:z3"]`; default build unaffected): k-step unrolling over bitvectors from a SHARED plan (`src/smt_plan.rs`, new) rendered by a SHARED emitter (`src/smt_emit.rs`, new) - parity by construction (D-P4-12); per-backend runtimes build structurally identical z3 constraints; pinned summary lines (`mode=smt-bounded bound=k`); exit codes 0 pass-within-bound / 1 fail / 2 unknown; results labeled INCOMPLETE.
+- Liveness via k-liveness (never + cycle query); safety via `∃i alive_i ∧ ¬phi`; first-match firing order preserved; bool vars as BV(1) with z3-Bool contexts; exact-MC shift semantics (`amount >= width -> 0`) and full-value literal comparisons encoded faithfully (zero-extend/guard/truncate + comparison widening).
+- v1 scope rejections (shared error text both backends): no assumptions, no on_error blocks, no enum-typed vars; property formulas = top-level always/eventually over boolean combinations of expressions.
+- Semantic bugs found+fixed: shift-amount width mismatch (NULL from z3), oversized-literal comparison wrap (`counter < 256` on bit<8> -> spurious FAIL), double-widening of literal sides, z3 5.3.1 API deltas in the C engine (Z3_L_UNDEF / no Z3_del_solver / Z3_del_context).
+- Verification: default `cargo test` **227/227** (was 222; +5 unit tests incl. structural Rust-vs-C op-sequence parity); with feature **229/229** (+2 e2e integration tests, `tests/smt_bounded_test.rs`, byte-identity gate on FAIL/liveness/PASS wide-bitvector specs); clippy/fmt at baseline; 22-spec e2E sweep byte-identical across backends (0 fails); SMT-found safety + liveness violations also found by exact mode.
+- Details: `docs/roadmap/PHASE_4_TASK_11_STATUS.md`.

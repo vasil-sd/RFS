@@ -525,3 +525,18 @@ sed -n "<start>,<end>p" TASKS.md            # one specific entry by line range
 - Note: the root TASKS.md has no task 4 entry (task 4 was recorded only in `docs/roadmap/TASKS.md`) - pre-existing log gap from the task 4 session, left as-is.
 - New: `docs/roadmap/PHASE_4_TASK_5_STATUS.md` (template 2.5.2); task corrections appended to PHASE_4_TASK_5.md (2 entries).
 - Next in defined order: task 6 (liveness engine - Rust).
+
+## 2026-10-19 06:55 — Phase 4 task 7: liveness engine in C MC binaries + parity suite liveness coverage
+
+### Interpretation & plan
+
+- Mirror task 6's Rust liveness analysis into the generated C backend (same embedded plan tables, canonical witness selection so counterexamples match), then extend `tests/backend_parity_test.rs` with explicit liveness coverage: example 43 byte-identical in exact mode + inline FAIL/pass/nondet/truncated variants compared on exit code and full stdout.
+
+### Report
+
+- `src/backends/c_mc.rs`: new `LIV_ENGINE_C` (progress automata, product BFS, stay-edge SCC limit vectors, skeleton evaluation, lasso reconstruction, `--nondet` strong-fairness filter, truncated-mode soundness); per-property edge-label cache (a first draft shared one cache across properties - bit positions depend on the property's leaves - fixed).
+- Pre-existing gap closed: C `print_trace`/`print_vars` were raw placeholders since task 3 and never matched Rust's Debug wire format (old parity suite compared summary fields only). `shared_printers` now emits byte-identical printers (state/input/output name lookups, `Vars { ... }`, `[...]` lists); sample-0 property-violation report aligned with Rust's `(initial configuration)` format.
+- `src/backends/c_fsm.rs`: unused pattern bindings get a `(void)` cast in generated C (gcc -Wall).
+- `tests/backend_parity_test.rs`: 4 new liveness parity tests (example 43 byte-identity; 10 inline variants exit+full-stdout identity; pinned lasso fields both backends; truncated-mode soundness); `compile_c` now asserts zero gcc warnings.
+- Verification: cargo test 217/217 (was 213); clippy at the 12-warning HEAD baseline (stash-diff verified, zero new); fmt clean; all 43 generated C MC binaries compile with `gcc -Wall` at zero warnings (one-shot check).
+- Logs: `docs/roadmap/TASKS.md` (task 7 section) + `docs/roadmap/PHASE_4_TASK_7_STATUS.md`.

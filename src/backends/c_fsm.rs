@@ -329,6 +329,23 @@ struct Ctx {
     state_variants: std::collections::HashSet<String>,
 }
 
+/// True iff `ident` occurs in `s` as a whole C identifier (word boundaries).
+fn c_contains_ident(s: &str, ident: &str) -> bool {
+    let b = s.as_bytes();
+    let mut start = 0usize;
+    while let Some(rel) = s[start..].find(ident) {
+        let p = start + rel;
+        let after = p + ident.len();
+        let before_ok = p == 0 || !(b[p - 1].is_ascii_alphanumeric() || b[p - 1] == b'_');
+        let after_ok = after >= b.len() || !(b[after].is_ascii_alphanumeric() || b[after] == b'_');
+        if before_ok && after_ok {
+            return true;
+        }
+        start = p + 1;
+    }
+    false
+}
+
 fn gen_expr_c(e: &Expr, env: &Env, ctx: &Ctx, module: &Module) -> Result<String, String> {
     let ty = validator::type_expr(e, env)?;
     let width = match &ty {
@@ -1390,6 +1407,7 @@ impl<'a> Gen<'a> {
             .unwrap_or_default();
         ctx.names.insert("state".into(), "f->state".into());
 
+        let mut bound_names: Vec<String> = Vec::new();
         if let Some(PatternVariant::Struct { name, fields, .. }) = &t.pattern.variant {
             let v = self
                 .variants
@@ -1408,6 +1426,7 @@ impl<'a> Gen<'a> {
                         pl,
                         fname
                     );
+                    bound_names.push(c_ident(name));
                     env.bindings.insert(
                         name.clone(),
                         crate::validator::type_to_expr_type(&v.fields[i].1),
@@ -1419,17 +1438,42 @@ impl<'a> Gen<'a> {
             ctx.names.insert(name.clone(), c_ident(name));
         }
 
+        // Pre-render every expression that may use the bindings, so a binding
+        // that no guard/output/update references gets a `(void)` cast (the
+        // local would otherwise trip gcc -Wall's unused-variable warning).
+        let guard_str: Option<String> = t
+            .guard
+            .as_ref()
+            .map(|g| gen_expr_c(g, &env, &ctx, m))
+            .transpose()?;
+        let outs: Vec<String> = t
+            .emits
+            .iter()
+            .map(|o| self.output_expr_c(o, &env, &ctx))
+            .collect::<Result<_, String>>()?;
+        let assign_vals: Vec<String> = t
+            .assignments
+            .iter()
+            .map(|a| gen_expr_c(&a.value, &env, &ctx, m))
+            .collect::<Result<_, String>>()?;
+        for n in &bound_names {
+            let used = guard_str
+                .as_deref()
+                .map(|s| c_contains_ident(s, n))
+                .unwrap_or(false)
+                || outs.iter().any(|s| c_contains_ident(s, n))
+                || assign_vals.iter().any(|s| c_contains_ident(s, n));
+            if !used {
+                let _ = writeln!(out, "            (void){n};");
+            }
+        }
+
         // Guard.
-        if let Some(g) = &t.guard {
-            let gexpr = gen_expr_c(g, &env, &ctx, m)?;
+        if let Some(gexpr) = &guard_str {
             let _ = writeln!(out, "            if ({}) {{", gexpr);
         }
 
         // Actions: outputs, next state, simultaneous var updates via temps.
-        let mut outs: Vec<String> = Vec::new();
-        for o in &t.emits {
-            outs.push(self.output_expr_c(o, &env, &ctx)?);
-        }
         let _ = writeln!(
             out,
             "            output_t outs[MAX_OUTPUTS] = {{0}}; int n_out = {};",
@@ -1449,8 +1493,7 @@ impl<'a> Gen<'a> {
             // Simultaneous update: start from current vars, evaluate all RHS
             // into temps (old values only), then assign.
             let _ = writeln!(out, "            vars_t tmp_vars = f->vars;");
-            for a in &t.assignments {
-                let val = gen_expr_c(&a.value, &env, &ctx, m)?;
+            for (a, val) in t.assignments.iter().zip(assign_vals.iter()) {
                 let ty = c_type(
                     &m.vars
                         .iter()
@@ -1609,6 +1652,80 @@ pub(crate) fn render_mc_step_all_c(module: &Module) -> Result<String, String> {
     gen.render_mc_step_all_body()
 }
 
+/// Collect the distinct input/output patterns of a signal in first-appearance
+/// order (for helper emission + `gen_signal_c` index resolution).
+fn collect_liv_signal_patterns<'a>(
+    sig: &'a crate::monitor::SignalExpr,
+) -> (
+    Vec<&'a crate::ir::EventPattern>,
+    Vec<&'a crate::ir::OutputPattern>,
+) {
+    let mut input_pats: Vec<&'a crate::ir::EventPattern> = Vec::new();
+    let mut output_pats: Vec<&'a crate::ir::OutputPattern> = Vec::new();
+    fn walk<'a>(
+        sig: &'a crate::monitor::SignalExpr,
+        input_pats: &mut Vec<&'a crate::ir::EventPattern>,
+        output_pats: &mut Vec<&'a crate::ir::OutputPattern>,
+    ) {
+        match sig {
+            crate::monitor::SignalExpr::Atom(crate::monitor::SignalAtom::InputIs(p)) => {
+                if !input_pats.contains(&p) {
+                    input_pats.push(p);
+                }
+            }
+            crate::monitor::SignalExpr::Atom(crate::monitor::SignalAtom::OutputHas(p)) => {
+                if !output_pats.contains(&p) {
+                    output_pats.push(p);
+                }
+            }
+            crate::monitor::SignalExpr::Not(inner) => walk(inner, input_pats, output_pats),
+            crate::monitor::SignalExpr::And(l, r) | crate::monitor::SignalExpr::Or(l, r) => {
+                walk(l, input_pats, output_pats);
+                walk(r, input_pats, output_pats);
+            }
+            _ => {}
+        }
+    }
+    walk(sig, &mut input_pats, &mut output_pats);
+    (input_pats, output_pats)
+}
+
+/// Render a per-sample boolean evaluator for a temporal-operator-free formula
+/// (Phase 4 task 7 liveness leaves; C mirror of rust_fsm's
+/// `render_sample_formula_evaluator`). Emits unique input/output pattern
+/// helpers plus `static int {name}(const rfs_sample_t* s)` returning 0/1.
+pub(crate) fn render_liv_sample_evaluator_c(
+    module: &Module,
+    name: &str,
+    formula: &Formula,
+) -> Result<String, String> {
+    let signal = crate::monitor::formula_to_signal(formula)
+        .ok_or_else(|| "liveness subformula contains temporal operators".to_string())?;
+    let options = BackendOptions::default();
+    let mut warnings = Vec::new();
+    let gen = Gen::new(module, &options, PropertyMonitorMode::Off, &mut warnings)
+        .map_err(|e| e.join("; "))?;
+    let (input_pats, output_pats) = collect_liv_signal_patterns(&signal);
+    let mut out = String::new();
+    for (i, p) in input_pats.iter().enumerate() {
+        out.push_str(
+            &gen.input_is_sample_helper_c(name, i, p)
+                .ok_or("unresolvable input pattern")?,
+        );
+    }
+    for (i, p) in output_pats.iter().enumerate() {
+        out.push_str(
+            &gen.output_has_sample_helper_c(name, i, p)
+                .ok_or("unresolvable output pattern")?,
+        );
+    }
+    let expr = gen.gen_signal_c(&signal, name, &input_pats, &output_pats)?;
+    out.push_str(&format!(
+        "static int {name}(const rfs_sample_t* s) {{ return {expr}; }}\n"
+    ));
+    Ok(out)
+}
+
 impl<'a> Gen<'a> {
     /// Pattern condition for `mc_step_all` (mirrors the pattern part of
     /// `transition_block_c`; `in` is a local parameter there).
@@ -1744,6 +1861,7 @@ impl<'a> Gen<'a> {
                     .map(|e| e.variants.iter().cloned().collect())
                     .unwrap_or_default();
                 ctx.names.insert("state".into(), "state".into());
+                let mut bound_names: Vec<String> = Vec::new();
                 if let Some(PatternVariant::Struct { name, fields, .. }) = &t.pattern.variant {
                     let v = self
                         .variants
@@ -1761,6 +1879,7 @@ impl<'a> Gen<'a> {
                                 pl,
                                 fname
                             ));
+                            bound_names.push(c_ident(name));
                             env.bindings.insert(
                                 name.clone(),
                                 crate::validator::type_to_expr_type(&v.fields[i].1),
@@ -1772,18 +1891,42 @@ impl<'a> Gen<'a> {
                     ctx.names.insert(name.clone(), c_ident(name));
                 }
 
-                // Guard.
-                if let Some(g) = &t.guard {
-                    let gexpr = gen_expr_c(g, &env, &ctx, m)?;
-                    out.push_str(&format!("            if ({}) {{\n", gexpr));
-                }
-
-                // Effect body (no commit: collect into `out[n]`).
+                // Pre-render every expression that may use the bindings, so a
+                // binding no guard/output/update references gets a `(void)`
+                // cast (otherwise gcc -Wall warns about the unused local).
+                let guard_str: Option<String> = t
+                    .guard
+                    .as_ref()
+                    .map(|g| gen_expr_c(g, &env, &ctx, m))
+                    .transpose()?;
                 let outs: Vec<String> = t
                     .emits
                     .iter()
                     .map(|o| self.output_expr_c(o, &env, &ctx))
                     .collect::<Result<_, _>>()?;
+                let assign_vals: Vec<String> = t
+                    .assignments
+                    .iter()
+                    .map(|a| gen_expr_c(&a.value, &env, &ctx, m))
+                    .collect::<Result<_, _>>()?;
+                for n in &bound_names {
+                    let used = guard_str
+                        .as_deref()
+                        .map(|s| c_contains_ident(s, n))
+                        .unwrap_or(false)
+                        || outs.iter().any(|s| c_contains_ident(s, n))
+                        || assign_vals.iter().any(|s| c_contains_ident(s, n));
+                    if !used {
+                        out.push_str(&format!("            (void){n};\n"));
+                    }
+                }
+
+                // Guard.
+                if let Some(gexpr) = &guard_str {
+                    out.push_str(&format!("            if ({}) {{\n", gexpr));
+                }
+
+                // Effect body (no commit: collect into `out[n]`).
                 out.push_str("            {\n");
                 out.push_str("                output_t outs[MAX_OUTPUTS];\n");
                 out.push_str(&format!("                int n_out = {};\n", outs.len()));
@@ -1798,7 +1941,7 @@ impl<'a> Gen<'a> {
                     out.push_str("                vars_t new_vars = *vars;\n");
                 } else {
                     out.push_str("                vars_t new_vars = *vars;\n");
-                    for a in &t.assignments {
+                    for (a, val) in t.assignments.iter().zip(assign_vals.iter()) {
                         let ty = c_type(
                             m.vars
                                 .iter()
@@ -1811,7 +1954,7 @@ impl<'a> Gen<'a> {
                             "                {} tmp_{} = {};\n",
                             ty,
                             c_ident(&a.var),
-                            gen_expr_c(&a.value, &env, &ctx, m)?
+                            val
                         ));
                     }
                     for a in &t.assignments {

@@ -38,59 +38,240 @@ pub fn generate_model_checker(
     let mut code = prod.code;
     // Shared trace/vars printers (used by both runtimes; defined once).
     code.push_str(&shared_printers(module));
-    code.push_str(&exact_codegen_c(module, &plan, options).map_err(|e| vec![e])?);
+    let (exact, liv_warnings) = exact_codegen_c(module, &plan, options).map_err(|e| vec![e])?;
+    code.push_str(&exact);
     code.push_str(&fuzz_runtime(module));
     code.push_str(MAIN_DISPATCH_C);
     Ok(CodegenOutput {
         code,
-        warnings: prod.warnings,
+        warnings: prod.warnings.into_iter().chain(liv_warnings).collect(),
     })
 }
 
-/// `print_vars` + `print_trace`, shared by the exact and fuzz runtimes.
+/// Trace/vars printers shared by the exact and fuzz runtimes. Generates C
+/// functions that reproduce byte-for-byte the Rust MC binary's Debug-based
+/// counterexample format (D-P4-4): state/input/output variant names,
+/// `Vars { ... }` and `[...]` output lists - so FAIL traces are identical
+/// across backends.
 fn shared_printers(module: &Module) -> String {
-    // Generated vars printer for counterexample output (type-aware).
-    let vars_print = if module.vars.is_empty() {
-        "static void print_vars(const vars_t* v) { (void)v; printf(\"vars()\\n\"); }\n".to_string()
+    let variants = codegen_fsm::build_variants(module);
+
+    // Enum types referenced by vars fields or input/output payload fields -
+    // only those get a name-lookup function (an unused static would trip
+    // gcc -Wall). `State` is covered by the dedicated lookup below.
+    let mut used_enums: Vec<String> = Vec::new();
+    for v in &module.vars {
+        if let Type::Enum { name } = &v.ty {
+            if name != "State" && !used_enums.contains(name) {
+                used_enums.push(name.clone());
+            }
+        }
+    }
+    for list in [&variants.inputs, &variants.outputs] {
+        for vi in list {
+            for (_, fty) in &vi.fields {
+                if let Type::Enum { name } = fty {
+                    if name != "State" && !used_enums.contains(name) {
+                        used_enums.push(name.clone());
+                    }
+                }
+            }
+        }
+    }
+
+    let mut out = String::new();
+    for ename in &used_enums {
+        let e = module
+            .enums
+            .iter()
+            .find(|e| e.name == *ename)
+            .unwrap_or_else(|| panic!("enum {ename} referenced by a field is not declared"));
+        let arms: Vec<String> = e
+            .variants
+            .iter()
+            .map(|v| {
+                format!(
+                    "case {}_{}: return \"{}\";",
+                    c_ident(ename).to_uppercase(),
+                    c_ident(v).to_uppercase(),
+                    crate::backends::rust::rust_ident(v)
+                )
+            })
+            .collect();
+        let tname = format!("{}_t", c_ident(ename));
+        out.push_str(&format!(
+            "static const char* {c}_name_c({t} v) {{ switch (v) {{ {arms} default: return \"?\"; }} }}\n",
+            c = c_ident(ename),
+            t = tname,
+            arms = arms.join(" ")
+        ));
+    }
+
+    // State name lookup (Rust Debug names).
+    if let Some(se) = module.enums.iter().find(|e| e.name == "State") {
+        let arms: Vec<String> = se
+            .variants
+            .iter()
+            .map(|v| {
+                format!(
+                    "case STATE_{}: return \"{}\";",
+                    c_ident(v).to_uppercase(),
+                    crate::backends::rust::rust_ident(v)
+                )
+            })
+            .collect();
+        out.push_str(&format!(
+            "static const char* state_name_c(state_t s) {{ switch (s) {{ {} default: return \"?\"; }} }}\n",
+            arms.join(" ")
+        ));
+    } else {
+        out.push_str("static const char* state_name_c(state_t s) { (void)s; return \"?\"; }\n");
+    }
+
+    // `Vars { f: v, ... }` - Rust derived Debug, no trailing newline.
+    if module.vars.is_empty() {
+        out.push_str(
+            "static void print_vars_debug(const vars_t* v) { (void)v; printf(\"Vars\"); }\n",
+        );
     } else {
         let parts: Vec<String> = module
             .vars
             .iter()
             .enumerate()
             .map(|(i, v)| {
-                let n = c_ident(&v.name);
-                let sep = if i == 0 { "" } else { " " };
-                match &v.ty {
-                    Type::Bool => format!(
-                        "printf(\"%s%s=%s\", \"{}\", \"{}\", v->{} ? \"true\" : \"false\");",
-                        sep, n, n
-                    ),
-                    Type::Bit { .. } => format!(
-                        "printf(\"%s%s=%llu\", \"{}\", \"{}\", (unsigned long long)v->{});",
-                        sep, n, n
-                    ),
-                    Type::Enum { .. } => format!(
-                        "printf(\"%s%s=%d\", \"{}\", \"{}\", (int)v->{});",
-                        sep, n, n
-                    ),
-                }
+                let sep = if i == 0 { "" } else { ", " };
+                format!(
+                    "printf(\"{sep}{name}: \"); {val}",
+                    name = crate::backends::rust::rust_ident(&v.name),
+                    val = print_value_c(&v.ty, &format!("v->{}", c_ident(&v.name)))
+                )
             })
             .collect();
-        format!(
-            "static void print_vars(const vars_t* v) {{\n    printf(\"vars(\");\n{parts}\n    printf(\")\\n\");\n}}\n",
-            parts = parts.join("\n    ")
-        )
-    };
-    let trace_print = r#"static void print_trace(const rfs_trace_t* trace) {
-    printf("counterexample trace:");
-    printf("\n  initial state=%d vars_raw", trace->initial_state);
-    for (int i = 0; i < trace->len; i++) {
-        const trace_step_t* s = &trace->steps[i];
-        printf("\n  step %d input_kind=%d from=%d to=%d n_outputs=%d", i, s->input.kind, s->from, s->to, s->n_outputs);
+        out.push_str(&format!(
+            "static void print_vars_debug(const vars_t* v) {{ printf(\"Vars {{ \"); {parts} printf(\" }}\"); }}\n",
+            parts = parts.join(" ")
+        ));
     }
+
+    // Input Debug: unit variant name or `Name { f: v, ... }`.
+    let iarms: Vec<String> = variants
+        .inputs
+        .iter()
+        .map(|v| {
+            let kind = format!("INPUT_{}", v.unique_name.to_uppercase());
+            if v.fields.is_empty() {
+                format!(
+                    "case {}: printf(\"{}\"); break;",
+                    kind,
+                    crate::backends::rust::rust_ident(&v.unique_name)
+                )
+            } else {
+                let member = format!("input_{}", v.unique_name.to_lowercase());
+                let parts: Vec<String> = v
+                    .fields
+                    .iter()
+                    .enumerate()
+                    .map(|(i, (fname, fty))| {
+                        let sep = if i == 0 { "" } else { ", " };
+                        format!(
+                            "printf(\"{sep}{name}: \"); {val}",
+                            name = crate::backends::rust::rust_ident(fname),
+                            val = print_value_c(
+                                fty,
+                                &format!("in->payload.{member}.{cf}", cf = c_ident(fname))
+                            )
+                        )
+                    })
+                    .collect();
+                format!(
+                    "case {}: printf(\"{} {{ \"); {parts} printf(\" }}\"); break;",
+                    kind,
+                    crate::backends::rust::rust_ident(&v.unique_name),
+                    parts = parts.join(" ")
+                )
+            }
+        })
+        .collect();
+    out.push_str(&format!(
+        "static void print_input_debug(const input_t* in) {{ switch (in->kind) {{ {arms} default: printf(\"?\"); break; }} }}\n",
+        arms = iarms.join(" ")
+    ));
+
+    // Output list Debug: `[X, Y]`.
+    let oarms: Vec<String> = variants
+        .outputs
+        .iter()
+        .map(|v| {
+            let kind = format!("OUTPUT_{}", v.unique_name.to_uppercase());
+            if v.fields.is_empty() {
+                format!(
+                    "case {}: printf(\"{}\"); break;",
+                    kind,
+                    crate::backends::rust::rust_ident(&v.unique_name)
+                )
+            } else {
+                let member = format!("output_{}", v.unique_name.to_lowercase());
+                let parts: Vec<String> = v
+                    .fields
+                    .iter()
+                    .enumerate()
+                    .map(|(i, (fname, fty))| {
+                        let sep = if i == 0 { "" } else { ", " };
+                        format!(
+                            "printf(\"{sep}{name}: \"); {val}",
+                            name = crate::backends::rust::rust_ident(fname),
+                            val = print_value_c(
+                                fty,
+                                &format!("outs[i].payload.{member}.{cf}", cf = c_ident(fname))
+                            )
+                        )
+                    })
+                    .collect();
+                format!(
+                    "case {}: printf(\"{} {{ \"); {parts} printf(\" }}\"); break;",
+                    kind,
+                    crate::backends::rust::rust_ident(&v.unique_name),
+                    parts = parts.join(" ")
+                )
+            }
+        })
+        .collect();
+    out.push_str(&format!(
+        "static void print_outputs_debug(const output_t* outs, int n) {{ int i; printf(\"[\"); for (i = 0; i < n; i++) {{ if (i > 0) {{ printf(\", \"); }} switch (outs[i].kind) {{ {arms} default: printf(\"?\"); break; }} }} printf(\"]\"); }}\n",
+        arms = oarms.join(" ")
+    ));
+
+    // The trace itself - byte-identical to the Rust MC binary.
+    out.push_str(
+        r#"static void print_trace(const rfs_trace_t* trace) {
+printf("counterexample trace:\n");
+printf("  initial state=%s vars=", state_name_c(trace->initial_state));
+print_vars_debug(&trace->initial_vars);
+printf("\n");
+for (int i = 0; i < trace->len; i++) {
+    const trace_step_t* s = &trace->steps[i];
+    printf("  step %d input=", i);
+    print_input_debug(&s->input);
+    printf(" outputs=");
+    print_outputs_debug(s->outputs, s->n_outputs);
+    printf(" from=%s to=%s vars=", state_name_c(s->from), state_name_c(s->to));
+    print_vars_debug(&s->vars);
+    printf("\n");
 }
-"#;
-    format!("{vars_print}{trace_print}")
+}
+"#,
+    );
+
+    out
+}
+
+/// C statement printing the Rust Debug rendering of `expr` (type `ty`).
+fn print_value_c(ty: &Type, expr: &str) -> String {
+    match ty {
+        Type::Bool => format!("printf(\"%s\", {} ? \"true\" : \"false\");", expr),
+        Type::Bit { .. } => format!("printf(\"%llu\", (unsigned long long){});", expr),
+        Type::Enum { name } => format!("printf(\"%s\", {}_name_c({}));", c_ident(name), expr),
+    }
 }
 
 /// Canonical iterator bounds for a concrete field domain (D-P4-2). Returns
@@ -181,12 +362,13 @@ fn rep_input_c(v: &VariantInfo, module: &Module) -> String {
     format!("{{ {} }}", fields.join(", "))
 }
 
-/// Render the exact-mode C runtime from the plan (D-P4-1..6).
+/// Render the exact-mode C runtime from the plan (D-P4-1..6). Returns the
+/// code plus liveness decomposition diagnostics (codegen warnings, D-P4-9).
 fn exact_codegen_c(
     module: &Module,
     plan: &McPlan,
     options: &BackendOptions,
-) -> Result<String, String> {
+) -> Result<(String, Vec<String>), String> {
     let mut s = String::new();
     s.push_str(
         "// ---- exact reachable-state engine (Phase 4; same wire format as the Rust MC) ----\n",
@@ -391,8 +573,154 @@ fn exact_codegen_c(
 
     // The BFS engine (static; see D-P4-2..6).
     s.push_str(EXACT_ENGINE_C);
+
+    // Liveness (Phase 4 task 7, D-P4-9/10/11): C mirror of the Rust
+    // LIV_ENGINE - per-leaf progress automata + product limit-vector analysis
+    // on the explored graph, rendered from the same decomposition.
+    let liv = crate::mc_plan::LivenessDecomposition::compute(module);
+    let warnings: Vec<String> = liv.diagnostics.clone();
+    s.push_str(LIV_ENGINE_C);
+    let mut prop_defs: Vec<(usize, String)> = Vec::new();
+    for (pi, spec_opt) in liv.properties.iter().enumerate() {
+        let Some(spec) = spec_opt else { continue };
+        // Flatten the skeleton: leaves in first-appearance order.
+        let mut leaves: Vec<crate::mc_plan::SkeletonLeaf> = Vec::new();
+        let skel_expr = flatten_skeleton_c(&spec.skeleton, &mut leaves);
+        let mut leaf_entries: Vec<String> = Vec::new();
+        for (li, leaf) in leaves.iter().enumerate() {
+            match leaf {
+                crate::mc_plan::SkeletonLeaf::Safety(f) => {
+                    let name = format!("liv_p{pi}_l{li}");
+                    s.push_str(&crate::backends::c_fsm::render_liv_sample_evaluator_c(
+                        module, &name, f,
+                    )?);
+                    leaf_entries.push(format!("{{ 0, {name}, 0 }}"));
+                }
+                crate::mc_plan::SkeletonLeaf::Obligation(oi) => match &spec.obligations[*oi] {
+                    crate::mc_plan::LivenessObligation::Eventually { body } => {
+                        let name = format!("liv_p{pi}_l{li}");
+                        s.push_str(&crate::backends::c_fsm::render_liv_sample_evaluator_c(
+                            module, &name, body,
+                        )?);
+                        leaf_entries.push(format!("{{ 1, {name}, 0 }}"));
+                    }
+                    crate::mc_plan::LivenessObligation::Until { left, right } => {
+                        let na = format!("liv_p{pi}_l{li}");
+                        let nb = format!("liv_p{pi}_l{li}b");
+                        s.push_str(&crate::backends::c_fsm::render_liv_sample_evaluator_c(
+                            module, &na, left,
+                        )?);
+                        s.push_str(&crate::backends::c_fsm::render_liv_sample_evaluator_c(
+                            module, &nb, right,
+                        )?);
+                        leaf_entries.push(format!("{{ 2, {na}, {nb} }}"));
+                    }
+                },
+            }
+        }
+        s.push_str(&format!(
+            "static int liv_p{pi}_skel(const unsigned char* t) {{ return {skel_expr}; }}\n"
+        ));
+        let formula_text = crate::printer::print_formula(&module.properties[pi].formula);
+        // A liveness-bearing property always has >= 1 leaf; the dummy entry
+        // keeps the C array valid in the (unreachable) zero-leaf case and is
+        // never dereferenced (liv_analyze returns early for n_leaves == 0).
+        let entries = if leaf_entries.is_empty() {
+            "{ 0, 0, 0 }".to_string()
+        } else {
+            leaf_entries.join(", ")
+        };
+        prop_defs.push((
+            pi,
+            format!(
+                "static const liv_leaf_t LIV_P{pi}_LEAVES[{}] = {{ {} }};\n\
+                 static const liv_property_t LIV_PROP_{pi} = {{ {}, {}, LIV_P{pi}_LEAVES, {}, liv_p{pi}_skel }};",
+                leaves.len().max(1),
+                entries,
+                c_string_literal(&spec.label),
+                c_string_literal(&formula_text),
+                leaves.len()
+            ),
+        ));
+    }
+    if prop_defs.is_empty() {
+        // No liveness properties: the table still needs a valid definition
+        // (the loop below never touches it when N_LIV_PROPS == 0).
+        s.push_str(
+            "static const liv_leaf_t LIV_P_DUMMY_LEAVES[1] = { { 0, 0, 0 } };\n\
+             static const liv_property_t LIV_PROP_DUMMY = { \"-\", \"\", LIV_P_DUMMY_LEAVES, 0, 0 };\n\
+             static const liv_property_t* const LIV_PROPS[1] = { &LIV_PROP_DUMMY };\n\
+             #define N_LIV_PROPS 0\n",
+        );
+    } else {
+        for (_pi, d) in &prop_defs {
+            s.push_str(d);
+            s.push('\n');
+        }
+        let names: Vec<String> = prop_defs
+            .iter()
+            .map(|(pi, _)| format!("&LIV_PROP_{pi}"))
+            .collect();
+        s.push_str(&format!(
+            "static const liv_property_t* const LIV_PROPS[{}] = {{ {} }};\n#define N_LIV_PROPS {}\n",
+            prop_defs.len(),
+            names.join(", "),
+            prop_defs.len()
+        ));
+    }
+
     s.push_str(EXACT_RUN_C);
-    Ok(s)
+    Ok((s, warnings))
+}
+
+/// Re-index the skeleton leaves in first-appearance order and render the
+/// boolean expression over `t[0..L)` (per-leaf satisfaction flags) - C mirror
+/// of rust_mc's `flatten_skeleton`.
+fn flatten_skeleton_c(
+    sk: &crate::mc_plan::Skeleton,
+    leaves: &mut Vec<crate::mc_plan::SkeletonLeaf>,
+) -> String {
+    match sk {
+        crate::mc_plan::Skeleton::And(l, r) => format!(
+            "({}) && ({})",
+            flatten_skeleton_c(l, leaves),
+            flatten_skeleton_c(r, leaves)
+        ),
+        crate::mc_plan::Skeleton::Or(l, r) => format!(
+            "({}) || ({})",
+            flatten_skeleton_c(l, leaves),
+            flatten_skeleton_c(r, leaves)
+        ),
+        crate::mc_plan::Skeleton::Implies(l, r) => format!(
+            "(!({}) || {})",
+            flatten_skeleton_c(l, leaves),
+            flatten_skeleton_c(r, leaves)
+        ),
+        crate::mc_plan::Skeleton::Not(x) => format!("!({})", flatten_skeleton_c(x, leaves)),
+        crate::mc_plan::Skeleton::Leaf(leaf) => {
+            let i = leaves.len();
+            leaves.push(leaf.clone());
+            format!("t[{}]", i)
+        }
+    }
+}
+
+/// Escape a Rust string as a C string literal.
+fn c_string_literal(s: &str) -> String {
+    let mut out = String::with_capacity(s.len() + 2);
+    out.push('"');
+    for ch in s.chars() {
+        match ch {
+            '"' => out.push_str("\\\""),
+            '\\' => out.push_str("\\\\"),
+            '\n' => out.push_str("\\n"),
+            '\t' => out.push_str("\\t"),
+            c if (c as u32) < 0x20 => out.push_str(&format!("\\x{:02x}", c as u32)),
+            c => out.push(c),
+        }
+    }
+    out.push('"');
+    out
 }
 
 /// Value expression for one variable slot in `config_bytes` (C).
@@ -439,19 +767,21 @@ static int mc_step_successor(const mc_node_t* node, int depth, const input_t* in
     return 0;
 }
 
-// Visited set: sorted vector of config byte strings + binary search. The
-// behavior must not depend on this container (D-P4-2); task 10 may switch it.
-static int mc_visited_find(const uint8_t* visited, int n_visited, const uint8_t* key) {
+// Visited set: sorted vector of config byte strings + binary search, with a
+// parallel array mapping each entry to its node index (needed by the liveness
+// graph edge recording). The behavior must not depend on this container
+// (D-P4-2); task 10 may switch it.
+static int mc_visited_find(const uint8_t* visited, const int* visited_idx, int n_visited, const uint8_t* key) {
     int lo = 0, hi = n_visited;
     while (lo < hi) {
         int mid = (lo + hi) / 2;
         int c = memcmp(visited + (size_t)mid * CONFIG_TOTAL_BYTES, key, CONFIG_TOTAL_BYTES);
-        if (c == 0) return mid;
+        if (c == 0) return visited_idx[mid];
         if (c < 0) lo = mid + 1; else hi = mid;
     }
     return -1;
 }
-static void mc_visited_insert(uint8_t* visited, int* n_visited, const uint8_t* key) {
+static void mc_visited_insert(uint8_t* visited, int* visited_idx, int* n_visited, const uint8_t* key, int node_idx) {
     int lo = 0, hi = *n_visited;
     while (lo < hi) {
         int mid = (lo + hi) / 2;
@@ -460,7 +790,9 @@ static void mc_visited_insert(uint8_t* visited, int* n_visited, const uint8_t* k
         if (c < 0) lo = mid + 1; else hi = mid;
     }
     memmove(visited + (size_t)(lo + 1) * CONFIG_TOTAL_BYTES, visited + (size_t)lo * CONFIG_TOTAL_BYTES, (size_t)(*n_visited - lo) * CONFIG_TOTAL_BYTES);
+    memmove(visited_idx + lo + 1, visited_idx + lo, (size_t)(*n_visited - lo) * sizeof(int));
     memcpy(visited + (size_t)lo * CONFIG_TOTAL_BYTES, key, CONFIG_TOTAL_BYTES);
+    visited_idx[lo] = node_idx;
     (*n_visited)++;
 }
 
@@ -506,12 +838,599 @@ static void mc_report_property(const fsm_t* f) {
     if (f->prop_trigger_step >= 0) {
         printf("  trigger step: %d\n", f->prop_trigger_step);
         vars_t tv = trace_vars(&f->trace, f->prop_trigger_step);
-        printf("  vars at trigger step: "); print_vars(&tv);
+        printf("  vars at trigger step: "); print_vars_debug(&tv); printf("\n");
     }
     printf("  violation step: %d\n", f->prop_step);
     vars_t vv = trace_vars(&f->trace, f->prop_step);
-    printf("  vars at violation step: "); print_vars(&vv);
+    printf("  vars at violation step: "); print_vars_debug(&vv); printf("\n");
     print_trace(&f->trace);
+}
+"#;
+// The liveness engine (Phase 4 task 7; generated verbatim into every C MC
+// binary). Mirror of the Rust LIV_ENGINE: per-obligation bad-set analysis on
+// the explored graph via per-leaf progress automata + product limit vectors
+// (D-P4-10/11). Behavior must not depend on the containers below (D-P4-2);
+// witness selection is canonical - properties in declaration order, limit
+// vectors ascending, smallest cyclic config id, DFS over edges in discovery
+// order - so Rust and C produce identical status + counterexample fields.
+const LIV_ENGINE_C: &str = r#"
+typedef struct { int input_idx; int trans_id; int target; } mc_edge_t;
+typedef struct { int v; int pos; } liv_stay_edge_t;
+
+typedef struct {
+    const mc_node_t* nodes;
+    int n_nodes;
+    const mc_edge_t* edges;        // flat edge storage (per-config discovery order)
+    const int* adj_start;          // per-config first-edge offset, n_nodes+1 entries
+    const unsigned char* complete; // per-config fully expanded
+    const input_t* inputs;
+    int n_inputs;
+    int nondet;
+} liv_graph_t;
+
+typedef int (*liv_eval_fn)(const rfs_sample_t* s);
+
+typedef struct { int kind; liv_eval_fn eval_a; liv_eval_fn eval_b; } liv_leaf_t;
+// kind: 0 safety, 1 eventually, 2 until (eval_b = NULL unless until)
+
+typedef struct {
+    const char* label;
+    const char* formula;
+    const liv_leaf_t* leaves;
+    int n_leaves;
+    int (*skeleton)(const unsigned char* t);
+} liv_property_t;
+
+typedef struct {
+    int* lasso_src;     // per edge: source config id
+    int* lasso_input;   // per edge: input index
+    int* lasso_trans;   // per edge: transition id (-1 = on_error)
+    int n_lasso;
+    int cycle_start;    // first edge index of the cycle (= prefix length)
+    unsigned char* falsified; // per leaf: 1 = falsified on the witness path
+} liv_witness_t;
+
+static void* liv_malloc(size_t n) {
+    void* p = malloc(n ? n : 1);
+    if (!p) { fprintf(stderr, "out of memory\n"); exit(2); }
+    return p;
+}
+static void* liv_calloc(size_t n, size_t sz) {
+    void* p = calloc(n ? n : 1, sz ? sz : 1);
+    if (!p) { fprintf(stderr, "out of memory\n"); exit(2); }
+    return p;
+}
+
+static inline int liv_bit_at(const unsigned char* bits, int i) { return (bits[i >> 3] >> (i & 7)) & 1; }
+static inline void liv_bit_set(unsigned char* bits, int i) { bits[i >> 3] |= (unsigned char)(1u << (i & 7)); }
+
+/// Label bits of one step: bit 2k = leaf k atom A (S / P / P), bit 2k+1 =
+/// leaf k atom B (the `until` right operand). Cached per edge position.
+static uint32_t liv_bits_at(const liv_graph_t* g, uint32_t* cache, unsigned char* done, int c, int pos, const liv_property_t* prop) {
+    size_t ei = (size_t)g->adj_start[c] + (size_t)pos;
+    if (done[ei]) return cache[ei];
+    const mc_edge_t* e = &g->edges[ei];
+    const mc_node_t* node = &g->nodes[c];
+    const input_t* in = &g->inputs[e->input_idx];
+    mc_effect_t effs[MC_MAX_EFFECTS];
+    int n_eff = mc_step_all(node->state, &node->vars, *in, effs);
+    const mc_effect_t* eff = (n_eff > 0) ? &effs[0] : 0;
+    if (eff && e->trans_id != -1 && g->nondet) {
+        for (int i = 0; i < n_eff; i++) if (effs[i].transition_id == e->trans_id) { eff = &effs[i]; break; }
+    }
+    rfs_sample_t sample;
+    sample.input = in;
+    sample.outputs = eff ? eff->outputs : 0;
+    sample.n_outputs = eff ? eff->n_outputs : 0;
+    sample.from_state = node->state;
+    sample.to_state = eff ? eff->next_state : node->state;
+    sample.vars = eff ? eff->next_vars : node->vars;
+    uint32_t bits = 0;
+    for (int k = 0; k < prop->n_leaves; k++) {
+        const liv_leaf_t* leaf = &prop->leaves[k];
+        if (leaf->eval_a(&sample)) bits |= 1u << (2 * k);
+        if (leaf->eval_b && leaf->eval_b(&sample)) bits |= 1u << (2 * k + 1);
+    }
+    cache[ei] = bits;
+    done[ei] = 1;
+    return bits;
+}
+
+/// Mixed-radix transition of the per-leaf progress automata on label bits.
+/// Leaf states: safety 0=ok/1=bad; eventually 0=wait/1=done;
+/// until 0=ok/1=sat/2=bad. All transitions are one-way, so every state
+/// sequence on an infinite path is eventually constant (the limit vector).
+static int liv_delta(int q, int n, const int* places, const int* radices, const unsigned char* kinds, uint32_t bits) {
+    int out = 0;
+    for (int k = 0; k < n; k++) {
+        int r = radices[k];
+        int s = (q / places[k]) % r;
+        int a = ((bits >> (2 * k)) & 1u) != 0;
+        int b = ((bits >> (2 * k + 1)) & 1u) != 0;
+        int ns;
+        if (kinds[k] == 0) {
+            ns = (s == 1 || !a) ? 1 : 0;
+        } else if (kinds[k] == 1) {
+            ns = (s == 1 || a) ? 1 : 0;
+        } else {
+            if (s == 2) ns = 2;
+            else if (s == 1) ns = 1;
+            else ns = b ? 1 : (!a ? 2 : 0);
+        }
+        out = out * r + ns;
+    }
+    return out;
+}
+
+/// A leaf is satisfied on an infinite path iff its limit state is in the good set.
+static int liv_good(int kind, int s) {
+    if (kind == 0) return s == 0; // safety: never entered bad
+    if (kind == 1) return s == 1; // eventually: done reached
+    return s != 2;                // until: ok (P-forever branch) or sat
+}
+
+/// Sample at witness position `pos`: 0 = initial configuration, p > 0 = the
+/// effect of lasso edge p-1.
+static void liv_sample_at(const liv_graph_t* g, const liv_witness_t* w, int pos, rfs_sample_t* out) {
+    if (pos == 0) {
+        out->input = 0;
+        out->outputs = 0;
+        out->n_outputs = 0;
+        out->from_state = g->nodes[0].state;
+        out->to_state = g->nodes[0].state;
+        out->vars = g->nodes[0].vars;
+        return;
+    }
+    int c = w->lasso_src[pos - 1];
+    const mc_node_t* node = &g->nodes[c];
+    const input_t* in = &g->inputs[w->lasso_input[pos - 1]];
+    int tid = w->lasso_trans[pos - 1];
+    mc_effect_t effs[MC_MAX_EFFECTS];
+    int n_eff = mc_step_all(node->state, &node->vars, *in, effs);
+    const mc_effect_t* eff = (n_eff > 0) ? &effs[0] : 0;
+    if (eff && tid != -1 && g->nondet) {
+        for (int i = 0; i < n_eff; i++) if (effs[i].transition_id == tid) { eff = &effs[i]; break; }
+    }
+    out->input = in;
+    out->outputs = eff ? eff->outputs : 0;
+    out->n_outputs = eff ? eff->n_outputs : 0;
+    out->from_state = node->state;
+    out->to_state = eff ? eff->next_state : node->state;
+    out->vars = eff ? eff->next_vars : node->vars;
+}
+
+/// Reconstruct the lasso: a product path from (start_q, 0) to (q, cstar)
+/// plus a stay-edge cycle through cstar. Returns 1 on success.
+static int liv_build_lasso(
+    const liv_graph_t* g, const liv_property_t* prop, uint32_t* cache, unsigned char* done,
+    int n_leaves, const int* places, const int* radices, const unsigned char* kinds,
+    uint32_t init_bits, int q, int cstar, const unsigned char* t,
+    const int* stay_start, const liv_stay_edge_t* stay_edges, const int* comp,
+    liv_witness_t* out)
+{
+    int n_nodes = g->n_nodes;
+    int start_q = liv_delta(0, n_leaves, places, radices, kinds, init_bits);
+    size_t n_words = ((size_t)n_nodes + 7) / 8;
+    int qcount = 1;
+    for (int k = 0; k < n_leaves; k++) qcount *= radices[k];
+
+    // Prefix: DFS in the product from (start_q, 0) to (q, cstar).
+    unsigned char* dfs_bits = (unsigned char*)liv_calloc((size_t)qcount * n_words, 1);
+    size_t pth_cap = 64, pth_n = 0;
+    int* pth_c = (int*)liv_malloc(pth_cap * sizeof(int));
+    int* pth_pos = (int*)liv_malloc(pth_cap * sizeof(int));
+    size_t stk_cap = 64, stk_n = 0;
+    int* stk_q = (int*)liv_malloc(stk_cap * sizeof(int));
+    int* stk_c = (int*)liv_malloc(stk_cap * sizeof(int));
+    int* stk_p = (int*)liv_malloc(stk_cap * sizeof(int));
+    liv_bit_set(dfs_bits + (size_t)start_q * n_words, 0);
+    stk_q[0] = start_q; stk_c[0] = 0; stk_p[0] = 0; stk_n = 1;
+    for (;;) {
+        if (stk_q[stk_n - 1] == q && stk_c[stk_n - 1] == cstar) break;
+        int cq = stk_q[stk_n - 1];
+        int cc = stk_c[stk_n - 1];
+        int len = g->adj_start[cc + 1] - g->adj_start[cc];
+        int descended = 0;
+        int p = stk_p[stk_n - 1];
+        while (p < len) {
+            int v = g->edges[g->adj_start[cc] + p].target;
+            uint32_t bits = liv_bits_at(g, cache, done, cc, p, prop);
+            int q2 = liv_delta(cq, n_leaves, places, radices, kinds, bits);
+            unsigned char* dq = dfs_bits + (size_t)q2 * n_words;
+            if (!liv_bit_at(dq, v)) {
+                liv_bit_set(dq, v);
+                stk_p[stk_n - 1] = p + 1;
+                if (pth_n == pth_cap) {
+                    pth_cap *= 2;
+                    pth_c = realloc(pth_c, pth_cap * sizeof(int));
+                    pth_pos = realloc(pth_pos, pth_cap * sizeof(int));
+                    if (!pth_c || !pth_pos) { fprintf(stderr, "out of memory\n"); exit(2); }
+                }
+                pth_c[pth_n] = cc; pth_pos[pth_n] = p; pth_n++;
+                if (stk_n == stk_cap) {
+                    stk_cap *= 2;
+                    stk_q = realloc(stk_q, stk_cap * sizeof(int));
+                    stk_c = realloc(stk_c, stk_cap * sizeof(int));
+                    stk_p = realloc(stk_p, stk_cap * sizeof(int));
+                    if (!stk_q || !stk_c || !stk_p) { fprintf(stderr, "out of memory\n"); exit(2); }
+                }
+                stk_q[stk_n] = q2; stk_c[stk_n] = v; stk_p[stk_n] = 0; stk_n++;
+                descended = 1;
+                break;
+            }
+            p++;
+        }
+        if (descended) continue;
+        stk_n--;
+        if (stk_n > 0) pth_n--;
+        if (stk_n == 0) {
+            // Unreachable: the target is reachable (product BFS proved it).
+            free(dfs_bits);
+            free(pth_c); free(pth_pos); free(stk_q); free(stk_c); free(stk_p);
+            return 0;
+        }
+    }
+
+    // Cycle: DFS from cstar over stay-successors (inside its SCC) back to cstar.
+    unsigned char* on_path = (unsigned char*)liv_calloc((size_t)n_nodes, 1);
+    on_path[cstar] = 1;
+    size_t cyc_cap = 64, cyc_n = 0;
+    int* cyc_c = (int*)liv_malloc(cyc_cap * sizeof(int));
+    int* cyc_pos = (int*)liv_malloc(cyc_cap * sizeof(int));
+    size_t cstk_cap = 64, cstk_n = 0;
+    int* cstk_c = (int*)liv_malloc(cstk_cap * sizeof(int));
+    int* cstk_i = (int*)liv_malloc(cstk_cap * sizeof(int));
+    cstk_c[0] = cstar; cstk_i[0] = 0; cstk_n = 1;
+    for (;;) {
+        int cc = cstk_c[cstk_n - 1];
+        int succs_len = stay_start[cc + 1] - stay_start[cc];
+        int descended = 0;
+        int i = cstk_i[cstk_n - 1];
+        while (i < succs_len) {
+            const liv_stay_edge_t* se = &stay_edges[stay_start[cc] + i];
+            if (comp[se->v] != comp[cstar]) { i++; continue; } // outside cstar's SCC
+            if (se->v == cstar) {
+                if (cyc_n == cyc_cap) {
+                    cyc_cap *= 2;
+                    cyc_c = realloc(cyc_c, cyc_cap * sizeof(int));
+                    cyc_pos = realloc(cyc_pos, cyc_cap * sizeof(int));
+                    if (!cyc_c || !cyc_pos) { fprintf(stderr, "out of memory\n"); exit(2); }
+                }
+                cyc_c[cyc_n] = cc; cyc_pos[cyc_n] = se->pos; cyc_n++;
+                // Convert (config, edge pos) steps to (config, input idx,
+                // transition id) edges for replay.
+                int n_lasso = (int)(pth_n + cyc_n);
+                out->lasso_src = (int*)liv_malloc((size_t)n_lasso * sizeof(int));
+                out->lasso_input = (int*)liv_malloc((size_t)n_lasso * sizeof(int));
+                out->lasso_trans = (int*)liv_malloc((size_t)n_lasso * sizeof(int));
+                for (int k2 = 0; k2 < n_lasso; k2++) {
+                    int c, pos;
+                    if (k2 < (int)pth_n) { c = pth_c[k2]; pos = pth_pos[k2]; }
+                    else { c = cyc_c[k2 - (int)pth_n]; pos = cyc_pos[k2 - (int)pth_n]; }
+                    const mc_edge_t* e = &g->edges[g->adj_start[c] + pos];
+                    out->lasso_src[k2] = c;
+                    out->lasso_input[k2] = e->input_idx;
+                    out->lasso_trans[k2] = e->trans_id;
+                }
+                out->n_lasso = n_lasso;
+                out->cycle_start = (int)pth_n;
+                out->falsified = (unsigned char*)liv_malloc((size_t)n_leaves);
+                for (int k2 = 0; k2 < n_leaves; k2++) out->falsified[k2] = !t[k2];
+                free(dfs_bits); free(on_path);
+                free(pth_c); free(pth_pos); free(stk_q); free(stk_c); free(stk_p);
+                free(cyc_c); free(cyc_pos); free(cstk_c); free(cstk_i);
+                return 1;
+            }
+            if (!on_path[se->v]) {
+                on_path[se->v] = 1;
+                cstk_i[cstk_n - 1] = i + 1;
+                if (cyc_n == cyc_cap) {
+                    cyc_cap *= 2;
+                    cyc_c = realloc(cyc_c, cyc_cap * sizeof(int));
+                    cyc_pos = realloc(cyc_pos, cyc_cap * sizeof(int));
+                    if (!cyc_c || !cyc_pos) { fprintf(stderr, "out of memory\n"); exit(2); }
+                }
+                cyc_c[cyc_n] = cc; cyc_pos[cyc_n] = se->pos; cyc_n++;
+                if (cstk_n == cstk_cap) {
+                    cstk_cap *= 2;
+                    cstk_c = realloc(cstk_c, cstk_cap * sizeof(int));
+                    cstk_i = realloc(cstk_i, cstk_cap * sizeof(int));
+                    if (!cstk_c || !cstk_i) { fprintf(stderr, "out of memory\n"); exit(2); }
+                }
+                cstk_c[cstk_n] = se->v; cstk_i[cstk_n] = 0; cstk_n++;
+                descended = 1;
+                break;
+            }
+            i++;
+        }
+        if (descended) continue;
+        int pc = cstk_c[--cstk_n];
+        on_path[pc] = 0;
+        if (cstk_n > 0) cyc_n--;
+        // cstar lies on a stay cycle inside its SCC, so the search cannot fail.
+    }
+}
+
+/// Analyze one property on the graph. Returns 1 and fills `out` with a lasso
+/// witness iff violated. `cache`/`done` are per-edge label caches (size =
+/// total number of explored edges; may be NULL when there are none).
+static int liv_analyze(const liv_graph_t* g, const liv_property_t* prop, uint32_t* cache, unsigned char* done, liv_witness_t* out) {
+    int n_nodes = g->n_nodes;
+    int n_leaves = prop->n_leaves;
+    if (n_leaves == 0) return 0;
+    int* radices = (int*)liv_malloc((size_t)n_leaves * sizeof(int));
+    int* places = (int*)liv_malloc((size_t)n_leaves * sizeof(int));
+    unsigned char* kinds = (unsigned char*)liv_malloc((size_t)n_leaves);
+    int qcount = 1;
+    for (int k = 0; k < n_leaves; k++) {
+        kinds[k] = (unsigned char)prop->leaves[k].kind;
+        radices[k] = (kinds[k] == 2) ? 3 : 2;
+        qcount *= radices[k];
+    }
+    places[n_leaves - 1] = 1;
+    for (int k = n_leaves - 2; k >= 0; k--) places[k] = places[k + 1] * radices[k + 1];
+
+    // Position-0 label (initial configuration sample, as in fsm_new).
+    rfs_sample_t s0;
+    s0.input = 0;
+    s0.outputs = 0;
+    s0.n_outputs = 0;
+    s0.from_state = g->nodes[0].state;
+    s0.to_state = g->nodes[0].state;
+    s0.vars = g->nodes[0].vars;
+    uint32_t init_bits = 0;
+    for (int k = 0; k < n_leaves; k++) {
+        if (prop->leaves[k].eval_a(&s0)) init_bits |= 1u << (2 * k);
+        if (prop->leaves[k].eval_b && prop->leaves[k].eval_b(&s0)) init_bits |= 1u << (2 * k + 1);
+    }
+
+    // Product BFS from (start_q, config 0): reach[q] = configs reachable with
+    // per-leaf automaton states encoding q. The worklist order does not affect
+    // the reachability fixed point.
+    size_t n_words = ((size_t)n_nodes + 7) / 8;
+    unsigned char* reach = (unsigned char*)liv_calloc((size_t)qcount * n_words, 1);
+    int start_q = liv_delta(0, n_leaves, places, radices, kinds, init_bits);
+    size_t wq_cap = 64, wq_head = 0, wq_tail = 0;
+    int* wq_q = (int*)liv_malloc(wq_cap * sizeof(int));
+    int* wq_c = (int*)liv_malloc(wq_cap * sizeof(int));
+    liv_bit_set(reach + (size_t)start_q * n_words, 0);
+    wq_q[0] = start_q; wq_c[0] = 0; wq_tail = 1;
+    while (wq_head < wq_tail) {
+        int q = wq_q[wq_head];
+        int c = wq_c[wq_head];
+        wq_head++;
+        int len = g->adj_start[c + 1] - g->adj_start[c];
+        for (int pos = 0; pos < len; pos++) {
+            int v = g->edges[g->adj_start[c] + pos].target;
+            uint32_t bits = liv_bits_at(g, cache, done, c, pos, prop);
+            int q2 = liv_delta(q, n_leaves, places, radices, kinds, bits);
+            unsigned char* rq2 = reach + (size_t)q2 * n_words;
+            if (!liv_bit_at(rq2, v)) {
+                liv_bit_set(rq2, v);
+                if (wq_tail == wq_cap) {
+                    wq_cap *= 2;
+                    wq_q = realloc(wq_q, wq_cap * sizeof(int));
+                    wq_c = realloc(wq_c, wq_cap * sizeof(int));
+                    if (!wq_q || !wq_c) { fprintf(stderr, "out of memory\n"); exit(2); }
+                }
+                wq_q[wq_tail] = q2; wq_c[wq_tail] = v; wq_tail++;
+            }
+        }
+    }
+
+    int violated = 0;
+    for (int q = 0; q < qcount && !violated; q++) {
+        unsigned char* rq = reach + (size_t)q * n_words;
+        int any = 0;
+        for (size_t w = 0; w < n_words && !any; w++) any = (rq[w] != 0);
+        if (!any) continue;
+
+        // Stay-edge subgraph on R(q): edges whose label keeps the limit vector.
+        // In nondet mode a bad cycle must be STRONGLY FAIR (D-P4-11): every
+        // enabled successor of a cycle state is taken on the cycle, i.e. each
+        // cycle state has exactly one explored successor (and was fully
+        // expanded when truncated).
+        int* stay_count = (int*)liv_calloc((size_t)n_nodes, sizeof(int));
+        unsigned char* self_loop = (unsigned char*)liv_calloc((size_t)n_nodes, 1);
+        for (int c = 0; c < n_nodes; c++) {
+            if (!liv_bit_at(rq, c)) continue;
+            int len = g->adj_start[c + 1] - g->adj_start[c];
+            if (g->nondet && !(len == 1 && g->complete[c])) continue;
+            for (int pos = 0; pos < len; pos++) {
+                int v = g->edges[g->adj_start[c] + pos].target;
+                if (!liv_bit_at(rq, v)) continue;
+                uint32_t bits = liv_bits_at(g, cache, done, c, pos, prop);
+                if (liv_delta(q, n_leaves, places, radices, kinds, bits) != q) continue;
+                stay_count[c]++;
+                if (v == c) self_loop[c] = 1;
+            }
+        }
+        int* stay_start = (int*)liv_malloc(((size_t)n_nodes + 1) * sizeof(int));
+        int total_stay = 0;
+        for (int c = 0; c < n_nodes; c++) { stay_start[c] = total_stay; total_stay += stay_count[c]; }
+        stay_start[n_nodes] = total_stay;
+        liv_stay_edge_t* stay_edges = (liv_stay_edge_t*)liv_malloc((size_t)(total_stay ? total_stay : 1) * sizeof(liv_stay_edge_t));
+        int* scur = (int*)liv_calloc((size_t)n_nodes, sizeof(int));
+        for (int c = 0; c < n_nodes; c++) {
+            if (!liv_bit_at(rq, c)) continue;
+            int len = g->adj_start[c + 1] - g->adj_start[c];
+            if (g->nondet && !(len == 1 && g->complete[c])) continue;
+            for (int pos = 0; pos < len; pos++) {
+                int v = g->edges[g->adj_start[c] + pos].target;
+                if (!liv_bit_at(rq, v)) continue;
+                uint32_t bits = liv_bits_at(g, cache, done, c, pos, prop);
+                if (liv_delta(q, n_leaves, places, radices, kinds, bits) != q) continue;
+                stay_edges[stay_start[c] + scur[c]].v = v;
+                stay_edges[stay_start[c] + scur[c]].pos = pos;
+                scur[c]++;
+            }
+        }
+        free(scur);
+
+        // SCCs of the stay graph (Kosaraju, iterative). The SCC partition is
+        // independent of the DFS start order, so ascending config ids here
+        // reproduce the Rust engine's results.
+        int* rev_count = (int*)liv_calloc((size_t)n_nodes, sizeof(int));
+        for (int c = 0; c < n_nodes; c++)
+            for (int i = 0; i < stay_count[c]; i++) rev_count[stay_edges[stay_start[c] + i].v]++;
+        int* rev_start = (int*)liv_malloc(((size_t)n_nodes + 1) * sizeof(int));
+        int total_rev = 0;
+        for (int c = 0; c < n_nodes; c++) { rev_start[c] = total_rev; total_rev += rev_count[c]; }
+        rev_start[n_nodes] = total_rev;
+        int* rev_edges = (int*)liv_malloc((size_t)(total_rev ? total_rev : 1) * sizeof(int));
+        int* rc = (int*)liv_calloc((size_t)n_nodes, sizeof(int));
+        for (int c = 0; c < n_nodes; c++)
+            for (int i = 0; i < stay_count[c]; i++) {
+                int v = stay_edges[stay_start[c] + i].v;
+                rev_edges[rev_start[v] + rc[v]++] = c;
+            }
+        free(rc);
+
+        unsigned char* seen = (unsigned char*)liv_calloc((size_t)n_nodes, 1);
+        int* fin_order = (int*)liv_malloc((size_t)(n_nodes ? n_nodes : 1) * sizeof(int));
+        int n_fin = 0;
+        for (int start = 0; start < n_nodes; start++) {
+            if (!liv_bit_at(rq, start) || seen[start]) continue;
+            size_t st_cap = 16, st_n = 0;
+            int* st_c = (int*)liv_malloc(st_cap * sizeof(int));
+            int* st_i = (int*)liv_malloc(st_cap * sizeof(int));
+            seen[start] = 1;
+            st_c[0] = start; st_i[0] = 0; st_n = 1;
+            while (st_n > 0) {
+                int c = st_c[st_n - 1];
+                int i = st_i[st_n - 1];
+                int succs_len = stay_count[c];
+                int descended = 0;
+                while (i < succs_len) {
+                    int v = stay_edges[stay_start[c] + i].v;
+                    if (!seen[v]) {
+                        seen[v] = 1;
+                        st_i[st_n - 1] = i + 1;
+                        if (st_n == st_cap) {
+                            st_cap *= 2;
+                            st_c = realloc(st_c, st_cap * sizeof(int));
+                            st_i = realloc(st_i, st_cap * sizeof(int));
+                            if (!st_c || !st_i) { fprintf(stderr, "out of memory\n"); exit(2); }
+                        }
+                        st_c[st_n] = v; st_i[st_n] = 0; st_n++;
+                        descended = 1;
+                        break;
+                    }
+                    i++;
+                }
+                if (descended) continue;
+                st_n--;
+                fin_order[n_fin++] = c;
+            }
+            free(st_c); free(st_i);
+        }
+
+        int* comp = (int*)liv_malloc((size_t)(n_nodes ? n_nodes : 1) * sizeof(int));
+        for (int c = 0; c < n_nodes; c++) comp[c] = -1;
+        int* comp_size = (int*)liv_calloc((size_t)(n_nodes ? n_nodes : 1), sizeof(int));
+        int n_comp = 0;
+        for (int i = n_fin - 1; i >= 0; i--) {
+            int c = fin_order[i];
+            if (comp[c] >= 0) continue;
+            int cid = n_comp++;
+            comp_size[cid] = 0;
+            size_t bq_cap = 16, bq_head = 0, bq_tail = 0;
+            int* bq = (int*)liv_malloc(bq_cap * sizeof(int));
+            comp[c] = cid; comp_size[cid]++;
+            bq[bq_tail++] = c;
+            while (bq_head < bq_tail) {
+                int u = bq[bq_head++];
+                for (int r = rev_start[u]; r < rev_start[u + 1]; r++) {
+                    int wnode = rev_edges[r];
+                    if (comp[wnode] >= 0) continue;
+                    comp[wnode] = cid; comp_size[cid]++;
+                    if (bq_tail == bq_cap) {
+                        bq_cap *= 2;
+                        bq = realloc(bq, bq_cap * sizeof(int));
+                        if (!bq) { fprintf(stderr, "out of memory\n"); exit(2); }
+                    }
+                    bq[bq_tail++] = wnode;
+                }
+            }
+            free(bq);
+        }
+        (void)n_comp;
+
+        // Cyclic configs: SCC size > 1 or a stay self-loop. The smallest id is
+        // the canonical cycle anchor (parity with the Rust engine).
+        int cstar = -1;
+        for (int c = 0; c < n_nodes; c++) {
+            if (!liv_bit_at(rq, c)) continue;
+            if (comp_size[comp[c]] > 1 || self_loop[c]) { cstar = c; break; }
+        }
+
+        int ok = 0;
+        if (cstar >= 0) {
+            // The limit vector of any path looping inside this SCC is exactly q.
+            unsigned char* t = (unsigned char*)liv_malloc((size_t)n_leaves);
+            for (int k = 0; k < n_leaves; k++) t[k] = (unsigned char)liv_good(kinds[k], (q / places[k]) % radices[k]);
+            if (!prop->skeleton(t)) {
+                ok = liv_build_lasso(g, prop, cache, done, n_leaves, places, radices, kinds, init_bits, q, cstar, t, stay_start, stay_edges, comp, out);
+            }
+            free(t);
+        }
+
+        free(stay_count); free(self_loop); free(stay_start); free(stay_edges);
+        free(rev_count); free(rev_start); free(rev_edges);
+        free(seen); free(fin_order); free(comp); free(comp_size);
+        if (ok) violated = 1;
+    }
+
+    free(wq_q); free(wq_c); free(reach);
+    free(radices); free(places); free(kinds);
+    return violated;
+}
+
+/// Human-facing explanation of which leaves are falsified on the witness.
+static void liv_note(const liv_graph_t* g, const liv_property_t* prop, const liv_witness_t* w, char* buf, size_t buf_size) {
+    size_t off = 0;
+    int first_part = 1;
+    for (int k = 0; k < prop->n_leaves; k++) {
+        if (!w->falsified[k]) continue;
+        const liv_leaf_t* leaf = &prop->leaves[k];
+        char part[160];
+        if (leaf->kind == 0) {
+            // bad is absorbing and constant on the cycle, so the first
+            // falsifying position lies inside prefix + one cycle iteration.
+            int p = -1;
+            for (int pos = 0; pos <= w->n_lasso && p < 0; pos++) {
+                rfs_sample_t s;
+                liv_sample_at(g, w, pos, &s);
+                if (!leaf->eval_a(&s)) p = pos;
+            }
+            if (p < 0) p = w->n_lasso;
+            snprintf(part, sizeof(part), "safety subformula false at step %d", p);
+        } else if (leaf->kind == 1) {
+            snprintf(part, sizeof(part), "eventually body never holds on the path");
+        } else {
+            int seen_q = 0;
+            int p = -1;
+            for (int pos = 0; pos <= w->n_lasso && p < 0; pos++) {
+                rfs_sample_t s;
+                liv_sample_at(g, w, pos, &s);
+                int a = leaf->eval_a(&s) ? 1 : 0;
+                int b = (leaf->eval_b && leaf->eval_b(&s)) ? 1 : 0;
+                if (!a && !(seen_q || b)) p = pos;
+                seen_q |= b;
+            }
+            if (p < 0) p = w->n_lasso;
+            snprintf(part, sizeof(part), "until left fails at step %d without right holding", p);
+        }
+        if (!first_part && off + 2 < buf_size) {
+            off += (size_t)snprintf(buf + off, buf_size - off, "; ");
+        }
+        first_part = 0;
+        if (off < buf_size) {
+            off += (size_t)snprintf(buf + off, buf_size - off, "%s", part);
+        }
+    }
+    if (buf_size > 0 && off >= buf_size) off = buf_size - 1;
+    buf[off] = 0;
 }
 "#;
 /// The exact-mode entry point (generated verbatim into every C MC binary).
@@ -564,7 +1483,13 @@ static int run_exact(int argc, char** argv) {
     if (init_fsm.prop_label[0] != 0) {
         printf("FAIL\n");
         printf("model-check summary: status=fail states=1 transitions=0 max_depth=0 reason=property-violation label=%s step=%d\n", init_fsm.prop_label, init_fsm.prop_step);
-        mc_report_property(&init_fsm);
+        // Same dedicated sample-0 report as the Rust exact runtime.
+        printf("property violation: %s\n", init_fsm.prop_label);
+        if (init_fsm.prop_trigger_step >= 0) {
+            printf("  trigger step: %d (initial configuration)\n", init_fsm.prop_trigger_step);
+        }
+        printf("  violation step: %d (initial configuration)\n", init_fsm.prop_step);
+        print_trace(&init_fsm.trace);
         exit(1);
     }
 
@@ -578,7 +1503,16 @@ static int run_exact(int argc, char** argv) {
     int* parent_trans = (int*)malloc((size_t)max_states * sizeof(int));
     int* depth_arr = (int*)malloc((size_t)max_states * sizeof(int));
     uint8_t* visited = (uint8_t*)malloc((size_t)max_states * CONFIG_TOTAL_BYTES);
-    if (!nodes || !parent_id || !parent_input || !parent_trans || !depth_arr || !visited) {
+    int* visited_idx = (int*)malloc((size_t)max_states * sizeof(int));
+    // Explored graph edges (liveness analysis, D-P4-10): per config,
+    // (input index, transition id, target config) in discovery order.
+    int* adj_count = (int*)calloc((size_t)max_states, sizeof(int));
+    unsigned char* complete = (unsigned char*)calloc((size_t)max_states, 1);
+    size_t adj_cap = 64;
+    int adj_n = 0;
+    mc_edge_t* adj_edges = (mc_edge_t*)malloc(adj_cap * sizeof(mc_edge_t));
+    if (!nodes || !parent_id || !parent_input || !parent_trans || !depth_arr || !visited ||
+        !visited_idx || !adj_count || !complete || !adj_edges) {
         fprintf(stderr, "out of memory\n");
         exit(2);
     }
@@ -591,6 +1525,7 @@ static int run_exact(int argc, char** argv) {
     uint8_t key0[CONFIG_TOTAL_BYTES];
     config_bytes(nodes[0].state, &nodes[0].vars, &nodes[0].prop, &nodes[0].assume, key0);
     memcpy(visited, key0, CONFIG_TOTAL_BYTES);
+    visited_idx[0] = 0;
     int n_visited = 1;
 
     // Level-synchronous BFS (D-P4-2): canonical input order, successors in
@@ -656,18 +1591,35 @@ static int run_exact(int argc, char** argv) {
                     any_successor = 1;
                     uint8_t key[CONFIG_TOTAL_BYTES];
                     config_bytes(succ.state, &succ.vars, &succ.prop, &succ.assume, key);
-                    if (mc_visited_find(visited, n_visited, key) < 0) {
+                    int tcid = mc_visited_find(visited, visited_idx, n_visited, key);
+                    if (tcid < 0) {
                         if (n_nodes >= max_states) { status = 2; goto done; }
-                        mc_visited_insert(visited, &n_visited, key);
+                        mc_visited_insert(visited, visited_idx, &n_visited, key, n_nodes);
                         parent_id[n_nodes] = cid;
                         parent_input[n_nodes] = iidx;
                         parent_trans[n_nodes] = eff->transition_id;
                         depth_arr[n_nodes] = d + 1;
                         if (d + 1 > max_depth) max_depth = d + 1;
                         nodes[n_nodes++] = succ;
+                        tcid = n_nodes - 1;
                     }
+                    // Graph edge: recorded for every Success outcome, including
+                    // edges to already-visited configs (mirror of the Rust engine).
+                    if ((size_t)adj_n == adj_cap) {
+                        size_t ncap = adj_cap * 2;
+                        mc_edge_t* ne = (mc_edge_t*)realloc(adj_edges, ncap * sizeof(mc_edge_t));
+                        if (!ne) { fprintf(stderr, "out of memory\n"); exit(2); }
+                        adj_edges = ne;
+                        adj_cap = ncap;
+                    }
+                    adj_edges[adj_n].input_idx = iidx;
+                    adj_edges[adj_n].trans_id = eff->transition_id;
+                    adj_edges[adj_n].target = tcid;
+                    adj_count[cid]++;
+                    adj_n++;
                 }
             }
+            complete[cid] = 1;
             if (!any_successor) {
                 // Deadlock (D-P4-5): no successor at all - every input was
                 // unexpected or pruned by an active assumption.
@@ -691,6 +1643,62 @@ static int run_exact(int argc, char** argv) {
 done:
     if (status == 0) status = 1;
 
+    // Liveness analysis (D-P4-10/11): runs only when BFS ended without a
+    // safety failure or deadlock. On a truncated graph (state limit / timeout)
+    // this is a TRUNCATED analysis: a witness found inside the explored part
+    // is sound (all its edges are real transitions), otherwise the UNKNOWN
+    // status stands - never a false pass-complete.
+    liv_graph_t graph;
+    memset(&graph, 0, sizeof(graph));
+    int* adj_start = 0;
+    int is_liveness = 0;
+    int liv_pi = -1;
+    liv_witness_t kept_w;
+    memset(&kept_w, 0, sizeof(kept_w));
+    if (status != 4 && N_LIV_PROPS > 0) {
+        adj_start = (int*)liv_malloc(((size_t)n_nodes + 1) * sizeof(int));
+        adj_start[0] = 0;
+        for (int c = 0; c < n_nodes; c++) adj_start[c + 1] = adj_start[c] + adj_count[c];
+        graph.nodes = nodes;
+        graph.n_nodes = n_nodes;
+        graph.edges = adj_edges;
+        graph.adj_start = adj_start;
+        graph.complete = complete;
+        graph.inputs = inputs;
+        graph.n_inputs = n_inputs;
+        graph.nondet = nondet;
+        // The label cache is per-property: bit positions in the 32-bit label
+        // depend on that property's leaves (bit 2k/2k+1 of leaf k), so a cache
+        // shared across properties would mislabel edges. Allocate once per
+        // property, free before the next.
+        size_t total_edges = (size_t)adj_start[n_nodes];
+        for (int pi = 0; pi < N_LIV_PROPS && !is_liveness; pi++) {
+            uint32_t* edge_bits = 0;
+            unsigned char* edge_done = 0;
+            if (total_edges > 0) {
+                edge_bits = (uint32_t*)calloc(total_edges, sizeof(uint32_t));
+                edge_done = (unsigned char*)calloc(total_edges, 1);
+                if (!edge_bits || !edge_done) { fprintf(stderr, "out of memory\n"); exit(2); }
+            }
+            int violated = liv_analyze(&graph, LIV_PROPS[pi], edge_bits, edge_done, &kept_w);
+            free(edge_bits);
+            free(edge_done);
+            if (violated) {
+                is_liveness = 1;
+                liv_pi = pi;
+                status = 4;
+                fail_wire = "liveness-violation";
+                strncpy(fail_label, LIV_PROPS[pi]->label, sizeof(fail_label) - 1);
+                fail_label[sizeof(fail_label) - 1] = 0;
+                fail_step = kept_w.cycle_start;
+                n_fail_steps = kept_w.n_lasso;
+                fail_cid = kept_w.lasso_src;
+                fail_input = kept_w.lasso_input;
+                fail_trans = kept_w.lasso_trans;
+            }
+        }
+    }
+
     // Report (D-P4-4): human line, pinned machine line, statistics.
     size_t mem_est = (size_t)n_nodes * ((size_t)CONFIG_TOTAL_BYTES + 32);
     if (status == 1) printf("PASS (complete)\n");
@@ -710,7 +1718,16 @@ done:
         // Counterexample reconstruction (Phase 3 trace format).
         fsm_t cfsm;
         mc_replay(fail_cid, fail_input, fail_trans, n_fail_steps, nondet, active, n_active, inputs, &cfsm);
-        if (is_deadlock) {
+        if (is_liveness) {
+            printf("liveness violation: %s\n", fail_label);
+            printf("  formula: %s\n", LIV_PROPS[liv_pi]->formula);
+            printf("  violation step: %d\n", fail_step);
+            printf("  cycle length: %d\n", n_fail_steps - fail_step);
+            char note_buf[1024];
+            liv_note(&graph, LIV_PROPS[liv_pi], &kept_w, note_buf, sizeof(note_buf));
+            printf("  note: %s\n", note_buf);
+            print_trace(&cfsm.trace);
+        } else if (is_deadlock) {
             printf("deadlock: configuration at depth %d has no enabled transition\n", fail_step);
             print_trace(&cfsm.trace);
         } else {
@@ -791,11 +1808,11 @@ static void report_property_violation(const fsm_t* f, int run) {{
     printf("run %d property violation: %s\n", run, f->prop_label);
     if (f->prop_trigger_step >= 0) {{
         printf("  trigger step: %d\n", f->prop_trigger_step);
-        printf("  vars at trigger step: "); print_vars(&f->trace.steps[f->prop_trigger_step - 1].vars);
+        printf("  vars at trigger step: "); print_vars_debug(&f->trace.steps[f->prop_trigger_step - 1].vars); printf("\n");
     }}
     printf("  violation step: %d\n", f->prop_step);
     const vars_t* vv = (f->prop_step == 0) ? &f->trace.initial_vars : &f->trace.steps[f->prop_step - 1].vars;
-    printf("  vars at violation step: "); print_vars(vv);
+    printf("  vars at violation step: "); print_vars_debug(vv); printf("\n");
     print_trace(&f->trace);
     exit(1);
 }}

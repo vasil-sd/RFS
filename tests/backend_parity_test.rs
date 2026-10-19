@@ -12,6 +12,12 @@
 //!
 //! Fuzz mode stays covered by the codegen flag-sensitivity tests and task 2's
 //! spot check; this suite no longer drives `--mode fuzz`.
+//!
+//! Task 7 adds explicit liveness coverage: example 43 in exact mode must be
+//! byte-identical across backends, and inline liveness variants (pass,
+//! eventually/until/skeleton FAILs, input_is edge labels, --nondet fairness,
+//! truncated-mode soundness, safety precedence) must agree on exit code and
+//! full stdout - counterexample trace included.
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -137,11 +143,18 @@ fn compile_c(src: &Path, bin: &Path) {
         .arg(bin)
         .output()
         .expect("run gcc on generated code");
+    let stderr = String::from_utf8_lossy(&out.stderr);
     assert!(
         out.status.success(),
-        "gcc failed on {}:\n{}",
-        src.display(),
-        String::from_utf8_lossy(&out.stderr)
+        "gcc failed on {}:\n{stderr}",
+        src.display()
+    );
+    // Hard bar (task 7 exit criterion): generated C compiles with `gcc -Wall`
+    // without warnings.
+    assert!(
+        !stderr.lines().any(|l| l.contains("warning:")),
+        "gcc -Wall emitted warnings on {} (generated C must be warning-free):\n{stderr}",
+        src.display()
     );
 }
 
@@ -625,4 +638,281 @@ fn generated_test_executables_parity_all_property_bearing_examples() {
     // backend. (Task 24 resolved the former 13_properties_safety failure -
     // see PHASE_3_TASK_24_STATUS.md.)
     assert!(failing.is_empty(), "unexpected failing set: {failing:?}");
+}
+
+// ---------------------------------------------------------------------------
+// Task 7: liveness parity coverage (C mirror of task 6's analysis)
+//
+// The inline specs below are the same ones used in tests/liveness_mc_test.rs
+// (task 6, Rust only). Here BOTH backends must agree on exit code and
+// byte-identical stdout - status, reason, label, step and the full lasso
+// counterexample trace (prefix + one cycle iteration) included.
+// ---------------------------------------------------------------------------
+
+const LIV_PASS_SPEC: &str = r#"
+module liv_pass {
+  enum State { A, B }
+  initial A
+  event Go
+  var d: bool init false
+  transition A on Go { next B; set d = true; }
+  transition B on Go { next A; }
+  prop ev : eventually (d) ;
+}
+"#;
+
+const LIV_FAIL_EV_SPEC: &str = r#"
+module liv_fail_ev {
+  enum State { A, B }
+  initial A
+  event Go
+  var d: bool init false
+  transition A on Go { next B; }
+  transition B on Go { next A; }
+  prop ev : eventually (d) ;
+}
+"#;
+
+const LIV_FAIL_UNTIL_SPEC: &str = r#"
+module liv_fail_until {
+  enum State { A, B }
+  initial A
+  event Go
+  var p: bool init true
+  var q: bool init false
+  transition A on Go { next B; set p = false; }
+  transition B on Go { next A; }
+  prop p_until_q : (p until q) ;
+}
+"#;
+
+const LIV_FAIL_SKEL_SPEC: &str = r#"
+module liv_fail_skel {
+  enum State { A, B, C }
+  initial A
+  event Go
+  var s: bool init true
+  var d: bool init false
+  transition A on Go { next B; set s = false; }
+  transition B on Go { next C; set d = true; }
+  transition C on Go { next B; }
+  prop skel : (s && eventually (d)) ;
+}
+"#;
+
+const LIV_FAIL_INPUT_IS_SPEC: &str = r#"
+module liv_fail_input_is {
+  enum State { A }
+  initial A
+  event Ping
+  event Pong
+  transition A on Ping { next A; }
+  transition A on Pong { next A; }
+  prop eventually_ping : eventually (input_is(Ping)) ;
+}
+"#;
+
+const LIV_NONDET_DISC_SPEC: &str = r#"
+module liv_nondet_disc {
+  enum State { A, B }
+  initial A
+  event Stay
+  event Esc
+  var d: bool init false
+  transition A on Stay { next A; }
+  transition A on Esc { next B; set d = true; }
+  transition B on Stay { next B; }
+  transition B on Esc { next B; }
+  prop ev_d : eventually (d) ;
+}
+"#;
+
+const LIV_TRUNC_FAIL_SPEC: &str = r#"
+module liv_trunc_fail {
+  enum State { A, B, C }
+  initial A
+  event Go
+  event Other
+  var d: bool init false
+  transition A on Go { next A; }
+  transition A on Other { next B; }
+  transition B on Go { next C; }
+  transition C on Go { next C; }
+  prop ev_d : eventually (d) ;
+}
+"#;
+
+const LIV_SAFETY_PRECEDENCE_SPEC: &str = r#"
+module liv_safety_precedence {
+  enum State { A, B }
+  initial A
+  event Go
+  var d: bool init false
+  transition A on Go { next B; }
+  transition B on Go { next A; }
+  prop safe : always (d) ;
+  prop ev : eventually (d) ;
+}
+"#;
+
+/// MC codegen for an inline spec (the file-based twin of [`generate`]).
+fn generate_inline(backend_name: &str, src: &str) -> String {
+    let ir = rfs::parse_source(src)
+        .unwrap_or_else(|e| panic!("inline liveness spec must parse ({backend_name}): {e}"));
+    assert_eq!(ir.modules.len(), 1);
+    let backend = rfs::codegen::get_backend(backend_name)
+        .unwrap_or_else(|| panic!("backend {backend_name} registered"));
+    let options = rfs::codegen::BackendOptions {
+        assumptions: rfs::codegen::AssumptionSelection::All,
+        steps: 4,
+        with_property_monitors: false,
+        ..rfs::codegen::BackendOptions::default()
+    };
+    rfs::codegen::CodegenCommandKind::ModelChecker
+        .run(backend, &ir.modules[0], &options)
+        .unwrap_or_else(|e| panic!("MC codegen ({backend_name}) must succeed: {e:?}"))
+        .code
+}
+
+fn liv_mc_binary(tag: &str, backend_name: &str, src: &str) -> PathBuf {
+    cached_binary(&format!("mc|liv_{tag}|{backend_name}"), |dir| {
+        let ext = if backend_name == "c" { "c" } else { "rs" };
+        let s = dir.join(format!("liv_{tag}_mc.{ext}"));
+        std::fs::write(&s, generate_inline(backend_name, src)).expect("write MC source");
+        let b = dir.join(format!("liv_{tag}_mc_{backend_name}"));
+        if backend_name == "c" {
+            compile_c(&s, &b);
+        } else {
+            compile_rust(&s, &b, false);
+        }
+        b
+    })
+}
+
+fn run_bin(bin: &Path, args: &[&str]) -> (i32, String) {
+    let out = Command::new(bin)
+        .args(args)
+        .output()
+        .unwrap_or_else(|e| panic!("run MC binary {:?}: {e}", bin));
+    (
+        out.status.code().unwrap_or(-1),
+        String::from_utf8_lossy(&out.stdout).to_string(),
+    )
+}
+
+#[test]
+fn mc_liveness_example_43_exact_parity() {
+    // Explicit liveness coverage on the first liveness-bearing example:
+    // exact-mode status, reason and full stdout must be identical across
+    // backends (pass-complete, no counterexample).
+    let spec = property_bearing_examples()
+        .into_iter()
+        .find(|p| p.file_name().and_then(|f| f.to_str()) == Some("43_sliding_window.rfs"))
+        .expect("example 43 must be in the dynamic set");
+    let rust = run_mc(&spec, "rust", &[]);
+    let c = run_mc(&spec, "c", &[]);
+    assert_eq!(rust.exit_code, Some(0), "{}", rust.stdout);
+    assert_eq!(c.exit_code, Some(0), "{}", c.stdout);
+    assert_eq!(
+        rust.stdout, c.stdout,
+        "example 43 exact-mode stdout must be byte-identical across backends"
+    );
+    let e = parse_exact(&rust.stdout, 0);
+    assert_eq!(e.status, "pass-complete");
+    assert!(
+        e.reason.is_none() && e.label.is_none() && e.step.is_none(),
+        "no counterexample expected on pass-complete: {e:?}"
+    );
+}
+
+#[test]
+fn mc_liveness_inline_variants_parity() {
+    // Both backends must agree on exit code and byte-identical stdout for
+    // every liveness variant - status, reason, label, step and the full
+    // lasso counterexample trace (prefix + one cycle iteration) included.
+    let variants: &[(&str, &str, &[&str])] = &[
+        ("pass", LIV_PASS_SPEC, &[]),
+        ("fail_ev", LIV_FAIL_EV_SPEC, &[]),
+        ("fail_until", LIV_FAIL_UNTIL_SPEC, &[]),
+        ("fail_skel", LIV_FAIL_SKEL_SPEC, &[]),
+        ("fail_input_is", LIV_FAIL_INPUT_IS_SPEC, &[]),
+        ("nondet_det", LIV_NONDET_DISC_SPEC, &[]),
+        ("nondet_fair", LIV_NONDET_DISC_SPEC, &["--nondet"]),
+        ("trunc_fail", LIV_TRUNC_FAIL_SPEC, &["--max-states", "2"]),
+        ("trunc_unknown", LIV_FAIL_EV_SPEC, &["--max-states", "1"]),
+        ("safety_prec", LIV_SAFETY_PRECEDENCE_SPEC, &[]),
+    ];
+    for (tag, src, args) in variants {
+        let rust = run_bin(&liv_mc_binary(tag, "rust", src), args);
+        let c = run_bin(&liv_mc_binary(tag, "c", src), args);
+        assert_eq!(
+            rust.0, c.0,
+            "[liv {tag}] exit codes must match\n[rust]\n{}\n[c]\n{}",
+            rust.1, c.1
+        );
+        assert_eq!(
+            rust.1, c.1,
+            "[liv {tag}] stdout must be byte-identical across backends"
+        );
+    }
+}
+
+#[test]
+fn mc_liveness_counterexample_fields_pinned() {
+    // Pinned lasso counterexample fields on the eventually-fail variant
+    // (task 7 exit criterion: counterexample fields test-pinned): the cycle
+    // starts at the initial configuration, has length 2, and the trace is
+    // prefix + one cycle iteration.
+    for (backend, bin) in [
+        ("rust", liv_mc_binary("pin_ev", "rust", LIV_FAIL_EV_SPEC)),
+        ("c", liv_mc_binary("pin_ev", "c", LIV_FAIL_EV_SPEC)),
+    ] {
+        let (code, out) = run_bin(&bin, &[]);
+        assert_eq!(code, 1, "{backend}: {out}");
+        assert!(out.contains("status=fail"), "{backend}: {out}");
+        assert!(
+            out.contains("reason=liveness-violation"),
+            "{backend}: {out}"
+        );
+        assert!(out.contains("label=ev"), "{backend}: {out}");
+        assert!(out.contains("step=0"), "{backend}: {out}");
+        assert!(out.contains("liveness violation: ev"), "{backend}: {out}");
+        assert!(out.contains("violation step: 0"), "{backend}: {out}");
+        assert!(out.contains("cycle length: 2"), "{backend}: {out}");
+    }
+}
+
+#[test]
+fn mc_liveness_truncated_mode_sound() {
+    // Bounded mode (task 7 exit criterion): with the bad cycle inside the
+    // explored part both backends must report a sound FAIL; with it cut off
+    // both must stay UNKNOWN - never a false pass-complete.
+    let cases: &[(&str, &str, &[&str], &str)] = &[
+        (
+            "trunc_fail",
+            LIV_TRUNC_FAIL_SPEC,
+            &["--max-states", "2"],
+            "fail",
+        ),
+        (
+            "trunc_unknown",
+            LIV_FAIL_EV_SPEC,
+            &["--max-states", "1"],
+            "unknown-state-limit",
+        ),
+    ];
+    for (tag, src, args, want_status) in cases {
+        for (backend, bin) in [
+            ("rust", liv_mc_binary(tag, "rust", src)),
+            ("c", liv_mc_binary(tag, "c", src)),
+        ] {
+            let (code, out) = run_bin(&bin, args);
+            let e = parse_exact(&out, code);
+            assert_eq!(e.status, *want_status, "[{backend} {tag}] {out}");
+            assert_ne!(
+                e.status, "pass-complete",
+                "[{backend} {tag}] false pass-complete in truncated mode: {out}"
+            );
+        }
+    }
 }

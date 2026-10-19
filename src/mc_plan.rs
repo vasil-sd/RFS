@@ -426,6 +426,13 @@ fn collect_input_is_refs(f: &Formula, inputs: &[VariantInfo], refd: &mut [HashSe
             collect_input_is_refs(left, inputs, refd);
             collect_input_is_refs(right, inputs, refd);
         }
+        // Liveness operators (Phase 4): their boolean bodies may constrain
+        // input fields too - those fields must stay concrete.
+        Formula::Eventually { inner } => collect_input_is_refs(inner, inputs, refd),
+        Formula::Until { left, right } => {
+            collect_input_is_refs(left, inputs, refd);
+            collect_input_is_refs(right, inputs, refd);
+        }
         _ => {}
     }
 }
@@ -597,6 +604,184 @@ fn traversal_spec(module: &Module, abstraction: &InputAbstraction) -> TraversalS
         value_domains,
         state_orders,
         assumption_labels,
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Liveness obligation decomposition (D-P4-9, Phase 4 task 6)
+// ---------------------------------------------------------------------------
+
+/// One liveness obligation extracted from a property (D-P4-9): `eventually p`
+/// or `p until q`, where the subformulas are BOOLEAN over atomic propositions
+/// (no temporal operators inside).
+#[derive(Debug, Clone, PartialEq)]
+pub enum LivenessObligation {
+    Eventually { body: Formula },
+    Until { left: Formula, right: Formula },
+}
+
+/// A leaf of a liveness property's top-level skeleton.
+#[derive(Debug, Clone, PartialEq)]
+pub enum SkeletonLeaf {
+    /// Safety subformula - boolean over atomic propositions; must hold at
+    /// every position of every path (checked by scanning the graph).
+    Safety(Formula),
+    /// Index into `LivenessPropertySpec::obligations` (checked by fixpoints).
+    Obligation(usize),
+}
+
+/// Top-level boolean skeleton of a liveness-bearing property: obligations are
+/// replaced by indices, everything else stays as safety leaves.
+#[derive(Debug, Clone, PartialEq)]
+pub enum Skeleton {
+    And(Box<Skeleton>, Box<Skeleton>),
+    Or(Box<Skeleton>, Box<Skeleton>),
+    Implies(Box<Skeleton>, Box<Skeleton>),
+    Not(Box<Skeleton>),
+    Leaf(SkeletonLeaf),
+}
+
+/// Decomposition of one liveness-bearing property (D-P4-9).
+#[derive(Debug, Clone, PartialEq)]
+pub struct LivenessPropertySpec {
+    pub label: String,
+    /// Obligations in first-appearance order over the formula.
+    pub obligations: Vec<LivenessObligation>,
+    pub skeleton: Skeleton,
+}
+
+/// Result of decomposing all properties of a module.
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct LivenessDecomposition {
+    /// Per property (declaration order): `Some(spec)` iff the property is
+    /// liveness-bearing AND checkable; `None` otherwise (pure safety, or
+    /// uncheckable - see `diagnostics`).
+    pub properties: Vec<Option<LivenessPropertySpec>>,
+    /// Codegen diagnostics for liveness properties that cannot be checked
+    /// (deeper nesting, non-boolean operands, temporal safety parts). Clear
+    /// messages; never a parse error (D-P4-9).
+    pub diagnostics: Vec<String>,
+}
+
+/// True iff `f` is a boolean formula over atomic propositions: only
+/// `Expr`/`InputIs`/`OutputHas` atoms combined with `!`/`&&`/`||`/`->` - no
+/// temporal operators (D-P4-9's "boolean subformulas over atomic
+/// propositions").
+pub fn boolean_over_atoms(f: &Formula) -> bool {
+    match f {
+        Formula::Expr { .. } | Formula::InputIs { .. } | Formula::OutputHas { .. } => true,
+        Formula::Not { inner } => boolean_over_atoms(inner),
+        Formula::And { left, right }
+        | Formula::Or { left, right }
+        | Formula::Implies { left, right } => boolean_over_atoms(left) && boolean_over_atoms(right),
+        // Temporal operators (incl. liveness) are not allowed inside.
+        _ => false,
+    }
+}
+
+impl LivenessDecomposition {
+    /// Decompose every property of `module` (D-P4-9). Properties without
+    /// liveness operators yield `None` (checked by the monitor machinery as
+    /// before); liveness-bearing properties are decomposed into obligations +
+    /// skeleton, or produce a diagnostic when uncheckable.
+    pub fn compute(module: &Module) -> LivenessDecomposition {
+        let mut out = LivenessDecomposition::default();
+        for p in &module.properties {
+            if !contains_liveness(&p.formula) {
+                out.properties.push(None);
+                continue;
+            }
+            let mut obligations: Vec<LivenessObligation> = Vec::new();
+            match decompose_top(&p.formula, &mut obligations) {
+                Ok(skeleton) => out.properties.push(Some(LivenessPropertySpec {
+                    label: p.name.clone(),
+                    obligations,
+                    skeleton,
+                })),
+                Err(msg) => {
+                    out.diagnostics
+                        .push(format!("property '{}': {}", p.name, msg));
+                    out.properties.push(None);
+                }
+            }
+        }
+        out
+    }
+}
+
+/// True iff the formula contains an `eventually`/`until` operator anywhere.
+fn contains_liveness(f: &Formula) -> bool {
+    match f {
+        Formula::Eventually { .. } | Formula::Until { .. } => true,
+        Formula::Not { inner }
+        | Formula::Next { inner }
+        | Formula::Always { inner }
+        | Formula::BoundedAlways { inner, .. }
+        | Formula::BoundedEventually { inner, .. } => contains_liveness(inner),
+        Formula::And { left, right }
+        | Formula::Or { left, right }
+        | Formula::Implies { left, right } => contains_liveness(left) || contains_liveness(right),
+        _ => false,
+    }
+}
+
+/// Decompose a TOP-LEVEL formula of a liveness-bearing property (D-P4-9):
+/// obligations may appear anywhere in the boolean skeleton (`&&`/`||`/`!`/
+/// `->`); every other leaf must be boolean over atomic propositions. Temporal
+/// operators inside a liveness property are rejected with a diagnostic
+/// (deeper nesting when they contain liveness; otherwise: split the safety
+/// part into a separate property).
+fn decompose_top(
+    f: &Formula,
+    obligations: &mut Vec<LivenessObligation>,
+) -> Result<Skeleton, String> {
+    match f {
+        Formula::And { left, right } => Ok(Skeleton::And(
+            Box::new(decompose_top(left, obligations)?),
+            Box::new(decompose_top(right, obligations)?),
+        )),
+        Formula::Or { left, right } => Ok(Skeleton::Or(
+            Box::new(decompose_top(left, obligations)?),
+            Box::new(decompose_top(right, obligations)?),
+        )),
+        Formula::Implies { left, right } => Ok(Skeleton::Implies(
+            Box::new(decompose_top(left, obligations)?),
+            Box::new(decompose_top(right, obligations)?),
+        )),
+        Formula::Not { inner } => Ok(Skeleton::Not(Box::new(decompose_top(inner, obligations)?))),
+        Formula::Eventually { inner } => {
+            if !boolean_over_atoms(inner) {
+                return Err("liveness subformula must be a boolean formula over atomic propositions (no temporal operators inside `eventually`)".into());
+            }
+            let idx = obligations.len();
+            obligations.push(LivenessObligation::Eventually {
+                body: (**inner).clone(),
+            });
+            Ok(Skeleton::Leaf(SkeletonLeaf::Obligation(idx)))
+        }
+        Formula::Until { left, right } => {
+            if !boolean_over_atoms(left) || !boolean_over_atoms(right) {
+                return Err("liveness subformula must be a boolean formula over atomic propositions (no temporal operators inside `until` operands)".into());
+            }
+            let idx = obligations.len();
+            obligations.push(LivenessObligation::Until {
+                left: (**left).clone(),
+                right: (**right).clone(),
+            });
+            Ok(Skeleton::Leaf(SkeletonLeaf::Obligation(idx)))
+        }
+        Formula::Next { inner }
+        | Formula::Always { inner }
+        | Formula::BoundedAlways { inner, .. }
+        | Formula::BoundedEventually { inner, .. } => Err(if contains_liveness(inner) {
+            "liveness operators nested under a temporal operator are not supported (deeper nesting)"
+                .into()
+        } else {
+            "temporal operators are not supported in liveness properties; split the safety part into a separate property".into()
+        }),
+        Formula::Expr { .. } | Formula::InputIs { .. } | Formula::OutputHas { .. } => {
+            Ok(Skeleton::Leaf(SkeletonLeaf::Safety(f.clone())))
+        }
     }
 }
 
@@ -817,5 +1002,125 @@ mod tests {
         let m = module(REF_SPEC);
         let plan = McPlan::compute(&m, &AssumptionSelection::All);
         assert_eq!(plan.traversal.assumption_labels, vec!["env_u"]);
+    }
+
+    // -- Liveness obligation decomposition (D-P4-9, task 6) ------------------
+
+    fn atom(name: &str) -> Formula {
+        Formula::Expr {
+            expr: Expr::Path {
+                path: vec![name.to_string()],
+            },
+        }
+    }
+
+    #[test]
+    fn liveness_decomposition_shapes() {
+        // Pure safety property: not liveness-bearing.
+        let m = module(
+            "module m { enum State { A } initial A event E var f: bool init false prop p : always (f) ; }",
+        );
+        let d = LivenessDecomposition::compute(&m);
+        assert_eq!(d.properties, vec![None]);
+        assert!(d.diagnostics.is_empty());
+
+        // Bare eventually.
+        let m = module(
+            "module m { enum State { A } initial A event E var f: bool init false prop p : eventually (f) ; }",
+        );
+        let d = LivenessDecomposition::compute(&m);
+        assert!(d.diagnostics.is_empty());
+        let spec = d.properties[0].as_ref().expect("liveness spec");
+        assert_eq!(spec.label, "p");
+        assert_eq!(
+            spec.obligations,
+            vec![LivenessObligation::Eventually { body: atom("f") }]
+        );
+        assert_eq!(spec.skeleton, Skeleton::Leaf(SkeletonLeaf::Obligation(0)));
+
+        // Combined skeleton with two obligations + a safety leaf:
+        //   f && eventually (g) || !(h until i)
+        let m = module(
+            "module m { enum State { A } initial A event E var f: bool init false var g: bool init false var h: bool init false var i: bool init false prop p : f && eventually (g) || !(h until i) ; }",
+        );
+        let d = LivenessDecomposition::compute(&m);
+        assert!(d.diagnostics.is_empty());
+        let spec = d.properties[0].as_ref().expect("liveness spec");
+        assert_eq!(spec.obligations.len(), 2);
+        assert!(matches!(
+            spec.obligations[0],
+            LivenessObligation::Eventually { .. }
+        ));
+        assert!(matches!(
+            spec.obligations[1],
+            LivenessObligation::Until { .. }
+        ));
+        let expected = Skeleton::Or(
+            Box::new(Skeleton::And(
+                Box::new(Skeleton::Leaf(SkeletonLeaf::Safety(atom("f")))),
+                Box::new(Skeleton::Leaf(SkeletonLeaf::Obligation(0))),
+            )),
+            Box::new(Skeleton::Not(Box::new(Skeleton::Leaf(
+                SkeletonLeaf::Obligation(1),
+            )))),
+        );
+        assert_eq!(spec.skeleton, expected);
+    }
+
+    #[test]
+    fn liveness_decomposition_diagnostics() {
+        // Deeper nesting: liveness under a temporal operator.
+        let m = module(
+            "module m { enum State { A } initial A event E var f: bool init false prop p : always (eventually (f)) ; }",
+        );
+        let d = LivenessDecomposition::compute(&m);
+        assert!(d.properties[0].is_none());
+        assert_eq!(d.diagnostics.len(), 1);
+        assert!(
+            d.diagnostics[0].contains("deeper nesting"),
+            "{}",
+            d.diagnostics[0]
+        );
+
+        // Non-boolean operand: temporal operator inside `eventually`.
+        let m = module(
+            "module m { enum State { A } initial A event E var f: bool init false prop p : eventually (always (f)) ; }",
+        );
+        let d = LivenessDecomposition::compute(&m);
+        assert!(d.properties[0].is_none());
+        assert!(d.diagnostics[0].contains("boolean formula over atomic propositions"));
+
+        // Temporal safety part combined with an obligation.
+        let m = module(
+            "module m { enum State { A } initial A event E var f: bool init false prop p : always (f) && eventually (f) ; }",
+        );
+        let d = LivenessDecomposition::compute(&m);
+        assert!(d.properties[0].is_none());
+        assert!(
+            d.diagnostics[0].contains("split the safety part"),
+            "{}",
+            d.diagnostics[0]
+        );
+
+        // `until` operand with a temporal operator.
+        let m = module(
+            "module m { enum State { A } initial A event E var f: bool init false prop p : f until always (f) ; }",
+        );
+        let d = LivenessDecomposition::compute(&m);
+        assert!(d.properties[0].is_none());
+        assert!(d.diagnostics[0].contains("boolean formula over atomic propositions"));
+    }
+
+    #[test]
+    fn liveness_input_is_refs_count_for_abstraction() {
+        // A field constrained ONLY inside an obligation body must stay
+        // concrete (task 6: abstraction analysis sees through liveness).
+        let m = module(
+            "module m { enum State { A } initial A event E(V(x: bit<2>, free: bit<3>)) prop p : eventually (input_is(E(V(1, _)))) ; }",
+        );
+        let plan = McPlan::compute(&m, &AssumptionSelection::All);
+        let vs = &plan.abstraction.variants[0];
+        assert!(vs.fields[0].concrete, "x must be concrete");
+        assert!(!vs.fields[1].concrete, "free must be abstracted");
     }
 }

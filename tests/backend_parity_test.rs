@@ -450,6 +450,22 @@ fn pinned(name: &str) -> Pinned {
             trigger_step: None,
             violation_step: None,
         },
+        // First liveness-bearing example (task 6): Rust checks the
+        // eventually/until properties on the completed graph; C (until task 7)
+        // skips them as out-of-subset. Both backends agree on status and the
+        // deterministic BFS metrics because liveness adds no monitor state.
+        "43_sliding_window.rfs" => Pinned {
+            exit_code: 0,
+            status: "pass-complete",
+            states: 165,
+            transitions: 330,
+            max_depth: 22,
+            reason: None,
+            label: None,
+            step: None,
+            trigger_step: None,
+            violation_step: None,
+        },
         "31_traffic_light_tla.rfs" => Pinned {
             exit_code: 0,
             status: "pass-complete",
@@ -571,9 +587,10 @@ fn mc_exact_results_match_re_pinned_values() {
             n_fail += 1;
         }
     }
-    // Pinned current state: 6 pass-complete, 9 fail (1 property violation on
-    // 13_properties_safety, 8 deadlocks at terminal states).
-    assert_eq!((n_pass, n_fail), (6, 9), "pass/fail split drifted");
+    // Pinned current state: 7 pass-complete, 9 fail (1 property violation on
+    // 13_properties_safety, 8 deadlocks at terminal states). Example 43 is the
+    // first liveness-bearing spec (task 6): pass-complete in both backends.
+    assert_eq!((n_pass, n_fail), (7, 9), "pass/fail split drifted");
 }
 
 // ---------------------------------------------------------------------------

@@ -1626,3 +1626,35 @@ pub(crate) fn render_mc_step_all(module: &Module) -> Result<String, String> {
     out.push_str("    out\n}\n");
     Ok(out)
 }
+
+/// Render a per-sample evaluator for a boolean-over-atoms formula (Phase 4
+/// task 6, liveness engine): `fn <name>(s: &Sample) -> bool { <expr> }` using
+/// the SAME signal rendering as monitors (`state` = post-step state, vars from
+/// the sample, `input_is`/`output_has` pattern matches), so obligation bodies
+/// and safety leaves agree with monitor semantics by construction.
+pub(crate) fn render_sample_formula_evaluator(
+    module: &Module,
+    name: &str,
+    formula: &Formula,
+) -> Result<String, String> {
+    let signal = crate::monitor::formula_to_signal(formula)
+        .ok_or_else(|| "liveness subformula contains temporal operators".to_string())?;
+    let options = BackendOptions::default();
+    let variants = codegen_fsm::build_variants(module);
+    let gen = Gen {
+        module,
+        options: &options,
+        code: String::new(),
+        variants,
+        prop_mode: PropertyMonitorMode::Off,
+        assume_plans: vec![],
+        prop_plans: vec![],
+        active_assumes: vec![],
+        property_names: vec![],
+    };
+    let expr = gen.gen_signal(&signal)?;
+    Ok(format!(
+        "pub fn {}(s: &Sample) -> bool {{ {} }}\n",
+        name, expr
+    ))
+}

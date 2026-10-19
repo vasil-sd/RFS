@@ -131,6 +131,14 @@ pub struct MonitorPlan {
     pub root: MonNode,
 }
 
+/// Convert a temporal-operator-free subformula into a per-sample signal
+/// (the inverse of `compile_signal`'s domain). Returns `None` when the formula
+/// contains temporal operators. Used by the Phase 4 liveness engine to render
+/// obligation bodies / safety leaves as per-sample evaluators.
+pub fn formula_to_signal(f: &Formula) -> Option<SignalExpr> {
+    compile_signal(f)
+}
+
 /// Compile a formula into a monitor plan.
 ///
 /// `Err(msg)` means the formula is outside the monitor subset (R1-R4): no

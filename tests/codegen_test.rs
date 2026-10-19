@@ -759,17 +759,45 @@ fn no_skip_warnings_for_in_subset_properties_both_backends() {
                     continue;
                 }
                 let out = result.unwrap();
-                assert!(
-                    out.warnings
-                        .iter()
-                        .all(|w| !w.contains("outside the monitor subset")),
-                    "{} {}: in-subset formulas must not be skipped: {:?}",
-                    backend_name,
-                    path.display(),
-                    out.warnings
-                );
+                // Liveness (eventually/until) formulas are MC-only by design
+                // (D-P4-9): their skip warnings are expected and identical in
+                // both backends (pinned by
+                // liveness_properties_skip_with_identical_warning_both_backends).
+                let has_liveness = module
+                    .properties
+                    .iter()
+                    .chain(module.assumptions.iter())
+                    .any(|p| formula_has_liveness(&p.formula));
+                if !has_liveness {
+                    assert!(
+                        out.warnings
+                            .iter()
+                            .all(|w| !w.contains("outside the monitor subset")),
+                        "{} {}: in-subset formulas must not be skipped: {:?}",
+                        backend_name,
+                        path.display(),
+                        out.warnings
+                    );
+                }
             }
         }
+    }
+}
+
+/// True iff the formula contains an `eventually`/`until` operator anywhere.
+fn formula_has_liveness(f: &rfs::ir::Formula) -> bool {
+    use rfs::ir::Formula::*;
+    match f {
+        Eventually { .. } | Until { .. } => true,
+        Not { inner }
+        | Next { inner }
+        | Always { inner }
+        | BoundedAlways { inner, .. }
+        | BoundedEventually { inner, .. } => formula_has_liveness(inner),
+        And { left, right } | Or { left, right } | Implies { left, right } => {
+            formula_has_liveness(left) || formula_has_liveness(right)
+        }
+        _ => false,
     }
 }
 

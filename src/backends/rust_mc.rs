@@ -41,21 +41,23 @@ pub fn generate_model_checker(
         crate::codegen::PropertyMonitorMode::Always,
     )?;
     let mut out = fsm.code;
-    out.push_str(&exact_codegen(module, &plan, options).map_err(|e| vec![e])?);
+    let (exact, liv_warnings) = exact_codegen(module, &plan, options).map_err(|e| vec![e])?;
+    out.push_str(&exact);
     out.push_str(FUZZ_RUNTIME);
     out.push_str(MAIN_DISPATCH);
     Ok(CodegenOutput {
         code: out,
-        warnings: fsm.warnings,
+        warnings: fsm.warnings.into_iter().chain(liv_warnings).collect(),
     })
 }
 
-/// Render the exact-mode runtime from the plan (D-P4-1..6).
+/// Render the exact-mode runtime from the plan (D-P4-1..6). Returns the code
+/// plus liveness decomposition diagnostics (codegen warnings, D-P4-9).
 fn exact_codegen(
     module: &Module,
     plan: &McPlan,
     options: &BackendOptions,
-) -> Result<String, String> {
+) -> Result<(String, Vec<String>), String> {
     use crate::backends::rust::{rust_ident, snake};
 
     let mut s = String::new();
@@ -202,8 +204,112 @@ fn exact_codegen(
 
     // The BFS engine (static; see D-P4-2..6).
     s.push_str(EXACT_ENGINE);
+
+    // Liveness (Phase 4 task 6, D-P4-9/10/11): obligation decomposition,
+    // per-leaf sample evaluators, the static engine, and the property table.
+    let liv = crate::mc_plan::LivenessDecomposition::compute(module);
+    let warnings: Vec<String> = liv.diagnostics.clone();
+    s.push_str(LIV_ENGINE);
+    let mut prop_fns: Vec<String> = Vec::new();
+    let mut prop_names: Vec<String> = Vec::new();
+    for (pi, spec_opt) in liv.properties.iter().enumerate() {
+        let Some(spec) = spec_opt else { continue };
+        // Flatten the skeleton: leaves in first-appearance order.
+        let mut leaves: Vec<crate::mc_plan::SkeletonLeaf> = Vec::new();
+        let skel_expr = flatten_skeleton(&spec.skeleton, &mut leaves);
+        let mut leaf_entries: Vec<String> = Vec::new();
+        for (li, leaf) in leaves.iter().enumerate() {
+            match leaf {
+                crate::mc_plan::SkeletonLeaf::Safety(f) => {
+                    let name = format!("liv_p{pi}_l{li}");
+                    s.push_str(&crate::backends::rust_fsm::render_sample_formula_evaluator(
+                        module, &name, f,
+                    )?);
+                    leaf_entries.push(format!(
+                        "LivLeaf {{ kind: 0, eval_a: {name}, eval_b: None }}"
+                    ));
+                }
+                crate::mc_plan::SkeletonLeaf::Obligation(oi) => match &spec.obligations[*oi] {
+                    crate::mc_plan::LivenessObligation::Eventually { body } => {
+                        let name = format!("liv_p{pi}_l{li}");
+                        s.push_str(&crate::backends::rust_fsm::render_sample_formula_evaluator(
+                            module, &name, body,
+                        )?);
+                        leaf_entries.push(format!(
+                            "LivLeaf {{ kind: 1, eval_a: {name}, eval_b: None }}"
+                        ));
+                    }
+                    crate::mc_plan::LivenessObligation::Until { left, right } => {
+                        let na = format!("liv_p{pi}_l{li}");
+                        let nb = format!("liv_p{pi}_l{li}b");
+                        s.push_str(&crate::backends::rust_fsm::render_sample_formula_evaluator(
+                            module, &na, left,
+                        )?);
+                        s.push_str(&crate::backends::rust_fsm::render_sample_formula_evaluator(
+                            module, &nb, right,
+                        )?);
+                        leaf_entries.push(format!(
+                            "LivLeaf {{ kind: 2, eval_a: {na}, eval_b: Some({nb}) }}"
+                        ));
+                    }
+                },
+            }
+        }
+        s.push_str(&format!(
+            "fn liv_p{pi}_skel(t: &[bool]) -> bool {{ {} }}\n",
+            skel_expr
+        ));
+        let formula_text = crate::printer::print_formula(&module.properties[pi].formula);
+        let label_lit = format!("{:?}", spec.label);
+        let formula_lit = format!("{:?}", formula_text);
+        prop_names.push(format!("liv_prop_{pi}"));
+        prop_fns.push(format!(
+            "fn liv_prop_{pi}() -> LivProperty {{ LivProperty {{ label: {label_lit}, formula: {formula_lit}, leaves: vec![{}], skeleton: liv_p{pi}_skel }} }}\n",
+            leaf_entries.join(", ")
+        ));
+    }
+    for f in &prop_fns {
+        s.push_str(f);
+    }
+    s.push_str(&format!(
+        "const LIV_PROPS: [fn() -> LivProperty; {}] = [{}];\n",
+        prop_names.len(),
+        prop_names.join(", ")
+    ));
+
     s.push_str(EXACT_RUN);
-    Ok(s)
+    Ok((s, warnings))
+}
+
+/// Re-index the skeleton leaves in first-appearance order and render the
+/// boolean expression over `t[0..L)` (per-leaf satisfaction flags).
+fn flatten_skeleton(
+    sk: &crate::mc_plan::Skeleton,
+    leaves: &mut Vec<crate::mc_plan::SkeletonLeaf>,
+) -> String {
+    match sk {
+        crate::mc_plan::Skeleton::And(l, r) => format!(
+            "({} && {})",
+            flatten_skeleton(l, leaves),
+            flatten_skeleton(r, leaves)
+        ),
+        crate::mc_plan::Skeleton::Or(l, r) => format!(
+            "({} || {})",
+            flatten_skeleton(l, leaves),
+            flatten_skeleton(r, leaves)
+        ),
+        crate::mc_plan::Skeleton::Implies(l, r) => format!(
+            "(!({}) || {})",
+            flatten_skeleton(l, leaves),
+            flatten_skeleton(r, leaves)
+        ),
+        crate::mc_plan::Skeleton::Not(x) => format!("!({})", flatten_skeleton(x, leaves)),
+        crate::mc_plan::Skeleton::Leaf(leaf) => {
+            let i = leaves.len();
+            leaves.push(leaf.clone());
+            format!("t[{}]", i)
+        }
+    }
 }
 
 /// Canonical iterator expression for a concrete field domain (D-P4-2).
@@ -335,6 +441,376 @@ fn exact_summary_line(status: &str, states: usize, transitions: usize, max_depth
     s
 }
 "#;
+// ---------------------------------------------------------------------------
+// Liveness engine (Phase 4 task 6; D-P4-10/11). Runs on the reachable graph
+// after exact BFS completes (or is truncated by --max-states / timeout).
+//
+// Per property: a boolean skeleton over per-leaf progress automata. Each leaf
+// has a small deterministic automaton whose state is eventually constant on
+// every infinite path; the property is violated iff some reachable product
+// cycle realizes a limit vector that falsifies the skeleton (verified against
+// brute-force lasso enumeration - see PHASE_4_TASK_6_STATUS.md).
+//
+// Labels are EDGE-based: position 0 uses the initial-configuration sample,
+// position k uses the sample of step k, so input_is/output_has atoms inside
+// obligation bodies depend on the edge taken (the same configuration reached
+// via different inputs can carry different labels).
+// ---------------------------------------------------------------------------
+const LIV_ENGINE: &str = r#"
+struct LivGraph<'a> {
+    nodes: &'a Vec<Node>,
+    /// Per config: (input index, transition id, target config) in discovery order.
+    adj: &'a Vec<Vec<(usize, usize, usize)>>,
+    /// Config fully expanded (matters for the nondet fairness filter when the
+    /// graph is truncated by --max-states / timeout).
+    complete: &'a [bool],
+    inputs: &'a [Input],
+    nondet: bool,
+}
+
+#[derive(Clone, Copy)]
+struct LivLeaf {
+    kind: u8, // 0 safety, 1 eventually, 2 until
+    eval_a: fn(&Sample) -> bool,
+    eval_b: Option<fn(&Sample) -> bool>,
+}
+
+struct LivProperty {
+    label: &'static str,
+    formula: &'static str,
+    leaves: Vec<LivLeaf>,
+    skeleton: fn(&[bool]) -> bool,
+}
+
+struct LivWitness {
+    /// Lasso edges in order: the first `cycle_start` are the prefix (from
+    /// config 0); the rest form a cycle back to the config at position
+    /// `cycle_start`. Each edge: (source config id, input index, transition id).
+    lasso: Vec<(usize, usize, usize)>,
+    cycle_start: usize,
+    /// Indices of the leaves falsified on the witness path.
+    falsified: Vec<usize>,
+}
+
+/// Label bits of one step: bit 2k = leaf k atom A (S / P / P), bit 2k+1 =
+/// leaf k atom B (the `until` right operand). Cached per edge position.
+fn liv_bits_at(graph: &LivGraph, cache: &mut Vec<Vec<Option<u32>>>, c: usize, pos: usize, prop: &LivProperty) -> u32 {
+    if let Some(b) = cache[c][pos] { return b; }
+    let (iidx, tid, _v) = graph.adj[c][pos];
+    let node = &graph.nodes[c];
+    let effects = mc_step_all(node.state.clone(), &node.vars, graph.inputs[iidx]);
+    let eff = if tid == usize::MAX || !graph.nondet {
+        &effects[0]
+    } else {
+        effects.iter().find(|e| e.transition_id == tid).unwrap()
+    };
+    let sample = Sample {
+        input: Some(graph.inputs[iidx]),
+        outputs: eff.outputs.clone(),
+        from_state: node.state.clone(),
+        to_state: eff.next_state.clone(),
+        vars: eff.next_vars.clone(),
+    };
+    let mut bits = 0u32;
+    for (k, leaf) in prop.leaves.iter().enumerate() {
+        if (leaf.eval_a)(&sample) { bits |= 1 << (2 * k); }
+        if let Some(b) = leaf.eval_b { if b(&sample) { bits |= 1 << (2 * k + 1); } }
+    }
+    cache[c][pos] = Some(bits);
+    bits
+}
+
+/// Mixed-radix transition of the per-leaf progress automata on label bits.
+/// Leaf states: safety 0=ok/1=bad; eventually 0=wait/1=done;
+/// until 0=ok/1=sat/2=bad. All transitions are one-way, so every state
+/// sequence on an infinite path is eventually constant (the limit vector).
+fn liv_delta(q: usize, places: &[usize], radices: &[usize], kinds: &[u8], bits: u32) -> usize {
+    let mut out = 0usize;
+    for (k, &r) in radices.iter().enumerate() {
+        let s = (q / places[k]) % r;
+        let a = (bits >> (2 * k)) & 1 == 1;
+        let b = (bits >> (2 * k + 1)) & 1 == 1;
+        let ns = match kinds[k] {
+            0 => if s == 1 || !a { 1 } else { 0 },
+            1 => if s == 1 || a { 1 } else { 0 },
+            _ => match s {
+                2 => 2,
+                1 => 1,
+                _ => if b { 1 } else if !a { 2 } else { 0 },
+            },
+        };
+        out = out * r + ns;
+    }
+    out
+}
+
+/// A leaf is satisfied on an infinite path iff its limit state is in the good set.
+fn liv_good(kind: u8, s: usize) -> bool {
+    match kind {
+        0 => s == 0, // safety: never entered bad
+        1 => s == 1, // eventually: done reached
+        _ => s != 2, // until: ok (P-forever branch) or sat
+    }
+}
+
+/// Analyze one property on the graph. Returns a lasso witness iff violated.
+fn liv_analyze(graph: &LivGraph, prop: &LivProperty) -> Option<LivWitness> {
+    let num_leaves = prop.leaves.len();
+    if num_leaves == 0 { return None; }
+    let radices: Vec<usize> = prop.leaves.iter().map(|l| if l.kind == 2 { 3 } else { 2 }).collect();
+    let mut places = vec![1usize; num_leaves];
+    for k in (0..num_leaves - 1).rev() { places[k] = places[k + 1] * radices[k + 1]; }
+    let qcount: usize = radices.iter().product();
+    let kinds: Vec<u8> = prop.leaves.iter().map(|l| l.kind).collect();
+
+    // Position-0 label (initial configuration sample, as in Fsm::new).
+    let n0 = &graph.nodes[0];
+    let init_sample = Sample { input: None, outputs: Vec::new(), from_state: n0.state.clone(), to_state: n0.state.clone(), vars: n0.vars.clone() };
+    let mut init_bits = 0u32;
+    for (k, leaf) in prop.leaves.iter().enumerate() {
+        if (leaf.eval_a)(&init_sample) { init_bits |= 1 << (2 * k); }
+        if let Some(b) = leaf.eval_b { if b(&init_sample) { init_bits |= 1 << (2 * k + 1); } }
+    }
+
+    let mut label_cache: Vec<Vec<Option<u32>>> = graph.adj.iter().map(|es| vec![None; es.len()]).collect();
+
+    // Product BFS from (q0, config 0): reachable[q] = configs reachable with
+    // per-leaf automaton states encoding q.
+    let start_q = liv_delta(0, &places, &radices, &kinds, init_bits);
+    let mut reachable: Vec<Option<std::collections::HashSet<usize>>> = vec![None; qcount];
+    let mut queue: Vec<(usize, usize)> = vec![(start_q, 0)];
+    reachable[start_q].get_or_insert_with(std::collections::HashSet::new).insert(0);
+    while let Some((q, c)) = queue.pop() {
+        for pos in 0..graph.adj[c].len() {
+            let v = graph.adj[c][pos].2;
+            let bits = liv_bits_at(graph, &mut label_cache, c, pos, prop);
+            let q2 = liv_delta(q, &places, &radices, &kinds, bits);
+            if !reachable[q2].get_or_insert_with(std::collections::HashSet::new).contains(&v) {
+                reachable[q2].as_mut().unwrap().insert(v);
+                queue.push((q2, v));
+            }
+        }
+    }
+
+    // Per limit vector q: stay-edge subgraph on R(q). In nondet mode a bad
+    // cycle must be STRONGLY FAIR (D-P4-11): every enabled successor of a
+    // cycle state is taken on the cycle, i.e. each cycle state has exactly
+    // one explored successor (and was fully expanded when truncated).
+    for q in 0..qcount {
+        let Some(reached) = &reachable[q] else { continue };
+        if reached.is_empty() { continue; }
+        let starts: Vec<usize> = reached.iter().copied().collect();
+        let mut stay_succ: std::collections::HashMap<usize, Vec<(usize, usize)>> = std::collections::HashMap::new();
+        let mut self_loop: std::collections::HashSet<usize> = std::collections::HashSet::new();
+        for &c in &starts {
+            if graph.nondet && !(graph.adj[c].len() == 1 && graph.complete[c]) { continue; }
+            for pos in 0..graph.adj[c].len() {
+                let v = graph.adj[c][pos].2;
+                if !reached.contains(&v) { continue; }
+                let bits = liv_bits_at(graph, &mut label_cache, c, pos, prop);
+                if liv_delta(q, &places, &radices, &kinds, bits) != q { continue; }
+                stay_succ.entry(c).or_default().push((v, pos));
+                if v == c { self_loop.insert(c); }
+            }
+        }
+        // SCCs of the stay graph (Kosaraju, iterative).
+        let mut rev: std::collections::HashMap<usize, Vec<usize>> = std::collections::HashMap::new();
+        for (c, vs) in &stay_succ { for &(v, _pos) in vs { rev.entry(v).or_default().push(*c); } }
+        let mut seen: std::collections::HashSet<usize> = std::collections::HashSet::new();
+        let mut fin_order: Vec<usize> = Vec::new();
+        for start in &starts {
+            if !seen.insert(*start) { continue; }
+            let mut stack: Vec<(usize, usize)> = vec![(*start, 0)];
+            loop {
+                let (c, next_pos) = *stack.last().unwrap();
+                let succs_len = stay_succ.get(&c).map(|v| v.len()).unwrap_or(0);
+                let mut descended = false;
+                let mut i = next_pos;
+                while i < succs_len {
+                    let v = stay_succ[&c][i].0;
+                    if seen.insert(v) {
+                        stack.last_mut().unwrap().1 = i + 1;
+                        stack.push((v, 0));
+                        descended = true;
+                        break;
+                    }
+                    i += 1;
+                }
+                if descended { continue; }
+                stack.pop();
+                fin_order.push(c);
+                if stack.is_empty() { break; }
+            }
+        }
+        let mut comp: std::collections::HashMap<usize, usize> = std::collections::HashMap::new();
+        let mut comp_size: Vec<usize> = Vec::new();
+        for &c in fin_order.iter().rev() {
+            if comp.contains_key(&c) { continue; }
+            let cid = comp_size.len();
+            comp.insert(c, cid);
+            comp_size.push(1);
+            let mut members: Vec<usize> = vec![c];
+            let mut mi = 0;
+            while mi < members.len() {
+                let u = members[mi]; mi += 1;
+                if let Some(preds) = rev.get(&u) {
+                    for &w in preds {
+                        if !comp.contains_key(&w) { comp.insert(w, cid); comp_size[cid] += 1; members.push(w); }
+                    }
+                }
+            }
+        }
+        let mut cyclic: Vec<usize> = Vec::new();
+        for &c in &starts {
+            if comp_size[comp[&c]] > 1 || self_loop.contains(&c) { cyclic.push(c); }
+        }
+        if cyclic.is_empty() { continue; }
+        // The limit vector of any path looping inside this SCC is exactly q.
+        let t: Vec<bool> = (0..num_leaves).map(|k| liv_good(kinds[k], (q / places[k]) % radices[k])).collect();
+        if (prop.skeleton)(&t) { continue; }
+        let cstar = *cyclic.iter().min().unwrap();
+        let scc_members: std::collections::HashSet<usize> = starts.iter().copied().filter(|c| comp[c] == comp[&cstar]).collect();
+        return Some(liv_witness(graph, prop, &places, &radices, &kinds, init_bits, q, cstar, t, &stay_succ, &scc_members));
+    }
+    None
+}
+
+/// Reconstruct the lasso: a product path from (start_q, 0) to (q, cstar)
+/// plus a stay-edge cycle through cstar.
+fn liv_witness(
+    graph: &LivGraph,
+    prop: &LivProperty,
+    places: &[usize],
+    radices: &[usize],
+    kinds: &[u8],
+    init_bits: u32,
+    q: usize,
+    cstar: usize,
+    t: Vec<bool>,
+    stay_succ: &std::collections::HashMap<usize, Vec<(usize, usize)>>,
+    scc_members: &std::collections::HashSet<usize>,
+) -> LivWitness {
+    let start_q = liv_delta(0, places, radices, kinds, init_bits);
+    let mut label_cache: Vec<Vec<Option<u32>>> = graph.adj.iter().map(|es| vec![None; es.len()]).collect();
+
+    // Prefix: DFS in the product from (start_q, 0) to (q, cstar).
+    let mut visited: std::collections::HashSet<(usize, usize)> = std::collections::HashSet::new();
+    let mut path: Vec<(usize, usize)> = Vec::new(); // (src config, edge pos)
+    let mut stack: Vec<(usize, usize, usize)> = vec![(start_q, 0, 0)]; // (q, c, next edge pos)
+    visited.insert((start_q, 0));
+    loop {
+        let top = *stack.last().unwrap();
+        if top.0 == q && top.1 == cstar { break; }
+        let (cq, cc, next_pos) = top;
+        let mut descended = false;
+        let mut p = next_pos;
+        while p < graph.adj[cc].len() {
+            let v = graph.adj[cc][p].2;
+            let bits = liv_bits_at(graph, &mut label_cache, cc, p, prop);
+            let q2 = liv_delta(cq, places, radices, kinds, bits);
+            if visited.insert((q2, v)) {
+                stack.last_mut().unwrap().2 = p + 1;
+                path.push((cc, p));
+                stack.push((q2, v, 0));
+                descended = true;
+                break;
+            }
+            p += 1;
+        }
+        if descended { continue; }
+        stack.pop();
+        if !stack.is_empty() { path.pop(); }
+        // The target is reachable (product BFS proved it), so the stack
+        // cannot empty before the break above.
+    }
+
+    // Cycle: DFS from cstar over stay-successors (inside its SCC) back to cstar.
+    let mut cyc: Vec<(usize, usize)> = Vec::new();
+    let mut on_path: std::collections::HashSet<usize> = std::collections::HashSet::new();
+    on_path.insert(cstar);
+    let mut stack2: Vec<(usize, usize)> = vec![(cstar, 0)];
+    loop {
+        let (cc, next_i) = *stack2.last().unwrap();
+        let succs = stay_succ.get(&cc).cloned().unwrap_or_default();
+        let mut descended = false;
+        let mut i = next_i;
+        while i < succs.len() {
+            let (v, epos) = succs[i];
+            if !scc_members.contains(&v) { i += 1; continue; }
+            if v == cstar {
+                cyc.push((cc, epos));
+                // Convert (config, edge pos) steps to (config, input idx,
+                // transition id) edges for replay.
+                let mut lasso: Vec<(usize, usize, usize)> = Vec::with_capacity(path.len() + cyc.len());
+                for (c, pos) in path.iter().chain(cyc.iter()) {
+                    let (iidx, tid, _v) = graph.adj[*c][*pos];
+                    lasso.push((*c, iidx, tid));
+                }
+                let falsified: Vec<usize> = (0..prop.leaves.len()).filter(|&k| !t[k]).collect();
+                return LivWitness { lasso, cycle_start: path.len(), falsified };
+            }
+            if on_path.insert(v) {
+                stack2.last_mut().unwrap().1 = i + 1;
+                cyc.push((cc, epos));
+                stack2.push((v, 0));
+                descended = true;
+                break;
+            }
+            i += 1;
+        }
+        if descended { continue; }
+        let (pc, _ni) = stack2.pop().unwrap();
+        on_path.remove(&pc);
+        if !stack2.is_empty() { cyc.pop(); }
+        // cstar lies on a stay cycle inside its SCC, so the search cannot fail.
+    }
+}
+
+/// Human-facing explanation of which leaves are falsified on the witness.
+fn liv_note(graph: &LivGraph, prop: &LivProperty, w: &LivWitness) -> String {
+    let sample_at = |pos: usize| -> Sample {
+        if pos == 0 {
+            let n0 = &graph.nodes[0];
+            Sample { input: None, outputs: Vec::new(), from_state: n0.state.clone(), to_state: n0.state.clone(), vars: n0.vars.clone() }
+        } else {
+            let (c, iidx, tid) = w.lasso[pos - 1];
+            let node = &graph.nodes[c];
+            let effects = mc_step_all(node.state.clone(), &node.vars, graph.inputs[iidx]);
+            let eff = if tid == usize::MAX || !graph.nondet {
+                &effects[0]
+            } else {
+                effects.iter().find(|e| e.transition_id == tid).unwrap()
+            };
+            Sample { input: Some(graph.inputs[iidx]), outputs: eff.outputs.clone(), from_state: node.state.clone(), to_state: eff.next_state.clone(), vars: eff.next_vars.clone() }
+        }
+    };
+    let mut parts: Vec<String> = Vec::new();
+    for &k in &w.falsified {
+        let leaf = &prop.leaves[k];
+        match leaf.kind {
+            0 => {
+                // bad is absorbing and constant on the cycle, so the first
+                // falsifying position lies inside prefix + one cycle iteration.
+                let p = (0..=w.lasso.len()).find(|&pos| !(leaf.eval_a)(&sample_at(pos))).unwrap();
+                parts.push(format!("safety subformula false at step {}", p));
+            }
+            1 => parts.push("eventually body never holds on the path".to_string()),
+            _ => {
+                let b = leaf.eval_b.unwrap();
+                let mut seen_q = false;
+                let mut p = None;
+                for pos in 0..=w.lasso.len() {
+                    let s = sample_at(pos);
+                    if !(leaf.eval_a)(&s) && !(seen_q || b(&s)) { p = Some(pos); break; }
+                    seen_q |= b(&s);
+                }
+                parts.push(format!("until left fails at step {} without right holding", p.unwrap()));
+            }
+        }
+    }
+    parts.join("; ")
+}
+"#;
 /// The exact-mode entry point (generated verbatim into every MC binary).
 const EXACT_RUN: &str = r#"
 fn run_exact() -> ! {
@@ -381,6 +857,10 @@ fn run_exact() -> ! {
     let mut nodes: Vec<Node> = vec![node0];
     let mut parent: Vec<Option<(usize, usize, usize)>> = vec![None];
     let mut depth: Vec<usize> = vec![0];
+    // Explored graph edges (liveness analysis, D-P4-10): per config,
+    // (input index, transition id, target config) in discovery order.
+    let mut adj: Vec<Vec<(usize, usize, usize)>> = vec![Vec::new()];
+    let mut complete: Vec<bool> = vec![false];
     visited.insert(config_bytes(nodes[0].state.clone(), &nodes[0].vars, &nodes[0].prop, &nodes[0].assume), 0);
 
     let mut frontier: Vec<usize> = vec![0];
@@ -428,19 +908,29 @@ fn run_exact() -> ! {
                         StepOutcome::Success(n) => {
                             any_successor = true;
                             let bytes = config_bytes(n.state.clone(), &n.vars, &n.prop, &n.assume);
-                            if !visited.contains_key(&bytes) {
-                                if nodes.len() >= max_states { status = 2; break 'outer; }
-                                visited.insert(bytes, nodes.len());
-                                parent.push(Some((cid, iidx, eff.transition_id)));
-                                depth.push(d + 1);
-                                if d + 1 > max_depth { max_depth = d + 1; }
-                                nodes.push(n);
-                                next_frontier.push(nodes.len() - 1);
-                            }
+                            let tcid = match visited.get(&bytes).copied() {
+                                Some(x) => x,
+                                None => {
+                                    if nodes.len() >= max_states { status = 2; break 'outer; }
+                                    visited.insert(bytes, nodes.len());
+                                    parent.push(Some((cid, iidx, eff.transition_id)));
+                                    depth.push(d + 1);
+                                    if d + 1 > max_depth { max_depth = d + 1; }
+                                    adj.push(Vec::new());
+                                    complete.push(false);
+                                    nodes.push(n);
+                                    next_frontier.push(nodes.len() - 1);
+                                    nodes.len() - 1
+                                }
+                            };
+                            // Graph edge: recorded for every Success outcome,
+                            // including edges to already-visited configs.
+                            adj[cid].push((iidx, eff.transition_id, tcid));
                         }
                     }
                 }
             }
+            complete[cid] = true;
             if !any_successor {
                 // Deadlock (D-P4-5): no successor at all - every input was
                 // unexpected or pruned by an active assumption.
@@ -453,6 +943,29 @@ fn run_exact() -> ! {
         frontier = next_frontier;
     }
     if status == 0 { status = 1; }
+
+    // Liveness analysis (D-P4-10/11): runs only when BFS ended without a
+    // safety failure or deadlock. On a truncated graph (state limit / timeout)
+    // this is a TRUNCATED analysis: a witness found inside the explored part
+    // is sound (all its edges are real transitions), otherwise the UNKNOWN
+    // status stands - never a false pass-complete.
+    let graph = LivGraph { nodes: &nodes, adj: &adj, complete: &complete, inputs: &inputs, nondet };
+    let mut liv_result: Option<(usize, LivWitness)> = None;
+    if status != 4 && !LIV_PROPS.is_empty() {
+        for (pi, mk) in LIV_PROPS.iter().enumerate() {
+            if let Some(w) = liv_analyze(&graph, &mk()) {
+                liv_result = Some((pi, w));
+                break;
+            }
+        }
+        if let Some((pi, w)) = &liv_result {
+            status = 4;
+            fail_wire = "liveness-violation";
+            fail_label = LIV_PROPS[*pi]().label.to_string();
+            fail_step = w.cycle_start;
+            fail_path = w.lasso.clone();
+        }
+    }
 
     // Report (D-P4-4): human line, pinned machine line, statistics.
     let states = nodes.len();
@@ -472,6 +985,16 @@ fn run_exact() -> ! {
     if status == 4 {
         // Counterexample reconstruction (Phase 3 trace format).
         let fsm = replay(&fail_path, nondet, &active_assumes);
+        if let Some((pi, w)) = &liv_result {
+            let prop = LIV_PROPS[*pi]();
+            println!("liveness violation: {}", fail_label);
+            println!("  formula: {}", prop.formula);
+            println!("  violation step: {}", fail_step);
+            println!("  cycle length: {}", w.lasso.len() - w.cycle_start);
+            println!("  note: {}", liv_note(&graph, &prop, w));
+            print_trace(&fsm.trace);
+            std::process::exit(1);
+        }
         if is_deadlock {
             println!("deadlock: configuration at depth {} has no enabled transition", fail_step);
         } else {

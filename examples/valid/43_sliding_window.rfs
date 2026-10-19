@@ -1,0 +1,70 @@
+# Phase 4 showcase (task 6): first protocol-like spec with liveness
+# properties. Sliding-window ARQ sender: a window of size 4 over sequence
+# numbers 0..8. Time is modeled by the Tick event; on each tick the sender
+# either sends the next frame (while there is room in the window) or the
+# receiver acknowledges the oldest unacked frame. Out-of-band Ack events
+# carry a bit<32> checksum that the protocol never inspects - input
+# abstraction (D-P4-3) must collapse both Ack payload fields to single
+# representative values.
+module sliding_window {
+  enum State { Idle, Active, Done }
+  initial Idle
+
+  event Tick
+  event Ack(Seq(seq: bit<4>, checksum: bit<32>))
+
+  output SendFrame(Frame(seq: bit<4>))
+  output RecvAck(Acked(seq: bit<4>))
+
+  var next_seq: bit<4> init 0
+  var acked: bit<4> init 0
+
+  # The environment keeps time: a Tick arrives within every 6 samples.
+  assume env_tick : always (bounded_eventually[5] (input_is(Tick))) ;
+
+  # Safety: the window never holds more than 4 unacked frames.
+  prop window_bound : always (next_seq - acked <= 4) ;
+
+  # Liveness: under the timing assumption the protocol completes.
+  prop terminates : eventually (state == Done) ;
+
+  # Liveness: the window bound holds throughout the run until completion.
+  prop bounded_until_done : (next_seq - acked <= 4) until (state == Done) ;
+
+  transition Idle on Tick {
+    next Active;
+  }
+  transition Idle on Ack(Seq(seq, checksum)) {
+    next Idle;
+  }
+
+  # Completion: all 8 frames sent and acknowledged.
+  transition Active on Tick where next_seq == 8 && acked == 8 {
+    priority 2;
+    next Done;
+  }
+  # Send the next frame while there is room in the window (size 4).
+  transition Active on Tick where next_seq < 8 && next_seq - acked < 4 {
+    priority 1;
+    next Active;
+    emit SendFrame(Frame(next_seq));
+    set next_seq = next_seq + 1;
+  }
+  # The receiver acknowledges the oldest unacked frame.
+  transition Active on Tick where acked < next_seq {
+    next Active;
+    emit RecvAck(Acked(acked));
+    set acked = acked + 1;
+  }
+  # Out-of-band acks are dropped (the checksum is never inspected).
+  transition Active on Ack(Seq(seq, checksum)) {
+    next Active;
+  }
+
+  transition Done on Tick {
+    next Done;
+  }
+  transition Done on Ack(Seq(seq, checksum)) {
+    next Done;
+  }
+}

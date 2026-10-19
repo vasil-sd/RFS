@@ -1039,14 +1039,141 @@ If it finishes without violation, it can report `PASS (complete)`.
 
 For larger systems, support bounded depth or state-limit modes. These must be reported as bounded results, not complete proofs.
 
-### Liveness
+### Liveness (Phase 4, implemented)
 
-v0/v1 should start with:
+The property language supports two unbounded liveness operators (D-P4-8):
 
-- safety properties;
-- bounded liveness such as `bounded_eventually[N]`.
+```rfs
+eventually (p)          # p holds at some position of the path
+p until q               # WEAK until (semantics below)
+```
 
-Unbounded strong liveness such as `eventually p` requires fairness and Büchi-style or fair-cycle analysis. This is planned later.
+**Scope (D-P4-9).** A top-level property may combine obligations
+`eventually p` / `p until q` with boolean operators (`!`, `&&`, `||`, `->`)
+at the top level; obligation operands must be BOOLEAN formulas over atomic
+propositions (no temporal operators inside). Deeper nesting produces a
+codegen diagnostic (clear message, not a parse error) and the property is
+skipped. Any formula containing `eventually`/`until` is outside the monitor
+subset: it is checked by the model checker only (MC-only property), with the
+identical skip warning as other out-of-subset formulas.
+
+**Semantics.** A top-level property holds in a model iff it holds on every
+infinite path from the initial configuration. On a path π, position 0 is the
+initial sample and position k ≥ 1 is the sample of step k:
+
+- `eventually p` (F p): true on π iff p holds at some position of π.
+- `p until q` — WEAK until: true on π iff
+  `[∃k ≥ 0: q(π[k]) ∧ ∀j < k: p(π[j])] ∨ [∀k: p(π[k])]`.
+  Strong (standard) until is expressible as `p until q && eventually q`.
+
+**Obligation decomposition.** Each liveness property is decomposed at codegen
+time (`src/mc_plan.rs`) into a top-level BOOLEAN SKELETON whose leaves are
+obligations or safety subformulas:
+
+- safety leaf s: true on π iff s holds at every position of π;
+- `eventually p` leaf: true on π iff p holds at some position of π;
+- `p until q` leaf: true on π per the weak-until semantics above.
+
+The property is violated in the model iff some infinite path falsifies the
+skeleton (evaluates it to false).
+
+**Algorithm (D-P4-10, as implemented).** The analysis runs on the COMPLETED
+reachable graph after exact BFS (or on the explored subgraph when truncated —
+see below). Each leaf is tracked by a small deterministic PROGRESS AUTOMATON
+whose state is eventually constant on every infinite path:
+
+| leaf | states | transition | satisfied limit states |
+|---|---|---|---|
+| safety s | ok, bad | ok → bad when s is false (bad absorbing) | ok |
+| eventually p | wait, done | wait → done when p holds (done absorbing) | done |
+| p until q | ok, sat, bad | ok → sat when q holds; ok → bad when p fails and q has not held yet (sat, bad absorbing) | ok, sat |
+
+(The `until` transition checks q before ¬p: a sample where both hold
+satisfies the formula.)
+
+For a property with L leaves, the product of its automata has at most 3^L
+states (mixed radix). The check is:
+
+1. **Product reachability.** BFS over (config, product state) pairs from
+   (initial config, δ(q₀, label₀)), where label₀ is the position-0 sample and
+   each graph edge contributes its step sample's label.
+2. **Limit vectors.** A product cycle realizes exactly one limit vector:
+   because every automaton transition is one-way, all states on a cycle carry
+   the same per-leaf value. For each product state q with a reachable cycle in
+   its stay-edge subgraph (edges that keep the product state q), the realized
+   limit vector is t_k = "q's k-th component is a satisfied limit state".
+3. **Skeleton evaluation.** The property is violated iff some realizable
+   limit vector falsifies the skeleton.
+
+This is equivalent to the per-obligation bad-set fixpoints of D-P4-10, stated
+over the POSITION graph (positions = samples; position 0 = initial sample,
+position k = step-k sample):
+
+- neg(eventually p) = greatest fixpoint of {pos: ¬p(pos) ∧ ∃ successor ∈ B} —
+  positions from which an infinite path avoiding p exists. In finite systems
+  `G F p` (always eventually p) has the SAME failure set as `F p`: both fail
+  exactly when a reachable cycle avoids p.
+- neg(p until q), WEAK until = backward reachability, staying in
+  {pos: ¬q(pos)}, to the target {pos: ¬p(pos)}.
+
+  **Plan correction (D-P4-10).** The original D-P4-10 text targeted
+  T = gfp(¬q ∧ ¬p ∧ ∃ successor ∈ T); that equation is correct for STRONG
+  until but diverges from the weak-until semantics of D-P4-8 (verified: it
+  disagrees with brute-force path enumeration on 185/1200 random tiny graphs;
+  counterexample: a path where p fails once and then recovers, with q never
+  holding — weak until is falsified, the literal equation says satisfied).
+  The corrected equation above is what the engine implements.
+
+**Edge-based labels.** Position labels are evaluated per SAMPLE: position 0
+uses the initial-configuration sample (no input), position k uses the sample
+of step k. `input_is`/`output_has` atoms inside obligation bodies therefore
+depend on the EDGE taken, not only on the target configuration — the same
+configuration reached via different inputs can carry different labels. The
+product analysis reads labels per edge; the fixpoint statements above are over
+the position graph where this is intrinsic.
+
+**Counterexamples.** A liveness violation is reported as a LASSO: prefix path
++ cycle, printed in the Phase 3 trace format (one cycle iteration). Summary
+line fields (D-P4-4): `reason=liveness-violation label=<L> step=S` where S is
+the position where the cycle begins. Human-facing fields: the property
+formula, the violation step, the cycle length, and a note naming each
+falsified leaf ("safety subformula false at step k", "eventually body never
+holds on the path", "until left fails at step k without right holding").
+
+**Bounded / truncated mode (D-P4-10).** When BFS stops at `--max-states` or a
+timeout, the liveness analysis runs on the explored subgraph only. A witness
+found inside it is sound (all its edges are real transitions), so the result
+is FAIL; otherwise the UNKNOWN status stands. A truncated run never reports
+pass-complete for a liveness-bearing spec.
+
+**Fairness policy (D-P4-11).** Deterministic mode (default): environment
+fairness by construction — every input is explored adversarially and there is
+no scheduler nondeterminism, so no fairness filter applies. `--nondet` mode:
+every enabled transition is a separate successor; liveness is checked under
+STRONG TRANSITION FAIRNESS — a bad cycle is a valid counterexample only if
+every transition enabled at some state of the cycle is taken on the cycle.
+Since a simple cycle takes exactly one outgoing edge per visit, this means
+each cycle state must have exactly ONE explored successor (and, in truncated
+mode, must have been fully expanded). The filter is implemented by restricting
+the stay-edge subgraph to such "closed" configs; any fair bad cycle consists
+of closed configs, so the restriction preserves completeness.
+
+**Input abstraction soundness (D-P4-3, liveness).** Abstraction collapses an
+input payload field to a single representative value when no transition guard,
+output expression, variable update, or property/assumption formula references
+it. Such a field cannot influence which transitions are enabled, what outputs
+are produced, how variables evolve, or the truth of any property atom — so
+each concrete input maps to its representative with identical behavior and
+identical per-sample property labels. Liveness results are therefore sound in
+both directions: a violation found in the abstract model is witnessed by a
+real path (lift the representative inputs to any concrete value), and a
+pass-complete result on the abstract model holds for the concrete one because
+every concrete path projects to an abstract path with identical labels.
+
+**Complexity.** For a property with L leaves the product has at most 3^L
+states; the analysis is O(3^L · (N + E)) time and O(3^L · N) bits for the
+reachability sets (N configs, E explored edges), plus O(E · L) label
+evaluations. Typical top-level skeletons have 1–3 leaves.
 
 ---
 

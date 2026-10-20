@@ -1,0 +1,12 @@
+[package]
+name = "rfs-build"
+version = "0.1.0"
+edition = "2021"
+description = "build.rs helper: generate RFS protocol code (rust|c) at build time by invoking the rfs toolchain"
+
+# No dependencies: rfs-build only orchestrates the external `rfs` binary and
+# prints cargo directives. Generated RFS code stays self-contained single
+# files (design invariant), so consuming it adds nothing either.
+
+[lib]
+name = "rfs_build"

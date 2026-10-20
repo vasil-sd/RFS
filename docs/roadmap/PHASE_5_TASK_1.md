@@ -140,3 +140,11 @@ consumer projects, alias re-verification record.
   explicit member too (`members = [".", "crates/*"]` is NOT valid - use
   `members = ["crates/*"]` + keep `[package]` at root, which cargo supports).
 - Keep `default-run = "rfs"` working for `cargo run`.
+
+## Task corrections (during execution)
+
+| # | Type | Description + rationale |
+|---|------|-------------------------|
+| T1-1 | change | The planned `.no_std()` builder option is DEFERRED to task 9: the `--no-std` codegen flag does not exist in the current CLI (task 9 adds it), so shipping the option now would generate commands the toolchain rejects. `RfsBuild` currently exposes `.backend()`, `.production()`, `.with_property_monitors(bool)` - all mapped to existing production-codegen flags; `.no_std()` lands together with task 9. |
+| T1-2 | change | Exit-criterion baseline "230/230" predates task 2 (executed first, per the dependency graph): final actuals are `cargo test` **257** (root package) and `cargo test --workspace` **264** (+7 rfs-build). Generated-code aggregate unchanged at 537. |
+| T1-3 | fix | The "member-resolution surprise" the Other-information note anticipated DID materialize: the generated aggregate crate under `target/rfs_codegen_tests/` is discovered by cargo walking up from its manifest into the new root workspace and refused to build ("current package believes it's in a workspace when it's not"). Fix at the source: `rust_test.rs` now emits an empty `[workspace]` table in the generated manifest, making the generated crate its own workspace root (robust regardless of where cargo finds it). No change to `.cargo/config.toml` aliases was needed. |

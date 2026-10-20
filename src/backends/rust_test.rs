@@ -200,7 +200,11 @@ pub fn generate_aggregate_test_crate(
             count += 1;
         }
     }
-    let manifest = "[package]\nname = \"rfs_codegen_tests\"\nversion = \"0.1.0\"\nedition = \"2021\"\n\n[lib]\npath = \"src/lib.rs\"\n".to_string();
+    // The empty [workspace] table makes the generated crate its OWN workspace
+    // root (Phase 5 task 1): without it, cargo walking up from target/
+    // discovers the repository's workspace and refuses to build a manifest
+    // that is not one of its members.
+    let manifest = "[package]\nname = \"rfs_codegen_tests\"\nversion = \"0.1.0\"\nedition = \"2021\"\n\n[workspace]\n\n[lib]\npath = \"src/lib.rs\"\n".to_string();
     Ok(GeneratedCrate {
         manifest,
         lib,

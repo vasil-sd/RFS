@@ -7,12 +7,13 @@ versions, activation env vars, and reinstall procedure: see `TOOLCHAIN.md`.
 
 | File | Role |
 |---|---|
-| `Cargo.toml` | Package `rfs` v0.1.0, edition 2021; lib + CLI (`src/main.rs`) + bins in `src/bin/`. Key deps: `nom`, `serde`/`serde_json`; dev-dep `chumsky` (comparison tests only). |
-| `.cargo/config.toml` | Cargo aliases used throughout the docs (see section 4). |
+| `Cargo.toml` | WORKSPACE ROOT (Phase 5 task 1): `[workspace] members = ["crates/*"]` + the root package `rfs` v0.1.0 (edition 2021; lib + CLI (`src/main.rs`) + bins in `src/bin/`). Key deps: `nom` (+ optional `z3` under the `smt` feature); dev-dep `chumsky` (comparison tests only). The root package is an implicit workspace member. |
+| `crates/rfs-build/` | `rfs-build` crate (Phase 5 task 1): the build.rs helper that invokes the `rfs` toolchain to generate protocol code at build time (`RFS_BIN` override, cargo rerun directives). Dependency-free. More crates join later (tasks 11/12: adapters + examples). |
+| `.cargo/config.toml` | Cargo aliases used throughout the docs (see section 4). Re-verified working after the workspace conversion (section 4 note). |
 | `Cargo.lock` | Version 4 lock file - requires a recent cargo; use the project toolchain (`TOOLCHAIN.md`). |
 | `src/` | Library + CLI source (map in `KB.md` section 4.2). |
 | `tests/` | Integration test suites (layout in section 3 below). |
-| `target/rfs_codegen_tests/` | Generated aggregate unit-test crate (written by `cargo generate-code-tests`; not checked in). |
+| `target/rfs_codegen_tests/` | Generated aggregate unit-test crate (written by `cargo generate-code-tests`; not checked in). Its manifest carries an empty `[workspace]` table so cargo does not walk up into this repository's workspace. |
 
 ## 2. Activate the toolchain, then build
 
@@ -23,11 +24,18 @@ export PATH="$CARGO_HOME/bin:$PATH"
 cd /workspace/host/RFS
 
 cargo build        # library + CLI + bins
-cargo test         # full main-crate suite (see section 3)
+cargo test         # full root-package suite (see section 3)
+cargo test --workspace   # ALL members (root package + crates/*) - use this for a full check
 ```
 
 Re-export the three env vars in **every** shell command that needs cargo (env does not
 persist between tool calls). If `cargo --version` is not 1.99.0, see `TOOLCHAIN.md`.
+
+Workspace note (Phase 5 task 1): with a root package present, plain `cargo build` /
+`cargo test` / `cargo clippy` from the repo root select ONLY the root package (`rfs`) -
+add `--workspace` (or `-p rfs-build`) to cover `crates/*`. `cargo run` keeps working via
+`default-run = "rfs"`, and every alias in `.cargo/config.toml` was re-verified after the
+conversion (section 4).
 
 SMT mode (Phase 4 task 11, optional, feature-gated) additionally requires the
 project-local z3 install: activation env vars per `TOOLCHAIN.md` section 5.2
@@ -38,7 +46,9 @@ SMT output compiles per section 5.3.
 
 | Suite | Command | Current result |
 |---|---|---|
-| All main-crate tests | `cargo test` | **230 pass** (125 lib, 7 cross-backend parity, 5 benchmark MC, 26 codegen, 3 examples, 41 frontend CLI logic, 4 parser-library comparison, 9 liveness MC, 4 monitor integration, 4 training; +2 more with `--features smt`) |
+| All root-package (`rfs`) tests | `cargo test` | **257 pass** (149 lib incl. the 24 json_rw tests, 7 cross-backend parity, 5 benchmark MC, 26 codegen, 3 examples, 44 frontend CLI logic incl. 3 IR-JSON golden/round-trip pins, 4 parser-library comparison, 9 liveness MC, 4 monitor integration, 4 training; +2 more with `--features smt`) |
+| All workspace members | `cargo test --workspace` | **264 pass** (the 257 above + rfs-build: 5 unit incl. RFS_BIN precedence/stub error propagation, 2 real end-to-end vs the workspace binary) |
+| rfs-build only (build.rs helper) | `cargo test -p rfs-build` | 7 pass; the rust e2e compiles the generated artifact with `rustc --edition 2021 --crate-type lib` |
 | Parser unit tests only | `cargo test --lib` | part of the 230 |
 | Example suite (file-driven: drop `.rfs` into `examples/valid\|invalid`, no test-code change) | `cargo test --test examples_test` | 3 pass; all 45 valid parse+validate+round-trip, all 12 invalid are rejected (parse or validation) |
 | Parser-library comparison (nom vs chumsky smoke) | `cargo test --test library_comparison` | 4 pass |
@@ -78,11 +88,19 @@ report (`target/mc_benchmarks.json`, development artifact, wall-clock informatio
 | Generate C code (Phase 2; same commands) | `cargo run -- codegen c <production\|test\|mc> <spec.rfs\|spec.json> [--out FILE] [--assumes ...] [--with-property-monitors]` (compile with `gcc -Wall out.c`) |
 | Property monitors in production builds (Phase 3) | `--with-property-monitors` is accepted on the `production` command of ANY backend only; `test` and `mc` always include monitors. Rust gates monitor emission/stepping on `#[cfg(debug_assertions)]` (zero cost in release); C gates on `-DRFS_PROPERTY_MONITORS` |
 | Generate aggregate generated-code test crate (179 modules) | `cargo generate-code-tests [--test-steps N] [--assumes ...]` |
-| Generate + compile + run all generated unit tests (522) | `cargo test-generated-code` |
+| Generate + compile + run all generated unit tests (537) | `cargo test-generated-code` |
 | Extract training snippets from `training/*/rfs_training.jsonl` | `cargo extract-training-snippets` -> 130 valid / 127 invalid snippets |
 | Aggregate training JSONL | `cargo build-training` -> writes `all_rfs_training.jsonl` (231 examples) |
 | Run training tests | `cargo test-training` (= `cargo test training`; matches 5 tests: 4 dedicated + the codegen aggregate test whose name contains "training") |
 | Train Qwen3.8-27B on RFS data (SFT then GRPO, needs GPU) | `python training.py --stage both` (`--dry-run` = CPU-only data/reward validation) |
+
+Alias re-verification after the Phase 5 task 1 workspace conversion (all run from the
+repo root, all working unchanged - no alias needed a `-p rfs` qualifier): `cargo run`
+(default-run `rfs`), `cargo parse --help`, `cargo validate --input rfs <file>`,
+`cargo codegen --list`, `cargo generate-code-tests`, `cargo test-generated-code` (537
+pass - required the generated-crate `[workspace]` fix, see section 1),
+`cargo extract-training-snippets` (130/127), `cargo build-training` (231 aggregate),
+`cargo test-training` (5 pass).
 
 CLI behavior rules (file/dir handling, exit codes): `KB.md` section 4.5. Codegen
 plugin API and backend docs: `CODEGEN.md`, `src/backends/RUST.md`.

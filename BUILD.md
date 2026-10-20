@@ -42,8 +42,8 @@ SMT output compiles per section 5.3.
 | Parser unit tests only | `cargo test --lib` | part of the 230 |
 | Example suite (file-driven: drop `.rfs` into `examples/valid\|invalid`, no test-code change) | `cargo test --test examples_test` | 3 pass; all 45 valid parse+validate+round-trip, all 12 invalid are rejected (parse or validation) |
 | Parser-library comparison (nom vs chumsky smoke) | `cargo test --test library_comparison` | 4 pass |
-| Training-set structure/snippets/aggregation/freshness | `cargo test-training` (= `cargo test training`) | 4 pass |
-| Generated-code aggregate unit tests (separate crate under `target/rfs_codegen_tests`) | `cargo test-generated-code` | **522 pass** |
+| Training-set structure/snippets/aggregation/freshness | `cargo test-training` (= `cargo test training`) | 5 pass (see command table note) |
+| Generated-code aggregate unit tests (separate crate under `target/rfs_codegen_tests`) | `cargo test-generated-code` | **537 pass** (179 modules; includes valid training snippets, so the count moves when snippet sets change) |
 | Benchmark MC suite (Phase 4 task 9: specs 43/44/45 x both backends in exact mode, inline FAIL variants, JSON report; task 10B adds the `--threads` parity gate + `--fast` smoke) | `cargo test --test benchmark_mc_test` | 5 pass; all three benchmarks pass-complete in BOTH backends with metrics identical to the task 6/8 record (165/330/22, 129985/519940/276, 11098/99882/22); FAIL variants pinned (safety `holder_no_request` step 1; liveness `up2_served`, cycle length 3); `--threads 1/2/4` byte-identical to each other and across backends on all five workloads; `target/mc_benchmarks.json` written + per-backend table printed (wall-clock informational only) |
 
 Other suites: `tests/frontend_test.rs` covers all four conversion combinations, strict
@@ -81,7 +81,7 @@ report (`target/mc_benchmarks.json`, development artifact, wall-clock informatio
 | Generate + compile + run all generated unit tests (522) | `cargo test-generated-code` |
 | Extract training snippets from `training/*/rfs_training.jsonl` | `cargo extract-training-snippets` -> 130 valid / 127 invalid snippets |
 | Aggregate training JSONL | `cargo build-training` -> writes `all_rfs_training.jsonl` (231 examples) |
-| Run training tests | `cargo test-training` |
+| Run training tests | `cargo test-training` (= `cargo test training`; matches 5 tests: 4 dedicated + the codegen aggregate test whose name contains "training") |
 | Train Qwen3.8-27B on RFS data (SFT then GRPO, needs GPU) | `python training.py --stage both` (`--dry-run` = CPU-only data/reward validation) |
 
 CLI behavior rules (file/dir handling, exit codes): `KB.md` section 4.5. Codegen
@@ -106,10 +106,12 @@ Additional checks depending on what changed:
   and the z3 env vars from `TOOLCHAIN.md` section 5.2; spot-compile generated C SMT
   output per section 5.3.
 
-Known-good baseline (2026-10-17, after Phase 3): 170/170 main tests, 513/513
-generated tests, clippy without errors (12 pre-existing warnings: 11 in lib -
+Known-good baseline (2026-10-20, after Phase 4): 230/230 main tests (232 with
+`--features smt`, z3 env per TOOLCHAIN.md section 5.2), 537/537 generated tests
+(179 modules), clippy without errors (12 pre-existing warnings: 11 in lib -
 mostly `src/backends/c_fsm.rs` monitor rendering + `from_str` naming - and 1
 `&PathBuf` arg in `tests/codegen_test.rs`), fmt clean. C generated code compiles
 with `gcc -Wall`; the Phase 2 integration tests compile the Rust output with rustc
-and drive it over an mpsc channel; the Phase 3 parity suite compiles BOTH backends'
-MC/test output (rustc + gcc) and compares same-seed results field by field.
+and drive it over an mpsc channel; the parity suites (Phase 3, migrated to seedless
+exact mode in Phase 4 task 4) compile BOTH backends' MC/test output (rustc + gcc)
+and compare results field by field.

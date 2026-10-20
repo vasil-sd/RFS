@@ -67,9 +67,9 @@ model-checkable (no unbounded data, floats, or arbitrary functions in the core).
   `docs/roadmap/PHASE_4_PLAN.md`; phase planning/implementation protocol:
   `docs/roadmap/INTRO.md`.
 - Known-good baseline: 230/230 main tests (232 with `--features smt`),
-  522/522 generated-code tests, clippy without errors, fmt clean; 45 valid +
-  12 invalid examples; 11 training categories / 231 aggregated SFT examples
-  (130 valid + 127 invalid snippets).
+  537/537 generated-code tests (179 modules), clippy without errors, fmt clean;
+  45 valid + 12 invalid examples; 11 training categories / 231 aggregated SFT
+  examples (130 valid + 127 invalid snippets).
 
 ## 2. Documentation map (what each file is for)
 

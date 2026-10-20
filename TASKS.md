@@ -645,3 +645,18 @@ sed -n "<start>,<end>p" TASKS.md            # one specific entry by line range
 - Stale sweep: one live stale description found+fixed (KB §13.4 fuzz options presented as current); remaining fuzz/same-seed/--violate mentions are in frozen historical phase files (not rewritten per protocol); no "z3 not installed" claims anywhere.
 - Verification: `cargo test` **230/230** default / **232/232** with `--features smt`; generated-code tests 522/522 (task 10B record; no codegen changes since); clippy at baseline (11 lib + 1 codegen_test pre-existing); fmt clean.
 - Docs: `docs/roadmap/PHASE_4_TASK_13_STATUS.md` (new, template 2.5.2); `docs/roadmap/INTRO.md` phase table -> "task 13 of 14 done".
+
+## 2026-10-20 01:30 — Phase 4 task 14 (close-out): full verification, PHASE_4_STATUS.md, INTRO/TASKS bookkeeping, single commit
+
+### Interpretation & plan
+
+- Requested: actualize and execute the Phase 4 close-out per `docs/roadmap/PHASE_4_TASK_14.md` - full BUILD.md section 5 verification (+ gcc -Wall spot check of the new C MC output), write `PHASE_4_STATUS.md` per template 2.3 with exact counts, INTRO.md row 4 -> COMPLETE, TASKS.md entry, single commit, clean tree.
+- Actualization (recorded in the task file): pre-close-out state after tasks 12-13; training chain MUST run (task 12/13 changed data); `cargo test --features smt` added to Action 1 (Phase 4 ships SMT mode); BUILD.md section 5 stale baseline line flagged for in-place fix.
+
+### Report
+
+- Verification (all green on first run after the doc fixes below): `cargo build` OK; `cargo test` **230/230**; `cargo test --features smt` **232/232** (z3 env per TOOLCHAIN.md 5.2); clippy 0 errors / 12 baseline warnings; fmt clean; `cargo generate-code-tests && cargo test-generated-code` **537/537** in 179 modules; `validate --input rfs examples/valid` exit 0 (45 valid / 12 invalid); training chain OK (130 valid / 127 invalid snippets, aggregate 231, 5/5 tests); `gcc -Wall` spot check of the new C MC output (example 43: exact engine + liveness) clean - `PASS (complete)` with pinned metrics 165/330/22 and byte-identical summary under `--threads 4`.
+- Issues found during verification (fixed at their source, recorded in the status file): (1) BUILD.md section 5 still carried the Phase 3 baseline line (170/170, 513/513, "same-seed") - missed by the task 13 sweep because it is dated as history; actualized to the final Phase 4 numbers. (2) Generated-code count: tasks 10B/12/13 had recorded 522 against a STALE aggregate crate (it also compiles valid training snippets, and task 12 added +5 without regenerating); true final = **537** in 179 modules - actualized in BUILD.md/START.md/KB.md. (3) `cargo test-training` matches 5 tests, not 4 (the alias also selects the codegen aggregate test whose name contains "training") - actualized with a note.
+- Docs: `docs/roadmap/PHASE_4_STATUS.md` (new, template 2.3, all sections, exact counts + per-task data collected); BUILD.md/START.md/KB.md number actualizations above; task file actualization note.
+- Bookkeeping: INTRO.md state-table row 4 -> COMPLETE (close-out 2026-10-20).
+- Verification re-run after doc fixes: fmt clean, `cargo test` still 230/230 (docs-only changes since the green run).

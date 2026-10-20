@@ -22,6 +22,27 @@ entry, single commit, clean tree.
   generated tests, 42 valid / 12 invalid examples. Expected growth: +3 examples
   (43-45), new benchmark suite, liveness parser/validator tests - record the FINAL
   exact numbers from this task's runs.
+
+### Actualization (2026-10-20, before execution)
+
+- Pre-close-out state after tasks 12-13: main tests 230 (232 with `--features
+  smt`), examples 45 valid / 12 invalid, snippets 130 valid / 127 invalid,
+  aggregate 231 lines. Generated-code count CORRECTED during execution:
+  tasks 10B/12/13 recorded 522 against a STALE aggregate crate (task 12 never
+  regenerated it); regenerating over task 12's +5 valid snippets gives the true
+  final **537** tests in 179 modules - actualized in BUILD.md/START.md/KB.md
+  here.
+- Task 13 was docs-sync but ALSO changed `src/parser.rs` (dedicated diagnostic
+  for parens-less `eventually`, user-requested) and re-quoted one training entry
+  - so the training chain MUST run as part of verification, and the
+  parser/examples suites are in scope.
+- Action 1 additionally runs `cargo test --features smt` with the z3 env vars
+  from TOOLCHAIN.md section 5.2: Phase 4 ships the SMT mode (task 11) and
+  START.md's known-good baseline claims it, so the close-out must confirm it.
+- BUILD.md section 5 still carries the stale "Known-good baseline (2026-10-17,
+  after Phase 3)" line (170/170, 513/513, "same-seed" wording) - missed by the
+  task 13 sweep because it is dated as history. Actualize it in place during this
+  task and record it in PHASE_4_STATUS.md under found problems.
 - `PHASE_4_STATUS.md` per INTRO.md template 2.3: brief explanation, influenced /
   affected tasks, added/changed/removed files (source/docs/other), changed/removed/
   new functionality, tests add/change/remove, tests run status (exact counts),
@@ -51,8 +72,9 @@ entry, single commit, clean tree.
 
 ### Action 1: Full verification
 Run the complete BUILD.md section 5 checklist + the `gcc -Wall` spot check of the
-new C MC output (exact engine + liveness paths). Fix any failure at its source
-(never by weakening a test); re-run until green.
+new C MC output (exact engine + liveness paths) + `cargo test --features smt`
+(z3 env vars per TOOLCHAIN.md section 5.2, see Actualization). Fix any failure at
+its source (never by weakening a test); re-run until green.
 
 #### Affected files
 | File | Operation | Description + rationale |
@@ -96,8 +118,10 @@ committed individually per protocol step t); `git status` clean.
 - [ ] `cargo build && cargo test && cargo clippy --all-targets && cargo fmt --check` green (exact final counts recorded).
 - [ ] `cargo generate-code-tests && cargo test-generated-code` green (exact final counts recorded).
 - [ ] `cargo run -- validate --input rfs examples/valid` exit 0 (45 valid / 12 invalid).
-- [ ] Training chain green with task 12's final counts (if data changed).
+- [ ] Training chain green with task 12/13's final counts (data changed: MUST run).
+- [ ] `cargo test --features smt` green (z3 env per TOOLCHAIN.md 5.2).
 - [ ] `gcc -Wall` spot check of the new C MC output clean.
+- [ ] BUILD.md section 5 baseline line actualized to the final Phase 4 numbers.
 - [ ] `PHASE_4_STATUS.md` complete per template 2.3 (all sections, exact numbers).
 - [ ] INTRO.md state-table row 4 COMPLETE; TASKS.md entry added.
 - [ ] Single close-out commit; `git status` clean.

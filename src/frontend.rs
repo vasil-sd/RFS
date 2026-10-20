@@ -242,8 +242,12 @@ pub fn convert_file_to_ir(path: &Path, format: Format) -> Result<Ir, String> {
         .map_err(|e| format!("failed to read {}: {}", path.display(), e))?;
     match format {
         Format::Rfs => crate::parse_source(&text).map_err(|e| e.message),
-        Format::Json => serde_json::from_str::<Ir>(&text)
-            .map_err(|e| format!("invalid RFS IR JSON in {}: {}", path.display(), e)),
+        Format::Json => {
+            let value = crate::json_rw::parse(&text)
+                .map_err(|e| format!("invalid RFS IR JSON in {}: {}", path.display(), e))?;
+            Ir::from_json(&value)
+                .map_err(|e| format!("invalid RFS IR JSON in {}: {}", path.display(), e))
+        }
     }
 }
 
@@ -251,9 +255,7 @@ pub fn convert_file_to_ir(path: &Path, format: Format) -> Result<Ir, String> {
 pub fn render_ir(ir: &Ir, format: Format) -> Result<String, String> {
     match format {
         Format::Rfs => Ok(printer::print_ir(ir)),
-        Format::Json => serde_json::to_string_pretty(ir)
-            .map(|s| s + "\n")
-            .map_err(|e| e.to_string()),
+        Format::Json => ir.to_json().map(|v| v.to_string_pretty() + "\n"),
     }
 }
 

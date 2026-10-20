@@ -79,9 +79,12 @@ fn extracted_training_snippets_parse_as_expected() {
                         errors
                     )
                 });
-                let json = serde_json::to_string(&ir).expect("valid snippet IR should serialize");
-                let back: Ir =
-                    serde_json::from_str(&json).expect("valid snippet IR should deserialize");
+                let json = ir
+                    .to_json()
+                    .expect("valid snippet IR should serialize")
+                    .to_string();
+                let value = rfs::json_rw::parse(&json).expect("valid snippet IR JSON should parse");
+                let back: Ir = Ir::from_json(&value).expect("valid snippet IR should deserialize");
                 assert_eq!(ir, back);
 
                 // Round-trips through the RFS printer for valid snippets.

@@ -14,6 +14,8 @@
 //! The JSON report is a development artifact: written under `target/`, never
 //! checked in, and asserted on by parsed fields only (never byte-for-byte).
 
+use rfs::json_rw::Json;
+
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -721,17 +723,25 @@ fn bench_mc_fail_variants_both_backends() {
 // Action 3: JSON report (target/mc_benchmarks.json) + per-backend table
 // ---------------------------------------------------------------------------
 
-fn run_json(r: &BenchRun) -> serde_json::Value {
-    serde_json::json!({
-        "status": r.status,
-        "states": r.states,
-        "transitions": r.transitions,
-        "max_depth": r.max_depth,
-        "unexpected_terminations": r.unexpected_terminations,
-        "monitors_bits": r.monitors_bits,
-        "memory_estimate_bytes": r.memory_estimate_bytes,
-        "wall_ms": r.wall_ms,
-    })
+fn run_json(r: &BenchRun) -> Json {
+    let opt = |v: Option<usize>| match v {
+        Some(n) => Json::int(n as i64),
+        None => Json::Null,
+    };
+    Json::obj(vec![
+        ("status".into(), Json::Str(r.status.clone())),
+        ("states".into(), Json::int(r.states as i64)),
+        ("transitions".into(), Json::int(r.transitions as i64)),
+        ("max_depth".into(), Json::int(r.max_depth as i64)),
+        (
+            "unexpected_terminations".into(),
+            opt(r.unexpected_terminations),
+        ),
+        ("monitors_bits".into(), opt(r.monitors_bits)),
+        ("memory_estimate_bytes".into(), opt(r.memory_estimate_bytes)),
+        // u128 wall-clock ms; i64 covers 292 million years of runtime.
+        ("wall_ms".into(), Json::int(r.wall_ms as i64)),
+    ])
 }
 
 #[test]
@@ -754,48 +764,62 @@ fn bench_mc_json_report_and_table() {
     let specs = entries
         .iter()
         .map(|(name, runs)| {
-            let backends = serde_json::json!({
-                "rust": run_json(&runs["rust"]),
-                "c": run_json(&runs["c"]),
-            });
-            serde_json::json!({ "spec": name, "backends": backends })
+            let backends = Json::obj(vec![
+                ("rust".into(), run_json(&runs["rust"])),
+                ("c".into(), run_json(&runs["c"])),
+            ]);
+            Json::obj(vec![
+                ("spec".into(), Json::Str(name.clone())),
+                ("backends".into(), backends),
+            ])
         })
         .collect::<Vec<_>>();
-    let report = serde_json::json!({
-        "suite": "benchmark_mc",
-        "mode": "exact",
-        "specs": specs,
-    });
+    let report = Json::obj(vec![
+        ("suite".into(), Json::Str("benchmark_mc".into())),
+        ("mode".into(), Json::Str("exact".into())),
+        ("specs".into(), Json::arr(specs)),
+    ]);
     let path = root().join("target").join("mc_benchmarks.json");
-    std::fs::write(
-        &path,
-        serde_json::to_string_pretty(&report).expect("serialize report"),
-    )
-    .unwrap_or_else(|e| panic!("write {:?}: {e}", path));
+    std::fs::write(&path, report.to_string_pretty())
+        .unwrap_or_else(|e| panic!("write {:?}: {e}", path));
 
     // Assert on PARSED fields (never byte-for-byte): read the file back and
     // check status + deterministic metrics match what the runs produced.
-    let on_disk: serde_json::Value =
-        serde_json::from_str(&std::fs::read_to_string(&path).expect("read report"))
-            .expect("report must be valid JSON");
+    let on_disk = rfs::json_rw::parse(&std::fs::read_to_string(&path).expect("read report"))
+        .expect("report must be valid JSON");
     for (name, runs) in &entries {
         for be in ["rust", "c"] {
             let r = &runs[be];
-            let j = &on_disk["specs"]
-                .as_array()
-                .and_then(|a| a.iter().find(|s| s["spec"] == *name))
-                .expect("report entry for spec")["backends"][be];
-            assert_eq!(j["status"], r.status, "[{name}] {be} status in report");
+            let spec_entry = on_disk
+                .get("specs")
+                .and_then(Json::as_arr)
+                .and_then(|a| {
+                    a.iter()
+                        .find(|s| s.get("spec").and_then(Json::as_str) == Some(name.as_str()))
+                })
+                .expect("report entry for spec");
+            let j = spec_entry
+                .get("backends")
+                .and_then(|b| b.get(be))
+                .expect("backend entry in report");
             assert_eq!(
-                j["states"], r.states as u64,
+                j.get("status").and_then(Json::as_str),
+                Some(r.status.as_str()),
+                "[{name}] {be} status in report"
+            );
+            assert_eq!(
+                j.get("states").and_then(Json::as_int),
+                Some(r.states as i64),
                 "[{name}] {be} states in report"
             );
             assert_eq!(
-                j["transitions"], r.transitions as u64,
+                j.get("transitions").and_then(Json::as_int),
+                Some(r.transitions as i64),
                 "[{name}] {be} transitions in report"
             );
             assert_eq!(
-                j["max_depth"], r.max_depth as u64,
+                j.get("max_depth").and_then(Json::as_int),
+                Some(r.max_depth as i64),
                 "[{name}] {be} max_depth in report"
             );
             assert!(

@@ -31,10 +31,14 @@ fn valid_examples_parse_and_roundtrip() {
             file.display()
         );
 
-        let json = serde_json::to_string(&ir)
-            .unwrap_or_else(|e| panic!("failed to serialize IR from {}: {}", file.display(), e));
+        let json = ir
+            .to_json()
+            .unwrap_or_else(|e| panic!("failed to serialize IR from {}: {}", file.display(), e))
+            .to_string();
 
-        let back: Ir = serde_json::from_str(&json)
+        let value = rfs::json_rw::parse(&json)
+            .unwrap_or_else(|e| panic!("failed to parse IR JSON from {}: {}", file.display(), e));
+        let back: Ir = Ir::from_json(&value)
             .unwrap_or_else(|e| panic!("failed to deserialize IR from {}: {}", file.display(), e));
 
         assert_eq!(ir, back, "IR roundtrip failed for {}", file.display());

@@ -38,7 +38,17 @@ fn write_file(root: &Path, rel: &str, content: &str) -> PathBuf {
 }
 
 fn ir_json(source: &str) -> String {
-    serde_json::to_string_pretty(&rfs::parse_source(source).expect("parse")).expect("serialize")
+    rfs::parse_source(source)
+        .expect("parse")
+        .to_json()
+        .expect("serialize")
+        .to_string_pretty()
+}
+
+/// Parse an IR JSON document text into an `Ir` (panics with the error on failure).
+fn json_ir(text: &str) -> Ir {
+    let value = rfs::json_rw::parse(text).unwrap_or_else(|e| panic!("invalid IR JSON: {e}"));
+    Ir::from_json(&value).unwrap_or_else(|e| panic!("invalid IR JSON: {e}"))
 }
 
 // ---------------------------------------------------------------------------
@@ -260,7 +270,7 @@ fn directory_conversion_into_its_own_tree_is_rejected() {
 fn check_roundtrip_source(source: &str, json: &str) {
     let ir = rfs::parse_source(source).expect("parse source");
     // rfs -> json
-    let parsed_json: Ir = serde_json::from_str(json).expect("json parses");
+    let parsed_json = json_ir(json);
     assert_eq!(ir, parsed_json);
     // rfs -> json -> rfs and json -> rfs -> json stability.
     printer::roundtrip_rfs(source).expect("rfs round-trip");
@@ -291,7 +301,7 @@ fn converts_json_to_rfs() {
     assert!(errors.is_empty());
     let out = written[0].clone();
     let rfs_text = std::fs::read_to_string(&out).unwrap();
-    let ir1: Ir = serde_json::from_str(&json).unwrap();
+    let ir1 = json_ir(&json);
     let ir2 = rfs::parse_source(&rfs_text).expect("printed rfs parses");
     assert_eq!(ir1, ir2);
     cleanup(&root);
@@ -323,8 +333,8 @@ fn converts_json_to_json_with_target_dir() {
     let (written, errors) = frontend::run_conversion(Format::Json, Format::Json, &f, Some(&td));
     assert!(errors.is_empty(), "unexpected errors: {:?}", errors);
     let out_text = std::fs::read_to_string(&written[0]).unwrap();
-    let ir1: Ir = serde_json::from_str(&json).unwrap();
-    let ir2: Ir = serde_json::from_str(&out_text).unwrap();
+    let ir1 = json_ir(&json);
+    let ir2 = json_ir(&out_text);
     assert_eq!(ir1, ir2);
     cleanup(&root);
 }
@@ -604,7 +614,7 @@ fn e2e_parse_rfs_to_json_exits_zero_and_writes_output() {
     let out_file = root.join("a.json");
     assert!(out_file.exists());
     let ir1 = rfs::parse_source(VALID_RFS).unwrap();
-    let ir2: Ir = serde_json::from_str(&std::fs::read_to_string(&out_file).unwrap()).unwrap();
+    let ir2 = json_ir(&std::fs::read_to_string(&out_file).unwrap());
     assert_eq!(ir1, ir2);
     cleanup(&root);
 }
@@ -683,4 +693,279 @@ fn e2e_validate_directory_writes_err_file_and_exits_one() {
     assert!(root.join("bad.rfs.rfs-validation.err").exists());
     assert!(!root.join("good.rfs.rfs-validation.err").exists());
     cleanup(&root);
+}
+
+// ---------------------------------------------------------------------------
+// Phase 5 task 2: IR JSON golden pins (hand-rolled json_rw, no external crates)
+// ---------------------------------------------------------------------------
+
+/// Representative spec covering enums, bit types, unit + struct event/output
+/// variants, vars, guards, emits with args, assignments, and an liveness
+/// property. Its exact JSON text is PINNED here: declaration-order keys,
+/// kind-first tagging, nulls for absent Option fields, 2-space pretty layout.
+const GOLDEN_SPEC_RFS: &str = "module m {\n  enum State { Idle, Busy } initial Idle\n  event Req(Value(x: bit<8>))\n  event Ping\n  output Done(Ok(code: bit<4>))\n  var n: bit<8> init 0\n  transition Idle on Req(Value(x)) where x > 0 { next Busy; emit Done(Ok(1)); set n = x + 1; }\n  transition Busy on Ping { next Idle; }\n  prop p1 : always (state == Idle -> eventually (state == Busy)) ;\n}";
+
+#[test]
+fn ir_json_golden_compact_pins_key_order() {
+    let ir = rfs::parse_source(GOLDEN_SPEC_RFS).expect("parse golden spec");
+    assert_eq!(
+        ir.to_json().expect("to_json").to_string(),
+        r#"{"ir_version":0,"modules":[{"name":"m","enums":[{"name":"State","variants":["Idle","Busy"]}],"initial_state":"Idle","events":[{"name":"Req","variants":[{"kind":"struct","name":"Value","fields":[{"name":"x","ty":{"kind":"bit","width":8}}]}]},{"name":"Ping","variants":[{"kind":"unit","name":"Ping"}]}],"outputs":[{"name":"Done","variants":[{"kind":"struct","name":"Ok","fields":[{"name":"code","ty":{"kind":"bit","width":4}}]}]}],"vars":[{"name":"n","ty":{"kind":"bit","width":8},"init":{"kind":"int","value":0}}],"transitions":[{"id":0,"state":"Idle","pattern":{"group":"Req","variant":{"kind":"struct","name":"Value","fields":[{"name":"x","pattern":{"kind":"bind","name":"x"}}]}},"guard":{"kind":"binary","op":"gt","left":{"kind":"path","path":["x"]},"right":{"kind":"int","value":0}},"next_state":"Busy","emits":[{"group":"Done","variant":"Ok","args":[{"kind":"int","value":1}]}],"assignments":[{"var":"n","value":{"kind":"binary","op":"plus","left":{"kind":"path","path":["x"]},"right":{"kind":"int","value":1}}}],"priority":null},{"id":1,"state":"Busy","pattern":{"group":"Ping","variant":null},"guard":null,"next_state":"Idle","emits":[],"assignments":[],"priority":null}],"properties":[{"name":"p1","formula":{"kind":"always","inner":{"kind":"implies","left":{"kind":"expr","expr":{"kind":"binary","op":"eq","left":{"kind":"path","path":["state"]},"right":{"kind":"path","path":["Idle"]}}},"right":{"kind":"eventually","inner":{"kind":"expr","expr":{"kind":"binary","op":"eq","left":{"kind":"path","path":["state"]},"right":{"kind":"path","path":["Busy"]}}}}}}}],"assumptions":[]}]}"#
+    );
+}
+
+#[test]
+fn ir_json_golden_pretty_pins_layout() {
+    let ir = rfs::parse_source(GOLDEN_SPEC_RFS).expect("parse golden spec");
+    let pretty = ir.to_json().expect("to_json").to_string_pretty();
+    assert_eq!(
+        pretty,
+        r#"{
+  "ir_version": 0,
+  "modules": [
+    {
+      "name": "m",
+      "enums": [
+        {
+          "name": "State",
+          "variants": [
+            "Idle",
+            "Busy"
+          ]
+        }
+      ],
+      "initial_state": "Idle",
+      "events": [
+        {
+          "name": "Req",
+          "variants": [
+            {
+              "kind": "struct",
+              "name": "Value",
+              "fields": [
+                {
+                  "name": "x",
+                  "ty": {
+                    "kind": "bit",
+                    "width": 8
+                  }
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "name": "Ping",
+          "variants": [
+            {
+              "kind": "unit",
+              "name": "Ping"
+            }
+          ]
+        }
+      ],
+      "outputs": [
+        {
+          "name": "Done",
+          "variants": [
+            {
+              "kind": "struct",
+              "name": "Ok",
+              "fields": [
+                {
+                  "name": "code",
+                  "ty": {
+                    "kind": "bit",
+                    "width": 4
+                  }
+                }
+              ]
+            }
+          ]
+        }
+      ],
+      "vars": [
+        {
+          "name": "n",
+          "ty": {
+            "kind": "bit",
+            "width": 8
+          },
+          "init": {
+            "kind": "int",
+            "value": 0
+          }
+        }
+      ],
+      "transitions": [
+        {
+          "id": 0,
+          "state": "Idle",
+          "pattern": {
+            "group": "Req",
+            "variant": {
+              "kind": "struct",
+              "name": "Value",
+              "fields": [
+                {
+                  "name": "x",
+                  "pattern": {
+                    "kind": "bind",
+                    "name": "x"
+                  }
+                }
+              ]
+            }
+          },
+          "guard": {
+            "kind": "binary",
+            "op": "gt",
+            "left": {
+              "kind": "path",
+              "path": [
+                "x"
+              ]
+            },
+            "right": {
+              "kind": "int",
+              "value": 0
+            }
+          },
+          "next_state": "Busy",
+          "emits": [
+            {
+              "group": "Done",
+              "variant": "Ok",
+              "args": [
+                {
+                  "kind": "int",
+                  "value": 1
+                }
+              ]
+            }
+          ],
+          "assignments": [
+            {
+              "var": "n",
+              "value": {
+                "kind": "binary",
+                "op": "plus",
+                "left": {
+                  "kind": "path",
+                  "path": [
+                    "x"
+                  ]
+                },
+                "right": {
+                  "kind": "int",
+                  "value": 1
+                }
+              }
+            }
+          ],
+          "priority": null
+        },
+        {
+          "id": 1,
+          "state": "Busy",
+          "pattern": {
+            "group": "Ping",
+            "variant": null
+          },
+          "guard": null,
+          "next_state": "Idle",
+          "emits": [],
+          "assignments": [],
+          "priority": null
+        }
+      ],
+      "properties": [
+        {
+          "name": "p1",
+          "formula": {
+            "kind": "always",
+            "inner": {
+              "kind": "implies",
+              "left": {
+                "kind": "expr",
+                "expr": {
+                  "kind": "binary",
+                  "op": "eq",
+                  "left": {
+                    "kind": "path",
+                    "path": [
+                      "state"
+                    ]
+                  },
+                  "right": {
+                    "kind": "path",
+                    "path": [
+                      "Idle"
+                    ]
+                  }
+                }
+              },
+              "right": {
+                "kind": "eventually",
+                "inner": {
+                  "kind": "expr",
+                  "expr": {
+                    "kind": "binary",
+                    "op": "eq",
+                    "left": {
+                      "kind": "path",
+                      "path": [
+                        "state"
+                      ]
+                    },
+                    "right": {
+                      "kind": "path",
+                      "path": [
+                        "Busy"
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      ],
+      "assumptions": []
+    }
+  ]
+}"#
+    );
+}
+
+#[test]
+fn ir_json_roundtrip_property_all_valid_examples() {
+    // Phase 5 task 2 exit criterion: for every valid example,
+    // parse rfs -> to_json -> from_json equals the original IR.
+    let dir = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("examples")
+        .join("valid");
+    let files = rfs::collect_rfs_files(&dir).expect("valid examples directory");
+    assert!(
+        files.len() >= 20,
+        "expected at least 20 valid examples, found {}",
+        files.len()
+    );
+    for file in &files {
+        let source = std::fs::read_to_string(file)
+            .unwrap_or_else(|e| panic!("failed to read {}: {}", file.display(), e));
+        let ir = rfs::parse_source(&source)
+            .unwrap_or_else(|e| panic!("failed to parse {}: {}", file.display(), e.rich_display()));
+        let value = ir
+            .to_json()
+            .unwrap_or_else(|e| panic!("to_json failed for {}: {}", file.display(), e));
+        let back = Ir::from_json(&value)
+            .unwrap_or_else(|e| panic!("from_json failed for {}: {}", file.display(), e));
+        assert_eq!(
+            ir,
+            back,
+            "IR round-trip via JSON changed the IR for {}",
+            file.display()
+        );
+    }
 }

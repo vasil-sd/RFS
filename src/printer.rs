@@ -505,8 +505,12 @@ fn print_formula_ctx(f: &Formula, ctx: Fctx) -> String {
 /// parses back to an IR equal to the original parse.
 pub fn roundtrip_rfs(source: &str) -> Result<(Ir, String), String> {
     let ir1 = crate::parse_source(source).map_err(|e| e.message)?;
-    let json = serde_json::to_string(&ir1).map_err(|e| format!("rfs -> json failed: {}", e))?;
-    let ir2: Ir = serde_json::from_str(&json).map_err(|e| format!("json -> IR failed: {}", e))?;
+    let json = ir1
+        .to_json()
+        .map_err(|e| format!("rfs -> json failed: {}", e))?
+        .to_string();
+    let value = crate::json_rw::parse(&json).map_err(|e| format!("json parse failed: {}", e))?;
+    let ir2 = Ir::from_json(&value).map_err(|e| format!("json -> IR failed: {}", e))?;
     if ir1 != ir2 {
         return Err("round-trip rfs -> json -> IR changed the IR".to_string());
     }
@@ -524,15 +528,20 @@ pub fn roundtrip_rfs(source: &str) -> Result<(Ir, String), String> {
 /// Returns the parsed IR and the printed RFS text. Re-parsing the printed RFS
 /// yields an IR equal to the original JSON document.
 pub fn roundtrip_json(json: &str) -> Result<(Ir, String), String> {
-    let ir1: Ir = serde_json::from_str(json).map_err(|e| format!("invalid RFS IR JSON: {}", e))?;
+    let value = crate::json_rw::parse(json).map_err(|e| format!("invalid RFS IR JSON: {}", e))?;
+    let ir1 = Ir::from_json(&value).map_err(|e| format!("invalid RFS IR JSON: {}", e))?;
     let rfs1 = print_ir(&ir1);
     let ir2 = crate::parse_source(&rfs1)
         .map_err(|e| format!("re-parse of printed RFS failed: {}", e.message))?;
     if ir1 != ir2 {
         return Err("round-trip json -> rfs -> IR changed the IR".to_string());
     }
-    let json2 = serde_json::to_string(&ir2).map_err(|e| format!("IR -> json failed: {}", e))?;
-    let ir3: Ir = serde_json::from_str(&json2).map_err(|e| format!("json -> IR failed: {}", e))?;
+    let json2 = ir2
+        .to_json()
+        .map_err(|e| format!("IR -> json failed: {}", e))?
+        .to_string();
+    let value2 = crate::json_rw::parse(&json2).map_err(|e| format!("json parse failed: {}", e))?;
+    let ir3 = Ir::from_json(&value2).map_err(|e| format!("json -> IR failed: {}", e))?;
     if ir2 != ir3 {
         return Err("round-trip rfs -> json changed the IR".to_string());
     }
@@ -697,7 +706,7 @@ mod tests {
             rfs2
         );
         // json -> rfs direction.
-        let json = serde_json::to_string(&ir).expect("serialize");
+        let json = ir.to_json().expect("serialize").to_string();
         roundtrip_json(&json).expect("json round-trip");
     }
 
@@ -731,7 +740,7 @@ module m {
     #[test]
     fn json_to_rfs_roundtrip() {
         let ir = parse_source("module m { enum State { A, B } initial A event E transition A on E { next B; } prop p : always (state == A) ; }").expect("parse");
-        let json = serde_json::to_string(&ir).expect("serialize");
+        let json = ir.to_json().expect("serialize").to_string();
         roundtrip_json(&json).expect("json -> rfs -> json round-trip");
     }
 
@@ -776,7 +785,7 @@ module m {
                 c,
                 text
             );
-            let json = serde_json::to_string(&ir).expect("serialize");
+            let json = ir.to_json().expect("serialize").to_string();
             roundtrip_json(&json)
                 .unwrap_or_else(|e| panic!("json round-trip failed for '{}': {}", c, e));
         }
@@ -792,11 +801,11 @@ module m {
         )
         .expect("parse");
         assert_eq!(ir.ir_version, 0);
-        let json = serde_json::to_string(&ir).expect("serialize");
+        let json = ir.to_json().expect("serialize").to_string();
         // The document contains no liveness variant kinds.
         assert!(!json.contains("\"eventually\"") && !json.contains("\"until\""));
-        let back: Ir =
-            serde_json::from_str(&json).expect("pre-liveness IR JSON must still deserialize");
+        let value = crate::json_rw::parse(&json).expect("parse pre-liveness IR JSON");
+        let back = Ir::from_json(&value).expect("pre-liveness IR JSON must still deserialize");
         assert_eq!(ir, back);
     }
 

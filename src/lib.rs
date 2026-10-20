@@ -1,10 +1,13 @@
 pub mod backends;
+pub mod cli_log;
 pub mod codegen;
 pub mod codegen_fsm;
 pub mod codegen_mc;
 pub mod codegen_test;
 pub mod error;
+pub mod ext_tool;
 pub mod frontend;
+pub mod info;
 pub mod ir;
 pub mod json_rw;
 pub mod mc_plan;

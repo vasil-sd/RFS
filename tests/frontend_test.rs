@@ -969,3 +969,279 @@ fn ir_json_roundtrip_property_all_valid_examples() {
         );
     }
 }
+
+// ---------------------------------------------------------------------------
+// `rfs info` (Phase 5 task 3): static spec introspection
+// ---------------------------------------------------------------------------
+
+fn example_root_dir() -> PathBuf {
+    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("examples")
+}
+
+#[test]
+fn info_text_on_all_valid_examples() {
+    let dir = example_root_dir().join("valid");
+    let files = rfs::collect_rfs_files(&dir).expect("valid examples directory");
+    assert!(files.len() >= 20, "expected the valid examples set");
+    for f in &files {
+        let out = rfs::info::run_info(f, &rfs::info::InfoOptions { json: false })
+            .unwrap_or_else(|e| panic!("info failed on {}: {}", f.display(), e));
+        assert!(
+            !out.trim().is_empty(),
+            "empty info output for {}",
+            f.display()
+        );
+        assert!(
+            out.starts_with("module "),
+            "info text for {} must start with the module header: {out}",
+            f.display()
+        );
+        // Every section header is present (stable layout).
+        for sec in [
+            "enums:",
+            "events:",
+            "outputs:",
+            "variables:",
+            "transitions:",
+            "properties:",
+            "assumptions:",
+        ] {
+            assert!(
+                out.contains(sec),
+                "missing '{sec}' in info for {}: {out}",
+                f.display()
+            );
+        }
+    }
+}
+
+#[test]
+fn info_json_parses_and_matches_pinned_example() {
+    // Pinned example: exercises BOTH monitor statuses (safety props are
+    // monitored; top-level eventually/until liveness is skipped R1-R4).
+    let f = example_root_dir().join("valid").join("44_token_ring.rfs");
+    let opts = rfs::info::InfoOptions { json: true };
+    let text = rfs::info::run_info(&f, &opts).expect("info --json");
+    let doc = rfs::json_rw::parse(&text).unwrap_or_else(|e| panic!("info JSON must parse: {e}"));
+
+    // Data consistency against the IR parsed directly from the same source.
+    let ir =
+        rfs::parse_source(&std::fs::read_to_string(&f).expect("read spec")).expect("parse spec");
+    assert_eq!(ir.modules.len(), 1);
+    let m = &ir.modules[0];
+
+    let modules = doc
+        .get("modules")
+        .and_then(rfs::json_rw::Json::as_arr)
+        .expect("modules array");
+    assert_eq!(modules.len(), 1);
+    let jm = &modules[0];
+    assert_eq!(
+        jm.get("name").and_then(rfs::json_rw::Json::as_str),
+        Some(m.name.as_str())
+    );
+    assert_eq!(
+        jm.get("initial_state").and_then(rfs::json_rw::Json::as_str),
+        m.initial_state.as_deref()
+    );
+    assert_eq!(
+        jm.get("transitions").and_then(rfs::json_rw::Json::as_int),
+        Some(m.transitions.len() as i64)
+    );
+
+    // Enums and events/outputs match the IR (names + variant counts).
+    let j_enums = jm
+        .get("enums")
+        .and_then(rfs::json_rw::Json::as_arr)
+        .expect("enums");
+    assert_eq!(j_enums.len(), m.enums.len());
+    for (je, e) in j_enums.iter().zip(&m.enums) {
+        assert_eq!(
+            je.get("name").and_then(rfs::json_rw::Json::as_str),
+            Some(e.name.as_str())
+        );
+        let variants = je
+            .get("variants")
+            .and_then(rfs::json_rw::Json::as_arr)
+            .expect("variants");
+        assert_eq!(variants.len(), e.variants.len());
+    }
+    for (key, groups) in [("events", &m.events), ("outputs", &m.outputs)] {
+        let jg = jm.get(key).and_then(rfs::json_rw::Json::as_arr).expect(key);
+        assert_eq!(jg.len(), groups.len(), "{key} count");
+        for (jx, g) in jg.iter().zip(groups) {
+            assert_eq!(
+                jx.get("name").and_then(rfs::json_rw::Json::as_str),
+                Some(g.name.as_str())
+            );
+            let variants = jx
+                .get("variants")
+                .and_then(rfs::json_rw::Json::as_arr)
+                .expect("variants");
+            assert_eq!(variants.len(), g.variants.len(), "{key} variant count");
+        }
+    }
+
+    // Properties: every entry carries a monitor_status that is either
+    // "monitored" or "skipped: <reason>"; this spec has BOTH kinds.
+    let props = jm
+        .get("properties")
+        .and_then(rfs::json_rw::Json::as_arr)
+        .expect("properties");
+    assert!(!props.is_empty());
+    let mut has_monitored = false;
+    let mut has_skipped = false;
+    for jp in props {
+        let status = jp
+            .get("monitor_status")
+            .and_then(rfs::json_rw::Json::as_str)
+            .expect("monitor_status");
+        if status == "monitored" {
+            has_monitored = true;
+        } else {
+            assert!(
+                status.starts_with("skipped: "),
+                "bad monitor_status: {status}"
+            );
+            has_skipped = true;
+        }
+    }
+    assert!(
+        has_monitored && has_skipped,
+        "pinned spec must exercise both statuses"
+    );
+
+    // JSON is pretty-printed (2-space indent) per the shared writer.
+    assert!(text.starts_with("{\n  \"modules\""));
+}
+
+#[test]
+fn e2e_info_valid_exits_zero_and_prints_module() {
+    let root = tmp_root("e2e_info_ok");
+    let f = write_file(&root, "a.rfs", VALID_RFS);
+    let out = std::process::Command::new(rfs_bin())
+        .args(["info"])
+        .arg(&f)
+        .output()
+        .expect("run rfs");
+    assert!(
+        out.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(stdout.contains("module m"), "stdout: {stdout}");
+    assert!(stdout.contains("transitions: 1"), "stdout: {stdout}");
+    cleanup(&root);
+}
+
+#[test]
+fn e2e_info_invalid_spec_exits_one_with_diagnostics() {
+    let root = tmp_root("e2e_info_bad");
+    let f = write_file(&root, "bad.rfs", BAD_STATE_RFS);
+    let out = std::process::Command::new(rfs_bin())
+        .args(["info"])
+        .arg(&f)
+        .output()
+        .expect("run rfs");
+    assert!(!out.status.success());
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(stderr.contains("error:"), "stderr: {stderr}");
+    assert!(
+        stderr.contains("Nope"),
+        "diagnostic must name the bad state: {stderr}"
+    );
+    cleanup(&root);
+}
+
+#[test]
+fn e2e_info_unparseable_spec_exits_one() {
+    let root = tmp_root("e2e_info_unparsable");
+    let f = write_file(&root, "bad.rfs", UNPARSEABLE_RFS);
+    let out = std::process::Command::new(rfs_bin())
+        .args(["info"])
+        .arg(&f)
+        .output()
+        .expect("run rfs");
+    assert!(!out.status.success());
+    assert!(String::from_utf8_lossy(&out.stderr).contains("error:"));
+    cleanup(&root);
+}
+
+#[test]
+fn e2e_info_log_level_filters_stderr_progress() {
+    let root = tmp_root("e2e_info_log");
+    let f = write_file(&root, "a.rfs", VALID_RFS);
+
+    // Default level (info): the debug progress line is NOT printed.
+    let out = std::process::Command::new(rfs_bin())
+        .args(["info"])
+        .arg(&f)
+        .output()
+        .expect("run rfs");
+    assert!(out.status.success());
+    assert!(
+        !String::from_utf8_lossy(&out.stderr).contains("debug:"),
+        "default level must hide debug"
+    );
+
+    // --log-level debug: it IS printed on stderr.
+    let out = std::process::Command::new(rfs_bin())
+        .args(["info", "--log-level", "debug"])
+        .arg(&f)
+        .output()
+        .expect("run rfs");
+    assert!(out.status.success());
+    assert!(
+        String::from_utf8_lossy(&out.stderr).contains("debug:"),
+        "debug level must print progress"
+    );
+
+    // --log-level off: nothing on stderr at all.
+    let out = std::process::Command::new(rfs_bin())
+        .args(["info", "--log-level", "off"])
+        .arg(&f)
+        .output()
+        .expect("run rfs");
+    assert!(out.status.success());
+    assert!(
+        String::from_utf8_lossy(&out.stderr).is_empty(),
+        "off level must print nothing"
+    );
+
+    // Bad level value -> exit 1 with a diagnostic.
+    let out = std::process::Command::new(rfs_bin())
+        .args(["info", "--log-level", "chatty"])
+        .arg(&f)
+        .output()
+        .expect("run rfs");
+    assert!(!out.status.success());
+    assert!(String::from_utf8_lossy(&out.stderr).contains("--log-level"));
+    cleanup(&root);
+}
+
+#[test]
+fn e2e_info_usage_lists_info_and_rejects_unknown_option() {
+    // No args: usage printed, exit 1, and `info` is listed.
+    let out = std::process::Command::new(rfs_bin())
+        .output()
+        .expect("run rfs");
+    assert!(!out.status.success());
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(
+        stdout.contains("rfs info"),
+        "usage must list info: {stdout}"
+    );
+
+    // Unknown option -> exit 1.
+    let root = tmp_root("e2e_info_opt");
+    let f = write_file(&root, "a.rfs", VALID_RFS);
+    let out = std::process::Command::new(rfs_bin())
+        .args(["info", "--bogus"])
+        .arg(&f)
+        .output()
+        .expect("run rfs");
+    assert!(!out.status.success());
+    assert!(String::from_utf8_lossy(&out.stderr).contains("unknown option: --bogus"));
+    cleanup(&root);
+}

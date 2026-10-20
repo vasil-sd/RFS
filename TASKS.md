@@ -693,3 +693,19 @@ sed -n "<start>,<end>p" TASKS.md            # one specific entry by line range
 - BUILD.md: §1 workspace root + rfs-build rows (+ fixed stale serde mention from task 2 and the generated-crate note); §2 `--workspace` guidance; §3 suite table actualized (257 root / 264 workspace) + rfs-build rows; §4 alias record (+ fixed stale "(522)" -> 537).
 - Verification: `cargo test` **257/257** (unchanged), `cargo test --workspace` **264/264**, generated-code **537/537**, clippy zero-new (rfs-build clean), fmt clean.
 - Docs: `docs/roadmap/PHASE_5_TASK_1_STATUS.md` (new, template 2.5.2); task file corrections T1-1..T1-3; INTRO row 5 -> "tasks 1-2 of 16 done".
+## 2026-10-20 17:40 — Phase 5 task 3: `rfs info` command + shared CLI infrastructure (ext_tool resolver, logging, --print-script)
+
+### Interpretation & plan
+
+- Requested: execute Phase 5 task 3 per `docs/roadmap/PHASE_5_TASK_3.md` - the new stable `info` command (static spec introspection incl. monitor-subset status) plus the shared CLI infrastructure every later external-tool command reuses: stderr logging (`--log-level`), JSON plumbing (task 2's writer), the external-tool resolver with env-var-preferred parameterization, and deterministic `--print-script` emission.
+- Plan: (1) `src/ext_tool.rs` (resolve/render/run + Script builder + unit pins); (2) `src/cli_log.rs` logger + `src/info.rs` command logic + main.rs dispatch/usage; (3) tests (all 45 examples, JSON data-consistency vs IR, e2e exit codes, stub-tool parameterization).
+
+### Report
+
+- `src/ext_tool.rs` (new): `ExtTool` presets rustc/gcc/dot (`RFS_RUSTC`/`RFS_GCC`/`RFS_DOT` + `RFS_*_ARGS`); `resolve(cli_path, cli_args)` implements the user-required precedence FLAG > ENV > PATH (empty = unset; missing file = error), env args first + CLI args appended verbatim; `ResolvedTool::render` (POSIX-sh quoting) / `run` (captures stdout+stderr for diagnostics); deterministic `Script` builder (shebang, rfs-version header, per-tool lines, numbered steps - no timestamps). 7 unit tests incl. byte-pinned script output and a stub-tool e2e proving env/flag parameters reach the invoked process.
+- `src/cli_log.rs` (new): level-filtered stderr logger (`off|error|warn|info|debug`); fatal diagnostics deliberately bypass the filter (always printed, exit 1).
+- `src/info.rs` + `src/main.rs`: `rfs info [--json] [--log-level L] <spec>` - load (.rfs/.json), parse+validate (exit 1 with diagnostic on failure), render per-module text (version/initial state/enums/events/outputs with variants+field types/variables+init/transition count/on-error/properties+assumptions with `monitored` or `skipped: <reason>` via the monitor compiler's R1-R4 check) or stable-schema JSON (all keys present, task 2 writer). Usage text updated.
+- Tests: all 45 valid examples (text layout pinned), JSON data-consistency vs the IR on 44_token_ring (exercises BOTH monitor statuses - 04_tcp_handshake_like initially chosen has only safety props), e2e exit codes + usage + `--log-level` behavior, stub-tool parameterization.
+- Task corrections T3-1/T3-2 recorded (stale 230 baseline in exit criteria; ext_tool unit tests inline in lib per Action 1's option).
+- Verification: `cargo test` **273/273** root (was 257; +9 lib, +7 frontend), `cargo test --workspace` **280/280**, generated-code 537/537 unchanged, clippy zero-new (4 self-caught warnings fixed: derive Default, doc-quote marker, slice to_vec, a lost #[test] attr restored), fmt clean.
+- Docs: `docs/roadmap/PHASE_5_TASK_3_STATUS.md` (new); BUILD.md section 3 counts actualized (273/280) + stale "part of the 230" line fixed + new info command row in section 4; INTRO row 5 -> tasks 1-3 of 16.

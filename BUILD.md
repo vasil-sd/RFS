@@ -46,10 +46,10 @@ SMT output compiles per section 5.3.
 
 | Suite | Command | Current result |
 |---|---|---|
-| All root-package (`rfs`) tests | `cargo test` | **257 pass** (149 lib incl. the 24 json_rw tests, 7 cross-backend parity, 5 benchmark MC, 26 codegen, 3 examples, 44 frontend CLI logic incl. 3 IR-JSON golden/round-trip pins, 4 parser-library comparison, 9 liveness MC, 4 monitor integration, 4 training; +2 more with `--features smt`) |
-| All workspace members | `cargo test --workspace` | **264 pass** (the 257 above + rfs-build: 5 unit incl. RFS_BIN precedence/stub error propagation, 2 real end-to-end vs the workspace binary) |
+| All root-package (`rfs`) tests | `cargo test` | **273 pass** (158 lib incl. the 24 json_rw tests + 7 ext_tool resolver/script/stub pins + 2 cli_log, 7 cross-backend parity, 5 benchmark MC, 26 codegen, 3 examples, 51 frontend CLI logic incl. 3 IR-JSON golden/round-trip pins + the task 3 `rfs info` suite, 4 parser-library comparison, 9 liveness MC, 4 monitor integration, 4 training; +2 more with `--features smt`) |
+| All workspace members | `cargo test --workspace` | **280 pass** (the 273 above + rfs-build: 5 unit incl. RFS_BIN precedence/stub error propagation, 2 real end-to-end vs the workspace binary) |
 | rfs-build only (build.rs helper) | `cargo test -p rfs-build` | 7 pass; the rust e2e compiles the generated artifact with `rustc --edition 2021 --crate-type lib` |
-| Parser unit tests only | `cargo test --lib` | part of the 230 |
+| Parser unit tests only | `cargo test --lib` | part of the 273 |
 | Example suite (file-driven: drop `.rfs` into `examples/valid\|invalid`, no test-code change) | `cargo test --test examples_test` | 3 pass; all 45 valid parse+validate+round-trip, all 12 invalid are rejected (parse or validation) |
 | Parser-library comparison (nom vs chumsky smoke) | `cargo test --test library_comparison` | 4 pass |
 | Training-set structure/snippets/aggregation/freshness | `cargo test-training` (= `cargo test training`) | 5 pass (see command table note) |
@@ -81,6 +81,7 @@ report (`target/mc_benchmarks.json`, development artifact, wall-clock informatio
 | Validate one file (extension picks format) | `cargo run -- validate spec.rfs` or `spec.json` |
 | Validate a directory (writes `<name>.rfs-validation.err` next to failures) | `cargo run -- validate --input rfs specs/` |
 | Validate all valid examples (sanity check) | `cargo run -- validate --input rfs examples/valid` -> exit 0 |
+| Static spec introspection (Phase 5 task 3) | `cargo run -- info [--json] [--log-level off\|error\|warn\|info\|debug] <spec.rfs\|spec.json>` - per-module states/events/outputs/vars/transition count + property monitor-subset status; exit 1 on parse/validation error |
 | Convert RFS to IR JSON | `cargo run -- parse --input rfs --output json <file-or-dir> [--target-dir DIR]` |
 | Reformat / convert any format pair (rfs/json in both directions) | `cargo run -- parse --input <rfs\|json> --output <rfs\|json> <file-or-dir>` |
 | List codegen backends / per-backend help | `cargo run -- codegen --list` / `cargo run -- codegen rust --help` |

@@ -145,3 +145,10 @@ spec, walk the IR, render text (human tables) and `--json`. Exit 0 on success,
 - Keep `info` cheap: no model checking, no reachability analysis - static IR
   introspection only.
 - All JSON rendering uses the hand-rolled reader-writer from task 2 (`src/json_rw.rs`) - serde/serde_json is removed from the toolchain by that task. Generated code stays dependency-free; task 10's embedded MC JSON writer is a copy of the same module.
+
+## Task corrections (during execution)
+
+| # | Type | Description + rationale |
+|---|------|-------------------------|
+| T3-1 | change | Exit criterion "full suite green (230 + new tests)" assumed the pre-task-1/2 baseline of 230. With tasks 1 and 2 already shipped, the actual baselines after this task are `cargo test` **273** (root package) and `cargo test --workspace` **280** (this task adds 9 lib tests - 7 ext_tool + 2 cli_log - plus 7 frontend info tests). |
+| T3-2 | change | The ext_tool resolver/script unit tests live as INLINE `#[cfg(test)]` in `src/ext_tool.rs` (the "or lib unit tests" option from Action 1), not in `tests/frontend_test.rs`; the stub-tool end-to-end + all `rfs info` coverage lives in `tests/frontend_test.rs`. Same net coverage, better locality. |

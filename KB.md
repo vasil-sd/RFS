@@ -43,14 +43,15 @@ Read order for a new assistant:
 | CLI | Working | Subcommand-based: `rfs parse` (format conversion), `rfs validate` (semantic validation), `rfs codegen` (backend registry dispatch). No positional-argument legacy mode. |
 | Phase 2 core DSL | Complete | Version headers, `on_error` fallbacks, priorities in generated code, Phase 2 validator checks (errors + warnings channel), C backend (production/test/mc) with the Rust MC wire format. See `DESIGN.md` section 20. |
 | Phase 3 properties/monitors | Implemented (phase close-out: task 22) | Property subset incl. `always[N]`; online monitors from the shared MonitorPlan in BOTH backends (R1-R4 restrictions); `--with-property-monitors` CLI; enhanced MC counterexamples; cross-backend parity suite. See `DESIGN.md` section 21. |
+| Phase 4 scalable model checking | Implemented (close-out task 14 pending) | Exact reachable-state MC engine as the default `mc` mode (seeded fuzz retained behind `--mode fuzz`); liveness `eventually`/WEAK `until` + lasso counterexamples; input abstraction; three-status taxonomy (`pass-complete`/`fail`/`unknown-state-limit`) with pinned summary line; level-parallel exact BFS (`--threads`, byte-identical for any N) + runtime `--fast`; benchmark specs 43/44/45 + suite; optional SMT bounded mode (`--mode smt-bounded`, feature-gated). See `DESIGN.md` sections 11 + 22. |
 | Frontend CLI (`parse`) | Phase 1 working | `rfs parse --input <rfs\|json> --output <rfs\|json> <file-or-dir> [--target-dir DIR]`; all four RFS/JSON format combinations, structure-preserving target dirs, collision guard. |
 | Frontend CLI (`validate`) | Phase 1 working | `rfs validate [--input <rfs\|json>] <file-or-dir>`; file mode reports to stderr, directory mode writes `<name>.rfs-validation.err` next to each failing source. |
-| Valid examples | 42 files | All parse, validate, round-trip, and translate to Rust **and C**; includes TLA-inspired adaptations, Phase 1 assumption/unexpected-input demos, the Phase 2 endpoint-protocol + on_error-recovery showcases, and the Phase 3 property/monitor demos (41 Fin/Ack-style, 42 bounded liveness). |
+| Valid examples | 45 files | All parse, validate, round-trip, and translate to Rust **and C**; includes TLA-inspired adaptations, Phase 1 assumption/unexpected-input demos, the Phase 2 endpoint-protocol + on_error-recovery showcases, the Phase 3 property/monitor demos (41 Fin/Ack-style, 42 bounded liveness), and the Phase 4 benchmarks (43 sliding-window ARQ with liveness + input abstraction, 44 token ring ~130k states, 45 elevator). |
 | Invalid examples | 12 files | All fail as expected (parse or validation), including TLA-syntax anti-patterns, Phase 2 semantic errors (duplicate priority, shadowed duplicate transition, on_error without next, bad version header, duplicate set), and the Phase 3 `always[0]` zero-bound error. |
 | Validator | Phase 1 working | `src/validator.rs` performs name resolution, pattern/output checks, expression typing, and formula typing. |
-| Code generator | Phase 2 working (plugin system) | `src/codegen.rs` defines the Backend plugin API, the `BACKENDS` registry, and `rfs codegen` CLI parsing; shared analysis in `codegen_fsm/test/mc.rs`; **Rust and C backends** under `src/backends/` each implement production/test/mc (C MC reuses the Rust MC wire format). See `CODEGEN.md`. |
-| Tests | Passing | 170 non-doc tests in the main crate (86 lib, 41 frontend CLI logic, 23 codegen, 3 examples, 4 training, 4 parser-library comparison, 2 Phase 2 integration, 4 monitor integration, 3 cross-backend parity); generated aggregate unit-test crate currently has 513 passing tests. |
-| LLM training set | Maintained, 11 categories | `training/<category>/rfs_training.jsonl` stores category-specific SFT examples (design, syntax_semantics, properties_temporal_logic, model_checking, model_checking_space, model_checking_properties, codegen_rust, examples_explain, frontend_cli, project_tooling, tla_adaptation); `all_rfs_training.jsonl` is the generated aggregate (224 examples). |
+| Code generator | Phase 2 working (plugin system) | `src/codegen.rs` defines the Backend plugin API, the `BACKENDS` registry, and `rfs codegen` CLI parsing; shared analysis in `codegen_fsm/test/mc.rs` + `mc_plan.rs` (Phase 4 MC plan) + `monitor.rs` (Phase 3 monitors) + `smt_plan.rs`/`smt_emit.rs` (Phase 4 SMT); **Rust and C backends** under `src/backends/` each implement production/test/mc (C MC mirrors the Rust exact engine - same summary line, counterexample fields, and CLI wire format). See `CODEGEN.md`. |
+| Tests | Passing | 230 non-doc tests in the main crate (125 lib, 7 cross-backend parity, 5 benchmark MC, 26 codegen, 3 examples, 41 frontend CLI logic, 4 parser-library comparison, 9 liveness MC, 4 monitor integration, 4 training; +2 more with `--features smt`); generated aggregate unit-test crate currently has 522 passing tests. |
+| LLM training set | Maintained, 11 categories | `training/<category>/rfs_training.jsonl` stores category-specific SFT examples (design, syntax_semantics, properties_temporal_logic, model_checking, model_checking_space, model_checking_properties, codegen_rust, examples_explain, frontend_cli, project_tooling, tla_adaptation); `all_rfs_training.jsonl` is the generated aggregate (231 examples; Phase 4 task 12 added eventually/until + exact-MC-status/abstraction/liveness-counterexample coverage). |
 | Training snippets | Generated | `training/<category>/snippets/valid/*.rfs` and `snippets/invalid/*.rfs` are extracted from training JSONL, validated, and tested by the parser suite. |
 | Lint/format | Clean | `cargo clippy --all-targets` and `cargo fmt` were clean at last verification. |
 
@@ -267,7 +268,24 @@ next (f)
 always (f)
 always[N] (f)          # Phase 3: body must hold at samples 0..N-1, N >= 1
 bounded_eventually[N] (f)
+eventually (f)         # Phase 4: unbounded liveness; parens mandatory; MC-only
+p until q              # Phase 4: WEAK until; infix, left-associative; MC-only
 ```
+
+Phase 4 liveness operators (D-P4-8/D-P4-9, `DESIGN.md` sections 11 + 22):
+
+- Precedence: `!` binds TIGHTER than `until` (`!a until b` = `(!a) until b`);
+  `&&`/`||`/`->` bind looser (`a && b until c` = `a && (b until c)`); compound
+  operands need parentheses: `(a && b) until c`.
+- `until` is WEAK: satisfied if `q` holds at some step with `p` holding before
+  it, OR if `q` never holds and `p` holds forever. Strong until =
+  `p until q && eventually q`.
+- Scope: top-level obligations `eventually p` / `p until q` over BOOLEAN
+  subformulas (no temporal operators inside); combinable at top level with
+  `&&`/`||`/`!`/`->`. Deeper nesting -> codegen diagnostic + property skipped.
+- ANY formula containing them is outside the online monitor subset: production/
+  test codegen skips it with the identical warning in both backends; only the
+  model checker checks it (exact engine, lasso counterexamples).
 
 Conventions:
 
@@ -585,7 +603,14 @@ prop returns_good : always (input_is(ToGood) -> next (state == Good)) ;
 prop timeout_progress : always (state == SynSent -> bounded_eventually[10] (state != SynSent)) ;
 prop startup_window : always[4] (state != Error) ;
 assume env_tick : always (bounded_eventually[5] (input_is(Tick))) ;
+prop terminates : eventually (state == Done) ;            # Phase 4, MC-only
+prop bound_until_done : (x - y <= 4) until (state == Done) ;  # Phase 4, WEAK until
 ```
+
+Liveness properties (`eventually`/`until`, Phase 4) are MODEL-CHECKING-ONLY:
+they parse and validate, but production/test codegen skips them with a warning
+(online monitors cover only the bounded subset); the exact MC engine checks
+them (lasso counterexamples for violations). See `DESIGN.md` section 11.
 
 ---
 
@@ -763,6 +788,7 @@ cargo run -- codegen rust mc spec.rfs --assumes a1,a2 --out fsm_mc.rs
 - `--list` prints registered backends; `--help` prints common usage; `<backend> --help` lists that backend's commands and options (all rendered from the registry, no hardcoded text).
 - A generate request resolves the backend by name, selects the input format from the file extension (`.rfs`/`.json`; anything else is an error), converts the file to IR, and runs the command on `ir.modules[0]`.
 - Common options: `--assumes all|none|label1,label2` (default `all`), `--steps N` for the test command (default 4), `--out FILE` (default stdout; parent directories are created).
+- MC-only codegen options (Phase 4): `--mode exact|fuzz|smt-bounded` (default `exact`; `smt-bounded` requires the `smt` cargo feature at codegen time), `--max-states N` (default 1,000,000), `--nondet`, `--timeout-sec N` (default 0 = off; wall-clock only, NOT parity-guaranteed), `--threads N` (default 1; exact mode is byte-identical for any N), `--smt-bound N` (default 10). All are embedded as defaults in the generated binary and overridable at runtime; `--fast` is runtime-only (non-parity early abort).
 - Warnings go to stderr; generated source goes to stdout or `--out`. Exit code 0 on success, 1 for unknown backend, bad extension, parse, or generation errors.
 - The plugin API and the procedure for adding a new target language are documented in `CODEGEN.md`; the Rust backend's internals in `src/backends/RUST.md`.
 
@@ -969,6 +995,7 @@ These were real bugs or design traps during the nom rewrite:
 - Transition action bodies currently require semicolons after actions.
 - A transition body with zero actions parses syntactically but fails semantically because `next` is missing.
 - Duplicate `next` is a semantic failure, not a syntax failure.
+- An `eventually` keyword not followed by `(` can NEVER parse, but the top-level `many0(module)` recovery swallows such failures into the generic "trailing input after RFS source" (offset 0 for single-module files). Fix (Phase 4 task 13): on parse failure `parse_source` runs a targeted whole-word scan (`find_eventually_missing_paren`) and reports the dedicated message `expected '(' after 'eventually' (the body must be a parenthesized formula)` at the keyword's exact position. Whole-word matching excludes `bounded_eventually`; double-quoted string literals are skipped; valid files (e.g. a variable NAMED `eventually` in guard context) never trigger it because the scan only runs on failure.
 
 ### 6.6 Documentation workflow
 
@@ -1314,15 +1341,22 @@ toolchain activation, essential commands, workflow rules). Build/test details:
 
 ## 12. What to work on next
 
-Obsolete as of Phase 2 completion (core DSL, priorities, on_error, validator
-warnings, and the C backend all exist).
-Current priority: **`docs/roadmap/PHASE_3.md` - PSL-like properties and monitors**
-(property subset, monitor codegen, MC integration), planned via the two-stage
-protocol in `docs/roadmap/INTRO.md`, plus the session entry workflow in `START.md`.
+Obsolete as of Phase 4 completion (exact reachable-state MC engine, liveness
+`eventually`/`until`, input abstraction, benchmarks, optional SMT mode all exist).
+Current state: Phase 4 implementation tasks 1-13 done; next is **task 14
+(close-out)** per `docs/roadmap/PHASE_4_PLAN.md`, then Phase 5 - see the phase
+state table in `docs/roadmap/INTRO.md` and the session entry workflow in
+`START.md`.
 
 ---
 
 ## 13. Phase 1 code generation and bounded model checking
+
+> **Superseded (Phase 4).** The "bounded model checker" described in 13.4/13.6
+> was the seeded-fuzz engine; it is now LEGACY behind `--mode fuzz`. The current
+> `mc` default is the exact reachable-state engine with liveness - see
+> `DESIGN.md` sections 11 and 22, `CODEGEN.md` section 5.3, and
+> `src/backends/RUST.md`/`C.md` section 4/5. Kept for history.
 
 Phase 1 adds a validator, Rust translator, generated unit tests, assumption-handler API, and an initial bounded model checker. Codegen is organized as a plugin system (see §2.7, `CODEGEN.md`, `src/backends/RUST.md`): `src/codegen.rs` holds the language-agnostic core and backend registry; `src/codegen_fsm.rs` / `codegen_test.rs` / `codegen_mc.rs` hold shared analysis; `src/backends/rust*.rs` implement the Rust target. The user-facing CLI is `rfs codegen <backend> <production|test|mc> <spec> [--out ...]` (see §4.5).
 
@@ -1390,7 +1424,7 @@ By default the sequence generator chooses only enabled inputs that satisfy activ
 ### 13.5 Phase 1 build commands
 
 See `BUILD.md` section 4: `cargo generate-code-tests` (aggregate test crate),
-`cargo test-generated-code` (compile + run the 513 generated unit tests), and
+`cargo test-generated-code` (compile + run the 522 generated unit tests), and
 `cargo test codegen` (lightweight main-crate codegen tests).
 
 ### 13.6 Current Phase 1 limitations

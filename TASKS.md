@@ -624,3 +624,24 @@ sed -n "<start>,<end>p" TASKS.md            # one specific entry by line range
 - Verification: `cargo test-training` 4/4; full `cargo test` **227/227** (unchanged - training data adds no Rust tests; snippet suites green on the new snippets); clippy at baseline (1 pre-existing codegen_test warning, zero new); `cargo fmt --check` clean.
 - Finding: the missing-parens case for `eventually` surfaces as the GENERIC parse error "trailing input after RFS source" (the formula ladder falls through to a non-boolean expression), not a dedicated "eventually requires parentheses" diagnostic - recorded in the status file for task 13 / future parser work.
 - Docs: `docs/roadmap/PHASE_4_TASK_12_STATUS.md` (new, template 2.5.2); `docs/roadmap/INTRO.md` phase table -> "task 12 of 14 done".
+
+## 2026-10-20 00:46 — Phase 4 task 13: docs sync to final Phase 4 state + dedicated parse diagnostic for `eventually` without parens (user-requested addition)
+
+### Interpretation & plan
+
+- Requested: execute Phase 4 task 13 per `docs/roadmap/PHASE_4_TASK_13.md` - sync all design-relevant docs to the FINAL Phase 4 state; the user additionally requested a fix for the missing-parens diagnostic message of `eventually`, executed FIRST (it changes behavior the docs must describe).
+- Plan: (1) parser fix + unit tests + training-data quote update; (2) DESIGN.md §5.10/§6/§7/§8.3/§9.7, §11 rewrite, §12 subset table, NEW §22 D-P4-1..N as shipped; (3) KB.md + CODEGEN.md; (4) RUST.md/C.md/BUILD.md; (5) START.md snapshot + stale sweep.
+
+### Report
+
+- `src/parser.rs`: on any parse failure `parse_source` now first scans for a whole-word `eventually` not followed by `(` (excludes `bounded_eventually`, skips string literals) and reports `expected '(' after 'eventually' (the body must be a parenthesized formula)` at the keyword position - previously the top-level `many0(module)` recovery swallowed it into "trailing input after RFS source". 3 new unit tests (dedicated message+span; generic fallback for other failures; identifier named `eventually` outside formulas still parses).
+- DESIGN.md: §5.10 (+eventually/until, MC-only note), §6 EBNF ladder (until level between && and !; eventually primary), §7 additive IR variants, §8.3 dedicated diagnostic, §9.7 final taxonomy, §11 REWRITTEN around the exact engine (D-P4-1 architecture, statuses/summary line D-P4-4, bounded/truncated analysis, SMT mode, flags/parallelism - finalizes task 6's liveness formalization), §12 subset table updated, NEW §22 "Phase 4 model-checking decisions (as shipped)" D-P4-1..D-P4-14 + plan/task corrections.
+- KB.md: §1 state table (Phase 4 row, 45 valid examples, 230/522 test counts, 231 training examples), §2.6 liveness operators + weak-until/precedence note, §3.9 example, §4.5 MC codegen flags, §6.5 diagnostic corner case, §12 next-work line, §13 superseded note + count fix.
+- CODEGEN.md: file map (codegen_mc exact-mode concepts; new mc_plan/smt rows), §4.1 Generate fields + MC flag defaults/parse errors, §5.3 rewritten for exact mode, §8 seedless-exact parity description + benchmark suite.
+- RUST.md/C.md: MC sections rewritten for the exact engine (SMT standalone branch vs core+engine composition, embedded plan tables, lasso counterexamples, pthreads/atomics for --threads, gcc -Wall bar, libz3 link + z3 5.3.1 API deltas).
+- BUILD.md: suite table -> final Phase 4 state (230 pass with per-suite breakdown; 45 valid examples; 522 generated; 179 modules; 130/127 snippets; 231 aggregate).
+- START.md: §1 snapshot (Phase 4 complete at implementation level, final baseline numbers), §3 source tree (+mc_plan/monitor/smt rows).
+- Training data: task 12's invalid-variants entry now quotes the new dedicated diagnostic verbatim; regenerated (counts unchanged: 130/127 snippets, 231 aggregate).
+- Stale sweep: one live stale description found+fixed (KB §13.4 fuzz options presented as current); remaining fuzz/same-seed/--violate mentions are in frozen historical phase files (not rewritten per protocol); no "z3 not installed" claims anywhere.
+- Verification: `cargo test` **230/230** default / **232/232** with `--features smt`; generated-code tests 522/522 (task 10B record; no codegen changes since); clippy at baseline (11 lib + 1 codegen_test pre-existing); fmt clean.
+- Docs: `docs/roadmap/PHASE_4_TASK_13_STATUS.md` (new, template 2.5.2); `docs/roadmap/INTRO.md` phase table -> "task 13 of 14 done".

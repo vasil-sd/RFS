@@ -25,17 +25,19 @@ The subsystem is organized so that:
 | `src/codegen.rs` | Plugin API (`Backend`, `BACKENDS`, `get_backend`, ...), shared option/output types, CLI request parsing for `rfs codegen`, help rendering. **This is the only file a new backend must touch (registry table).** |
 | `src/codegen_fsm.rs` | Language-agnostic helpers for *production FSM* generation: variant flattening (`build_variants`, `VariantInfo`, `FsmVariants`), representative field values; legacy Phase 1 formula-subset helpers kept for tests (monitor-compilability now comes from `src/monitor.rs`). |
 | `src/codegen_test.rs` | Language-agnostic *unit-test planning*: `TestPlan`, `build_test_plan`, static unexpected-input detection (`has_definite_unexpected`, `is_deadlocked_initial`). Decides **what** to test; backends render **how**. |
-| `src/codegen_mc.rs` | Language-agnostic *model-checker* concepts: run configuration (`McConfig`) and its CLI wire format, forced-violation specs (`ViolationSpec`, `label:prob:percent%`), per-step generation phases (`McPhase`), per-run outcome taxonomy (`McStatus`). |
+| `src/codegen_mc.rs` | Language-agnostic *exact-mode* concepts (Phase 4): status taxonomy (`ExactStatus`: pass-complete / fail / unknown-state-limit) + its wire strings, the pinned summary-line format, codegen-time flag defaults (`EXACT_DEFAULT_MAX_STATES/THREADS/TIMEOUT_SEC`, `SMT_DEFAULT_BOUND`) and their CLI wire format; legacy fuzz-mode types retained for `--mode fuzz`. |
+| `src/mc_plan.rs` | Phase 4 *shared MC plan* (D-P4-1): computed once in the Rust tool - input-abstraction analysis, state-encoding layout, canonical traversal spec, liveness obligation decomposition - and embedded as constants/tables by BOTH backends. |
+| `src/smt_plan.rs` / `src/smt_emit.rs` | Phase 4 task 11 (optional SMT mode): backend-neutral `SmtSpec` + IR->spec conversion with shared v1-scope rejections; shared emitter rendering one spec into BOTH backends' z3 constraint sections. |
 | `src/monitor.rs` | Phase 3 *shared monitor compiler*: formula -> per-label `MonitorPlan` (language-agnostic); restrictions R1-R4; reference interpreter used only by tests. Both backends render the same plan. See section 5.4. |
 | `src/backends/mod.rs` | Module root for backend plugins. |
 | `src/backends/rust.rs` | Rust backend plugin entry: the `RUST_BACKEND` registration value plus shared Rust-specific helpers (identifier mangling, type mapping). |
 | `src/backends/rust_fsm.rs` | Rust backend: production FSM source generation. |
 | `src/backends/rust_test.rs` | Rust backend: unit-test source generation + aggregate test-crate helper for tooling. |
-| `src/backends/rust_mc.rs` | Rust backend: bounded model-checker executable generation. |
+| `src/backends/rust_mc.rs` | Rust backend: model-checker executable - production FSM core + exact BFS engine (default, from the embedded plan) + legacy fuzz runtime + SMT-mode branch; all dispatched by the generated binary's `--mode`. |
 | `src/backends/c.rs` | C backend plugin entry: the `C_BACKEND` registration value plus shared C helpers (identifier mangling, fixed-width type mapping). See `src/backends/C.md`. |
 | `src/backends/c_fsm.rs` | C backend: production FSM source generation (tagged-union inputs/outputs, priority-ordered arms, on_error fallback, simultaneous updates, online monitors rendered from the shared MonitorPlan - parity with Rust). |
 | `src/backends/c_test.rs` | C backend: plain-assert unit-test executable generation. |
-| `src/backends/c_mc.rs` | C backend: bounded model-checker executable (same CLI wire format and LCG as the Rust MC). |
+| `src/backends/c_mc.rs` | C backend: mirror of the Rust exact engine (pthreads + C11 atomics for `--threads`, same summary line/counterexample format, gcc -Wall clean) + fuzz runtime + SMT-mode branch linking libz3. |
 
 ### Placement rule (where does new code go?)
 
@@ -140,19 +142,24 @@ pub enum CodegenRequest {
     BackendHelp(String),                 // rfs codegen <backend> --help
     Generate { backend_name: String, command: CodegenCommandKind, input: String,
                out: Option<String>, assumptions: AssumptionSelection, steps: usize,
-               with_property_monitors: bool },
+               with_property_monitors: bool,
+               mc_mode: McMode, mc_max_states: usize, mc_nondet: bool,
+               mc_timeout_sec: u64, mc_threads: usize, mc_smt_bound: usize },
 }
 
 pub fn parse_codegen_args(args: &[String]) -> Result<CodegenRequest, Vec<String>>;
 ```
 
-Defaults: `--assumes all`, `--steps 4`, no `--out` (stdout), monitors off. Parse
-errors: missing subcommand, unknown command name, `--out`/`--assumes` without
-value, non-numeric `--steps`, `--with-property-monitors` on a non-production
-command (test/mc always include property monitors), unknown options, stray
-positional arguments. The parser does **not** check the input extension or the
-backend name — those are done in the CLI layer (below) so tests can exercise
-parsing in isolation.
+Defaults: `--assumes all`, `--steps 4`, no `--out` (stdout), monitors off; MC
+flags default to `--mode exact`, `--max-states 1000000`, no `--nondet`,
+`--timeout-sec 0` (off), `--threads 1`, `--smt-bound 10`. Parse errors: missing
+subcommand, unknown command name, `--out`/`--assumes` without value, non-numeric
+`--steps`, `--with-property-monitors` on a non-production command (test/mc always
+include property monitors), bad `--mode` value (exact|fuzz|smt-bounded),
+non-positive `--threads`/`--smt-bound`, unknown options, stray positional
+arguments. The parser does **not** check the input extension or the backend name
+— those are done in the CLI layer (below) so tests can exercise parsing in
+isolation.
 
 ### 4.2 CLI layer (`cmd_codegen` in `src/main.rs`)
 
@@ -210,22 +217,33 @@ rfs codegen rust mc spec.rfs --assumes a1,a2 --out fsm_mc.rs
 - `is_deadlocked_initial(module, variants)`: inputs exist but there are no
   transitions at all (deadlock-style negative case).
 
-### 5.3 `codegen_mc.rs` (model-checker concepts)
+### 5.3 `codegen_mc.rs` (model-checker concepts, Phase 4)
 
-- `McConfig`: bound, runs, seed, assumption selection, violation specs,
-  unexpected-event probability; plus its CLI wire format used by the *generated*
-  binary's command line.
-- `ViolationSpec::parse("label:prob:percent%")` with defaults
-  (`prob = 1.0`, `percent = 100.0`).
-- `McPhase`: the ordered per-step strategy (e.g. normal random input vs forced
-  assumption violation vs unexpected-event injection).
-- `McStatus`: per-run outcome taxonomy (completed, property violation,
-  unexpected event, assumption stop, ...).
+Exact mode (default):
+
+- `ExactStatus`: the three-status taxonomy - `pass-complete` / `fail` /
+  `unknown-state-limit` - with `wire()` (summary-line string), `human()`
+  (`PASS (complete)` / `FAIL` / `UNKNOWN (state limit reached)`) and
+  `exit_code()` (0/1/2); `FailReason`: `property-violation` /
+  `liveness-violation` / `deadlock`.
+- `exact_summary_line(...)`: the pinned machine-readable report line
+  `model-check summary: status=<s> states=N transitions=M max_depth=D`
+  (+ ` reason=<r> label=<L> step=S` on fail). Unit-test-pinned; parity-checked
+  across backends.
+- Codegen-time flag defaults embedded as runtime-overridable defaults:
+  `EXACT_DEFAULT_MAX_STATES = 1_000_000`, `EXACT_DEFAULT_TIMEOUT_SEC = 0` (off;
+  wall-clock only, NOT parity-guaranteed), `EXACT_DEFAULT_THREADS = 1`,
+  `SMT_DEFAULT_BOUND = 10`.
+
+Legacy fuzz mode (`--mode fuzz`) retains its types: `McConfig` (bound, runs,
+seed, assumption selection, violation specs, unexpected-event probability + CLI
+wire format), `ViolationSpec::parse("label:prob:percent%")`, `McPhase` (the
+ordered per-step strategy), `McStatus` (per-run outcome taxonomy).
 
 Important: the generated model-checker binary must not depend on this crate, so
-each backend **embeds its own copy** of the parsing helpers in the generated
-source. The formats defined here are the source of truth; keep the embedded
-copies in sync when changing them.
+each backend **embeds its own copy** of the plan tables and parsing helpers in
+the generated source. The formats defined here are the source of truth; keep
+the embedded copies in sync when changing them.
 
 ### 5.4 `monitor.rs` (shared monitor compiler, Phase 3)
 
@@ -298,15 +316,21 @@ New code must go through the registry API; do not reintroduce wrapper surfaces.
   assumption label lists, and every documented parse-error case;
 - the aggregate test-crate helper and model-checker generation.
 
-Cross-backend differential parity (`tests/backend_parity_test.rs`, Phase 3):
-same-seed MC runs over ALL property-bearing examples must be field-identical
-(exit codes, summary-line fields, violation label + trigger/deadline steps),
-forced `--violate` counterexamples must match, and both backends' generated
-test executables must agree on every example. Monitor integration
-(`tests/monitor_integration_test.rs`): an injected bug is caught by the MC in
-BOTH backends with the same property-specific counterexample info, and
-debug-gated production monitors report violations (`StepError::PropertyViolation`
-/ `RFS_PROPERTY_VIOLATION`).
+Cross-backend differential parity (`tests/backend_parity_test.rs`, Phase 4 task
+4: migrated to seedless EXACT mode): MC runs over ALL property-bearing examples
+must be field-identical (exit codes, summary-line fields incl.
+states/transitions/max_depth, violation label + trigger/violation steps,
+counterexample traces byte-for-byte), and both backends' generated test
+executables must agree on every example. Liveness parity
+(`tests/liveness_mc_test.rs`, Phase 4 task 6): lasso counterexamples with pinned
+cycle fields in both backends. Benchmark parity (`tests/benchmark_mc_test.rs`,
+Phase 4 tasks 9/10B): specs 43/44/45 pass-complete with identical deterministic
+metrics, FAIL-variant counterexample parity, `--threads 1/2/4` byte-identity,
+SMT-mode byte-identity under the `smt` feature (`tests/smt_bounded_test.rs`).
+Monitor integration (`tests/monitor_integration_test.rs`): an injected bug is
+catch by the MC in BOTH backends with the same property-specific counterexample
+info, and debug-gated production monitors report violations
+(`StepError::PropertyViolation` / `RFS_PROPERTY_VIOLATION`).
 
 End-to-end behavior of the binary (exit codes, extension enforcement, unknown
 backend) is exercised by running `target/debug/rfs codegen ...` in CI-style

@@ -11,7 +11,7 @@ repository root; for semantics see `DESIGN.md`.
 | `rust.rs` | Plugin entry: `RUST_BACKEND` static (name, description, command descriptors, function pointers) plus shared Rust-specific helpers: `RUST_KEYWORDS`, `rust_ident` (keyword-safe identifier), `snake` (case conversion), `bit_rust_type` / `mask_expr` (fixed-width integer mapping), `rust_type` (IR type → Rust type), `representative_input_expr`. |
 | `rust_fsm.rs` | `production` command: emits the standalone FSM source. Also the core reused by `test` and `mc`. |
 | `rust_test.rs` | `test` command: appends a unit-test module to the production code; plus the aggregate test-crate helpers used by the cargo tooling (`generate_aggregate_test_crate`, `write_generated_crate`, `GeneratedCrate`). |
-| `rust_mc.rs` | `mc` command: production FSM core + an appended model-checker runtime (`MC_RUNTIME`) with its own `main`. |
+| `rust_mc.rs` | `mc` command: (default exact / legacy fuzz) production FSM core + exact engine rendered from the embedded plan + fuzz runtime + a generated `main` dispatching on `--mode`; (SMT mode) a standalone z3-based binary from the shared `smt_plan`/`smt_emit` spec section. |
 
 Dependency direction inside the backend: `rust_mc → rust_fsm (+ MC_RUNTIME)`,
 `rust_test → rust_fsm (via generate_with_tests)`, all three → shared helpers in
@@ -128,34 +128,54 @@ files); `write_generated_crate(root, crate_)` writes it to disk. This powers
 `cargo generate-code-tests` / `cargo test-generated-code`, which compile and run
 all generated tests for every valid example and training snippet.
 
-## 4. Model-checker generation (`rust_mc.rs`)
+## 4. Model-checker generation (`rust_mc.rs`, Phase 4)
 
-`generate_model_checker` reuses the production core (`generate_with_tests(...,
-false)`) and appends a runtime that:
+`generate_model_checker` has two shapes:
 
-- embeds its own RNG (deterministic given `--seed`), so runs are reproducible;
-- parses its own CLI (wire format defined in `codegen_mc::McConfig`):
-  `--bound N`, `--runs N`, `--seed N`, `--assumes all|none|labels`,
-  `--violate label:prob:percent%[,label2:...]`, `--unexpected-prob P`;
-- at each step selects an input by the phase order from `codegen_mc::McPhase`:
-  forced assumption violation first, then unexpected-event injection, then a
-  normally allowed random input (steps that violate a PROPERTY are allowed on
-  purpose - the model checker wants to find violations);
-- detects property violations ONLINE: after each successful step it checks the
-  sticky `fsm.property_violation` record; on a hit it prints the
-  property-specific counterexample (which run + label, trigger step + vars at
-  trigger for obligations, violation step + vars, full input/output trace),
-  sets status `property-violated:<label>`, and exits 1;
-- assumption monitors prune environment branches online through the handler
-  path - including liveness assumptions like `always(be[5] input_is(Tick))`;
-- reports outcomes using the `codegen_mc::McStatus` taxonomy (completed,
-  property violation, unexpected event, assumption stop).
+**SMT bounded mode** (`--mode smt-bounded` at codegen time): a standalone
+z3-based binary - no FSM core, no exact/fuzz runtimes. The spec section is
+rendered from the SHARED plan (`smt_plan::build_smt_spec` +
+`smt_emit::emit_rust_spec`) so both backends build structurally identical
+constraints; `SMT_ENGINE_RUST` supplies the runtime (k-step unrolling over
+bitvectors, k-liveness cycle query, exit codes 0 pass-within-bound / 1 fail /
+2 unknown, PASS always labeled incomplete). The codegen-time `--smt-bound N`
+default is embedded via `{BOUND}`.
 
-Because the generated binary cannot depend on this crate, `rust_mc.rs` contains
-embedded copies of the parsing helpers (`parse_violation_spec`,
-`parse_assume_selection`). **The formats in `src/codegen_mc.rs` are the source
-of truth** — when a wire format changes, update both the core definition and
-the embedded copy, and extend the tests.
+**Exact / fuzz modes** (default): the production FSM core (`generate_core`, no
+unit tests, property monitors ALWAYS included per D-P3-6) plus three appended
+parts dispatched by the generated `main` on the runtime `--mode` flag:
+
+- `EXACT_ENGINE` (default; rendered from the plan by `exact_codegen`):
+  level-synchronous BFS over configurations = (state index, packed vars,
+  monitor states). Visited check at ENQUEUE time; parent pointers for
+  counterexample reconstruction; canonical successor order (events in
+  declaration order, payload fields in declaration order, values ascending) so
+  results are deterministic and identical to the C backend (D-P4-2). Reports
+  the three-status taxonomy + pinned summary line from `codegen_mc`;
+  deadlock = FAIL when a reachable configuration has no successor at all;
+  unexpected inputs terminate their path and are counted in statistics without
+  changing the status; active assumptions prune inputs. Liveness: per-leaf
+  progress automata + product limit-vector analysis on the completed graph,
+  lasso counterexamples (prefix + one cycle iteration), `--nondet` strong-
+  fairness filter, truncated-mode soundness when `--max-states` is hit
+  (never a false pass-complete). `--threads N > 1` runs a two-phase per-level
+  expansion (`std::thread::scope` workers over disjoint frontier ranges, then
+  a sequential canonical commit) - byte-identical results to `--threads 1`;
+  runtime-only `--fast` adds a non-deterministic early abort (sound: never a
+  false pass).
+- `FUZZ_RUNTIME` (`--mode fuzz`, legacy Phase 1/3 engine): embedded RNG
+  (deterministic given `--seed`), `codegen_mc::McConfig` CLI wire format
+  (`--bound/--runs/--seed/--assumes/--violate/--unexpected-prob`), phase-
+  ordered input selection, online property-violation detection.
+- liveness diagnostics: formulas outside the D-P4-9 scope (deeper temporal
+  nesting) produce codegen WARNINGS and are skipped; any formula containing
+  eventually/until is outside the monitor subset (identical skip warning).
+
+Because the generated binary cannot depend on this crate, `rust_mc.rs`
+contains embedded copies of the plan tables and parsing helpers. **The formats
+in `src/codegen_mc.rs` / `src/mc_plan.rs` are the source of truth** — when a
+wire format changes, update both the core definition and the embedded copy,
+and extend the tests.
 
 ## 5. Key design decisions
 

@@ -34,21 +34,29 @@ struct TransitionBody {
 
 pub fn parse_source(source: &str) -> Result<Ir, ParseError> {
     let clean = strip_comments(source);
-    match rfs_source(clean.as_str()) {
-        Ok((remaining, ir)) => {
-            if remaining.trim().is_empty() {
-                Ok(ir)
-            } else {
-                Err(err_at(
-                    &clean,
-                    remaining,
-                    source,
-                    "trailing input after RFS source",
-                ))
-            }
-        }
-        Err(e) => Err(nom_error_to_parse_error(e, &clean, source)),
+    let failure = match rfs_source(clean.as_str()) {
+        Ok((remaining, ir)) if remaining.trim().is_empty() => return Ok(ir),
+        Ok((remaining, _)) => Some(err_at(
+            &clean,
+            remaining,
+            source,
+            "trailing input after RFS source",
+        )),
+        Err(e) => Some(nom_error_to_parse_error(e, &clean, source)),
+    };
+    // Dedicated diagnostic: `eventually` requires a parenthesized body. That
+    // construct can never parse (the top-level recovery would otherwise
+    // swallow the failure into "trailing input"), so when the file fails AND
+    // contains the pattern, report it specifically with its exact position.
+    if let Some(off) = find_eventually_missing_paren(clean.as_str()) {
+        return Err(err_at(
+            &clean,
+            &clean[off..],
+            source,
+            "expected '(' after 'eventually' (the body must be a parenthesized formula)",
+        ));
     }
+    Err(failure.unwrap())
 }
 
 pub fn parse_file(path: &Path) -> Result<Ir, ParseError> {
@@ -105,6 +113,57 @@ fn nom_error_to_parse_error(
 fn err_at(clean: &str, residual: &str, original: &str, msg: &str) -> ParseError {
     let offset = clean.len().saturating_sub(residual.len());
     ParseError::new(msg, Span::point(offset)).with_source(original.to_string())
+}
+
+/// Offset of the first whole-word `eventually` keyword whose body position
+/// (after whitespace) is not `(`. "Whole word" excludes longer identifiers,
+/// so `bounded_eventually` never matches; occurrences inside double-quoted
+/// string literals (version headers) are skipped. Only consulted after a
+/// parse failure - see `parse_source`.
+fn find_eventually_missing_paren(clean: &str) -> Option<usize> {
+    let bytes = clean.as_bytes();
+    const KW: &[u8] = b"eventually";
+    let mut in_string = false;
+    let mut i = 0usize;
+    while i + KW.len() <= bytes.len() {
+        if !in_string && bytes[i] == b'"' {
+            in_string = true;
+            i += 1;
+            continue;
+        }
+        if in_string {
+            if bytes[i] == b'"' {
+                in_string = false;
+            }
+            i += 1;
+            continue;
+        }
+        if &bytes[i..i + KW.len()] != KW {
+            i += 1;
+            continue;
+        }
+        let before_ok = i == 0 || !is_ident_byte(bytes[i - 1]);
+        let after = i + KW.len();
+        let after_ok = after >= bytes.len() || !is_ident_byte(bytes[after]);
+        if before_ok && after_ok {
+            let mut j = after;
+            while matches!(
+                bytes.get(j),
+                Some(b' ') | Some(b'\t') | Some(b'\n') | Some(b'\r')
+            ) {
+                j += 1;
+            }
+            if bytes.get(j) != Some(&b'(') {
+                return Some(i);
+            }
+        }
+        i += 1;
+    }
+    None
+}
+
+fn is_ident_byte(c: u8) -> bool {
+    c.is_ascii_alphanumeric() || c == b'_'
 }
 
 fn semantic_err(input: &str) -> Err<nom::error::Error<&str>> {
@@ -1862,6 +1921,36 @@ mod tests {
             printer::roundtrip_rfs(&full)
                 .unwrap_or_else(|e| panic!("round-trip failed for '{}': {}", source, e));
         }
+    }
+
+    #[test]
+    fn eventually_missing_paren_reports_dedicated_diagnostic() {
+        let src = "module m {\n  enum State { A, B }\n  initial A\n  event E\n\
+                   transition A on E { next B; }\n  prop p : eventually state == B ;\n}\n";
+        let err = parse_source(src).unwrap_err();
+        assert_eq!(
+            err.message,
+            "expected '(' after 'eventually' (the body must be a parenthesized formula)"
+        );
+        // The span points at the keyword itself, not at offset 0.
+        assert_eq!(err.span.start, src.find("eventually").unwrap());
+    }
+
+    #[test]
+    fn parse_failures_without_eventually_pattern_keep_generic_message() {
+        // Missing closing brace: no `eventually` pattern -> generic message.
+        let err = parse_source("module m {\n  enum State { A }\n  initial A\n").unwrap_err();
+        assert_eq!(err.message, "trailing input after RFS source");
+    }
+
+    #[test]
+    fn identifier_named_eventually_outside_formulas_still_parses() {
+        // `eventually` as a plain variable name in guard context is legal;
+        // the dedicated diagnostic must not fire on valid files.
+        let src = "module m {\n  enum State { A }\n  initial A\n  event E\n\
+                   var eventually: bool init false\n\
+                   transition A on E where eventually { next A; }\n}\n";
+        assert!(parse_source(src).is_ok());
     }
 
     #[test]

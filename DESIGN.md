@@ -423,7 +423,9 @@ Supported v0 formulas:
 - `next formula`;
 - `always formula`;
 - `always[N] formula` (Phase 3): the body must hold at samples 0..N-1, N >= 1;
-- `bounded_eventually[N] formula`.
+- `bounded_eventually[N] formula`;
+- `eventually (formula)` (Phase 4): unbounded liveness - the body must hold at some position of the path; the parentheses are mandatory;
+- `p until q` (Phase 4): WEAK until - `q` holds at some step with `p` holding before it, or `q` never holds and `p` holds forever (section 11).
 
 Atomic proposition forms:
 
@@ -461,7 +463,7 @@ The `->` operator is syntactic sugar for implication. Formula-level boolean oper
 
 Worked example (N = 3, trigger at i, body never holds): countdown 3 -> 2 at s=i, 2 -> 1 at s=i+1, 1 -> 0 at s=i+2 - violation confirmed at i+2; if the body holds at any of i..i+2 the obligation clears. Formulas outside the monitor-compilability restrictions R1-R4 (section 21) parse and validate but are skipped with a warning in every backend.
 
-Full PSL-like operators such as unbounded `eventually`, `until`, `weak_until`, and `disable iff` are planned later.
+`eventually`/`until` are MODEL-CHECKING-ONLY (D-P4-8/D-P4-9): they parse and validate, but any formula containing them is outside the online monitor subset - production/test codegen in every backend skips it with the identical warning, and only the model checker checks it. Remaining planned operators: `disable iff` and sequence operators. A separate `weak_until` operator is no longer planned: RFS `until` IS weak until, and strong until is expressible as `p until q && eventually q`.
 
 ---
 
@@ -548,19 +550,23 @@ prop_decl       = "prop" identifier ":" formula ";" ;
 assume_decl     = "assume" identifier ":" formula ";" ;
 
 // Formula level (properties and assumptions). Precedence, loosest to tightest:
-// ||, ->, &&, !. `&&`/`||` are formula-level operators; each operand is parsed
-// independently via primary_formula, whose fallthrough is the NON-BOOLEAN
+// ||, ->, &&, until, !. `&&`/`||` are formula-level operators; each operand is
+// parsed independently via primary_formula, whose fallthrough is the NON-BOOLEAN
 // expression level (comparisons and below) - so mixed atom kinds like
-// `state == S && output_has(O)` parse.
+// `state == S && output_has(O)` parse. `until` sits between `&&` and `!`
+// (Phase 4): `!a until b` = `(!a) until b`, `a && b until c` = `a && (b until c)`.
 formula         = or_formula ;
 or_formula      = impl_formula { "||" impl_formula } ;
 impl_formula    = and_formula [ "->" impl_formula ] ;
 and_formula     = unary_formula { "&&" unary_formula } ;
-unary_formula   = "!" unary_formula | primary_formula ;
+unary_formula   = until_formula ;
+until_formula   = neg_operand { "until" neg_operand } ;  // left-associative
+neg_operand     = "!" neg_operand | primary_formula ;
 primary_formula = "next" "(" formula ")"
                 | "always" "[" unsigned_integer_literal "]" "(" formula ")"
                 | "always" "(" formula ")"
                 | "bounded_eventually" "[" unsigned_integer_literal "]" "(" formula ")"
+                | "eventually" "(" formula ")"
                 | "input_is" "(" event_pattern ")"
                 | "output_has" "(" output_pattern ")"
                 | "(" formula ")"
@@ -748,6 +754,11 @@ Phase 3 adds one additive formula variant: `always[N] (inner)` serializes as
 `{ "kind": "bounded_always", "bound": N, "inner": {} }`. It is purely additive -
 no `IR_VERSION` bump; existing IR JSON round-trips unchanged (D-P3-1).
 
+Phase 4 adds two more additive formula variants: `eventually (inner)`
+serializes as `{ "kind": "eventually", "inner": {} }` and `p until q` as
+`{ "kind": "until", "left": {}, "right": {} }`. Purely additive - no
+`IR_VERSION` bump; pre-liveness IR JSON round-trips unchanged (D-P4-8).
+
 ### IR design rules
 
 1. The IR must be lossless for the v0 language subset.
@@ -794,6 +805,8 @@ Parser errors should include:
 - expected token description where practical.
 
 Phase 0 does not require full error recovery. The parser may stop at the first error. Later tooling can improve recovery for LSP use.
+
+One dedicated diagnostic exists beyond generic span-based errors: an `eventually` keyword whose body is not a parenthesized formula can never parse (the top-level `many0(module)` recovery would otherwise swallow the failure into "trailing input after RFS source"), so on parse failure `parse_source` runs a targeted whole-word scan and reports `expected '(' after 'eventually' (the body must be a parenthesized formula)` at the keyword's exact position (Phase 4 task 13; `bounded_eventually` is excluded by the word-boundary check, string literals are skipped).
 
 ### 8.4 Parser API
 
@@ -877,16 +890,7 @@ v0 parser may accept an optional `priority` extension later. The initial grammar
 | SMT-based bounded model checking | Good bug hunting with wider bitvectors | Incomplete, liveness requires k-liveness/fairness tricks, solver dependency | Advanced optional | Later |
 | k-liveness for liveness | Converts some liveness checks to bounded safety checks | Bound may be hard to choose | Advanced | Later with SMT/BMC |
 
-The model checker should report statuses such as:
-
-```text
-PASS (complete)
-PASS (bounded K)
-FAIL (counterexample available)
-UNKNOWN (resource limit reached)
-```
-
-This avoids presenting bounded bug hunting as full proof.
+The shipped exact engine reports the three-status taxonomy of section 11 (D-P4-4): `pass-complete` / `fail` (reason: `property-violation`, `liveness-violation`, or `deadlock`) / `unknown-state-limit`, with human lines `PASS (complete)` / `FAIL` / `UNKNOWN (state limit reached)` and exit codes 0/1/2. This avoids presenting bounded runs as full proof.
 
 ### 9.8 Production integration style
 
@@ -985,27 +989,33 @@ Code generation rules:
 
 ---
 
-## 11. Model-checking plan
+## 11. Model-checking plan (Phase 4, implemented)
 
-The model checker will also be generated in Rust, but it can use a shared `rfs-mc-core` library.
+Phase 4 replaced the Phase 1/3 seeded-fuzz model checker with an EXACT
+reachable-state engine as the default `mc` mode (D-P4-2/D-P4-7). The legacy
+fuzz engine is retained behind `--mode fuzz`. An optional SMT-based bounded
+mode (`--mode smt-bounded`) landed in task 11 (D-P4-12).
 
-Architecture:
+Architecture (D-P4-1): per-backend GENERATED engines + ONE shared codegen-time
+plan module. `src/mc_plan.rs` computes the plan once in the Rust tool - input
+abstraction analysis, state-encoding layout, canonical traversal spec,
+liveness obligation decomposition - and both backends embed it as constants/
+tables in the generated binary, so behavior is identical by construction.
+The SMT mode uses the same pattern via `src/smt_plan.rs` + `src/smt_emit.rs`
+(both backends render the SAME shared spec into structurally identical z3
+constraints).
 
 ```text
-generated spec crate
-   |
-   +-- concrete types: State, Input, Output, Vars
-   +-- transition function
-   +-- property monitors
-   +-- assumption monitors
+rfs codegen <rust|c> mc spec.rfs
    |
    v
-rfs-mc-core library
-   |
-   +-- state-space search
-   +-- counterexample recording
-   +-- bounded/exact modes
-   +-- optional symbolic/SMT backend later
+codegen-time plan (src/mc_plan.rs): abstraction, encoding, traversal, obligations
+   |  embedded as constants/tables in BOTH generated binaries
+   v
+generated self-contained MC binary (per-backend runtime)
+   +-- exact level-synchronous BFS engine (default; --mode exact)
+   +-- legacy fuzz engine (--mode fuzz)
+   +-- SMT k-step unrolling engine (--mode smt-bounded, codegen-time `smt` feature)
 ```
 
 ### Sampling model
@@ -1025,19 +1035,67 @@ For each step, the system consumes an input event, emits outputs, and moves to t
 
 This avoids ambiguity between pre-state and post-state.
 
-### Exact reachable-state checking
+### Exact reachable-state checking (default mode)
 
-For small finite systems, the model checker performs graph search over:
+Level-synchronous BFS over configurations = (state index, packed vars, monitor
+states) - monitors stay part of the configuration because bounded operators
+need history. Visited check at ENQUEUE time; parent pointers (parent config id
++ input index) for counterexample reconstruction. Canonical successor order
+(D-P4-2): events in declaration order, payload fields in declaration order,
+values ascending (bool false<true, int 0..max, enum declaration order).
+Determinism is independent of data-structure internals: Rust and C may use
+different containers but must report identical status/counterexample.
+
+Semantics (D-P4-5/D-P4-6): a reachable configuration with NO successor at all
+(no enabled transition and no on_error) = FAIL(deadlock). Inputs matching no
+transition while other inputs are enabled terminate that path; they are
+recorded as `unexpected_terminations` in statistics (+ first counterexample)
+but do NOT change the status (RFS treats unexpected events as a normal
+Result-based outcome). Active assumptions PRUNE inputs from exploration;
+`--assumes none` explores everything.
+
+Input abstraction (D-P4-3): a payload field is abstracted to a single
+representative value iff it is not referenced by any transition guard, output
+payload expression, variable update expression, or property/assumption formula
+(`input_is` patterns with field values count as references). Such a field
+cannot influence enabled transitions, outputs, variable evolution, or property
+labels - every concrete run has an identical abstract counterpart (the same
+argument carries over to liveness; see below).
+
+### Statuses and report format (D-P4-4)
+
+Three statuses with matching exit codes:
+
+| status | human line | exit code | meaning |
+|---|---|---|---|
+| `pass-complete` | `PASS (complete)` | 0 | full reachable graph explored; all properties hold |
+| `fail` | `FAIL` | 1 | counterexample found; reason is `property-violation`, `liveness-violation`, or `deadlock` |
+| `unknown-state-limit` | `UNKNOWN (state limit reached)` | 2 | BFS stopped at `--max-states`; no completeness claim |
+
+Every report starts with the machine-readable summary line (parity-checked,
+exact format):
 
 ```text
-(system_state, system_vars, property_monitor_states)
+model-check summary: status=<s> states=N transitions=M max_depth=D
 ```
 
-If it finishes without violation, it can report `PASS (complete)`.
+plus, on failure, ` reason=<r> label=<L> step=S`. A statistics block follows:
+`unexpected terminations`, conditional `first unexpected`, `monitor size`
+(encoded bit width of all property + assumption monitors), `memory estimate`.
+FAIL reports then print the property-specific counterexample: property
+violation (trigger/violation steps + vars + full I/O trace), deadlock (the
+terminal configuration), or liveness (a lasso, below).
 
 ### Bounded checking
 
-For larger systems, support bounded depth or state-limit modes. These must be reported as bounded results, not complete proofs.
+`--max-states N` (default 1,000,000) caps the BFS. When the cap is hit before
+the graph completes, the status is `unknown-state-limit`: the run performs a
+TRUNCATED analysis over the explored subgraph - a counterexample found inside
+it is sound (all its edges are real transitions), so such runs may still report
+`fail`; otherwise no completeness claim is made. A truncated run NEVER reports
+pass-complete. `--timeout-sec N` (default 0 = off) is wall-clock only and NOT
+parity-guaranteed (the same spec can time out on one machine and not another);
+it is never used by parity or benchmark assertions.
 
 ### Liveness (Phase 4, implemented)
 
@@ -1175,36 +1233,75 @@ states; the analysis is O(3^L · (N + E)) time and O(3^L · N) bits for the
 reachability sets (N configs, E explored edges), plus O(E · L) label
 evaluations. Typical top-level skeletons have 1–3 leaves.
 
+### SMT bounded mode (task 11, optional; D-P4-12)
+
+`--mode smt-bounded` is a third MC mode, feature-gated: the `smt` cargo
+feature pulls in the optional z3 dependency and the parity tests; default
+builds are unaffected. The generated binary is standalone (no FSM core):
+k-step unrolling of the transition system over bitvectors from a SHARED plan
+(`src/smt_plan.rs`) rendered by a SHARED emitter (`src/smt_emit.rs`) - both
+backends build structurally identical z3 constraints against the SAME libz3
+5.3.1 (TOOLCHAIN.md section 5), so results are byte-identical by construction.
+Liveness uses k-liveness (never + cycle query); exact-MC shift semantics
+(`amount >= width -> 0`) and full-value literal comparisons are encoded
+faithfully (zero-extend/guard/truncate + comparison widening). Exit codes:
+0 pass-within-bound / 1 fail / 2 unknown; PASS results are always labeled
+INCOMPLETE (`PASS WITHIN BOUND k (incomplete - no completeness claim)`).
+v1 scope rejections (shared error text in both backends): assumptions, on_error
+blocks, enum-typed vars, and property formulas beyond top-level
+always/eventually over boolean combinations of expressions. Codegen flag:
+`--smt-bound N` (default 10), overridable at runtime.
+
+### Flags and parallelism (D-P4-7; task 10B)
+
+Codegen-time flags are embedded as defaults in the generated binary and
+overridable at runtime: `--mode exact|fuzz`, `--max-states N` (default
+1,000,000), `--nondet`, `--timeout-sec N` (default 0 = off), `--threads N`
+(default 1). Exact mode is level-parallel for `--threads N > 1`: two phases
+per level (parallel expansion of disjoint frontier ranges, then a sequential
+canonical commit that fixes the next level's order and detects violations), so
+results are BYTE-IDENTICAL to `--threads 1` for any N in both backends -
+determinism by construction, no RNG/seed anywhere. The C backend mirrors this
+with pthreads + a C11 atomic abort flag (inline fallback if thread creation
+fails). `--fast` is runtime-only: non-deterministic early abort (workers stop
+scheduling new configurations once any finds a violation; the first found
+violation is reported) - sound (never a false pass), documented as non-parity.
+The default stays N=1 because it is still fastest on this phase's workloads
+(benchmark data: largest run ~1 s).
+
 ---
 
 ## 12. PSL-like property language plan
 
-### v0 parser subset (implemented, Phase 3)
+### v0 parser subset (implemented, Phases 3-4)
 
 ```rfs
 next (formula)
 always (formula)
 always[N] (formula)
 bounded_eventually[N] (formula)
+eventually (formula)      # Phase 4: unbounded liveness, MC-only
+p until q                 # Phase 4: WEAK until, MC-only
 boolean_formula
 ```
 
-The whole subset is implemented and monitored ONLINE in every backend (Phase 3,
-section 21): each prop/assume compiles to a per-label monitor from the shared
-`MonitorPlan`. Formulas outside the monitor-compilability restrictions R1-R4
-still parse and validate, but codegen skips them with an identical warning in
-every backend.
+The bounded subset is implemented and monitored ONLINE in every backend
+(Phase 3, section 21): each prop/assume compiles to a per-label monitor from
+the shared `MonitorPlan`. Formulas outside the monitor-compilability
+restrictions R1-R4 - including ANY formula containing `eventually`/`until`
+(D-P4-9) - still parse and validate, but codegen skips them with an identical
+warning in every backend; the liveness operators are checked by the model
+checker only (section 11).
 
 ### Planned full subset
 
 ```rfs
-eventually formula
-p until q
-weak_until q
 disable iff d
 ```
 
-and possibly sequence operators if needed.
+and possibly sequence operators if needed. (`eventually`/`p until q` landed in
+Phase 4; a separate `weak_until` is no longer planned - RFS `until` IS weak
+until, and strong until is `p until q && eventually q`.)
 
 ### Strong vs weak liveness
 
@@ -1214,6 +1311,12 @@ and possibly sequence operators if needed.
 | Bounded liveness, e.g. `bounded_eventually[N] p` | Must happen within N steps | Easy for small N, monitor uses countdown |
 | Strong liveness, e.g. `eventually p` | Must happen in every fair infinite run | Requires fairness/Büchi/cycle detection |
 | Weak liveness / weak until | May allow finite termination or no obligation | Depends on exact semantics; must be documented |
+
+Phase 4 implements `eventually` and WEAK `until` in the exact engine (section
+11): per-leaf progress automata + product limit-vector analysis on the
+COMPLETED reachable graph, lasso counterexamples, `--nondet` strong transition
+fairness. The weak-until semantics are documented and brute-force-verified
+(D-P4-8/D-P4-10, incl. the plan correction recorded in section 11).
 
 ---
 
@@ -1651,3 +1754,132 @@ skipped` / `assume '<name>' ...`) and generates no monitor for that label.
 New generated error surface: Rust `StepError::PropertyViolation { label,
 step }`; C `RFS_PROPERTY_VIOLATION` status in `step_result_t` with
 `prop_label`/`prop_step`/`prop_trigger_step` fields.
+
+---
+
+## 22. Phase 4 model-checking decisions (as shipped)
+
+Record of D-P4-1..D-P4-14 as IMPLEMENTED (plan: `docs/roadmap/PHASE_4_PLAN.md`;
+corrections below point at the recorded deviations). Full semantics: section 11.
+
+### D-P4-1. Architecture: shared codegen-time plan, per-backend generated engines
+As planned. `src/mc_plan.rs` computes the plan once (abstraction, encoding,
+traversal spec, obligation decomposition); both backends embed it as
+constants/tables, so behavior is identical by construction. The SMT mode reuses
+the pattern via `src/smt_plan.rs` + `src/smt_emit.rs`.
+
+### D-P4-2. Exact engine: level-synchronous BFS over configurations
+As planned. Configurations = (state index, packed vars, monitor states);
+visited at enqueue; parent pointers for counterexamples; canonical successor
+order (events/fields in declaration order, values ascending). Determinism is
+independent of container choice - Rust and C report identical
+status/counterexample (parity suites pin this).
+
+### D-P4-3. Input abstraction
+As planned. A payload field is abstracted to a single representative value iff
+no transition guard, output payload expression, variable update expression, or
+property/assumption formula references it (`input_is` patterns with field
+values count as references). Soundness arguments for safety and liveness:
+section 11.
+
+### D-P4-4. Statuses and summary line
+As planned. `pass-complete` / `fail` (reason: `property-violation` |
+`liveness-violation` | `deadlock`) / `unknown-state-limit`; exit codes 0/1/2;
+machine line `model-check summary: status=<s> states=N transitions=M
+max_depth=D` plus ` reason=<r> label=<L> step=S` on fail; human lines `PASS
+(complete)` / `FAIL` / `UNKNOWN (state limit reached)`.
+
+### D-P4-5. Deadlock and unexpected-input semantics
+As planned. No-successor configuration = FAIL(deadlock); inputs matching no
+transition while others are enabled terminate that path and are counted as
+`unexpected_terminations` without changing the status.
+
+### D-P4-6. Assumptions prune exploration
+As planned. Active assumptions remove violating inputs from the search;
+`--assumes none` explores everything.
+
+### D-P4-7. Modes and flags
+As planned, plus task 10B additions (see corrections below): `--mode
+exact|fuzz`, `--max-states N` (default 1,000,000), `--nondet`, `--timeout-sec
+N` (default 0 = off; documented as wall-clock only, NOT parity-guaranteed),
+`--threads N` (default 1; byte-identical results for any N), runtime-only
+`--fast` (non-parity early abort). Codegen flag `--smt-bound N` (default 10)
+for the SMT mode. Plan deviation recorded in task 10's status: the
+`--timeout-sec` help lives in `src/codegen.rs` (generic codegen help) and the
+per-backend command descriptions (`rust.rs`/`c.rs`) - NOT in `main.rs` usage
+text, which does not document MC flags.
+
+### D-P4-8. Liveness language: `eventually (p)` + infix `until` (WEAK until)
+As planned, with the task 5 correction: the `until` level sits between `&&`
+and `!` such that `!` binds TIGHTER than `until` (`!a until b` = `(!a) until
+b`) and `&&`/`||` bind looser (`a && b until c` = `a && (b until c)`). The
+plan's EBNF sketch (operands are primaries) contradicted its own pinned
+consequence; the implementation follows the pinned consequence (standard
+PSL/CTL), recorded in `PHASE_4_TASK_5.md` "Task corrections". IR: additive
+`Formula::Eventually` / `Formula::Until`, no version bump. Weak-until
+semantics + strong-until encoding: section 11.
+
+### D-P4-9. Liveness scope
+As planned. Top-level obligations `eventually p` / `p until q` where p, q are
+BOOLEAN formulas over atomic propositions (no temporal operators inside);
+obligations combinable at top level with `&&`/`||`/`!`/`->`. Deeper nesting ->
+codegen diagnostic + property skipped (binary still compiles/runs). Any
+formula containing eventually/until is outside the monitor subset (identical
+skip warning, MC-only).
+
+### D-P4-10. Liveness algorithm: per-leaf progress automata on the completed graph
+As implemented WITH THE CORRECTED WEAK-UNTIL EQUATION (plan correction recorded
+in section 11): neg(p until q) = backward reachability, staying in {pos: ¬q},
+to {pos: ¬p}. Verified against brute-force lasso enumeration (1200 equation +
+2000 full-algorithm checks, 0 mismatches). Bounded mode: truncated analysis -
+sound FAIL if the witness is inside the explored part, else
+`unknown-state-limit`; never a false pass-complete.
+
+### D-P4-11. Fairness policy
+As planned (no correction needed). Deterministic mode: environment fairness by
+construction, no filter. `--nondet`: strong transition fairness - a bad cycle
+counts only if closed (every enabled successor of each cycle state is taken on
+the cycle); implemented by restricting stay-edges to fully expanded configs.
+Discriminator test-pinned (det FAIL vs nondet pass-complete).
+
+### D-P4-12. SMT bounded mode (optional)
+Gate PASSED, IMPLEMENTED in task 11. z3 5.3.1 at `/workspace/host/z3`
+(TOOLCHAIN.md section 5); feature-gated `smt` cargo feature (z3 crate 0.21 /
+z3-sys 0.13.1) - default builds unaffected. `--mode smt-bounded`: k-step
+unrolling over bitvectors from the shared plan/emitter (parity by
+construction), k-liveness, exit codes 0/1/2, PASS always labeled incomplete.
+v1 scope rejections: assumptions, on_error blocks, enum-typed vars, property
+formulas beyond top-level always/eventually over boolean combinations of
+expressions. Details: section 11 + `PHASE_4_TASK_11_STATUS.md` (incl. semantic
+bugs found/fixed: shift-amount width mismatch, oversized-literal comparison
+wrap, z3 5.3.1 C API deltas).
+
+### D-P4-13. Benchmarks
+As planned. Three protocol-like specs in `examples/valid`: 43 sliding-window
+ARQ (task 6; liveness + abstraction showcase), 44 token ring and 45 elevator
+(task 8; sizing 129,985 / 11,098 states). Benchmark suite
+`tests/benchmark_mc_test.rs` (task 9/10B): pass-complete metric parity in both
+backends, inline FAIL variants with counterexample parity, `--threads`/
+`--fast` gates, JSON report (`target/mc_benchmarks.json`, development
+artifact).
+
+### D-P4-14. Test migration to seedless exact mode
+As planned (task 4). `backend_parity_test.rs` + `monitor_integration_test.rs`
+migrated from same-seed fuzz to seedless exact mode; values re-pinned from the
+deterministic traversal - including 8 NEW deadlock findings (terminal states
+the fuzz walk never reported) and 1 new property violation.
+
+### Plan corrections during execution (pointers)
+
+- **10a** (retroactive entry): task 10's `--threads N` subtask DEFERRED -
+task 9 data showed no benchmark needed it (~1.1 s largest run vs ~30 s budget)
+and canonical violation selection under parallel expansion looked fragile;
+revisit trigger recorded in `PHASE_4_TASK_10_STATUS.md`.
+- **10b** (new task): revived the deferred `--threads` with a corrected design
+agreed with the user (2026-10-19): determinism from CANONICAL SELECTION with
+arbitrary parallel work distribution (two-phase per level) - byte-identical to
+`--threads 1` for any N in both backends, no RNG/seed; plus runtime-only
+non-parity `--fast`. Rejected alternatives (shared-seed RNG switching,
+RNG-driven exploration order) recorded in `PHASE_4_TASK_10B.md`.
+- Task-level corrections: task 5 (until precedence - see D-P4-8), task 10
+(`--timeout-sec` help location - see D-P4-7).

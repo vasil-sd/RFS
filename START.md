@@ -45,25 +45,31 @@ model-checkable (no unbounded data, floats, or arbitrary functions in the core).
    any code is touched and executes tasks one at a time - every task starts only
    after explicit user confirmation.
 
-## 1. Project state snapshot (2026-10-17)
+## 1. Project state snapshot (2026-10-19)
 
 - Phase 0 (parser/IR baseline), Phase 1 (validator, plugin-based Rust codegen,
-  bounded model checker, frontend CLI `parse`/`validate`/`codegen`), Phase 2
-  (core DSL + C backend) are COMPLETE, and **Phase 3 (PSL-like properties and
-  monitors)** is COMPLETE (close-out 2026-10-17: `PHASE_3_STATUS.md`
-  written, roadmap table updated). Phase 3 added: the `always[N]` property
-  operator,
-  online property/assumption monitors from a shared MonitorPlan in BOTH backends
-  (restrictions R1-R4), the `--with-property-monitors` CLI flag for production
-  builds, enhanced property-specific MC counterexamples, and cross-backend
-  parity + monitor-integration test suites. Design decisions D-P3-1..D-P3-6:
-  `DESIGN.md` section 21.
-- Next work: **Phase 4 - Scalable model checking** - see
-  `docs/roadmap/PHASE_4.md`; phase planning/implementation protocol:
+  frontend CLI `parse`/`validate`/`codegen`), Phase 2 (core DSL + C backend) and
+  **Phase 3 (PSL-like properties and monitors)** are COMPLETE, and **Phase 4
+  (Scalable model checking)** is COMPLETE at implementation level: tasks 1-13
+  done; close-out task 14 records the final verification run +
+  `PHASE_4_STATUS.md`. Phase 4 added: the EXACT reachable-state MC engine as
+  the default `mc` mode (seeded fuzz retained behind `--mode fuzz`; shared
+  codegen-time plan `src/mc_plan.rs` embedded in BOTH backends), liveness
+  operators `eventually`/`until` (weak until) with lasso counterexamples, the
+  three-status taxonomy `pass-complete`/`fail`/`unknown-state-limit` with a
+  pinned summary line, input abstraction for unused payload fields, benchmark
+  specs 43/44/45 + the benchmark parity suite, level-parallel exact BFS
+  (`--threads N`, byte-identical to N=1; runtime-only non-parity `--fast`), and
+  an optional SMT bounded mode (`--mode smt-bounded`, feature-gated `smt`,
+  shared plan + emitter). Design decisions D-P4-1..D-P4-14: `DESIGN.md`
+  section 22.
+- Next work: execute Phase 4 task 14 (close-out) per
+  `docs/roadmap/PHASE_4_PLAN.md`; phase planning/implementation protocol:
   `docs/roadmap/INTRO.md`.
-- Known-good baseline: 170/170 main tests, 513/513 generated-code tests, clippy
-  without errors, fmt clean; 42 valid + 12 invalid examples; 11 training categories /
-  224 aggregated SFT examples.
+- Known-good baseline: 230/230 main tests (232 with `--features smt`),
+  522/522 generated-code tests, clippy without errors, fmt clean; 45 valid +
+  12 invalid examples; 11 training categories / 231 aggregated SFT examples
+  (130 valid + 127 invalid snippets).
 
 ## 2. Documentation map (what each file is for)
 
@@ -89,7 +95,11 @@ src/frontend.rs      parse/validate CLI logic         src/main.rs       CLI arg 
 src/validator.rs     semantic validation + typing     src/printer.rs    IR -> formatted RFS
 src/codegen.rs       backend plugin registry + CLI    src/backends/     rust*.rs + c*.rs backends (+ RUST.md, C.md)
 src/codegen_fsm.rs   shared production-FSM analysis   src/codegen_test.rs  unit-test planning
-src/codegen_mc.rs    shared MC wire format/concepts   src/training.rs   snippet extraction + aggregation
+src/codegen_mc.rs    shared exact-mode concepts (statuses, summary line, flag defaults)
+src/mc_plan.rs       shared MC plan: abstraction, encoding, traversal, liveness obligations
+src/monitor.rs       shared monitor compiler (Phase 3 MonitorPlan)
+src/smt_plan.rs + src/smt_emit.rs   shared SMT spec + emitter (optional smt mode)
+src/training.rs      snippet extraction + aggregation
 src/error.rs         ParseError/Span                  src/bin/          build_training, extract_training_snippets,
                                                            generate_code_tests, test_generated_code
 tests/               examples_test, frontend_test, codegen_test, integration_example_test,

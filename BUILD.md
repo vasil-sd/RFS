@@ -38,12 +38,12 @@ SMT output compiles per section 5.3.
 
 | Suite | Command | Current result |
 |---|---|---|
-| All main-crate tests | `cargo test` | **170 pass** (86 lib, 41 frontend CLI logic, 23 codegen, 3 examples, 4 training, 4 parser-library comparison, 2 Phase 2 integration, 4 monitor integration, 3 cross-backend parity) |
-| Parser unit tests only | `cargo test --lib` | part of the 170 |
-| Example suite (file-driven: drop `.rfs` into `examples/valid\|invalid`, no test-code change) | `cargo test --test examples_test` | 3 pass; all 42 valid parse+validate+round-trip, all 12 invalid are rejected (parse or validation) |
+| All main-crate tests | `cargo test` | **230 pass** (125 lib, 7 cross-backend parity, 5 benchmark MC, 26 codegen, 3 examples, 41 frontend CLI logic, 4 parser-library comparison, 9 liveness MC, 4 monitor integration, 4 training; +2 more with `--features smt`) |
+| Parser unit tests only | `cargo test --lib` | part of the 230 |
+| Example suite (file-driven: drop `.rfs` into `examples/valid\|invalid`, no test-code change) | `cargo test --test examples_test` | 3 pass; all 45 valid parse+validate+round-trip, all 12 invalid are rejected (parse or validation) |
 | Parser-library comparison (nom vs chumsky smoke) | `cargo test --test library_comparison` | 4 pass |
 | Training-set structure/snippets/aggregation/freshness | `cargo test-training` (= `cargo test training`) | 4 pass |
-| Generated-code aggregate unit tests (separate crate under `target/rfs_codegen_tests`) | `cargo test-generated-code` | **513 pass** |
+| Generated-code aggregate unit tests (separate crate under `target/rfs_codegen_tests`) | `cargo test-generated-code` | **522 pass** |
 | Benchmark MC suite (Phase 4 task 9: specs 43/44/45 x both backends in exact mode, inline FAIL variants, JSON report; task 10B adds the `--threads` parity gate + `--fast` smoke) | `cargo test --test benchmark_mc_test` | 5 pass; all three benchmarks pass-complete in BOTH backends with metrics identical to the task 6/8 record (165/330/22, 129985/519940/276, 11098/99882/22); FAIL variants pinned (safety `holder_no_request` step 1; liveness `up2_served`, cycle length 3); `--threads 1/2/4` byte-identical to each other and across backends on all five workloads; `target/mc_benchmarks.json` written + per-backend table printed (wall-clock informational only) |
 
 Other suites: `tests/frontend_test.rs` covers all four conversion combinations, strict
@@ -77,10 +77,10 @@ report (`target/mc_benchmarks.json`, development artifact, wall-clock informatio
 | Generate production/test/MC Rust code | `cargo run -- codegen rust <production\|test\|mc> <spec.rfs\|spec.json> [--out FILE] [--assumes ...] [--steps N] [--with-property-monitors]` |
 | Generate C code (Phase 2; same commands) | `cargo run -- codegen c <production\|test\|mc> <spec.rfs\|spec.json> [--out FILE] [--assumes ...] [--with-property-monitors]` (compile with `gcc -Wall out.c`) |
 | Property monitors in production builds (Phase 3) | `--with-property-monitors` is accepted on the `production` command of ANY backend only; `test` and `mc` always include monitors. Rust gates monitor emission/stepping on `#[cfg(debug_assertions)]` (zero cost in release); C gates on `-DRFS_PROPERTY_MONITORS` |
-| Generate aggregate generated-code test crate (171 modules) | `cargo generate-code-tests [--test-steps N] [--assumes ...]` |
-| Generate + compile + run all generated unit tests (513) | `cargo test-generated-code` |
-| Extract training snippets from `training/*/rfs_training.jsonl` | `cargo extract-training-snippets` -> 125 valid / 125 invalid snippets |
-| Aggregate training JSONL | `cargo build-training` -> writes `all_rfs_training.jsonl` (224 examples) |
+| Generate aggregate generated-code test crate (179 modules) | `cargo generate-code-tests [--test-steps N] [--assumes ...]` |
+| Generate + compile + run all generated unit tests (522) | `cargo test-generated-code` |
+| Extract training snippets from `training/*/rfs_training.jsonl` | `cargo extract-training-snippets` -> 130 valid / 127 invalid snippets |
+| Aggregate training JSONL | `cargo build-training` -> writes `all_rfs_training.jsonl` (231 examples) |
 | Run training tests | `cargo test-training` |
 | Train Qwen3.8-27B on RFS data (SFT then GRPO, needs GPU) | `python training.py --stage both` (`--dry-run` = CPU-only data/reward validation) |
 

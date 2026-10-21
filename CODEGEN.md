@@ -211,13 +211,41 @@ rfs codegen rust mc spec.rfs --assumes a1,a2 --out fsm_mc.rs
 
 ### 5.2 `codegen_test.rs` (unit-test planning)
 
-- `build_test_plan(variants, module, steps) -> TestPlan { steps,
-  expect_progress, definite_unexpected }`.
-  - `expect_progress`: true when the module has transitions (a positive run
-    should make at least one step).
-  - `definite_unexpected`: true when some input variant is matched by no
-    transition — the generated negative test then *asserts* that an
-    unexpected-event failure is found; otherwise it only records the attempt.
+- `build_test_plan(variants, module, steps) -> TestPlan`.
+  - Module-level fields (pre-existing): `steps`, `expect_progress` (true when
+    the module has transitions), `definite_unexpected` (some input variant is
+    matched by no transition — the negative test *asserts* the failure),
+    `has_on_error`.
+  - Extended components (Phase 5 task 4; rendered by backends in tasks 5/6):
+    - `transitions: Vec<TransitionTestCase>` — per-transition cases. Each case
+      drives from `t.state` with a concrete representative input matching
+      `t.pattern` and an installed variable configuration. Guarded transitions
+      get statically computed taken / not-taken cases (candidate values:
+      bool `[false,true]`, bit<N> `[0,1,2^N-1]`, enum = all variants; capped
+      search). A taken case requires every higher-priority matching sibling to
+      be disabled by the same assignment (shadowed transitions are noted and
+      skipped); a not-taken case is planned only when statically observable.
+    - `invariants: Vec<InvariantCase>` — safety properties of the shape
+      `always [N] (atom)` with a liveness-free per-sample atom; re-checked at
+      every step of the positive drive trace. Liveness properties are excluded
+      (they belong to the model checker).
+    - `monitor_violations: Vec<MonitorViolationCase>` — for each in-subset
+      property `always [N] (p)` where p is a boolean atom over state/vars, an
+      injected violating configuration (+ one-step drive when needed) that
+      must fire the monitor. Other shapes are skipped with a planner note.
+    - `random_trace: RandomTraceCase` — deterministic LCG input sequence
+      (SAME constants as the fuzz wire format: 6364136223846793005 /
+      1442695040888963407, top-53-bit double mapping; fixed seed 12345),
+      precomputed at codegen time.
+    - `fuzz_decode: FuzzDecodePlan` — per input variant, the field decode
+      strategy for the fuzz skeletons (bool = byte non-zero, bit<N> payload =
+      ceil(N/8) masked bytes, enum = representative value).
+    - `notes: Vec<PlannerNote>` — documented static-analysis fallbacks.
+  The planner is language-agnostic and emits DATA ONLY (cases, expected
+  outcomes, labels), never code. A private static expression evaluator
+  mirrors the backend width semantics (u128 wrapping + mask to the declared
+  bit width; shifts saturate at width) so guard/atom decisions agree with the
+  generated runtime.
 - `is_deadlocked_initial(module, variants)`: inputs exist but there are no
   transitions at all (deadlock-style negative case).
 

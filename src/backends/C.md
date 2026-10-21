@@ -26,6 +26,11 @@ Every command emits **one self-contained `.c` file**:
   `stdio.h`, `stdlib.h`); no project or third-party dependencies;
 - compiles warning-clean with `gcc -Wall`; deterministic output.
 
+**no_std (Phase 5 task 9)**: the C backend ACCEPTS `--no-std` as a documented
+no-op (plain C is already dependency-free; CLI symmetry with the Rust backend).
+The only effect is one comment line in the header:
+`// --no-std accepted: the C backend is already dependency-free; the flag has no effect on this output.`
+
 ### Type mapping (decision D8, DESIGN.md section 20)
 
 | RFS type | C type |

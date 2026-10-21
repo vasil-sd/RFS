@@ -77,6 +77,7 @@ pub struct BackendCommandInfo {
 pub struct BackendOptions {
     pub assumptions: AssumptionSelection,  // All | None | Labels(Vec<String>)
     pub steps: usize,                      // example-run length K (default 4)
+    pub no_std: bool,                      // production only (task 9): Rust #![no_std]+alloc; C no-op
     pub with_property_monitors: bool,      // production only (D-P3-6); test/mc always include monitors
 }
 
@@ -88,7 +89,7 @@ pub struct CodegenOutput {
 ```
 
 `AssumptionSelection` implements `FromStr` (`all`, `none`, or a comma-separated
-label list), `Default = All`, and derives `PartialEq, Eq`.
+label list), `Default = All`, and derives `PartialEq, Eq`. `NO_STD_PRODUCTION_ONLY_ERROR` is the pinned rejection message for `--no-std` on a non-production command; both the CLI parser and the four test/mc backend entry points return it, so one string covers every path.
 
 ### 3.2 Registry
 
@@ -150,16 +151,18 @@ pub enum CodegenRequest {
 pub fn parse_codegen_args(args: &[String]) -> Result<CodegenRequest, Vec<String>>;
 ```
 
-Defaults: `--assumes all`, `--steps 4`, no `--out` (stdout), monitors off; MC
-flags default to `--mode exact`, `--max-states 1000000`, no `--nondet`,
-`--timeout-sec 0` (off), `--threads 1`, `--smt-bound 10`. Parse errors: missing
-subcommand, unknown command name, `--out`/`--assumes` without value, non-numeric
-`--steps`, `--with-property-monitors` on a non-production command (test/mc always
-include property monitors), bad `--mode` value (exact|fuzz|smt-bounded),
-non-positive `--threads`/`--smt-bound`, unknown options, stray positional
-arguments. The parser does **not** check the input extension or the backend name
-— those are done in the CLI layer (below) so tests can exercise parsing in
-isolation.
+Defaults: `--assumes all`, `--steps 4`, no `--out` (stdout), monitors off,
+no `--no-std`; MC flags default to `--mode exact`, `--max-states 1000000`,
+no `--nondet`, `--timeout-sec 0` (off), `--threads 1`, `--smt-bound 10`. Parse
+errors: missing subcommand, unknown command name, `--out`/`--assumes` without
+value, non-numeric `--steps`, `--with-property-monitors` on a non-production
+command (test/mc always include property monitors), `--no-std` on a
+non-production command (pinned `NO_STD_PRODUCTION_ONLY_ERROR`; the test/mc
+backend entry points enforce the same rule at library level), bad `--mode`
+value (exact|fuzz|smt-bounded), non-positive `--threads`/`--smt-bound`, unknown
+options, stray positional arguments. The parser does **not** check the input
+extension or the backend name — those are done in the CLI layer (below) so
+tests can exercise parsing in isolation.
 
 ### 4.2 CLI layer (`cmd_codegen` in `src/main.rs`)
 
@@ -186,6 +189,7 @@ rfs codegen --help
 rfs codegen rust --help
 rfs codegen rust production spec.rfs --out fsm.rs
 rfs codegen rust production spec.rfs --with-property-monitors --out fsm.rs
+rfs codegen rust production spec.rfs --no-std --out fsm.rs   # #![no_std] + extern crate alloc (identical API)
 rfs codegen rust test spec.json --steps 6 --out fsm_test.rs
 rfs codegen rust mc spec.rfs --assumes a1,a2 --out fsm_mc.rs
 ```

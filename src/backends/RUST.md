@@ -28,6 +28,16 @@ Every command emits **one self-contained `.rs` file**:
   warning-clean even for degenerate modules (no variables, no outputs);
 - deterministic: same IR + options ⇒ byte-identical output.
 
+**no_std production variant (Phase 5 task 9)**: with `--no-std` the file header
+becomes `#![no_std]` + `extern crate alloc;` + `use alloc::string::{String,
+ToString};` + `use alloc::vec::Vec;` (+ `use alloc::vec;` for the `vec!` macro
+only when some transition emits outputs). The BODY is byte-identical to the std
+variant - the public API shape is unchanged (alloc provides Vec/String/ToString;
+`panic!` comes from core). test/mc reject the flag (`NO_STD_PRODUCTION_ONLY_ERROR`).
+Verified by `no_std_compile_sweep_and_body_parity_all_valid_examples`
+(tests/codegen_test.rs): all 45 valid examples x both monitor modes compile
+under `rustc --edition 2021 --crate-type lib` and their bodies diff empty.
+
 ### 2.1 Production FSM anatomy (`rust_fsm.rs`)
 
 The generated file contains, in order:

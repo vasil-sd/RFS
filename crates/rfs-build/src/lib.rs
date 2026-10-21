@@ -48,6 +48,10 @@
 //! consumers want). The crate adds no dependencies and never modifies the
 //! spec; parse/validation/codegen failures from `rfs` become build failures
 //! with the rfs diagnostics in the message.
+//!
+//! `.no_std(true)` (Phase 5 task 9) maps to the production-only `--no-std`
+//! flag: the generated Rust becomes `#![no_std]` + `extern crate alloc` with
+//! an identical public API. For the C backend the flag is a documented no-op.
 
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -98,6 +102,7 @@ pub struct RfsBuild {
     spec: PathBuf,
     backend: String,
     with_property_monitors: bool,
+    no_std: bool,
 }
 
 impl RfsBuild {
@@ -108,6 +113,7 @@ impl RfsBuild {
             spec: spec.into(),
             backend: "rust".into(),
             with_property_monitors: false,
+            no_std: false,
         }
     }
 
@@ -131,6 +137,15 @@ impl RfsBuild {
         self
     }
 
+    /// Generate no_std production code (`--no-std`, Phase 5 task 9): the
+    /// generated Rust becomes `#![no_std]` + `extern crate alloc` with an
+    /// identical public API shape. For the C backend the flag is a documented
+    /// no-op (plain C is already dependency-free). Off by default.
+    pub fn no_std(mut self, on: bool) -> Self {
+        self.no_std = on;
+        self
+    }
+
     /// The spec file this build reads.
     pub fn spec(&self) -> &Path {
         &self.spec
@@ -138,8 +153,9 @@ impl RfsBuild {
 
     /// Run the code generation. Prints the cargo directives, invokes
     /// `rfs codegen <backend> production <spec> --out OUT_DIR/<stem>.<ext>`
-    /// (plus `--with-property-monitors` when enabled), and returns the path of
-    /// the generated artifact. Errors carry the rfs diagnostics.
+    /// (plus `--with-property-monitors` and `--no-std` when enabled), and
+    /// returns the path of the generated artifact. Errors carry the rfs
+    /// diagnostics.
     pub fn compile(&self) -> Result<PathBuf, RfsBuildError> {
         // --- validation (before touching the environment) -----------------
         if !matches!(self.backend.as_str(), "rust" | "c") {
@@ -191,6 +207,9 @@ impl RfsBuild {
             .arg(&artifact);
         if self.with_property_monitors {
             cmd.arg("--with-property-monitors");
+        }
+        if self.no_std {
+            cmd.arg("--no-std");
         }
         let output = cmd.output().map_err(|e| {
             err(format!(
@@ -399,6 +418,54 @@ mod tests {
             ("OUT_DIR", None),
             ("RFS_STUB_FAIL", None),
         ]);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn no_std_option_pins_argv() {
+        let _g = ENV_LOCK.lock().unwrap();
+        let dir = temp_dir("nostd");
+        let out = dir.join("out");
+        std::fs::create_dir_all(&out).unwrap();
+        let stub = write_stub(&dir);
+        let spec = write_spec(&dir, "handshake.rfs");
+
+        set_env(&[
+            ("RFS_BIN", Some(stub.to_str().unwrap())),
+            ("OUT_DIR", Some(out.to_str().unwrap())),
+        ]);
+
+        // Off by default: no --no-std in argv.
+        RfsBuild::new(&spec)
+            .compile()
+            .expect("default stub compile");
+        let args = std::fs::read_to_string(dir.join("stub_args.txt")).unwrap();
+        assert_eq!(
+            args.trim(),
+            format!(
+                "codegen rust production {} --out {}",
+                spec.display(),
+                out.join("handshake.rs").display()
+            )
+        );
+
+        // .no_std(true) appends the flag after the other options.
+        let artifact = RfsBuild::new(&spec)
+            .with_property_monitors(true)
+            .no_std(true)
+            .compile()
+            .expect("no_std stub compile");
+        let args = std::fs::read_to_string(dir.join("stub_args.txt")).unwrap();
+        assert_eq!(
+            args.trim(),
+            format!(
+                "codegen rust production {} --out {} --with-property-monitors --no-std",
+                spec.display(),
+                artifact.display()
+            )
+        );
+
+        set_env(&[("RFS_BIN", None), ("OUT_DIR", None)]);
         let _ = std::fs::remove_dir_all(&dir);
     }
 

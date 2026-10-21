@@ -47,6 +47,11 @@ pub fn generate_unit_tests(
     module: &Module,
     options: &crate::codegen::BackendOptions,
 ) -> Result<crate::codegen::CodegenOutput, Vec<String>> {
+    if options.no_std {
+        return Err(vec![
+            crate::codegen::NO_STD_PRODUCTION_ONLY_ERROR.to_string()
+        ]);
+    }
     // The generated tests reuse the production FSM core. Property monitors
     // are always included (D-P3-6), so a spec that violates its own property
     // fails its generated tests.

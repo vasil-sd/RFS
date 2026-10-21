@@ -25,6 +25,11 @@ pub fn generate_model_checker(
     module: &Module,
     options: &BackendOptions,
 ) -> Result<CodegenOutput, Vec<String>> {
+    if options.no_std {
+        return Err(vec![
+            crate::codegen::NO_STD_PRODUCTION_ONLY_ERROR.to_string()
+        ]);
+    }
     // SMT bounded mode (task 11): a standalone z3-based binary - no FSM core,
     // no exact/fuzz runtimes. The spec section is rendered from the shared
     // plan (smt_plan/smt_emit) so both backends build identical constraints.

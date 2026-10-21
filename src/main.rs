@@ -275,6 +275,7 @@ fn cmd_codegen(args: &[String]) -> ExitCode {
             out,
             assumptions,
             steps,
+            no_std,
             with_property_monitors,
             mc_mode,
             mc_max_states,
@@ -312,6 +313,7 @@ fn cmd_codegen(args: &[String]) -> ExitCode {
             let options = codegen::BackendOptions {
                 assumptions,
                 steps,
+                no_std,
                 with_property_monitors,
                 mc_mode,
                 mc_max_states,

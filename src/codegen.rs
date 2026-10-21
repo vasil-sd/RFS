@@ -78,6 +78,12 @@ impl std::str::FromStr for AssumptionSelection {
     }
 }
 
+/// Pinned error message for `--no-std` on a non-production command (Phase 5
+/// task 9): the CLI parser and the backend entry points both reject with this
+/// exact text, so tests can pin one string for every path.
+pub const NO_STD_PRODUCTION_ONLY_ERROR: &str =
+    "--no-std is only supported for the production command";
+
 /// Options shared by all backend commands. A backend may ignore fields that do
 /// not apply to a specific command (for example `steps` is only meaningful for
 /// the `test` command).
@@ -87,6 +93,14 @@ pub struct BackendOptions {
     pub assumptions: AssumptionSelection,
     /// Example-run length K for test generation.
     pub steps: usize,
+    /// no_std production codegen (Phase 5 task 9): the generated Rust becomes
+    /// `#![no_std]` + `extern crate alloc` with an IDENTICAL public API shape
+    /// (only the file header changes; the body is byte-identical to the std
+    /// variant). Only the `production` command accepts this - test/mc entry
+    /// points reject it with [`NO_STD_PRODUCTION_ONLY_ERROR`]. The C backend
+    /// accepts it as a documented no-op (plain C is already dependency-free)
+    /// and notes that in the generated header.
+    pub no_std: bool,
     /// Emit property monitors in production output (D-P3-6). Only the
     /// `production` command accepts this option; `test` and `mc` always
     /// include property monitors, so they ignore it.
@@ -116,6 +130,7 @@ impl Default for BackendOptions {
         Self {
             assumptions: AssumptionSelection::All,
             steps: 4,
+            no_std: false,
             with_property_monitors: false,
             mc_mode: McMode::Exact,
             mc_max_states: crate::codegen_mc::EXACT_DEFAULT_MAX_STATES,
@@ -238,6 +253,10 @@ pub fn common_help() -> String {
     );
     let _ = writeln!(
         s,
+        "  --no-std                         production only: Rust output becomes #![no_std] + extern crate alloc\n                               (identical public API); C accepts the flag as a documented no-op"
+    );
+    let _ = writeln!(
+        s,
         "  --mode exact|fuzz|smt-bounded   mc only: model-checking mode (default: exact;\n                               smt-bounded generates a z3-based bounded checker - incomplete by design)"
     );
     let _ = writeln!(
@@ -355,6 +374,7 @@ pub enum CodegenRequest {
         out: Option<String>,
         assumptions: AssumptionSelection,
         steps: usize,
+        no_std: bool,
         with_property_monitors: bool,
         mc_mode: McMode,
         mc_max_states: usize,
@@ -417,6 +437,7 @@ pub fn parse_codegen_args(args: &[String]) -> Result<CodegenRequest, Vec<String>
     let mut out = None;
     let mut assumptions = AssumptionSelection::default();
     let mut steps = 4usize;
+    let mut no_std = false;
     let mut with_property_monitors = false;
     let mut mc_mode = McMode::default();
     let mut mc_max_states = crate::codegen_mc::EXACT_DEFAULT_MAX_STATES;
@@ -458,6 +479,13 @@ pub fn parse_codegen_args(args: &[String]) -> Result<CodegenRequest, Vec<String>
                     );
                 } else {
                     with_property_monitors = true;
+                }
+            }
+            "--no-std" => {
+                if command != CodegenCommandKind::Production {
+                    errors.push(NO_STD_PRODUCTION_ONLY_ERROR.to_string());
+                } else {
+                    no_std = true;
                 }
             }
             "--mode" => {
@@ -510,6 +538,7 @@ pub fn parse_codegen_args(args: &[String]) -> Result<CodegenRequest, Vec<String>
             out,
             assumptions,
             steps,
+            no_std,
             with_property_monitors,
             mc_mode,
             mc_max_states,

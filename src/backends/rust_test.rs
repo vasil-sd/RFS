@@ -27,6 +27,11 @@ pub fn generate_unit_tests(
     module: &Module,
     options: &BackendOptions,
 ) -> Result<CodegenOutput, Vec<String>> {
+    if options.no_std {
+        return Err(vec![
+            crate::codegen::NO_STD_PRODUCTION_ONLY_ERROR.to_string()
+        ]);
+    }
     crate::backends::rust_fsm::generate_core(
         module,
         options,

@@ -10,7 +10,7 @@ repository root; for semantics see `DESIGN.md`.
 |---|---|
 | `rust.rs` | Plugin entry: `RUST_BACKEND` static (name, description, command descriptors, function pointers) plus shared Rust-specific helpers: `RUST_KEYWORDS`, `rust_ident` (keyword-safe identifier), `snake` (case conversion), `bit_rust_type` / `mask_expr` (fixed-width integer mapping), `rust_type` (IR type → Rust type), `representative_input_expr`. |
 | `rust_fsm.rs` | `production` command: emits the standalone FSM source. Also the core reused by `test` and `mc`. |
-| `rust_test.rs` | `test` command: appends a unit-test module to the production code; plus the aggregate test-crate helpers used by the cargo tooling (`generate_aggregate_test_crate`, `write_generated_crate`, `GeneratedCrate`). |
+| `rust_test.rs` | `test` command: appends a unit-test module (module-level + per-transition/invariant/monitor-violation/random-trace classes) to the production code and emits the separate `fuzz_target.rs` skeleton as an extra file; plus the aggregate test-crate helpers used by the cargo tooling (`generate_aggregate_test_crate`, `write_generated_crate`, `GeneratedCrate`). |
 | `rust_mc.rs` | `mc` command: (default exact / legacy fuzz) production FSM core + exact engine rendered from the embedded plan + fuzz runtime + a generated `main` dispatching on `--mode`; (SMT mode) a standalone z3-based binary from the shared `smt_plan`/`smt_emit` spec section. |
 
 Dependency direction inside the backend: `rust_mc → rust_fsm (+ MC_RUNTIME)`,
@@ -115,7 +115,7 @@ context-sensitive (`width_from_type`).
 ## 3. Unit-test generation (`rust_test.rs`)
 
 The `test` command runs the shared planner from `codegen_test::build_test_plan`
-and renders:
+and renders (all names are stable; the C backend mirrors them in task 6):
 
 - **positive test**: drive the FSM with representative inputs up to K steps
   (`--steps`, default 4); when `expect_progress` is set, assert at least one
@@ -125,10 +125,37 @@ and renders:
   matches), the test *asserts* the failure is found; otherwise it records the
   attempt without asserting, so fully-covered modules still get a passing test;
 - deadlock-style modules (`is_deadlocked_initial`) are covered by the same
-  negative path.
+  negative path;
+- **per-transition tests** `t<id>_<state>_on_<event>` (and `..._not_taken`):
+  install the case's state + full variable configuration, drive the concrete
+  input with `ContinueAssumptionHandler`, and assert on the RECORDED trace step
+  (`to_state` + outputs) - robust even when a property violation halts the
+  commit. Not-taken asserts `UnexpectedEvent` + no recorded step, or a landing
+  observably different from the transition's own signature;
+- **invariant tests** `invariant_<label>`: re-check the property's per-sample
+  atom (rendered against `&Sample` by `rust_fsm::render_signal_expr`, shared
+  with the monitor rendering) at every sample of the positive drive trace,
+  failing with the step index; bounded invariants check samples `< N` only;
+- **monitor-violation tests** `monitor_<label>_fires_on_violation`: drive the
+  planner's violating trace and assert the sticky `property_violation` record
+  holds the target label (the planner guarantees no other monitored property
+  records first - see `CODEGEN.md` 5.2);
+- **random-trace test** `random_trace_seed<seed>_steps<K>`: drive the
+  precomputed LCG index sequence and print one deterministic coverage line
+  (`ok`/`unexpected`/`assumption`/`property` counts + distinct visited
+  states).
 
 Test code is appended to the production source as `mod tests { ... }`, so the
 `test` artifact always contains the full production API plus its tests.
+
+**Fuzz skeleton (separate file).** The command ALSO emits `fuzz_target.rs`
+via `CodegenOutput.extra_files`: a `#![no_main]` + `libfuzzer_sys::
+fuzz_target!` target that decodes the first byte as variant selector and each
+field per the planner's `FuzzDecodePlan`, then loops decoded inputs over
+`Fsm::step`. It is deliberately NOT inlined: the main artifact (and the
+aggregate generated-code crate) must stay dependency-free. The CLI writes it
+next to `--out` and refuses stdout mode for the `test` command (no graceful
+degradation). Building/running it with cargo-fuzz is wired by Phase 5 task 12.
 
 ### Aggregate tooling
 

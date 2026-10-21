@@ -53,6 +53,7 @@ pub(crate) fn generate_core(
     Ok(CodegenOutput {
         code: gen.code,
         warnings,
+        extra_files: Vec::new(),
     })
 }
 
@@ -108,12 +109,12 @@ impl<'a> Gen<'a> {
         g.emit_monitors().map_err(|e| vec![e])?;
         g.emit_fsm_impl().map_err(|e| vec![e])?;
         if with_tests {
-            g.code
-                .push_str(&crate::backends::rust_test::emit_test_module(
-                    g.module,
-                    &g.variants,
-                    g.options.steps,
-                ));
+            let tests = crate::backends::rust_test::emit_test_module(
+                g.module,
+                &g.variants,
+                g.options.steps,
+            )?;
+            g.code.push_str(&tests);
         }
         Ok(g)
     }
@@ -540,171 +541,7 @@ pub enum StepError {{ UnexpectedEvent, AssumptionViolation {{ label: String }}{p
 
     /// Render a per-sample signal expression against `s: &Sample`.
     fn gen_signal(&self, sig: &SignalExpr) -> Result<String, String> {
-        match sig {
-            SignalExpr::Atom(SignalAtom::True) => Ok("true".into()),
-            SignalExpr::Atom(SignalAtom::VarExpr(expr)) => {
-                let env = Env::for_module(self.module);
-                let mut ctx = self.sample_expr_ctx();
-                ctx.expected = Some(ExprType::Bool);
-                gen_expr(expr, &env, &ctx)
-            }
-            SignalExpr::Atom(SignalAtom::InputIs(p)) => Ok(self
-                .input_is_sample_expr(p)
-                .ok_or("unresolvable input pattern")?),
-            SignalExpr::Atom(SignalAtom::OutputHas(p)) => Ok(self
-                .output_has_sample_expr(p)
-                .ok_or("unresolvable output pattern")?),
-            SignalExpr::Not(inner) => Ok(format!("!({})", self.gen_signal(inner)?)),
-            SignalExpr::And(l, r) => Ok(format!(
-                "({}) && ({})",
-                self.gen_signal(l)?,
-                self.gen_signal(r)?
-            )),
-            SignalExpr::Or(l, r) => Ok(format!(
-                "({}) || ({})",
-                self.gen_signal(l)?,
-                self.gen_signal(r)?
-            )),
-        }
-    }
-
-    /// Expression context for signals: `state` is the post-step state and
-    /// variables read from the sample.
-    fn sample_expr_ctx(&self) -> ExprCtx {
-        let mut ctx = ExprCtx::new(self.module);
-        ctx.names.insert("state".into(), "s.to_state".into());
-        for v in &self.module.vars {
-            ctx.names
-                .insert(v.name.clone(), format!("s.vars.{}", rust_ident(&v.name)));
-        }
-        ctx
-    }
-
-    /// Render `input_is(pattern)` against `s: &Sample`.
-    fn input_is_sample_expr(&self, pattern: &EventPattern) -> Option<String> {
-        match &pattern.variant {
-            None => {
-                let variants: Vec<&VariantInfo> = self
-                    .variants
-                    .inputs
-                    .iter()
-                    .filter(|v| v.group == pattern.group)
-                    .collect();
-                if variants.is_empty() {
-                    return None;
-                }
-                let arms: Vec<String> = variants
-                    .iter()
-                    .map(|v| {
-                        if v.fields.is_empty() {
-                            format!("Input::{}", rust_ident(&v.unique_name))
-                        } else {
-                            format!("Input::{} {{ .. }}", rust_ident(&v.unique_name))
-                        }
-                    })
-                    .collect();
-                let arms = arms
-                    .iter()
-                    .map(|a| format!("Some({})", a))
-                    .collect::<Vec<_>>()
-                    .join(" | ");
-                Some(format!("matches!(s.input.as_ref(), {})", arms))
-            }
-            Some(PatternVariant::Unit { name }) => {
-                let v = self.input_variant(&pattern.group, name)?;
-                if !v.fields.is_empty() {
-                    return None;
-                }
-                Some(format!(
-                    "matches!(s.input.as_ref(), Some(Input::{name}))",
-                    name = rust_ident(&v.unique_name)
-                ))
-            }
-            Some(PatternVariant::Struct { name, fields }) => {
-                let v = self.input_variant(&pattern.group, name)?;
-                if v.fields.len() != fields.len() {
-                    return None;
-                }
-                // Bind each variant field by its real name and guard on the
-                // pattern constraints (a `matches!` + external guard would not
-                // compile: pattern bindings do not escape the match).
-                let binds: Vec<String> = v.fields.iter().map(|(f, _)| rust_ident(f)).collect();
-                let guards: Vec<String> = fields
-                    .iter()
-                    .enumerate()
-                    .filter_map(|(i, pf)| {
-                        let b = &binds[i];
-                        match &pf.pattern {
-                            PatternExpr::Int { value } => Some(format!("*{} == {}", b, value)),
-                            PatternExpr::Bool { value } => Some(format!("*{} == {}", b, value)),
-                            PatternExpr::EnumVariant { path } => Some(format!(
-                                "*{} == {}",
-                                b,
-                                path.iter()
-                                    .map(|x| rust_ident(x))
-                                    .collect::<Vec<_>>()
-                                    .join("::")
-                            )),
-                            _ => None,
-                        }
-                    })
-                    .collect();
-                let guard = if guards.is_empty() {
-                    "true".to_string()
-                } else {
-                    guards.join(" && ")
-                };
-                Some(format!(
-                    "match s.input.as_ref() {{ Some(Input::{} {{ {} }}) => {}, _ => false }}",
-                    rust_ident(&v.unique_name),
-                    binds.join(", "),
-                    guard
-                ))
-            }
-        }
-    }
-
-    /// Render `output_has(pattern)` against `s: &Sample`.
-    fn output_has_sample_expr(&self, pattern: &OutputPattern) -> Option<String> {
-        let inner = match &pattern.variant {
-            None => {
-                let variants: Vec<&VariantInfo> = self
-                    .variants
-                    .outputs
-                    .iter()
-                    .filter(|v| v.group == pattern.group)
-                    .collect();
-                if variants.is_empty() {
-                    return None;
-                }
-                let arms: Vec<String> = variants
-                    .iter()
-                    .map(|v| {
-                        if v.fields.is_empty() {
-                            format!("Output::{}", rust_ident(&v.unique_name))
-                        } else {
-                            format!("Output::{} {{ .. }}", rust_ident(&v.unique_name))
-                        }
-                    })
-                    .collect();
-                format!("matches!(o, {})", arms.join(" | "))
-            }
-            Some(PatternVariant::Unit { name }) => {
-                let v = self.output_variant(&pattern.group, name)?;
-                if !v.fields.is_empty() {
-                    return None;
-                }
-                format!("matches!(o, Output::{})", rust_ident(&v.unique_name))
-            }
-            Some(PatternVariant::Struct { name, .. }) => {
-                let v = self.output_variant(&pattern.group, name)?;
-                format!(
-                    "matches!(o, Output::{} {{ .. }})",
-                    rust_ident(&v.unique_name)
-                )
-            }
-        };
-        Some(format!("s.outputs.iter().any(|o| {{ {} }})", inner))
+        render_signal_expr(self.module, &self.variants, sig)
     }
 
     /// Emit the `AssumeMonitors` aggregate (always present, even when empty).
@@ -1313,6 +1150,180 @@ impl Fsm {{
             fields.join(", ")
         ))
     }
+}
+
+/// Expression context for per-sample signals: `state` is the post-step state
+/// and variables read from the sample.
+fn signal_expr_ctx(module: &Module) -> ExprCtx {
+    let mut ctx = ExprCtx::new(module);
+    ctx.names.insert("state".into(), "s.to_state".into());
+    for v in &module.vars {
+        ctx.names
+            .insert(v.name.clone(), format!("s.vars.{}", rust_ident(&v.name)));
+    }
+    ctx
+}
+
+/// Render a per-sample signal expression as Rust code against `s: &Sample`
+/// (shared by the monitor rendering and the invariant re-checks of the test
+/// module - see `crate::backends::rust_test`).
+pub(crate) fn render_signal_expr(
+    module: &Module,
+    variants: &FsmVariants,
+    sig: &SignalExpr,
+) -> Result<String, String> {
+    match sig {
+        SignalExpr::Atom(SignalAtom::True) => Ok("true".into()),
+        SignalExpr::Atom(SignalAtom::VarExpr(expr)) => {
+            let env = Env::for_module(module);
+            let mut ctx = signal_expr_ctx(module);
+            ctx.expected = Some(ExprType::Bool);
+            gen_expr(expr, &env, &ctx)
+        }
+        SignalExpr::Atom(SignalAtom::InputIs(p)) => {
+            Ok(input_is_sample_expr(variants, p).ok_or("unresolvable input pattern")?)
+        }
+        SignalExpr::Atom(SignalAtom::OutputHas(p)) => {
+            Ok(output_has_sample_expr(variants, p).ok_or("unresolvable output pattern")?)
+        }
+        SignalExpr::Not(inner) => Ok(format!(
+            "!({})",
+            render_signal_expr(module, variants, inner)?
+        )),
+        SignalExpr::And(l, r) => Ok(format!(
+            "({}) && ({})",
+            render_signal_expr(module, variants, l)?,
+            render_signal_expr(module, variants, r)?
+        )),
+        SignalExpr::Or(l, r) => Ok(format!(
+            "({}) || ({})",
+            render_signal_expr(module, variants, l)?,
+            render_signal_expr(module, variants, r)?
+        )),
+    }
+}
+
+fn input_is_sample_expr(variants: &FsmVariants, pattern: &EventPattern) -> Option<String> {
+    match &pattern.variant {
+        None => {
+            let group_variants: Vec<&VariantInfo> = variants
+                .inputs
+                .iter()
+                .filter(|v| v.group == pattern.group)
+                .collect();
+            if group_variants.is_empty() {
+                return None;
+            }
+            let arms: Vec<String> = group_variants
+                .iter()
+                .map(|v| {
+                    if v.fields.is_empty() {
+                        format!("Input::{}", rust_ident(&v.unique_name))
+                    } else {
+                        format!("Input::{} {{ .. }}", rust_ident(&v.unique_name))
+                    }
+                })
+                .collect();
+            let arms = arms
+                .iter()
+                .map(|a| format!("Some({})", a))
+                .collect::<Vec<_>>()
+                .join(" | ");
+            Some(format!("matches!(s.input.as_ref(), {})", arms))
+        }
+        Some(PatternVariant::Unit { name }) => {
+            let v = variants.input_variant(&pattern.group, name)?;
+            if !v.fields.is_empty() {
+                return None;
+            }
+            Some(format!(
+                "matches!(s.input.as_ref(), Some(Input::{name}))",
+                name = rust_ident(&v.unique_name)
+            ))
+        }
+        Some(PatternVariant::Struct { name, fields }) => {
+            let v = variants.input_variant(&pattern.group, name)?;
+            if v.fields.len() != fields.len() {
+                return None;
+            }
+            // Bind each variant field by its real name and guard on the
+            // pattern constraints (a `matches!` + external guard would not
+            // compile: pattern bindings do not escape the match).
+            let binds: Vec<String> = v.fields.iter().map(|(f, _)| rust_ident(f)).collect();
+            let guards: Vec<String> = fields
+                .iter()
+                .enumerate()
+                .filter_map(|(i, pf)| {
+                    let b = &binds[i];
+                    match &pf.pattern {
+                        PatternExpr::Int { value } => Some(format!("*{} == {}", b, value)),
+                        PatternExpr::Bool { value } => Some(format!("*{} == {}", b, value)),
+                        PatternExpr::EnumVariant { path } => Some(format!(
+                            "*{} == {}",
+                            b,
+                            path.iter()
+                                .map(|x| rust_ident(x))
+                                .collect::<Vec<_>>()
+                                .join("::")
+                        )),
+                        _ => None,
+                    }
+                })
+                .collect();
+            let guard = if guards.is_empty() {
+                "true".to_string()
+            } else {
+                guards.join(" && ")
+            };
+            Some(format!(
+                "match s.input.as_ref() {{ Some(Input::{} {{ {} }}) => {}, _ => false }}",
+                rust_ident(&v.unique_name),
+                binds.join(", "),
+                guard
+            ))
+        }
+    }
+}
+
+fn output_has_sample_expr(variants: &FsmVariants, pattern: &OutputPattern) -> Option<String> {
+    let inner = match &pattern.variant {
+        None => {
+            let group_variants: Vec<&VariantInfo> = variants
+                .outputs
+                .iter()
+                .filter(|v| v.group == pattern.group)
+                .collect();
+            if group_variants.is_empty() {
+                return None;
+            }
+            let arms: Vec<String> = group_variants
+                .iter()
+                .map(|v| {
+                    if v.fields.is_empty() {
+                        format!("Output::{}", rust_ident(&v.unique_name))
+                    } else {
+                        format!("Output::{} {{ .. }}", rust_ident(&v.unique_name))
+                    }
+                })
+                .collect();
+            format!("matches!(o, {})", arms.join(" | "))
+        }
+        Some(PatternVariant::Unit { name }) => {
+            let v = variants.output_variant(&pattern.group, name)?;
+            if !v.fields.is_empty() {
+                return None;
+            }
+            format!("matches!(o, Output::{})", rust_ident(&v.unique_name))
+        }
+        Some(PatternVariant::Struct { name, .. }) => {
+            let v = variants.output_variant(&pattern.group, name)?;
+            format!(
+                "matches!(o, Output::{} {{ .. }})",
+                rust_ident(&v.unique_name)
+            )
+        }
+    };
+    Some(format!("s.outputs.iter().any(|o| {{ {} }})", inner))
 }
 
 struct ExprCtx {

@@ -415,7 +415,7 @@ fn plan_transitions(
                 });
 
                 if taken_vars.is_none() && t_guard_true == Some(true) && earlier_disabled {
-                    taken_vars = Some(assignment.clone());
+                    taken_vars = Some(complete_configuration(module, assignment.clone()));
                 }
                 // Not-taken: t's guard false (t must be guarded) AND the
                 // decision is statically observable.
@@ -423,7 +423,7 @@ fn plan_transitions(
                     && t_guard_true == Some(false)
                     && not_taken_observable(module, &siblings, idx, &env)
                 {
-                    not_taken_vars = Some(assignment.clone());
+                    not_taken_vars = Some(complete_configuration(module, assignment));
                 }
                 if taken_vars.is_some() && not_taken_vars.is_some() {
                     break;
@@ -513,6 +513,41 @@ fn plan_transitions(
         }
     }
     cases
+}
+
+/// True when any transition firing BEFORE `t_idx` (descending effective
+/// priority, then source order - mirroring the generated `fsm_step`) can match
+/// the concrete input and fires under `env` (unguarded = always fires). The
+/// monitor-violation search must skip such candidates: the planned drive would
+/// take the sibling, not `t`.
+fn earlier_sibling_fires(
+    module: &Module,
+    t_idx: usize,
+    input_case: &InputCase,
+    env: &EvalEnv,
+) -> bool {
+    let t = &module.transitions[t_idx];
+    let mut firing: Vec<usize> = (0..module.transitions.len())
+        .filter(|&j| j != t_idx && module.transitions[j].state == t.state)
+        .filter(|&j| {
+            pattern_can_match_variant(
+                &module.transitions[j].pattern,
+                &input_case.group,
+                &input_case.variant,
+            )
+        })
+        .collect();
+    firing.push(t_idx);
+    firing.sort_by_key(|&k| std::cmp::Reverse(module.transitions[k].priority.unwrap_or(0)));
+    let earlier = firing
+        .iter()
+        .copied()
+        .take_while(|&k| k != t_idx)
+        .collect::<Vec<_>>();
+    earlier.iter().any(|&s| match &module.transitions[s].guard {
+        Some(g) => eval_bool(g, env) == Some(true),
+        None => true,
+    })
 }
 
 /// True when `pattern` can match a concrete input of variant `variant` in
@@ -751,7 +786,12 @@ fn plan_monitor_violations(
                 .map(|v| v.name.clone())
                 .collect();
             for assignment in enumerate_assignments(module, &atom_vars) {
-                for t in module.transitions.iter().filter(|t| t.state == *st) {
+                for (t_idx, t) in module
+                    .transitions
+                    .iter()
+                    .enumerate()
+                    .filter(|(_, t)| t.state == *st)
+                {
                     let Some(input) = concrete_input_for_pattern(&t.pattern, variants, module)
                     else {
                         continue;
@@ -764,6 +804,14 @@ fn plan_monitor_violations(
                         .collect();
                     let env_step =
                         eval_env(module, st, &assignment, &input.bindings, &step_binding_vals);
+                    // The planned drive must actually take THIS transition: a
+                    // higher-firing sibling (priority desc, source order -
+                    // mirroring the generated fsm_step) that matches the input
+                    // and whose guard holds would fire first, so t's post-step
+                    // configuration is not the observed one.
+                    if earlier_sibling_fires(module, t_idx, &input.case, &env_step) {
+                        continue;
+                    }
                     let guard_ok = match &t.guard {
                         Some(g) => eval_bool(g, &env_step) == Some(true),
                         None => true,
@@ -780,7 +828,7 @@ fn plan_monitor_violations(
                             bound,
                             atom: SignalExpr::Atom(SignalAtom::VarExpr(atom.clone())),
                             state: st.clone(),
-                            vars: assignment,
+                            vars: complete_configuration(module, assignment),
                             step_input: Some(input.case),
                             post_state: t.next_state.clone(),
                             post_vars,
@@ -855,7 +903,7 @@ fn build_random_trace(variants: &FsmVariants, _module: &Module, steps: usize) ->
 /// the libfuzzer_sys / libFuzzer renderers): bool -> one nonzero byte;
 /// bit<N> -> ceil(N/8) little-endian bytes masked to N bits; enum -> constant
 /// representative value.
-fn build_fuzz_decode(variants: &FsmVariants) -> FuzzDecodePlan {
+pub(crate) fn build_fuzz_decode(variants: &FsmVariants) -> FuzzDecodePlan {
     FuzzDecodePlan {
         variants: variants
             .inputs
@@ -975,6 +1023,30 @@ fn representative_var_value(ty: &Type, module: &Module) -> Option<VarValue> {
             .and_then(|e| e.variants.first())
             .map(|v| VarValue::Enum(vec![name.clone(), v.clone()])),
     }
+}
+
+/// Extend an assignment to a COMPLETE configuration: every module variable in
+/// declaration order, keeping the assigned values and filling the rest with
+/// their representative values - EXACTLY what `eval_env` assumes for
+/// unassigned variables (the installed runtime configuration must match the
+/// static analysis).
+fn complete_configuration(
+    module: &Module,
+    assignment: Vec<(String, VarValue)>,
+) -> Vec<(String, VarValue)> {
+    module
+        .vars
+        .iter()
+        .map(|v| {
+            let val = assignment
+                .iter()
+                .find(|(n, _)| n == &v.name)
+                .map(|(_, v)| v.clone())
+                .or_else(|| representative_var_value(&v.ty, module))
+                .unwrap_or(VarValue::Bool(false));
+            (v.name.clone(), val)
+        })
+        .collect()
 }
 
 /// Candidate concrete values for one variable type, in deterministic order:
@@ -1923,5 +1995,165 @@ mod tests {
             }),
         };
         assert_eq!(eval_expr(&e, &env), Some(VarValue::Bool(true)));
+    }
+
+    // -- Monitor-violation plan guarantees (Phase 5 task 5) -------------------
+
+    /// The transition that actually fires for a concrete input in `state`
+    /// under `vars`: firing order is descending effective priority, then
+    /// source order - mirroring the generated `fsm_step`. `None` when nothing
+    /// matches (or every matching guard fails).
+    fn firing_transition<'a>(
+        module: &'a Module,
+        variants: &FsmVariants,
+        state: &str,
+        input_case: &InputCase,
+        vars: &[(String, VarValue)],
+    ) -> Option<&'a Transition> {
+        let info = variants.input_variant(&input_case.group, &input_case.variant)?;
+        let bindings: Vec<(String, Type)> = info
+            .fields
+            .iter()
+            .map(|(n, t)| (n.clone(), t.clone()))
+            .collect();
+        let binding_vals: HashMap<String, VarValue> = input_case
+            .fields
+            .iter()
+            .map(|(f, v)| (f.clone(), v.clone()))
+            .collect();
+        let mut idxs: Vec<usize> = (0..module.transitions.len())
+            .filter(|&j| module.transitions[j].state == state)
+            .filter(|&j| {
+                pattern_can_match_variant(
+                    &module.transitions[j].pattern,
+                    &input_case.group,
+                    &input_case.variant,
+                )
+            })
+            .collect();
+        idxs.sort_by_key(|&k| std::cmp::Reverse(module.transitions[k].priority.unwrap_or(0)));
+        for &j in &idxs {
+            let t = &module.transitions[j];
+            let env = eval_env(module, state, vars, &bindings, &binding_vals);
+            let fires = match &t.guard {
+                Some(g) => eval_bool(g, &env) == Some(true),
+                None => true,
+            };
+            if fires {
+                return Some(t);
+            }
+        }
+        None
+    }
+
+    /// The planned violating traces must satisfy the two properties the
+    /// generated `monitor_<label>_fires_on_violation` tests rely on:
+    ///
+    /// 1. EXECUTABLE - the one-step drive actually takes the transition whose
+    ///    post-step configuration is recorded in the case (no higher-firing
+    ///    sibling matching the input fires first; firing order = priority desc,
+    ///    source order).
+    /// 2. TARGET FIRST - over the trace samples [initial config, post-step],
+    ///    no other MONITORED property newly fails earlier, or at the same
+    ///    sample with an earlier declaration order: the sticky
+    ///    `property_violation` record must hold the target label.
+    #[test]
+    fn planned_monitor_violations_are_executable_and_record_target_first() {
+        let root = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+        let files: Vec<std::path::PathBuf> =
+            crate::collect_rfs_files(root.join("examples/valid")).expect("examples");
+        assert_eq!(files.len(), 45, "corpus size");
+        // Recursive signal evaluator for the reference monitors (VarExpr atoms
+        // only - the planned traces carry no input/output samples beyond the
+        // step input, which is not part of a state/vars atom).
+        fn eval_sig(sig: &SignalExpr, env: &EvalEnv) -> bool {
+            match sig {
+                SignalExpr::Atom(SignalAtom::True) => true,
+                SignalExpr::Atom(SignalAtom::VarExpr(a)) => {
+                    matches!(eval_expr(a, env), Some(VarValue::Bool(true)))
+                }
+                SignalExpr::Not(x) => !eval_sig(x, env),
+                SignalExpr::And(l, r) => eval_sig(l, env) && eval_sig(r, env),
+                SignalExpr::Or(l, r) => eval_sig(l, env) || eval_sig(r, env),
+                _ => false,
+            }
+        }
+        for file in &files {
+            let src = std::fs::read_to_string(file).expect("read spec");
+            let ir = parse_source(&src).expect("parse spec");
+            let m = &ir.modules[0];
+            let v = build_variants(m);
+            let plan = build_test_plan(&v, m, 4);
+            for case in &plan.monitor_violations {
+                // (1) The drive takes the transition recorded in the case.
+                if let Some(input) = &case.step_input {
+                    let winner = firing_transition(m, &v, case.state.as_str(), input, &case.vars)
+                        .unwrap_or_else(|| {
+                            panic!(
+                                "{}: no transition fires for the planned input of '{}'",
+                                file.display(),
+                                case.label
+                            )
+                        });
+                    assert_eq!(
+                        winner.next_state,
+                        case.post_state,
+                        "{}: case={}",
+                        file.display(),
+                        case.label
+                    );
+                    assert_eq!(
+                        apply_assignments(m, winner, &case.vars),
+                        case.post_vars,
+                        "{}: case={}",
+                        file.display(),
+                        case.label
+                    );
+                }
+                // (2) The target label is recorded first.
+                let compiled: Vec<(usize, crate::monitor::MonitorPlan)> = m
+                    .properties
+                    .iter()
+                    .enumerate()
+                    .filter_map(|(i, p)| {
+                        monitor::compile_formula(&p.name, false, &p.formula)
+                            .ok()
+                            .map(|pl| (i, pl))
+                    })
+                    .collect();
+                let init_vars = init_var_values(m);
+                let samples: Vec<(String, Vec<(String, VarValue)>)> = std::iter::once((
+                    m.initial_state.clone().unwrap_or_default(),
+                    init_vars.clone(),
+                ))
+                .chain(
+                    case.step_input
+                        .as_ref()
+                        .map(|_| (case.post_state.clone(), case.post_vars.clone())),
+                )
+                .collect();
+                let mut mons: Vec<crate::monitor::ReferenceMonitor> = compiled
+                    .iter()
+                    .map(|(_, pl)| crate::monitor::ReferenceMonitor::new(pl))
+                    .collect();
+                let mut recorded: Option<String> = None;
+                for (s, (state, vars)) in samples.iter().enumerate() {
+                    let env = eval_env(m, state, vars, &[], &HashMap::new());
+                    for (i, mon) in mons.iter_mut().enumerate() {
+                        if mon.step(s, &|sig| eval_sig(sig, &env)) && recorded.is_none() {
+                            recorded = Some(m.properties[compiled[i].0].name.clone());
+                        }
+                    }
+                }
+                assert_eq!(
+                    recorded.as_deref(),
+                    Some(case.label.as_str()),
+                    "{}: case={} recorded={:?}",
+                    file.display(),
+                    case.label,
+                    recorded
+                );
+            }
+        }
     }
 }

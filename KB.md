@@ -50,7 +50,7 @@ Read order for a new assistant:
 | Invalid examples | 12 files | All fail as expected (parse or validation), including TLA-syntax anti-patterns, Phase 2 semantic errors (duplicate priority, shadowed duplicate transition, on_error without next, bad version header, duplicate set), and the Phase 3 `always[0]` zero-bound error. |
 | Validator | Phase 1 working | `src/validator.rs` performs name resolution, pattern/output checks, expression typing, and formula typing. |
 | Code generator | Phase 2 working (plugin system) | `src/codegen.rs` defines the Backend plugin API, the `BACKENDS` registry, and `rfs codegen` CLI parsing; shared analysis in `codegen_fsm/test/mc.rs` + `mc_plan.rs` (Phase 4 MC plan) + `monitor.rs` (Phase 3 monitors) + `smt_plan.rs`/`smt_emit.rs` (Phase 4 SMT); **Rust and C backends** under `src/backends/` each implement production/test/mc (C MC mirrors the Rust exact engine - same summary line, counterexample fields, and CLI wire format). See `CODEGEN.md`. |
-| Tests | Passing | 230 non-doc tests in the main crate (125 lib, 7 cross-backend parity, 5 benchmark MC, 26 codegen, 3 examples, 41 frontend CLI logic, 4 parser-library comparison, 9 liveness MC, 4 monitor integration, 4 training; +2 more with `--features smt`); generated aggregate unit-test crate currently has 537 passing tests (179 modules; it also compiles the valid training snippets, so the count moves with the snippet sets). |
+| Tests | Passing | 333 non-doc tests in the main crate (179 lib, 7 cross-backend parity, 5 benchmark MC, 39 codegen, 3 examples, 77 frontend CLI logic, 2 integration examples, 4 parser-library comparison, 9 liveness MC, 4 monitor integration, 4 training; +2 more with `--features smt`); generated aggregate unit-test crate currently has 1453 passing tests (179 modules; since Phase 5 task 5 each module also carries the extended plan classes - per-transition, invariant, monitor-violating-trace and random-trace tests; it also compiles the valid training snippets, so the count moves with the snippet sets). |
 | LLM training set | Maintained, 11 categories | `training/<category>/rfs_training.jsonl` stores category-specific SFT examples (design, syntax_semantics, properties_temporal_logic, model_checking, model_checking_space, model_checking_properties, codegen_rust, examples_explain, frontend_cli, project_tooling, tla_adaptation); `all_rfs_training.jsonl` is the generated aggregate (231 examples; Phase 4 task 12 added eventually/until + exact-MC-status/abstraction/liveness-counterexample coverage). |
 | Training snippets | Generated | `training/<category>/snippets/valid/*.rfs` and `snippets/invalid/*.rfs` are extracted from training JSONL, validated, and tested by the parser suite. |
 | Lint/format | Clean | `cargo clippy --all-targets` and `cargo fmt` were clean at last verification. |
@@ -787,7 +787,7 @@ cargo run -- codegen rust mc spec.rfs --assumes a1,a2 --out fsm_mc.rs
 
 - `--list` prints registered backends; `--help` prints common usage; `<backend> --help` lists that backend's commands and options (all rendered from the registry, no hardcoded text).
 - A generate request resolves the backend by name, selects the input format from the file extension (`.rfs`/`.json`; anything else is an error), converts the file to IR, and runs the command on `ir.modules[0]`.
-- Common options: `--assumes all|none|label1,label2` (default `all`), `--steps N` for the test command (default 4), `--out FILE` (default stdout; parent directories are created).
+- Common options: `--assumes all|none|label1,label2` (default `all`), `--steps N` for the test command (default 4), `--out FILE` (default stdout; parent directories are created). The Rust `test` command additionally emits a separate `fuzz_target.rs` (a `libfuzzer_sys` skeleton - see section 13.3): it is written next to `--out`, so the `test` command REQUIRES `--out FILE` and exits 1 in stdout mode (strict - no silent file loss).
 - MC-only codegen options (Phase 4): `--mode exact|fuzz|smt-bounded` (default `exact`; `smt-bounded` requires the `smt` cargo feature at codegen time), `--max-states N` (default 1,000,000), `--nondet`, `--timeout-sec N` (default 0 = off; wall-clock only, NOT parity-guaranteed), `--threads N` (default 1; exact mode is byte-identical for any N), `--smt-bound N` (default 10). All are embedded as defaults in the generated binary and overridable at runtime; `--fast` is runtime-only (non-parity early abort).
 - Warnings go to stderr; generated source goes to stdout or `--out`. Exit code 0 on success, 1 for unknown backend, bad extension, parse, or generation errors.
 - The plugin API and the procedure for adding a new target language are documented in `CODEGEN.md`; the Rust backend's internals in `src/backends/RUST.md`.
@@ -1398,9 +1398,13 @@ Generated API:
 
 - initial-state test;
 - positive adaptive sequence test up to `N` steps, default 4;
-- negative unexpected-input search test; if an input variant is unused by all transitions, the test asserts that `UnexpectedEvent` is found.
+- negative unexpected-input search test; if an input variant is unused by all transitions, the test asserts that `UnexpectedEvent` is found;
+- (Phase 5 task 5) per-transition unit tests `t<id>_<state>_on_<event>` - install the planned configuration, drive the concrete input, assert next state + outputs via the recorded trace step; a not-taken variant (`..._not_taken`) asserts no progress or an observably different landing;
+- (Phase 5 task 5) invariant tests `invariant_<label>` - re-check a safety property's per-sample atom at every sample of the positive drive trace, failing with the step index;
+- (Phase 5 task 5) monitor debug tests `monitor_<label>_fires_on_violation` - drive the planned violating trace and assert the sticky `property_violation` record holds the target label;
+- (Phase 5 task 5) a seeded random-trace test `random_trace_seed<seed>_steps<K>` driving the precomputed LCG input sequence (same constants as the fuzz wire format), printing deterministic coverage counts.
 
-The positive test uses trial clones and `StopAssumptionHandler`, so assumption violations do not panic during test discovery.
+The positive and invariant tests use trial clones and `StopAssumptionHandler`, so assumption violations do not panic during test discovery. The command ALSO emits a separate `fuzz_target.rs` next to `--out` (a `#![no_main]` + `libfuzzer_sys::fuzz_target!` skeleton decoding inputs per the planner's strategy - bool = non-zero byte, bit<W> = ceil(W/8) little-endian masked bytes, enum = constant representative). It is a separate file because it depends on `libfuzzer_sys`: the main test artifact and the aggregate crate stay dependency-free. Building/running the fuzz target is wired in Phase 5 task 12.
 
 ### 13.4 Bounded model checker
 
@@ -1424,7 +1428,7 @@ By default the sequence generator chooses only enabled inputs that satisfy activ
 ### 13.5 Phase 1 build commands
 
 See `BUILD.md` section 4: `cargo generate-code-tests` (aggregate test crate),
-`cargo test-generated-code` (compile + run the 537 generated unit tests), and
+`cargo test-generated-code` (compile + run the 1453 generated unit tests), and
 `cargo test codegen` (lightweight main-crate codegen tests).
 
 ### 13.6 Current Phase 1 limitations

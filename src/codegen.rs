@@ -156,6 +156,18 @@ pub enum PropertyMonitorMode {
     Always,
 }
 
+/// An additional file emitted alongside the primary artifact. Used when a
+/// command produces more than one file - for example the Rust `test` command
+/// also emits `fuzz_target.rs`, which depends on `libfuzzer_sys` and must not
+/// be inlined into the dependency-free test artifact.
+#[derive(Debug, Clone)]
+pub struct ExtraFile {
+    /// File name relative to the primary artifact's directory.
+    pub name: String,
+    /// The file content.
+    pub content: String,
+}
+
 /// Result of a backend generation command.
 #[derive(Debug)]
 pub struct CodegenOutput {
@@ -163,6 +175,9 @@ pub struct CodegenOutput {
     pub code: String,
     /// Non-fatal notes (for example properties outside the translated subset).
     pub warnings: Vec<String>,
+    /// Additional files written next to `--out` (the CLI refuses to run a
+    /// command with extras in stdout mode - see `main.rs`).
+    pub extra_files: Vec<ExtraFile>,
 }
 
 // ---------------------------------------------------------------------------

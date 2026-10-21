@@ -85,7 +85,13 @@ pub struct BackendOptions {
 pub struct CodegenOutput {
     pub code: String,            // generated source text
     pub warnings: Vec<String>,   // non-fatal notes (printed to stderr by the CLI)
+    pub extra_files: Vec<ExtraFile>, // additional files written next to --out
 }
+
+/// An additional file emitted alongside the primary artifact (Phase 5 task 5):
+/// e.g. the Rust `test` command's `fuzz_target.rs`, which depends on
+/// `libfuzzer_sys` and must not be inlined into the dependency-free artifact.
+pub struct ExtraFile { pub name: String, pub content: String }
 ```
 
 `AssumptionSelection` implements `FromStr` (`all`, `none`, or a comma-separated
@@ -176,7 +182,14 @@ For a `Generate` request the CLI, in order:
 4. takes `ir.modules[0]` (a spec with no modules is an error);
 5. dispatches via `CodegenCommandKind::run`; generation errors → stderr + exit 1;
 6. prints warnings to stderr, then writes the code to `--out` (creating parent
-   directories) or stdout; success → exit 0.
+   directories) or stdout; with `--out`, every `extra_files` entry is written
+   next to it (`<dir(--out)>/<name>`) and a `wrote <path>` line is printed per
+   file; success → exit 0.
+
+Strict multi-file rule (Phase 5 task 5): a command whose output carries extra
+files CANNOT run in stdout mode - the CLI exits 1 with a diagnostic naming the
+extra files and pointing at `--out` (no graceful degradation: the extra files
+would be silently lost).
 
 Exit codes: 0 on success, 1 on any error. All diagnostics go to stderr except
 the generated source (stdout).
@@ -232,7 +245,11 @@ rfs codegen rust mc spec.rfs --assumes a1,a2 --out fsm_mc.rs
     - `monitor_violations: Vec<MonitorViolationCase>` — for each in-subset
       property `always [N] (p)` where p is a boolean atom over state/vars, an
       injected violating configuration (+ one-step drive when needed) that
-      must fire the monitor. Other shapes are skipped with a planner note.
+      must fire the monitor. The search only accepts a transition whose post-
+      step configuration actually violates the atom AND which the generated
+      `fsm_step` would really take (a higher-firing sibling - priority desc,
+      source order - matching the input and whose guard holds is skipped;
+      task 5 correction C5-1). Other shapes are skipped with a planner note.
     - `random_trace: RandomTraceCase` — deterministic LCG input sequence
       (SAME constants as the fuzz wire format: 6364136223846793005 /
       1442695040888963407, top-53-bit double mapping; fixed seed 12345),
@@ -248,6 +265,33 @@ rfs codegen rust mc spec.rfs --assumes a1,a2 --out fsm_mc.rs
   generated runtime.
 - `is_deadlocked_initial(module, variants)`: inputs exist but there are no
   transitions at all (deadlock-style negative case).
+- Rendering (Phase 5 task 5, Rust backend in `rust_test.rs`; the C renderer
+  mirrors it in task 6) - stable test names, asserted by the parity suite:
+  - `t<id>_<state>_on_<event>` / `..._not_taken` — per-transition tests. The
+    case's configuration is installed (`fsm.state`/`fsm.vars`) and the input
+    driven with `ContinueAssumptionHandler`; the outcome is asserted via the
+    RECORDED trace step (`last.to_state`, `last.outputs`), which stays correct
+    even when a property violation halts the commit. Not-taken asserts either
+    `UnexpectedEvent` + no recorded step, or a landing observably different
+    from the transition's own signature.
+  - `invariant_<label>` — re-checks the property's per-sample atom (rendered
+    against `&Sample` by the shared `rust_fsm::render_signal_expr`) at every
+    sample of the positive drive trace; fails with the step index. Bounded
+    invariants check samples `< N` only.
+  - `monitor_<label>_fires_on_violation` — drives the planned violating trace
+    and asserts the sticky `property_violation` record holds the target label
+    (the planner guarantee above makes this sound).
+  - `random_trace_seed<seed>_steps<K>` — drives the precomputed LCG index
+    sequence (`ALL_INPUTS[i]`) with `StopAssumptionHandler` and prints one
+    deterministic line: `random_trace seed=… steps=… ok=… unexpected=…
+    assumption=… property=… states_visited=…` (distinct visited states).
+  The Rust `test` command ALSO emits `fuzz_target.rs` as a separate extra
+  file (`CodegenOutput.extra_files`): `#![no_main]` + `libfuzzer_sys::
+  fuzz_target!`, decoding the first byte as variant selector and each field
+  per `FuzzDecodePlan`, looping decoded inputs over `Fsm::step`. It is kept
+  OUT of the main artifact so that one stays dependency-free (the aggregate
+  generated-code crate compiles without external deps); the CLI writes it
+  next to `--out` and refuses stdout mode. Building/running it is task 12.
 
 ### 5.3 `codegen_mc.rs` (model-checker concepts, Phase 4)
 

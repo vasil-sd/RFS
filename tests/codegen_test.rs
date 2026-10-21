@@ -1241,3 +1241,223 @@ fn no_std_compile_sweep_and_body_parity_all_valid_examples() {
     }
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+// ---------------------------------------------------------------------------
+// Phase 5 task 5: Rust test renderer (four extended plan classes) + the
+// separate libfuzzer_sys fuzz-target skeleton.
+// ---------------------------------------------------------------------------
+
+/// Extract the generated test function names from a `#[cfg(test)]` module
+/// (functions named `fn <name>() {` - the tests; helpers like
+/// `candidate_inputs` carry a return type and are excluded).
+fn extract_generated_test_names(code: &str) -> Vec<String> {
+    code.lines()
+        .filter_map(|l| {
+            let t = l.trim();
+            let rest = t.strip_prefix("fn ")?;
+            let name = rest.split('(').next()?.to_string();
+            (rest.ends_with("() {")).then_some(name)
+        })
+        .collect()
+}
+
+/// All four extended plan classes are present for property-bearing examples,
+/// with the pinned stable names.
+#[test]
+fn rust_test_emits_all_four_extended_classes_for_property_examples() {
+    let backend = codegen::get_backend("rust").unwrap();
+    let options = codegen::BackendOptions {
+        assumptions: Default::default(),
+        steps: 4,
+        with_property_monitors: false,
+
+        ..codegen::BackendOptions::default()
+    };
+    for name in ["41_property_monitors.rfs", "43_sliding_window.rfs"] {
+        let ir = example_module(name);
+        let out = codegen::CodegenCommandKind::UnitTests
+            .run(backend, &ir.modules[0], &options)
+            .unwrap_or_else(|e| panic!("{}: {e:?}", name));
+        // Per-transition class (41 has transitions from every state).
+        assert!(out.code.contains("fn t0_"), "{}: per-transition test", name);
+        // Invariant class (both examples carry safety always-properties).
+        assert!(
+            out.code.contains("fn invariant_"),
+            "{}: invariant test",
+            name
+        );
+        // Property-monitor debug class.
+        assert!(
+            out.code.contains("_fires_on_violation() {"),
+            "{}: monitor-violating trace test",
+            name
+        );
+        // Random-trace class with the pinned seed and K in the name.
+        assert!(
+            out.code.contains("fn random_trace_seed12345_steps4() {"),
+            "{}: random-trace test",
+            name
+        );
+    }
+}
+
+/// The generated test names follow the pinned convention: the three
+/// module-level tests, `t<id>_<state>_on_<event>` (+ `_not_taken`),
+/// `invariant_<label>`, `monitor_<label>_fires_on_violation`, and
+/// `random_trace_seed<seed>_steps<K>`.
+#[test]
+fn rust_test_names_follow_the_pinned_convention() {
+    let backend = codegen::get_backend("rust").unwrap();
+    let options = codegen::BackendOptions {
+        assumptions: Default::default(),
+        steps: 4,
+        with_property_monitors: false,
+
+        ..codegen::BackendOptions::default()
+    };
+    // 40 has on_error + guarded transitions (not-taken cases); 41 is
+    // property-rich.
+    for name in ["40_on_error_recovery.rfs", "41_property_monitors.rfs"] {
+        let ir = example_module(name);
+        let out = codegen::CodegenCommandKind::UnitTests
+            .run(backend, &ir.modules[0], &options)
+            .unwrap_or_else(|e| panic!("{}: {e:?}", name));
+        for t in extract_generated_test_names(&out.code) {
+            let ok = matches!(
+                t.as_str(),
+                "initial_state_is_correct"
+                    | "positive_sequence_runs"
+                    | "negative_unexpected_input_search"
+                    | "random_trace_seed12345_steps4"
+            ) || t.starts_with("t")
+                && t[1..].chars().next().is_some_and(|c| c.is_ascii_digit())
+                && (t.contains("_on_") || t.ends_with("_not_taken"))
+                || t.starts_with("invariant_")
+                || t.ends_with("_fires_on_violation") && t.starts_with("monitor_");
+            assert!(ok, "{}: unexpected test name `{}`", name, t);
+        }
+    }
+}
+
+/// The `--steps` option flows into the random-trace class (name + sequence
+/// length) - option sensitivity for the new classes.
+#[test]
+fn rust_test_steps_option_changes_random_trace_class() {
+    let backend = codegen::get_backend("rust").unwrap();
+    let ir = example_module("41_property_monitors.rfs");
+    let run = |steps: usize| {
+        let options = codegen::BackendOptions {
+            assumptions: Default::default(),
+            steps,
+            with_property_monitors: false,
+
+            ..codegen::BackendOptions::default()
+        };
+        codegen::CodegenCommandKind::UnitTests
+            .run(backend, &ir.modules[0], &options)
+            .expect("unit-test codegen")
+    };
+    let a = run(2);
+    let b = run(6);
+    assert!(a.code.contains("fn random_trace_seed12345_steps2() {"));
+    assert!(b.code.contains("fn random_trace_seed12345_steps6() {"));
+    // The precomputed index sequence length tracks K.
+    let count = |code: &str| code.matches("usize").count();
+    assert_ne!(count(&a.code), count(&b.code));
+}
+
+/// The fuzz skeleton is emitted as a SEPARATE extra file; the main test
+/// artifact stays dependency-free (no libfuzzer references).
+#[test]
+fn rust_test_emits_fuzz_skeleton_as_separate_file() {
+    let backend = codegen::get_backend("rust").unwrap();
+    let options = codegen::BackendOptions {
+        assumptions: Default::default(),
+        steps: 4,
+        with_property_monitors: false,
+
+        ..codegen::BackendOptions::default()
+    };
+    // 43 has a struct input variant with bool + bit<4> + bit<32> fields.
+    let ir = example_module("43_sliding_window.rfs");
+    let out = codegen::CodegenCommandKind::UnitTests
+        .run(backend, &ir.modules[0], &options)
+        .expect("unit-test codegen");
+    assert_eq!(out.extra_files.len(), 1);
+    assert_eq!(out.extra_files[0].name, "fuzz_target.rs");
+    let fz = &out.extra_files[0].content;
+    assert!(fz.contains("#![no_main]"));
+    assert!(fz.contains("use libfuzzer_sys::fuzz_target;"));
+    assert!(fz.contains("fuzz_target!"));
+    // The decode plan is rendered: variant selector + payload masking.
+    assert!(fz.contains("% 2"));
+    assert!(fz.contains("& 0xFu8"));
+    // Main artifact stays dependency-free.
+    assert!(!out.code.contains("libfuzzer"));
+}
+
+/// CLI: `--out` writes the fuzz skeleton next to the test artifact; stdout
+/// mode is refused (strict - no silent file loss).
+#[test]
+fn cli_test_command_writes_fuzz_target_next_to_out() {
+    let spec =
+        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("examples/valid/41_property_monitors.rfs");
+    let dir = std::env::temp_dir().join(format!("rfs_t5_cli_{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    let out_path = dir.join("fsm_test.rs");
+
+    // --out: exit 0, both files written next to each other.
+    let out = std::process::Command::new(rfs_bin())
+        .args(["codegen", "rust", "test"])
+        .arg(&spec)
+        .arg("--out")
+        .arg(&out_path)
+        .output()
+        .expect("spawn rfs");
+    assert!(
+        out.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(stdout.contains("wrote"), "{}", stdout);
+    assert!(
+        dir.join("fuzz_target.rs").is_file(),
+        "fuzz skeleton missing"
+    );
+    assert!(out_path.is_file());
+
+    // stdout mode: exit 1 + diagnostic naming the extra file.
+    let out2 = std::process::Command::new(rfs_bin())
+        .args(["codegen", "rust", "test"])
+        .arg(&spec)
+        .output()
+        .expect("spawn rfs");
+    assert!(!out2.status.success());
+    let stderr = String::from_utf8_lossy(&out2.stderr);
+    assert!(stderr.contains("fuzz_target.rs"), "{}", stderr);
+    assert!(stderr.contains("--out"), "{}", stderr);
+
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// The aggregate generated-code crate: the new classes are present (per
+/// module) and the crate stays dependency-free (no fuzz skeleton inlined).
+#[test]
+fn aggregate_crate_carries_new_classes_and_stays_dependency_free() {
+    let options = codegen::BackendOptions {
+        assumptions: Default::default(),
+        steps: 4,
+        with_property_monitors: false,
+
+        ..codegen::BackendOptions::default()
+    };
+    let crate_ = rfs::backends::rust_test::generate_aggregate_test_crate(&files(), &options)
+        .expect("aggregate codegen");
+    assert!(crate_.lib.contains("fn random_trace_seed12345_steps4"));
+    assert!(crate_.lib.contains("fn invariant_") || crate_.lib.contains("_fires_on_violation"));
+    // No libfuzzer_sys anywhere: the aggregate must compile without deps.
+    assert!(!crate_.lib.contains("libfuzzer"));
+    assert!(!crate_.manifest.contains("libfuzzer"));
+}

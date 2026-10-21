@@ -131,6 +131,7 @@ pub fn generate_unit_tests(
     Ok(crate::codegen::CodegenOutput {
         code,
         warnings: prod.warnings,
+        extra_files: Vec::new(),
     })
 }
 

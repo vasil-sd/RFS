@@ -126,12 +126,13 @@ pub static PRODUCTION_INFO: BackendCommandInfo = BackendCommandInfo {
     options: "--assumes all|none|label1,label2  assumptions to activate (default: all)\n      --out FILE                    write generated source to FILE (default: stdout)",
 };
 
-/// Command: generate Rust FSM code plus a unit-test module.
+/// Command: generate Rust FSM code plus a unit-test module + a separate
+/// libfuzzer_sys fuzz-target skeleton file.
 pub static TEST_INFO: BackendCommandInfo = BackendCommandInfo {
     name: "test",
-    summary: "Generate Rust FSM code + unit tests (positive runs up to K steps, negative unexpected-input search)",
-    usage: "rfs codegen rust test <spec.rfs|spec.json> [--out FILE] [--steps N] [--assumes all|none|l1,l2]",
-    options: "--steps N  example-run length K (default: 4)\n      --assumes all|none|label1,label2  assumptions to activate (default: all)\n      --out FILE                    write generated source to FILE (default: stdout)",
+    summary: "Generate Rust FSM code + unit tests (module-level, per-transition, invariant, monitor-violation, random-trace) + separate fuzz_target.rs",
+    usage: "rfs codegen rust test <spec.rfs|spec.json> --out FILE [--steps N] [--assumes all|none|l1,l2]",
+    options: "--steps N  example-run length K (default: 4)\n      --assumes all|none|label1,label2  assumptions to activate (default: all)\n      --out FILE                    REQUIRED: write the test artifact to FILE; the libfuzzer_sys fuzz skeleton is written next to it as fuzz_target.rs (stdout mode is refused - no graceful degradation)",
 };
 
 /// Command: generate a bounded model-checker Rust executable.

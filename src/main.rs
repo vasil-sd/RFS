@@ -23,7 +23,7 @@ diagram: state-diagram + table formats as plugins (one module per format).
          script instead of executing. Runs on the first module of the spec.
          See BUILD.md/TOOLCHAIN.md for installing dot/plantuml/mermaid.
 
-codegen: target-language plugin registry. `--list` shows registered backends;\n         `<backend> --help` lists that backend's commands. Each command runs on\n         the first module of the spec and writes generated source to --out or\n         stdout. See CODEGEN.md for the backend plugin API.\n\nexamples:\n  cargo run -- parse --input rfs --output json specs/handshake.rfs\n  cargo run -- parse --input rfs --output rfs specs/ --target-dir out/\n  cargo run -- validate specs/handshake.rfs\n  cargo run -- validate --input rfs specs/\n".to_string()
+codegen: target-language plugin registry. `--list` shows registered backends;\n         `<backend> --help` lists that backend's commands. Each command runs on\n         the first module of the spec and writes generated source to --out or\n         stdout. The rust `test` command additionally emits fuzz_target.rs\n         (a libfuzzer_sys skeleton) next to --out, so it requires --out.\n         See CODEGEN.md for the backend plugin API.\n\nexamples:\n  cargo run -- parse --input rfs --output json specs/handshake.rfs\n  cargo run -- parse --input rfs --output rfs specs/ --target-dir out/\n  cargo run -- validate specs/handshake.rfs\n  cargo run -- validate --input rfs specs/\n".to_string()
 }
 
 fn main() -> ExitCode {
@@ -342,8 +342,35 @@ fn cmd_codegen(args: &[String]) -> ExitCode {
                                 return ExitCode::FAILURE;
                             }
                             println!("wrote {}", path);
+                            // Additional files (e.g. the rust `test` command's
+                            // fuzz_target.rs) are written next to --out.
+                            let dir = Path::new(&path).parent().unwrap_or_else(|| Path::new("."));
+                            for extra in &result.extra_files {
+                                let epath = dir.join(&extra.name);
+                                if std::fs::write(&epath, &extra.content).is_err() {
+                                    return ExitCode::FAILURE;
+                                }
+                                println!("wrote {}", epath.display());
+                            }
                         }
-                        None => print!("{}", result.code),
+                        None => {
+                            // Strict: a command that emits additional files
+                            // cannot run in stdout mode (the extra files would
+                            // be lost) - no graceful degradation.
+                            if !result.extra_files.is_empty() {
+                                let names = result
+                                    .extra_files
+                                    .iter()
+                                    .map(|e| e.name.as_str())
+                                    .collect::<Vec<_>>()
+                                    .join(", ");
+                                eprintln!(
+                                    "error: this command emits additional files ({names}) that cannot be written to stdout; use --out FILE (they are written next to it)"
+                                );
+                                return ExitCode::FAILURE;
+                            }
+                            print!("{}", result.code);
+                        }
                     }
                     ExitCode::SUCCESS
                 }

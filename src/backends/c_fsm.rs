@@ -43,6 +43,7 @@ pub(crate) fn generate_core(
     Ok(crate::codegen::CodegenOutput {
         code: gen.code,
         warnings,
+        extra_files: Vec::new(),
     })
 }
 

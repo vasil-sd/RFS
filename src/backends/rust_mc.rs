@@ -41,6 +41,7 @@ pub fn generate_model_checker(
         return Ok(CodegenOutput {
             code,
             warnings: Vec::new(),
+            extra_files: Vec::new(),
         });
     }
     // The model checker reuses the production FSM core without unit tests.
@@ -66,6 +67,7 @@ pub fn generate_model_checker(
     Ok(CodegenOutput {
         code: out,
         warnings: fsm.warnings.into_iter().chain(liv_warnings).collect(),
+        extra_files: Vec::new(),
     })
 }
 

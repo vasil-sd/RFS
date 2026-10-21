@@ -46,14 +46,14 @@ SMT output compiles per section 5.3.
 
 | Suite | Command | Current result |
 |---|---|---|
-| All root-package (`rfs`) tests | `cargo test` | **326 pass** (178 lib incl. the 24 json_rw tests + 7 ext_tool resolver/script/stub pins + 2 cli_log + the task 4 codegen-test-planner suite (per-transition guard cases with pinned values, sibling-priority/shadowing rules, safety-only invariant selection on example 43, monitor-violating traces verified against the Phase 3 reference interpreter, LCG sequence byte-pins, fuzz decode pins, 45-example corpus sweep), 7 cross-backend parity, 5 benchmark MC, 33 codegen incl. the task 9 no_std suite (flag parsing + e2e exit codes, test/mc entry-point rejections with the pinned message, header byte-pins for std/no_std x outputs-present/absent, C no-op note pin, and the 45-example x 2-modes compile sweep + body-parity check, rustc-gated), 3 examples, 77 frontend CLI logic incl. 3 IR-JSON golden/round-trip pins + the task 3 `rfs info` suite + the task 8 `rfs diagram` suite (pinned outputs for all 5 formats, 45-example sweep, real-tool render acceptance with negative controls, stub argv proofs, strict render-error cases, byte-pinned --print-script), 4 parser-library comparison, 9 liveness MC, 4 monitor integration, 4 training; +2 more with `--features smt`) |
-| All workspace members | `cargo test --workspace` | **334 pass** (the 326 above + rfs-build: 6 unit incl. RFS_BIN precedence/stub error propagation + the `.no_std()` argv pin, 2 real end-to-end vs the workspace binary) |
+| All root-package (`rfs`) tests | `cargo test` | **333 pass** (179 lib incl. the 24 json_rw tests + 7 ext_tool resolver/script/stub pins + 2 cli_log + the task 4 codegen-test-planner suite (per-transition guard cases with pinned values, sibling-priority/shadowing rules, safety-only invariant selection on example 43, monitor-violating traces verified against the Phase 3 reference interpreter, LCG sequence byte-pins, fuzz decode pins, 45-example corpus sweep) + the task 5 planner guarantee (planned violating traces are executable - no higher-firing sibling preempts - and record the target label first), 7 cross-backend parity, 5 benchmark MC, 39 codegen incl. the task 9 no_std suite (flag parsing + e2e exit codes, test/mc entry-point rejections with the pinned message, header byte-pins for std/no_std x outputs-present/absent, C no-op note pin, and the 45-example x 2-modes compile sweep + body-parity check, rustc-gated) + the task 5 renderer suite (all four extended test classes present on property-bearing examples, pinned name convention, `--steps` sensitivity of the random-trace class, fuzz skeleton as a separate extra file with the main artifact staying dependency-free, CLI writes it next to `--out` / refuses stdout mode, aggregate crate carries the new classes without libfuzzer), 3 examples, 77 frontend CLI logic incl. 3 IR-JSON golden/round-trip pins + the task 3 `rfs info` suite + the task 8 `rfs diagram` suite (pinned outputs for all 5 formats, 45-example sweep, real-tool render acceptance with negative controls, stub argv proofs, strict render-error cases, byte-pinned --print-script), 4 parser-library comparison, 9 liveness MC, 4 monitor integration, 4 training; +2 more with `--features smt`) |
+| All workspace members | `cargo test --workspace` | **341 pass** (the 333 above + rfs-build: 6 unit incl. RFS_BIN precedence/stub error propagation + the `.no_std()` argv pin, 2 real end-to-end vs the workspace binary) |
 | rfs-build only (build.rs helper) | `cargo test -p rfs-build` | 8 pass; the rust e2e compiles the generated artifact with `rustc --edition 2021 --crate-type lib` |
 | Parser unit tests only | `cargo test --lib` | part of the 273 |
 | Example suite (file-driven: drop `.rfs` into `examples/valid\|invalid`, no test-code change) | `cargo test --test examples_test` | 3 pass; all 45 valid parse+validate+round-trip, all 12 invalid are rejected (parse or validation) |
 | Parser-library comparison (nom vs chumsky smoke) | `cargo test --test library_comparison` | 4 pass |
 | Training-set structure/snippets/aggregation/freshness | `cargo test-training` (= `cargo test training`) | 5 pass (see command table note) |
-| Generated-code aggregate unit tests (separate crate under `target/rfs_codegen_tests`) | `cargo test-generated-code` | **537 pass** (179 modules; includes valid training snippets, so the count moves when snippet sets change) |
+| Generated-code aggregate unit tests (separate crate under `target/rfs_codegen_tests`) | `cargo test-generated-code` | **1453 pass** (179 modules; since Phase 5 task 5 each module also carries the extended plan classes - per-transition, invariant, monitor-violating-trace and random-trace tests - so the count grows with spec coverage; includes valid training snippets, so it moves when snippet sets change) |
 | Benchmark MC suite (Phase 4 task 9: specs 43/44/45 x both backends in exact mode, inline FAIL variants, JSON report; task 10B adds the `--threads` parity gate + `--fast` smoke) | `cargo test --test benchmark_mc_test` | 5 pass; all three benchmarks pass-complete in BOTH backends with metrics identical to the task 6/8 record (165/330/22, 129985/519940/276, 11098/99882/22); FAIL variants pinned (safety `holder_no_request` step 1; liveness `up2_served`, cycle length 3); `--threads 1/2/4` byte-identical to each other and across backends on all five workloads; `target/mc_benchmarks.json` written + per-backend table printed (wall-clock informational only) |
 
 Other suites: `tests/frontend_test.rs` covers all four conversion combinations, strict
@@ -91,7 +91,7 @@ report (`target/mc_benchmarks.json`, development artifact, wall-clock informatio
 | Property monitors in production builds (Phase 3) | `--with-property-monitors` is accepted on the `production` command of ANY backend only; `test` and `mc` always include monitors. Rust gates monitor emission/stepping on `#[cfg(debug_assertions)]` (zero cost in release); C gates on `-DRFS_PROPERTY_MONITORS` |
 | no_std production codegen (Phase 5 task 9) | `--no-std` is accepted on the `production` command only (`test`/`mc` -> exit 1 with the pinned message). Rust: `#![no_std]` + `extern crate alloc`, identical public API (body byte-identical to std output); C: documented no-op (header comment) |
 | Generate aggregate generated-code test crate (179 modules) | `cargo generate-code-tests [--test-steps N] [--assumes ...]` |
-| Generate + compile + run all generated unit tests (537) | `cargo test-generated-code` |
+| Generate + compile + run all generated unit tests (1453) | `cargo test-generated-code` |
 | Extract training snippets from `training/*/rfs_training.jsonl` | `cargo extract-training-snippets` -> 130 valid / 127 invalid snippets |
 | Aggregate training JSONL | `cargo build-training` -> writes `all_rfs_training.jsonl` (231 examples) |
 | Run training tests | `cargo test-training` (= `cargo test training`; matches 5 tests: 4 dedicated + the codegen aggregate test whose name contains "training") |
@@ -100,7 +100,7 @@ report (`target/mc_benchmarks.json`, development artifact, wall-clock informatio
 Alias re-verification after the Phase 5 task 1 workspace conversion (all run from the
 repo root, all working unchanged - no alias needed a `-p rfs` qualifier): `cargo run`
 (default-run `rfs`), `cargo parse --help`, `cargo validate --input rfs <file>`,
-`cargo codegen --list`, `cargo generate-code-tests`, `cargo test-generated-code` (537
+`cargo codegen --list`, `cargo generate-code-tests`, `cargo test-generated-code` (1453
 pass - required the generated-crate `[workspace]` fix, see section 1),
 `cargo extract-training-snippets` (130/127), `cargo build-training` (231 aggregate),
 `cargo test-training` (5 pass).
@@ -127,8 +127,8 @@ Additional checks depending on what changed:
   and the z3 env vars from `TOOLCHAIN.md` section 5.2; spot-compile generated C SMT
   output per section 5.3.
 
-Known-good baseline (2026-10-20, after Phase 4): 230/230 main tests (232 with
-`--features smt`, z3 env per TOOLCHAIN.md section 5.2), 537/537 generated tests
+Known-good baseline (2026-10-21, after Phase 5 task 5): 333/333 main tests (335 with
+`--features smt`, z3 env per TOOLCHAIN.md section 5.2), 1453/1453 generated tests
 (179 modules), clippy without errors (12 pre-existing warnings: 11 in lib -
 mostly `src/backends/c_fsm.rs` monitor rendering + `from_str` naming - and 1
 `&PathBuf` arg in `tests/codegen_test.rs`), fmt clean. C generated code compiles

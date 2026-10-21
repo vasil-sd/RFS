@@ -47,10 +47,18 @@ after Phase 4 close-out (2026-10-20). Findings that shape this plan:
   outcomes). libFuzzer targets need CLANG to build - the skeleton is generated
   for both backends but building/running the C fuzz target is documented as a
   clang requirement (Rust side uses cargo-fuzz/libfuzzer_sys). (Tasks 5, 11.)
-- **SVG/PNG diagrams** require an external Graphviz `dot` binary. Decision:
-  DOT output is pure-Rust (no dependency); SVG/PNG are rendered by invoking
-  `dot` when present on PATH, with a graceful fallback to DOT-only + warning.
-  Documented as an optional system dependency. (Task 8.)
+- **Diagram formats as plugins (user requirement, 2026-10-21)**: `rfs diagram`
+  is built on a plugin registry mirroring the codegen backend pattern
+  (`src/diagrams/` + `DiagramPlugin` in `src/diagram.rs`) so new formats are
+  added as one module + one registry line. v1 plugins: `dot` (Graphviz),
+  `puml` (PlantUML state diagrams - edge label `event \n guard`, emitted data
+  via `note on link`), `mmd` (Mermaid `stateDiagram-v2` - all info in
+  multi-line edge labels, since mermaid has no notes-on-links), plus `table`/
+  `md` transition tables + variable/event summaries. PRIMARY behaviour is pure
+  text generation with NO tool calls; `--render svg` invokes the format's tool
+  (`dot`/`plantuml`/`mmdc`) with graceful fallback (warn + keep source file).
+  All three are optional system dependencies: graphviz/plantuml via apt,
+  mermaid-cli via npm. (Task 8.)
 - **Test generation today**: the shared planner (`codegen_test.rs`) produces
   module-level tests only (positive drive, negative unexpected-input probe,
   deadlock-style). Phase 5 extends it with per-transition unit tests,
@@ -65,20 +73,24 @@ after Phase 4 close-out (2026-10-20). Findings that shape this plan:
   command that invokes external tools/compilers/build systems must be
   parameterizable by tool PATHS and additional tool PARAMETERS. Design:
   environment variables are the PREFERRED mechanism - `RFS_RUSTC` / `RFS_GCC`
-  / `RFS_DOT` (paths) and `RFS_RUSTC_ARGS` / `RFS_GCC_ARGS` / `RFS_DOT_ARGS`
-  (space-separated extra parameters); rfs-build uses `RFS_BIN` to locate the
-  rfs executable. Per-command CLI flags (`--rustc PATH`, `--gcc PATH`,
-  `--dot PATH`, `--rustc-args "..."`, etc.) override the env vars; without
-  either, the bare tool name is looked up on PATH. A shared resolver +
-  invocation helper (task 3) implements the precedence and renders/executes
-  command lines identically for all commands.
+  / `RFS_DOT` / `RFS_PLANTUML` / `RFS_MERMAID` (paths) and
+  `RFS_RUSTC_ARGS` / `RFS_GCC_ARGS` / `RFS_DOT_ARGS` / `RFS_PLANTUML_ARGS` /
+  `RFS_MERMAID_ARGS` (space-separated extra parameters); rfs-build uses
+  `RFS_BIN` to locate the rfs executable. Per-command CLI flags (`--rustc
+  PATH`, `--gcc PATH`, `--dot PATH`, `--plantuml PATH`, `--mermaid PATH`,
+  `--*-args "..."`, etc.) override the env vars; without either, the bare tool
+  name is looked up on PATH. A shared resolver + invocation helper (task 3)
+  implements the precedence and renders/executes command lines identically for
+  all commands.
 - **Script-generation mode (user requirement, 2026-10-20)**: commands that
   invoke external tools accept `--print-script`: instead of executing, they
   print a deterministic POSIX sh script to stdout (shebang, `set -e`, header
   comment with rfs version + spec + resolved tool paths/args, one commented
   step per invocation) and exit 0. Applies to `rfs test` (compile + run steps)
-  and `rfs diagram` (the `dot` invocation for SVG/PNG; dot/md formats emit a
-  script with a no-external-tool comment). Output is unit-test-pinned.
+  and `rfs diagram --render svg` (self-contained: heredoc writing the generated
+  source, then the dot/plantuml/mmdc render invocation; for mermaid an extra
+  step writes the temp puppeteer config; without `--render`, a no-external-tool
+  script). Output is unit-test-pinned.
 - **Hand-rolled JSON reader-writer, ALL sources (user requirement, 2026-10-20)**: a
   full hand-rolled JSON READER+WRITER (`src/json_rw.rs`) replaces serde/serde_json
   EVERYWHERE in the toolchain - IR serialization/round-trip, all `--json` CLI
@@ -105,7 +117,7 @@ after Phase 4 close-out (2026-10-20). Findings that shape this plan:
 | 5. | Rust test renderer + libfuzzer_sys skeleton | `src/backends/rust_test.rs` (change), generated aggregate crate (regenerated) | Render the extended plan into the `test` command output: per-transition tests, invariant checks, monitor debug tests, random-trace test, plus a fuzz skeleton file using `libfuzzer_sys` (as in PHASE_5.md's example). Regenerate the aggregate crate; all generated-code tests green; re-pin counts. |
 | 6. | C test renderer + libFuzzer skeleton | `src/backends/c_test.rs` (change), `tests/backend_parity_test.rs` (change) | Mirror of task 4 in C: SAME cases, SAME expected outcomes (identical coverage per PHASE_5.md); plain-assert harness extended accordingly; libFuzzer C skeleton generated with a documented clang build recipe. `gcc -Wall` stays clean on every generated artifact. Extend the parity suite: both backends' generated test executables must agree on every example, including the new test classes. |
 | 7. | `rfs test` command | `src/main.rs` (change), `src/test_cmd.rs` (new), `tests/frontend_test.rs` (change) | New stable command: generate + compile + run the extended test suite for a spec in one invocation. Options: `--backend rust\|c` (default rust), `--steps N`, `--log-level`; external-tool parameterization via task 3's resolver - `--rustc PATH` / `--gcc PATH` + `--rustc-args "..."` / `--gcc-args "..."` overriding `RFS_RUSTC`/`RFS_GCC` (+ `*_ARGS`); and `--print-script` to emit the compile+run steps as a shell script instead of executing. Exit 0 on all-pass, 1 on failure/compile error, with per-test results on stdout and diagnostics on stderr. Rationale: "CI can run model checking and generated tests" exit criterion - CI calls `rfs test` (or its generated script) instead of wiring codegen+compiler by hand. |
-| 8. | `rfs diagram` command | `src/main.rs` (change), `src/diagram.rs` (new), `tests/frontend_test.rs` (change) | New stable command: Graphviz DOT state diagram (pure Rust, no dependency - states as nodes, transitions labeled with event/guard/next), transition table (state x event -> guard/action matrix) and variable/event summary, rendered as text or Markdown. Options: `--format dot\|md\|svg\|png` (default dot), `--out FILE`, `--log-level`; external-tool parameterization via task 3's resolver - `--dot PATH` + `--dot-args "..."` overriding `RFS_DOT`/`RFS_DOT_ARGS`; and `--print-script` (emits the `dot` invocation for SVG/PNG; dot/md formats get a no-external-tool script). SVG/PNG invoke the resolved `dot` binary; if absent, fall back to DOT with a warning (documented optional system dependency). |
+| 8. | `rfs diagram` command (EXTENDED 2026-10-21: plugin architecture + dot/plantuml/mermaid) | `src/main.rs` (change), `src/diagram.rs` (new), `src/diagrams/` (new - mod.rs, dot.rs, plantuml.rs, mermaid.rs, tables.rs), `src/ext_tool.rs` (change - RFS_PLANTUML/RFS_MERMAID presets), `tests/frontend_test.rs` (change), `BUILD.md` + `TOOLCHAIN.md` (change) | New stable command on a plugin registry mirroring the codegen backend pattern: every format is a `DiagramPlugin` (name, ext, pure-Rust `generate` fn, optional svg tool preset + `render_svg` fn). v1 formats: `dot` (Graphviz, pure Rust), `puml` (PlantUML state diagram - edge label `event \n guard`, emitted data via `note on link`, `-[dashed]->` on_error), `mmd` (Mermaid stateDiagram-v2 - all info in multi-line edge labels; `[on_error]` prefix; no notes-on-links/dotted edges exist), `table`/`md` (state x event matrix + variable/event summaries). PRIMARY behaviour = text generation with NO tool calls. `--render svg` (requires `--out FILE.svg`; source written next to it) invokes the resolved `dot -Tsvg` / `plantuml -tsvg` / `mmdc` (+auto temp puppeteer JSON with --no-sandbox for root); missing tool -> warn + keep source + exit 0. Options: `--format dot\|puml\|mmd\|table\|md` (default dot), `--out FILE`, `--list`, `--render svg`, `--log-level`; parameterization via task 3's resolver - `RFS_DOT`/`RFS_PLANTUML`/`RFS_MERMAID` + `*_ARGS` env vars, overriding `--dot/--plantuml/--mermaid PATH` + `--*-args "..."` flags; `--print-script` (self-contained render script incl. heredoc + puppeteer step for mmd; no-tool script otherwise). Tests: pinned output for all 5 formats, 45-example sweep, real-tool acceptance tests (plantuml exit 0 / negative control exit 200; mmdc exit 0 / negative control exit 1 `Parse error`), stub-tool argv proofs, fallback test. BUILD.md/TOOLCHAIN.md: install/run instructions for dot/plantuml/mermaid. Full details: PHASE_5_TASK_8.md (extended). |
 | 9. | no_std production codegen (`--no-std`) | `src/codegen.rs` (change - flag), `src/backends/rust_fsm.rs` (change), `src/backends/c_fsm.rs` (change - no-op note), `tests/codegen_test.rs` (change) | Per Context: PRODUCTION command only; generated Rust becomes `#![no_std]` + `extern crate alloc` with identical public API shape (Vec/Box via alloc; no std-only items). test/mc stay std. C accepts the flag as a documented no-op (plain C already dependency-free). Verification: every valid example's production output compiles under `#![no_std]` (compile check in the test suite); behavior parity unchanged. |
 | 10. | MC counterexample JSON format (`--counterexample-format json\|text`) | `src/codegen.rs` (change - flag), `src/codegen_mc.rs` (change - JSON doc types), `src/backends/rust_mc.rs` + `src/backends/c_mc.rs` (change - renderers), `tests/backend_parity_test.rs` (change) | Codegen-time + runtime-overridable flag, default `text` (the pinned format is UNCHANGED). `json` emits a machine-readable document mirroring the text report: status, metrics (states/transitions/max_depth), reason/label/step, statistics block, and the counterexample (trace or lasso) as structured data. Parity extension: byte-identical JSON across backends for the same spec/mode. Rationale: CI + IDE integration need machine-readable MC results (exit criteria). |
 | 11. | `ProtocolFsm` trait + adapter crate + Rust example crates | `crates/rfs-adapters/Cargo.toml` + `src/` (new), `src/backends/rust_fsm.rs` (change - optional impl emission), `src/codegen.rs` (change - `--with-protocol-fsm` flag), `crates/examples/sync_handler/`, `crates/examples/async_handler/` (new) | Per Context: codegen optionally emits `impl ProtocolFsm for Fsm` (flag `--with-protocol-fsm`, off by default to keep the plain surface); `rfs-adapters` provides the trait + GENERIC wrappers: sync channel-based adapter, futures-based async adapter, callback-based adapter - all parameterized over `F: ProtocolFsm`, no dependency on generated code. Example crates demonstrate a real protocol (reuse example 43 sliding-window ARQ): sync handler and async (futures) handler compiled against generated code + adapters. Rust-ecosystem-only by design (documented per parity principle). |

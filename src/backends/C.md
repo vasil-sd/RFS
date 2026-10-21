@@ -11,12 +11,18 @@ see `RUST.md`.
 |---|---|
 | `c.rs` | Plugin entry: `C_BACKEND` static plus shared C helpers: `c_ident` (keyword-safe snake_case identifier), `bit_c_type` (fixed-width mapping), `c_type` (IR type -> C type). |
 | `c_fsm.rs` | `production` command: emits the standalone FSM source. Core reused by `test` and `mc`. |
-| `c_test.rs` | `test` command: production code + plain-assert test harness with its own `main`. |
+| `c_test.rs` | `test` command: production code + plain-assert per-test harness (one function per test, table-driven `main`, one `PASS <name>`/`FAIL <name>` line per test - same stable names as the Rust renderer) + separate `fuzz_target.c` libFuzzer skeleton (extra file). |
 | `c_mc.rs` | `mc` command: (default exact / legacy fuzz) production core + mirror of the Rust exact engine (pthreads for `--threads`, C11 atomics, gcc -Wall clean) + fuzz runtime + generated `main` dispatching on `--mode`; (SMT mode) standalone binary linking libz3. |
 
 Dependency direction mirrors the Rust backend: `c_mc -> c_fsm`,
 `c_test -> c_fsm`, all three -> shared helpers in `c.rs` and the
 language-agnostic core modules (`codegen_fsm`, `codegen_test`, `codegen_mc`).
+The test renderer also reuses the sample-signal machinery extracted from the
+monitor compiler (Phase 5 task 6): free functions `render_signal_expr_c`,
+`input_is_sample_helper_c`, `output_has_sample_helper_c`,
+`input_match_cond_c`, `output_match_cond_c` and
+`collect_liv_signal_patterns` in `c_fsm.rs` (prefix-parameterized, so monitor
+rendering stays byte-identical).
 
 ## 2. Generated artifact design
 
@@ -30,6 +36,20 @@ Every command emits **one self-contained `.c` file**:
 no-op (plain C is already dependency-free; CLI symmetry with the Rust backend).
 The only effect is one comment line in the header:
 `// --no-std accepted: the C backend is already dependency-free; the flag has no effect on this output.`
+
+**Test artifact (Phase 5 task 6)**: the `test` command renders the shared test
+plan with IDENTICAL coverage to the Rust renderer - module-level tests plus the
+four extended classes under the same stable names (`t<id>_<state>_on_<event>` /
+`..._not_taken`, `invariant_<label>`, `monitor_<label>_fires_on_violation`,
+`random_trace_seed<seed>_steps<K>`). Each test is a function in a table-driven
+`main()` printing one line per test (`PASS <name>` / `FAIL <name>`); the
+random-trace test prints the same deterministic coverage line as Rust. The
+command ALSO emits `fuzz_target.c` as a separate extra file (libFuzzer
+skeleton; needs clang to BUILD, not to generate - recipe in its header).
+Zero-warning bar: every generated C artifact (test + fuzz skeleton) compiles
+with `gcc -Wall` at zero warnings on all valid examples - including
+transition-less modules (`rfs_commit` carries `RFS_UNUSED`; the harness emits
+`cont_handler` only when a test uses it).
 
 ### Type mapping (decision D8, DESIGN.md section 20)
 

@@ -110,6 +110,14 @@ outcomes + coverage lines) byte-for-byte; assert fuzz skeletons exist in both.
 - `rfs test` CLI (task 6).
 - Changing the Rust renderer (task 4's output is the baseline).
 
+## Task corrections
+
+| Correction | Description + rationale |
+|------------|-------------------------|
+| C6-1: zero-warning bar extended to ALL generated C artifacts | The full 45-example sweep (beyond the parity suite's property-bearing set) found pre-existing `gcc -Wall` warnings on transition-less specs (`29_empty_module`, `30_multi_module`: unused `rfs_commit`; the old harness additionally left `ALL_INPUTS`/`clone_fsm`/`stop_handler` unused there). To meet the exit criterion "every generated C artifact compiles with gcc -Wall at zero warnings": (a) `rfs_commit` in `c_fsm.rs` now carries `RFS_UNUSED` (verified: the ONLY production-output delta vs the pre-change build on all 175 artifacts is that one token); (b) the harness emits `cont_handler` only when a test uses it, and the fuzz skeleton emits `fuzz_stop_handler` only for input-bearing modules. The new per-test structure already removed the three old-harness warnings on those specs. |
+| C6-2: negative test now drives with `RFS_CONTINUE` (was `stop_handler`) | The pre-task C harness used a STOP assumption handler for the negative search's trial steps, while the Rust baseline (task 5) uses `ContinueAssumptionHandler` - an assumption-violating candidate is accepted in Rust but rejected in C. Mirrored Rust exactly (parity principle: fix the renderer that deviates from the plan data). No example changed outcome (suite green). |
+| C6-3: per-test `PASS <name>`/`FAIL <name>` lines introduced for ALL tests | The task file's Context describes this wire format as pre-existing, but the old harness only printed `FAIL: <msg>` diagnostics + a summary (no per-test names at all). The new table-driven harness prints one line per test for every class - including the three module-level tests, which now carry the Rust stable names (`initial_state_is_correct`, `positive_sequence_runs`, `negative_unexpected_input_search`) so the parity comparison covers them too. C test-executable stdout therefore changes (additive lines + summary kept); no pinned test depended on the old format. |
+
 ## Other information
 - If a per-test line differs between backends, fix the RENDERER that deviates
   from the plan data - never weaken the comparison.

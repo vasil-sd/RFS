@@ -93,7 +93,11 @@ fn cached_binary(key: &str, make: impl FnOnce(&Path) -> PathBuf) -> PathBuf {
     path
 }
 
-fn generate(backend_name: &str, command: rfs::codegen::CodegenCommandKind, spec: &Path) -> String {
+fn generate_full(
+    backend_name: &str,
+    command: rfs::codegen::CodegenCommandKind,
+    spec: &Path,
+) -> rfs::codegen::CodegenOutput {
     let src = std::fs::read_to_string(spec).unwrap_or_else(|e| panic!("read {:?}: {e}", spec));
     let ir = rfs::parse_source(&src)
         .unwrap_or_else(|e| panic!("{:?} must parse ({backend_name}): {e}", spec));
@@ -110,7 +114,10 @@ fn generate(backend_name: &str, command: rfs::codegen::CodegenCommandKind, spec:
     command
         .run(backend, &ir.modules[0], &options)
         .unwrap_or_else(|e| panic!("codegen {backend_name} {:?} must succeed: {e:?}", spec))
-        .code
+}
+
+fn generate(backend_name: &str, command: rfs::codegen::CodegenCommandKind, spec: &Path) -> String {
+    generate_full(backend_name, command, spec).code
 }
 
 fn compile_rust(src: &Path, bin: &Path, as_test: bool) {
@@ -639,11 +646,70 @@ fn mc_exact_results_match_re_pinned_values() {
 // Action 3: generated test executables both pass (identical results)
 // ---------------------------------------------------------------------------
 
+/// Per-test results from a Rust libtest executable (normal run): the lines
+/// `test tests::<name> ... ok|FAILED` normalized to `<name> PASS|FAIL`.
+fn parse_rust_test_results(stdout: &str) -> Vec<String> {
+    stdout
+        .lines()
+        .filter_map(|line| {
+            let rest = line.strip_prefix("test ")?;
+            let (name, result) = rest.rsplit_once(" ... ")?;
+            if result != "ok" && result != "FAILED" {
+                return None;
+            }
+            let name = name.strip_prefix("tests::").unwrap_or(name);
+            Some(format!(
+                "{name} {}",
+                if result == "ok" { "PASS" } else { "FAIL" }
+            ))
+        })
+        .collect()
+}
+
+/// Per-test results from the C plain-assert harness: the `PASS <name>` /
+/// `FAIL <name>` lines normalized to `<name> PASS|FAIL`.
+fn parse_c_test_results(stdout: &str) -> Vec<String> {
+    stdout
+        .lines()
+        .filter_map(|line| {
+            let (result, name) = line.split_once(' ')?;
+            if result != "PASS" && result != "FAIL" {
+                return None;
+            }
+            Some(format!("{name} {result}"))
+        })
+        .collect()
+}
+
+/// The deterministic random-trace coverage line (`random_trace seed=...
+/// steps=... ok=... unexpected=... assumption=... property=...
+/// states_visited=...`), wherever it appears in the output.
+fn extract_coverage_line(stdout: &str) -> Option<String> {
+    stdout.lines().find_map(|l| {
+        let i = l.find("random_trace seed=")?;
+        Some(l[i..].to_string())
+    })
+}
+
 #[test]
 fn generated_test_executables_parity_all_property_bearing_examples() {
     let mut failing: Vec<String> = Vec::new();
     for spec in property_bearing_examples() {
         let name = example_name(&spec);
+        // Fuzz skeletons must exist in BOTH backends (one extra file each).
+        let rfull = generate_full("rust", rfs::codegen::CodegenCommandKind::UnitTests, &spec);
+        let cfull = generate_full("c", rfs::codegen::CodegenCommandKind::UnitTests, &spec);
+        assert_eq!(rfull.extra_files.len(), 1, "[{name}] rust fuzz skeleton");
+        assert_eq!(
+            rfull.extra_files[0].name, "fuzz_target.rs",
+            "[{name}] rust fuzz skeleton name"
+        );
+        assert_eq!(cfull.extra_files.len(), 1, "[{name}] c fuzz skeleton");
+        assert_eq!(
+            cfull.extra_files[0].name, "fuzz_target.c",
+            "[{name}] c fuzz skeleton name"
+        );
+
         let rbin = test_binary(&spec, "rust");
         let cbin = test_binary(&spec, "c");
         let r = Command::new(&rbin)
@@ -660,8 +726,49 @@ fn generated_test_executables_parity_all_property_bearing_examples() {
             String::from_utf8_lossy(&c.stdout)
         );
         if !r.status.success() {
-            failing.push(name);
+            failing.push(name.clone());
         }
+
+        // The full per-test result lists (names + outcomes) must be identical
+        // across backends - same plan, same stable names. Sorted to canonical
+        // order: libtest does not run tests in declaration order.
+        let mut r_tests = parse_rust_test_results(&String::from_utf8_lossy(&r.stdout));
+        let mut c_tests = parse_c_test_results(&String::from_utf8_lossy(&c.stdout));
+        assert!(
+            !r_tests.is_empty(),
+            "[{name}] rust test run produced no per-test lines"
+        );
+        r_tests.sort();
+        c_tests.sort();
+        assert_eq!(
+            r_tests,
+            c_tests,
+            "[{name}] per-test results must be identical across backends\n[rust]\n{}\n[c]\n{}",
+            r_tests.join("\n"),
+            c_tests.join("\n")
+        );
+
+        // The random-trace coverage line must be byte-identical. Rust prints
+        // it only with --nocapture (libtest captures stdout otherwise), so
+        // re-run just that test; C prints it unconditionally.
+        let rt_name = r_tests
+            .iter()
+            .find(|t| t.starts_with("random_trace_seed"))
+            .and_then(|t| t.rsplit_once(' '))
+            .map(|(n, _)| n.to_string())
+            .unwrap_or_else(|| panic!("[{name}] random-trace test missing"));
+        let rt_test = Command::new(&rbin)
+            .args(["--exact", &format!("tests::{rt_name}"), "--nocapture"])
+            .output()
+            .unwrap_or_else(|e| panic!("run rust random-trace test: {e}"));
+        let r_cov = extract_coverage_line(&String::from_utf8_lossy(&rt_test.stdout))
+            .unwrap_or_else(|| panic!("[{name}] rust coverage line missing"));
+        let c_cov = extract_coverage_line(&String::from_utf8_lossy(&c.stdout))
+            .unwrap_or_else(|| panic!("[{name}] c coverage line missing"));
+        assert_eq!(
+            r_cov, c_cov,
+            "[{name}] random-trace coverage lines must be byte-identical"
+        );
     }
     // Pinned current state: no example fails its own generated test in either
     // backend. (Task 24 resolved the former 13_properties_safety failure -

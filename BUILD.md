@@ -46,8 +46,8 @@ SMT output compiles per section 5.3.
 
 | Suite | Command | Current result |
 |---|---|---|
-| All root-package (`rfs`) tests | `cargo test` | **333 pass** (179 lib incl. the 24 json_rw tests + 7 ext_tool resolver/script/stub pins + 2 cli_log + the task 4 codegen-test-planner suite (per-transition guard cases with pinned values, sibling-priority/shadowing rules, safety-only invariant selection on example 43, monitor-violating traces verified against the Phase 3 reference interpreter, LCG sequence byte-pins, fuzz decode pins, 45-example corpus sweep) + the task 5 planner guarantee (planned violating traces are executable - no higher-firing sibling preempts - and record the target label first), 7 cross-backend parity, 5 benchmark MC, 39 codegen incl. the task 9 no_std suite (flag parsing + e2e exit codes, test/mc entry-point rejections with the pinned message, header byte-pins for std/no_std x outputs-present/absent, C no-op note pin, and the 45-example x 2-modes compile sweep + body-parity check, rustc-gated) + the task 5 renderer suite (all four extended test classes present on property-bearing examples, pinned name convention, `--steps` sensitivity of the random-trace class, fuzz skeleton as a separate extra file with the main artifact staying dependency-free, CLI writes it next to `--out` / refuses stdout mode, aggregate crate carries the new classes without libfuzzer), 3 examples, 77 frontend CLI logic incl. 3 IR-JSON golden/round-trip pins + the task 3 `rfs info` suite + the task 8 `rfs diagram` suite (pinned outputs for all 5 formats, 45-example sweep, real-tool render acceptance with negative controls, stub argv proofs, strict render-error cases, byte-pinned --print-script), 4 parser-library comparison, 9 liveness MC, 4 monitor integration, 4 training; +2 more with `--features smt`) |
-| All workspace members | `cargo test --workspace` | **341 pass** (the 333 above + rfs-build: 6 unit incl. RFS_BIN precedence/stub error propagation + the `.no_std()` argv pin, 2 real end-to-end vs the workspace binary) |
+| All root-package (`rfs`) tests | `cargo test` | **337 pass** (179 lib incl. the 24 json_rw tests + 7 ext_tool resolver/script/stub pins + 2 cli_log + the task 4 codegen-test-planner suite (per-transition guard cases with pinned values, sibling-priority/shadowing rules, safety-only invariant selection on example 43, monitor-violating traces verified against the Phase 3 reference interpreter, LCG sequence byte-pins, fuzz decode pins, 45-example corpus sweep) + the task 5 planner guarantee (planned violating traces are executable - no higher-firing sibling preempts - and record the target label first), 7 cross-backend parity incl. the task 6 per-test result-list comparison (both backends' generated test executables: identical names + outcomes over all property-bearing examples, byte-identical random-trace coverage line, fuzz skeleton present in both), 5 benchmark MC, 43 codegen incl. the task 9 no_std suite (flag parsing + e2e exit codes, test/mc entry-point rejections with the pinned message, header byte-pins for std/no_std x outputs-present/absent, C no-op note pin, and the 45-example x 2-modes compile sweep + body-parity check, rustc-gated) + the task 5 Rust renderer suite (all four extended test classes present on property-bearing examples, pinned name convention, `--steps` sensitivity of the random-trace class, fuzz skeleton as a separate extra file with the main artifact staying dependency-free, CLI writes it next to `--out` / refuses stdout mode - both backends, aggregate crate carries the new classes without libfuzzer) + the task 6 C renderer suite (same four classes + pinned names in the C harness, `--steps` sensitivity, `fuzz_target.c` extra file with the clang recipe compiling warning-free against the generated production source), 3 examples, 77 frontend CLI logic incl. 3 IR-JSON golden/round-trip pins + the task 3 `rfs info` suite + the task 8 `rfs diagram` suite (pinned outputs for all 5 formats, 45-example sweep, real-tool render acceptance with negative controls, stub argv proofs, strict render-error cases, byte-pinned --print-script), 4 parser-library comparison, 9 liveness MC, 4 monitor integration, 4 training; +2 more with `--features smt`) |
+| All workspace members | `cargo test --workspace` | **345 pass** (the 337 above + rfs-build: 6 unit incl. RFS_BIN precedence/stub error propagation + the `.no_std()` argv pin, 2 real end-to-end vs the workspace binary) |
 | rfs-build only (build.rs helper) | `cargo test -p rfs-build` | 8 pass; the rust e2e compiles the generated artifact with `rustc --edition 2021 --crate-type lib` |
 | Parser unit tests only | `cargo test --lib` | part of the 273 |
 | Example suite (file-driven: drop `.rfs` into `examples/valid\|invalid`, no test-code change) | `cargo test --test examples_test` | 3 pass; all 45 valid parse+validate+round-trip, all 12 invalid are rejected (parse or validation) |
@@ -62,9 +62,11 @@ end-to-end binary exit codes; `tests/codegen_test.rs` covers the backend registr
 per-command generation, option sensitivity (incl. `--with-property-monitors`), and CLI
 argument parsing; `tests/monitor_integration_test.rs` (Phase 3) drives an injected bug
 through the MC in BOTH backends and exercises debug-gated production monitors;
-`tests/backend_parity_test.rs` (Phase 3) is the cross-backend differential suite -
-same-seed MC runs over all property-bearing examples must be field-identical, and both
-backends' generated test executables must agree on every example;
+`tests/backend_parity_test.rs` (Phase 3; extended in Phase 5 task 6) is the
+cross-backend differential suite - same-seed MC runs over all property-bearing examples
+must be field-identical, and both backends' generated test executables must agree on
+every example: identical per-test result lists (stable names + pass/fail, normalized to
+canonical order) AND a byte-identical random-trace coverage line;
 `tests/benchmark_mc_test.rs` (Phase 4 task 9) drives the three benchmark specs
 (43/44/45) through both backends in exact mode - pass-complete statuses, pinned
 deterministic metrics, inline FAIL variants with counterexample parity, and a JSON
@@ -127,7 +129,7 @@ Additional checks depending on what changed:
   and the z3 env vars from `TOOLCHAIN.md` section 5.2; spot-compile generated C SMT
   output per section 5.3.
 
-Known-good baseline (2026-10-21, after Phase 5 task 5): 333/333 main tests (335 with
+Known-good baseline (2026-10-22, after Phase 5 task 6): 337/337 main tests (339 with
 `--features smt`, z3 env per TOOLCHAIN.md section 5.2), 1453/1453 generated tests
 (179 modules), clippy without errors (12 pre-existing warnings: 11 in lib -
 mostly `src/backends/c_fsm.rs` monitor rendering + `from_str` naming - and 1

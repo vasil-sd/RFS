@@ -265,8 +265,8 @@ rfs codegen rust mc spec.rfs --assumes a1,a2 --out fsm_mc.rs
   generated runtime.
 - `is_deadlocked_initial(module, variants)`: inputs exist but there are no
   transitions at all (deadlock-style negative case).
-- Rendering (Phase 5 task 5, Rust backend in `rust_test.rs`; the C renderer
-  mirrors it in task 6) - stable test names, asserted by the parity suite:
+- Rendering (Phase 5 tasks 5/6: Rust backend in `rust_test.rs`, C backend in
+  `c_test.rs`) - stable test names, asserted by the parity suite:
   - `t<id>_<state>_on_<event>` / `..._not_taken` — per-transition tests. The
     case's configuration is installed (`fsm.state`/`fsm.vars`) and the input
     driven with `ContinueAssumptionHandler`; the outcome is asserted via the
@@ -292,6 +292,34 @@ rfs codegen rust mc spec.rfs --assumes a1,a2 --out fsm_mc.rs
   OUT of the main artifact so that one stays dependency-free (the aggregate
   generated-code crate compiles without external deps); the CLI writes it
   next to `--out` and refuses stdout mode. Building/running it is task 12.
+- C rendering (Phase 5 task 6, `c_test.rs`) mirrors the Rust renderer with
+  IDENTICAL coverage: each test is a plain-assert function run from a table
+  in `main()`, printing one line per test (`PASS <name>` / `FAIL <name>`) so
+  the parity suite can compare per-test results across backends (the Rust
+  side is parsed from libtest output). Details:
+  - Per-transition tests install `f.state`/`f.vars`, drive with a
+    `RFS_CONTINUE` assumption handler and assert on the RECORDED trace step
+    (`last->to`, `last->outputs`) - same robustness against property-violation
+    halts as Rust. Not-taken compares the landing against the transition's own
+    signature (state + full outputs) computed in C.
+  - Invariant atoms are rendered against `const rfs_sample_t*` by the shared
+    free function `c_fsm::render_signal_expr_c` (extracted from the monitor
+    renderer; prefix-parameterized helper names, so monitor output stays
+    byte-identical), with per-invariant `rfs_inv_<label>_in/out_<i>` pattern
+    helpers emitted on demand.
+  - Monitor tests assert the sticky `f.prop_label` record holds the target
+    label (initial-config case: right after `fsm_new`; one-step case: after
+    installing state/vars and driving with `RFS_CONTINUE`).
+  - The random-trace test drives the precomputed LCG index table over the
+    harness `ALL_INPUTS` with a `RFS_STOP` handler and prints the SAME
+    deterministic coverage line as Rust (byte-identical, parity-checked).
+  - The C `test` command ALSO emits `fuzz_target.c` as a separate extra file:
+    an `LLVMFuzzerTestOneInput` decoding per `FuzzDecodePlan` (first byte =
+    variant selector, bool = non-zero byte, bit<W> = ceil(W/8) little-endian
+    masked bytes, enum = constant representative), looping over `fsm_step`.
+    The header documents the clang + libFuzzer build recipe; generation needs
+    no clang (the main artifact stays plain `gcc -Wall`; building/running the
+    target is task 12).
 
 ### 5.3 `codegen_mc.rs` (model-checker concepts, Phase 4)
 

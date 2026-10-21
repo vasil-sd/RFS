@@ -176,7 +176,10 @@ fn rust_e2e_project(tag: &str) -> PathBuf {
     std::fs::create_dir_all(dir.join("src")).expect("create scratch project");
     std::fs::write(
         dir.join("Cargo.toml"),
-        "[package]\nname = \"smt_gen\"\nversion = \"0.1.0\"\nedition = \"2021\"\n\n[dependencies]\nz3 = \"0.21\"\n\n[profile.release]\nopt-level = 2\n",
+        // The empty [workspace] table keeps cargo from walking up into the
+        // repository workspace (Phase 5 task 1) - same fix as the aggregate
+        // generated-code crate.
+        "[package]\nname = \"smt_gen\"\nversion = \"0.1.0\"\nedition = \"2021\"\n\n[workspace]\n\n[dependencies]\nz3 = \"0.21\"\n\n[profile.release]\nopt-level = 2\n",
     )
     .expect("write scratch Cargo.toml");
     dir

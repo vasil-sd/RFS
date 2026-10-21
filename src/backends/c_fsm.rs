@@ -61,6 +61,249 @@ struct Gen<'a> {
     code: String,
 }
 
+/// Render a per-sample signal expression against `s: const rfs_sample_t*`,
+/// referencing pattern helpers named `{prefix}_in_<i>` / `{prefix}_out_<i>`.
+/// Shared by the monitor renderer (prefix `mon_<m>`), the liveness sample
+/// evaluator and the generated invariant tests (Phase 5 task 6).
+pub(crate) fn render_signal_expr_c(
+    module: &Module,
+    sig: &SignalExpr,
+    prefix: &str,
+    input_pats: &[&EventPattern],
+    output_pats: &[&OutputPattern],
+) -> Result<String, String> {
+    match sig {
+        SignalExpr::Atom(SignalAtom::True) => Ok("(true)".into()),
+        SignalExpr::Atom(SignalAtom::VarExpr(expr)) => {
+            let env = Env::for_module(module);
+            let mut ctx = Ctx::default();
+            for v in &module.vars {
+                ctx.names
+                    .insert(v.name.clone(), format!("s->vars.{}", c_ident(&v.name)));
+            }
+            ctx.state_variants = module
+                .enums
+                .iter()
+                .find(|e| e.name == "State")
+                .map(|e| e.variants.iter().cloned().collect())
+                .unwrap_or_default();
+            ctx.names.insert("state".into(), "s->to_state".into());
+            gen_expr_c(expr, &env, &ctx, module).map(|e| format!("({e})"))
+        }
+        SignalExpr::Atom(SignalAtom::InputIs(p)) => {
+            let idx = input_pats
+                .iter()
+                .position(|x| *x == p)
+                .ok_or("unresolvable input pattern")?;
+            Ok(format!("{prefix}_in_{idx}(s)"))
+        }
+        SignalExpr::Atom(SignalAtom::OutputHas(p)) => {
+            let idx = output_pats
+                .iter()
+                .position(|x| *x == p)
+                .ok_or("unresolvable output pattern")?;
+            Ok(format!("{prefix}_out_{idx}(s)"))
+        }
+        SignalExpr::Not(inner) => Ok(format!(
+            "(!({}))",
+            render_signal_expr_c(module, inner, prefix, input_pats, output_pats)?
+        )),
+        SignalExpr::And(l, r) => Ok(format!(
+            "({}) && ({})",
+            render_signal_expr_c(module, l, prefix, input_pats, output_pats)?,
+            render_signal_expr_c(module, r, prefix, input_pats, output_pats)?
+        )),
+        SignalExpr::Or(l, r) => Ok(format!(
+            "({}) || ({})",
+            render_signal_expr_c(module, l, prefix, input_pats, output_pats)?,
+            render_signal_expr_c(module, r, prefix, input_pats, output_pats)?
+        )),
+    }
+}
+
+/// Helper: does the sample input match this pattern? (`NULL` input - sample 0
+/// - never matches.) Emits a `static inline bool {prefix}_in_<idx>` function.
+pub(crate) fn input_is_sample_helper_c(
+    prefix: &str,
+    idx: usize,
+    pattern: &EventPattern,
+    variants: &FsmVariants,
+) -> Option<String> {
+    let cond = input_match_cond_c(variants, pattern)?;
+    Some(format!(
+        "static inline bool {prefix}_in_{idx}(const rfs_sample_t* s) {{ if (!s->input) return false; const input_t* inp = s->input; return {cond}; }}\n"
+    ))
+}
+
+/// Helper: does the sample contain an output matching this pattern? Emits a
+/// `static inline bool {prefix}_out_<idx>` function.
+pub(crate) fn output_has_sample_helper_c(
+    prefix: &str,
+    idx: usize,
+    pattern: &OutputPattern,
+    variants: &FsmVariants,
+) -> Option<String> {
+    let cond = output_match_cond_c(variants, pattern)?;
+    Some(format!(
+        "static inline bool {prefix}_out_{idx}(const rfs_sample_t* s) {{ for (int i = 0; i < s->n_outputs; i++) {{ const output_t* o = &s->outputs[i]; if ({cond}) return true; }} return false; }}\n"
+    ))
+}
+
+/// C condition for an input matching a pattern (over `inp`).
+pub(crate) fn input_match_cond_c(variants: &FsmVariants, pattern: &EventPattern) -> Option<String> {
+    match &pattern.variant {
+        None => {
+            let variants: Vec<&VariantInfo> = variants
+                .inputs
+                .iter()
+                .filter(|v| v.group == pattern.group)
+                .collect();
+            if variants.is_empty() {
+                return None;
+            }
+            let arms: Vec<String> = variants
+                .iter()
+                .map(|v| format!("inp->kind == INPUT_{}", v.unique_name.to_uppercase()))
+                .collect();
+            Some(arms.join(" || "))
+        }
+        Some(PatternVariant::Unit { name }) => {
+            let v = variants.input_variant(&pattern.group, name)?;
+            if !v.fields.is_empty() {
+                return None;
+            }
+            Some(format!(
+                "inp->kind == INPUT_{}",
+                v.unique_name.to_uppercase()
+            ))
+        }
+        Some(PatternVariant::Struct { name, fields }) => {
+            let v = variants.input_variant(&pattern.group, name)?;
+            if v.fields.len() != fields.len() {
+                return None;
+            }
+            let pl = format!("inp->payload.input_{}", v.unique_name.to_lowercase());
+            let mut guards: Vec<String> = vec![format!(
+                "inp->kind == INPUT_{}",
+                v.unique_name.to_uppercase()
+            )];
+            for (i, pf) in fields.iter().enumerate() {
+                let fname = c_ident(&v.fields[i].0);
+                match &pf.pattern {
+                    PatternExpr::Int { value } => guards.push(format!(
+                        "{}.{} == {}",
+                        pl,
+                        fname,
+                        int_c_literal(*value, None)
+                    )),
+                    PatternExpr::Bool { value } => guards.push(format!(
+                        "{}.{} == {}",
+                        pl,
+                        fname,
+                        if *value { "true" } else { "false" }
+                    )),
+                    PatternExpr::EnumVariant { path } => {
+                        let base = c_ident(&path[0]);
+                        let rest = path[1..]
+                            .iter()
+                            .map(|x| c_ident(x).to_uppercase())
+                            .collect::<Vec<_>>()
+                            .join("_");
+                        guards.push(format!(
+                            "{}.{} == {}_{}",
+                            pl,
+                            fname,
+                            base.to_uppercase(),
+                            rest
+                        ));
+                    }
+                    _ => {} // wildcard / bind: no constraint
+                }
+            }
+            Some(guards.join(" && "))
+        }
+    }
+}
+
+/// C condition for an output matching a pattern (over `o`).
+pub(crate) fn output_match_cond_c(
+    variants: &FsmVariants,
+    pattern: &OutputPattern,
+) -> Option<String> {
+    match &pattern.variant {
+        None => {
+            let variants: Vec<&VariantInfo> = variants
+                .outputs
+                .iter()
+                .filter(|v| v.group == pattern.group)
+                .collect();
+            if variants.is_empty() {
+                return None;
+            }
+            let arms: Vec<String> = variants
+                .iter()
+                .map(|v| format!("o->kind == OUTPUT_{}", v.unique_name.to_uppercase()))
+                .collect();
+            Some(arms.join(" || "))
+        }
+        Some(PatternVariant::Unit { name }) => {
+            let v = variants.output_variant(&pattern.group, name)?;
+            if !v.fields.is_empty() {
+                return None;
+            }
+            Some(format!(
+                "o->kind == OUTPUT_{}",
+                v.unique_name.to_uppercase()
+            ))
+        }
+        Some(PatternVariant::Struct { name, fields }) => {
+            let v = variants.output_variant(&pattern.group, name)?;
+            if v.fields.len() != fields.len() {
+                return None;
+            }
+            let pl = format!("o->payload.output_{}", v.unique_name.to_lowercase());
+            let mut guards: Vec<String> = vec![format!(
+                "o->kind == OUTPUT_{}",
+                v.unique_name.to_uppercase()
+            )];
+            for (i, pf) in fields.iter().enumerate() {
+                let fname = c_ident(&v.fields[i].0);
+                match &pf.pattern {
+                    PatternExpr::Int { value } => guards.push(format!(
+                        "{}.{} == {}",
+                        pl,
+                        fname,
+                        int_c_literal(*value, None)
+                    )),
+                    PatternExpr::Bool { value } => guards.push(format!(
+                        "{}.{} == {}",
+                        pl,
+                        fname,
+                        if *value { "true" } else { "false" }
+                    )),
+                    PatternExpr::EnumVariant { path } => {
+                        let base = c_ident(&path[0]);
+                        let rest = path[1..]
+                            .iter()
+                            .map(|x| c_ident(x).to_uppercase())
+                            .collect::<Vec<_>>()
+                            .join("_");
+                        guards.push(format!(
+                            "{}.{} == {}_{}",
+                            pl,
+                            fname,
+                            base.to_uppercase(),
+                            rest
+                        ));
+                    }
+                    _ => {}
+                }
+            }
+            Some(guards.join(" && "))
+        }
+    }
+}
+
 impl<'a> Gen<'a> {
     fn new(
         module: &'a Module,
@@ -853,7 +1096,8 @@ impl<'a> Gen<'a> {
         c
     }
 
-    /// Render a per-sample signal expression against `s: const rfs_sample_t*`.
+    /// Render a per-sample signal expression against `s: const rfs_sample_t*`
+    /// (monitor helpers named `mon_{m}_in_<i>` / `mon_{m}_out_<i>`).
     fn gen_signal_c(
         &self,
         sig: &SignalExpr,
@@ -861,54 +1105,13 @@ impl<'a> Gen<'a> {
         input_pats: &[&EventPattern],
         output_pats: &[&OutputPattern],
     ) -> Result<String, String> {
-        match sig {
-            SignalExpr::Atom(SignalAtom::True) => Ok("(true)".into()),
-            SignalExpr::Atom(SignalAtom::VarExpr(expr)) => {
-                let env = Env::for_module(self.module);
-                let mut ctx = Ctx::default();
-                for v in &self.module.vars {
-                    ctx.names
-                        .insert(v.name.clone(), format!("s->vars.{}", c_ident(&v.name)));
-                }
-                ctx.state_variants = self
-                    .module
-                    .enums
-                    .iter()
-                    .find(|e| e.name == "State")
-                    .map(|e| e.variants.iter().cloned().collect())
-                    .unwrap_or_default();
-                ctx.names.insert("state".into(), "s->to_state".into());
-                gen_expr_c(expr, &env, &ctx, self.module).map(|e| format!("({e})"))
-            }
-            SignalExpr::Atom(SignalAtom::InputIs(p)) => {
-                let idx = input_pats
-                    .iter()
-                    .position(|x| *x == p)
-                    .ok_or("unresolvable input pattern")?;
-                Ok(format!("mon_{m}_in_{idx}(s)"))
-            }
-            SignalExpr::Atom(SignalAtom::OutputHas(p)) => {
-                let idx = output_pats
-                    .iter()
-                    .position(|x| *x == p)
-                    .ok_or("unresolvable output pattern")?;
-                Ok(format!("mon_{m}_out_{idx}(s)"))
-            }
-            SignalExpr::Not(inner) => Ok(format!(
-                "(!({}))",
-                self.gen_signal_c(inner, m, input_pats, output_pats)?
-            )),
-            SignalExpr::And(l, r) => Ok(format!(
-                "({}) && ({})",
-                self.gen_signal_c(l, m, input_pats, output_pats)?,
-                self.gen_signal_c(r, m, input_pats, output_pats)?
-            )),
-            SignalExpr::Or(l, r) => Ok(format!(
-                "({}) || ({})",
-                self.gen_signal_c(l, m, input_pats, output_pats)?,
-                self.gen_signal_c(r, m, input_pats, output_pats)?
-            )),
-        }
+        render_signal_expr_c(
+            self.module,
+            sig,
+            &format!("mon_{m}"),
+            input_pats,
+            output_pats,
+        )
     }
 
     /// Helper: does the sample input match this pattern? (`NULL` input -
@@ -919,10 +1122,7 @@ impl<'a> Gen<'a> {
         idx: usize,
         pattern: &EventPattern,
     ) -> Option<String> {
-        let cond = self.input_match_cond(pattern)?;
-        Some(format!(
-            "static inline bool mon_{m}_in_{idx}(const rfs_sample_t* s) {{ if (!s->input) return false; const input_t* inp = s->input; return {cond}; }}\n"
-        ))
+        input_is_sample_helper_c(&format!("mon_{m}"), idx, pattern, &self.variants)
     }
 
     /// Helper: does the sample contain an output matching this pattern?
@@ -932,10 +1132,7 @@ impl<'a> Gen<'a> {
         idx: usize,
         pattern: &OutputPattern,
     ) -> Option<String> {
-        let cond = self.output_match_cond(pattern)?;
-        Some(format!(
-            "static inline bool mon_{m}_out_{idx}(const rfs_sample_t* s) {{ for (int i = 0; i < s->n_outputs; i++) {{ const output_t* o = &s->outputs[i]; if ({cond}) return true; }} return false; }}\n"
-        ))
+        output_has_sample_helper_c(&format!("mon_{m}"), idx, pattern, &self.variants)
     }
 
     /// Emit the `assume_monitors` aggregate (always present on `fsm_t`).
@@ -1005,160 +1202,6 @@ impl<'a> Gen<'a> {
             inits = inits.join(" "),
             steps = steps.join("\n"),
         )
-    }
-
-    /// C condition for an input matching a pattern (over `inp`).
-    fn input_match_cond(&self, pattern: &EventPattern) -> Option<String> {
-        match &pattern.variant {
-            None => {
-                let variants: Vec<&VariantInfo> = self
-                    .variants
-                    .inputs
-                    .iter()
-                    .filter(|v| v.group == pattern.group)
-                    .collect();
-                if variants.is_empty() {
-                    return None;
-                }
-                let arms: Vec<String> = variants
-                    .iter()
-                    .map(|v| format!("inp->kind == INPUT_{}", v.unique_name.to_uppercase()))
-                    .collect();
-                Some(arms.join(" || "))
-            }
-            Some(PatternVariant::Unit { name }) => {
-                let v = self.variants.input_variant(&pattern.group, name)?;
-                if !v.fields.is_empty() {
-                    return None;
-                }
-                Some(format!(
-                    "inp->kind == INPUT_{}",
-                    v.unique_name.to_uppercase()
-                ))
-            }
-            Some(PatternVariant::Struct { name, fields }) => {
-                let v = self.variants.input_variant(&pattern.group, name)?;
-                if v.fields.len() != fields.len() {
-                    return None;
-                }
-                let pl = format!("inp->payload.input_{}", v.unique_name.to_lowercase());
-                let mut guards: Vec<String> = vec![format!(
-                    "inp->kind == INPUT_{}",
-                    v.unique_name.to_uppercase()
-                )];
-                for (i, pf) in fields.iter().enumerate() {
-                    let fname = c_ident(&v.fields[i].0);
-                    match &pf.pattern {
-                        PatternExpr::Int { value } => guards.push(format!(
-                            "{}.{} == {}",
-                            pl,
-                            fname,
-                            int_c_literal(*value, None)
-                        )),
-                        PatternExpr::Bool { value } => guards.push(format!(
-                            "{}.{} == {}",
-                            pl,
-                            fname,
-                            if *value { "true" } else { "false" }
-                        )),
-                        PatternExpr::EnumVariant { path } => {
-                            let base = c_ident(&path[0]);
-                            let rest = path[1..]
-                                .iter()
-                                .map(|x| c_ident(x).to_uppercase())
-                                .collect::<Vec<_>>()
-                                .join("_");
-                            guards.push(format!(
-                                "{}.{} == {}_{}",
-                                pl,
-                                fname,
-                                base.to_uppercase(),
-                                rest
-                            ));
-                        }
-                        _ => {} // wildcard / bind: no constraint
-                    }
-                }
-                Some(guards.join(" && "))
-            }
-        }
-    }
-
-    /// C condition for an output matching a pattern (over `o`).
-    fn output_match_cond(&self, pattern: &OutputPattern) -> Option<String> {
-        match &pattern.variant {
-            None => {
-                let variants: Vec<&VariantInfo> = self
-                    .variants
-                    .outputs
-                    .iter()
-                    .filter(|v| v.group == pattern.group)
-                    .collect();
-                if variants.is_empty() {
-                    return None;
-                }
-                let arms: Vec<String> = variants
-                    .iter()
-                    .map(|v| format!("o->kind == OUTPUT_{}", v.unique_name.to_uppercase()))
-                    .collect();
-                Some(arms.join(" || "))
-            }
-            Some(PatternVariant::Unit { name }) => {
-                let v = self.variants.output_variant(&pattern.group, name)?;
-                if !v.fields.is_empty() {
-                    return None;
-                }
-                Some(format!(
-                    "o->kind == OUTPUT_{}",
-                    v.unique_name.to_uppercase()
-                ))
-            }
-            Some(PatternVariant::Struct { name, fields }) => {
-                let v = self.variants.output_variant(&pattern.group, name)?;
-                if v.fields.len() != fields.len() {
-                    return None;
-                }
-                let pl = format!("o->payload.output_{}", v.unique_name.to_lowercase());
-                let mut guards: Vec<String> = vec![format!(
-                    "o->kind == OUTPUT_{}",
-                    v.unique_name.to_uppercase()
-                )];
-                for (i, pf) in fields.iter().enumerate() {
-                    let fname = c_ident(&v.fields[i].0);
-                    match &pf.pattern {
-                        PatternExpr::Int { value } => guards.push(format!(
-                            "{}.{} == {}",
-                            pl,
-                            fname,
-                            int_c_literal(*value, None)
-                        )),
-                        PatternExpr::Bool { value } => guards.push(format!(
-                            "{}.{} == {}",
-                            pl,
-                            fname,
-                            if *value { "true" } else { "false" }
-                        )),
-                        PatternExpr::EnumVariant { path } => {
-                            let base = c_ident(&path[0]);
-                            let rest = path[1..]
-                                .iter()
-                                .map(|x| c_ident(x).to_uppercase())
-                                .collect::<Vec<_>>()
-                                .join("_");
-                            guards.push(format!(
-                                "{}.{} == {}_{}",
-                                pl,
-                                fname,
-                                base.to_uppercase(),
-                                rest
-                            ));
-                        }
-                        _ => {}
-                    }
-                }
-                Some(guards.join(" && "))
-            }
-        }
     }
 }
 
@@ -1239,7 +1282,7 @@ impl<'a> Gen<'a> {
         );
         let _ = writeln!(
             self.code,
-            "static step_result_t rfs_commit(fsm_t* f, const input_t* in, const output_t* outs, int n_out, state_t next_state, const vars_t* new_vars, rfs_assumption_handler handler, void* user) {{\n    trace_step_t s; s.input = *in; for (int i = 0; i < n_out && i < MAX_OUTPUTS; i++) s.outputs[i] = outs[i]; s.n_outputs = n_out; s.from = f->state; s.to = next_state; s.vars = *new_vars;\n    trace_push(&f->trace, &s);\n    int idx = f->trace.len;\n    rfs_sample_t sample = {{ in, outs, n_out, s.from, s.to, s.vars }};\n    const char* al = assume_monitors_step(&f->assume_monitors, &sample, idx, f->active_assumes, f->n_active_assumes);\n    if (al) {{\n        rfs_policy_t pol = handler(user, al);\n        if (pol == RFS_STOP) {{ step_result_t r = rfs_make_result(RFS_ASSUMPTION_VIOLATION); strncpy(r.assume_label, al, sizeof(r.assume_label) - 1); r.assume_label[sizeof(r.assume_label) - 1] = 0; return r; }}\n        if (pol == RFS_PANIC) {{ fprintf(stderr, \"RFS assumption violated: %s\\n\", al); abort(); }}\n    }}{prop_check}\n    f->state = next_state; f->vars = *new_vars;\n    step_result_t r = rfs_make_result(RFS_OK); for (int i = 0; i < n_out && i < MAX_OUTPUTS; i++) r.outputs[i] = outs[i]; r.n_outputs = n_out; return r;\n}}"
+            "static RFS_UNUSED step_result_t rfs_commit(fsm_t* f, const input_t* in, const output_t* outs, int n_out, state_t next_state, const vars_t* new_vars, rfs_assumption_handler handler, void* user) {{\n    trace_step_t s; s.input = *in; for (int i = 0; i < n_out && i < MAX_OUTPUTS; i++) s.outputs[i] = outs[i]; s.n_outputs = n_out; s.from = f->state; s.to = next_state; s.vars = *new_vars;\n    trace_push(&f->trace, &s);\n    int idx = f->trace.len;\n    rfs_sample_t sample = {{ in, outs, n_out, s.from, s.to, s.vars }};\n    const char* al = assume_monitors_step(&f->assume_monitors, &sample, idx, f->active_assumes, f->n_active_assumes);\n    if (al) {{\n        rfs_policy_t pol = handler(user, al);\n        if (pol == RFS_STOP) {{ step_result_t r = rfs_make_result(RFS_ASSUMPTION_VIOLATION); strncpy(r.assume_label, al, sizeof(r.assume_label) - 1); r.assume_label[sizeof(r.assume_label) - 1] = 0; return r; }}\n        if (pol == RFS_PANIC) {{ fprintf(stderr, \"RFS assumption violated: %s\\n\", al); abort(); }}\n    }}{prop_check}\n    f->state = next_state; f->vars = *new_vars;\n    step_result_t r = rfs_make_result(RFS_OK); for (int i = 0; i < n_out && i < MAX_OUTPUTS; i++) r.outputs[i] = outs[i]; r.n_outputs = n_out; return r;\n}}"
         );
 
         // step(): grouped by state, priority-ordered within a state (Phase 2).
@@ -1671,7 +1714,7 @@ pub(crate) fn render_mc_step_all_c(module: &Module) -> Result<String, String> {
 
 /// Collect the distinct input/output patterns of a signal in first-appearance
 /// order (for helper emission + `gen_signal_c` index resolution).
-fn collect_liv_signal_patterns<'a>(
+pub(crate) fn collect_liv_signal_patterns<'a>(
     sig: &'a crate::monitor::SignalExpr,
 ) -> (
     Vec<&'a crate::ir::EventPattern>,

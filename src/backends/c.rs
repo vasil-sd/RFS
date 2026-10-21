@@ -85,9 +85,9 @@ const PRODUCTION_INFO: BackendCommandInfo = BackendCommandInfo {
 
 const TEST_INFO: BackendCommandInfo = BackendCommandInfo {
     name: "test",
-    summary: "Production FSM source plus a plain-assert unit-test main()",
-    usage: "rfs codegen c test <spec.rfs|spec.json> [--out FILE]",
-    options: "--assumes ... as production; --steps N positive-run length (default 4)",
+    summary: "Generate C FSM code + plain-assert unit tests (module-level, per-transition, invariant, monitor-violation, random-trace) + separate fuzz_target.c",
+    usage: "rfs codegen c test <spec.rfs|spec.json> --out FILE [--steps N] [--assumes all|none|l1,l2]",
+    options: "--steps N  example-run length K (default: 4)\n      --assumes all|none|label1,label2  assumptions to activate (default: all)\n      --out FILE                    REQUIRED: write the test artifact to FILE; the libFuzzer skeleton is written next to it as fuzz_target.c (stdout mode is refused - no graceful degradation)",
 };
 
 const MC_INFO: BackendCommandInfo = BackendCommandInfo {

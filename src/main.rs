@@ -5,12 +5,23 @@ use std::process::ExitCode;
 use rfs::{codegen, frontend, Format};
 
 fn usage() -> String {
-    "RFS toolchain\n\nusage:\n  rfs parse --input <rfs|json> --output <rfs|json> <file-or-dir> [--target-dir DIR]\n  rfs validate [--input <rfs|json>] <file-or-dir>\n  rfs info [--json] [--log-level off|error|warn|info|debug] <spec.rfs|spec.json>\n  rfs codegen --list | --help | <backend> --help\n  rfs codegen <backend> <production|test|mc> <spec.rfs|spec.json> [--out FILE] [--assumes ...] [--steps N]\n\nparse: load RFS or IR-JSON files, convert through the IR, and write formatted\n       output. With a directory input, only files matching --input are scanned;\n       without --target-dir each output is written next to its input file, with\n       --target-dir the input directory structure is preserved inside it. The\n       original extension is replaced (never stacked). Conversions whose output\n       would overwrite the input file are refused.\n\nvalidate: parse + semantically validate RFS or IR-JSON files. For a file input\n         the extension selects the format and errors go to stderr; for a\n         directory input --input is required and each failing source file gets\n         a <name>.rfs-validation.err file next to it.\n\ninfo: static spec introspection - per module: version, initial state, enums,
+    "RFS toolchain\n\nusage:\n  rfs parse --input <rfs|json> --output <rfs|json> <file-or-dir> [--target-dir DIR]\n  rfs validate [--input <rfs|json>] <file-or-dir>\n  rfs info [--json] [--log-level off|error|warn|info|debug] <spec.rfs|spec.json>\n  rfs diagram --list | --format dot|puml|mmd|table|md [options] <spec.rfs|spec.json>\n  rfs codegen --list | --help | <backend> --help\n  rfs codegen <backend> <production|test|mc> <spec.rfs|spec.json> [--out FILE] [--assumes ...] [--steps N]\n\nparse: load RFS or IR-JSON files, convert through the IR, and write formatted\n       output. With a directory input, only files matching --input are scanned;\n       without --target-dir each output is written next to its input file, with\n       --target-dir the input directory structure is preserved inside it. The\n       original extension is replaced (never stacked). Conversions whose output\n       would overwrite the input file are refused.\n\nvalidate: parse + semantically validate RFS or IR-JSON files. For a file input\n         the extension selects the format and errors go to stderr; for a\n         directory input --input is required and each failing source file gets\n         a <name>.rfs-validation.err file next to it.\n\ninfo: static spec introspection - per module: version, initial state, enums,
       events/outputs with variants + field types, variables with types + init,
       transition count, and properties/assumptions each with monitor-subset
       status (monitored / skipped: reason). No model checking. `--json` emits
       a machine-readable document (stable key order, all keys present); 
       `--log-level` filters stderr progress output.
+
+diagram: state-diagram + table formats as plugins (one module per format).
+         PRIMARY behaviour is pure text generation with NO external tool calls;
+         `--render svg` invokes the format's renderer (dot/plantuml/mmdc) and
+         REQUIRES --out FILE.svg (the source file is written next to it). A
+         missing or failing render tool is an ERROR (exit 1) - no graceful
+         degradation. Tool paths/args: RFS_DOT/RFS_PLANTUML/RFS_MERMAID
+         (+ *_ARGS) env vars, overridden by --dot/--plantuml/--mermaid PATH +
+         --*-args flags; `--print-script` prints a self-contained POSIX sh
+         script instead of executing. Runs on the first module of the spec.
+         See BUILD.md/TOOLCHAIN.md for installing dot/plantuml/mermaid.
 
 codegen: target-language plugin registry. `--list` shows registered backends;\n         `<backend> --help` lists that backend's commands. Each command runs on\n         the first module of the spec and writes generated source to --out or\n         stdout. See CODEGEN.md for the backend plugin API.\n\nexamples:\n  cargo run -- parse --input rfs --output json specs/handshake.rfs\n  cargo run -- parse --input rfs --output rfs specs/ --target-dir out/\n  cargo run -- validate specs/handshake.rfs\n  cargo run -- validate --input rfs specs/\n".to_string()
 }
@@ -21,10 +32,11 @@ fn main() -> ExitCode {
         Some("parse") => cmd_parse(&args[1..]),
         Some("validate") => cmd_validate(&args[1..]),
         Some("info") => cmd_info(&args[1..]),
+        Some("diagram") => cmd_diagram(&args[1..]),
         Some("codegen") => cmd_codegen(&args[1..]),
         Some(first) => {
             eprintln!(
-                "error: unknown subcommand '{}'; expected parse, validate, info or codegen\n{}",
+                "error: unknown subcommand '{}'; expected parse, validate, info, diagram or codegen\n{}",
                 first,
                 usage()
             );
@@ -413,5 +425,155 @@ fn cmd_info(args: &[String]) -> ExitCode {
             eprintln!("error: {e}");
             ExitCode::FAILURE
         }
+    }
+}
+
+fn cmd_diagram(args: &[String]) -> ExitCode {
+    use rfs::cli_log::{LogLevel, Logger};
+    let mut opts = rfs::diagram::DiagramOptions::default();
+    let mut log_level = LogLevel::Info;
+    let mut path: Option<String> = None;
+
+    let mut i = 0;
+    while i < args.len() {
+        let arg = args[i].clone();
+        if arg == "--help" || arg == "-h" {
+            println!("{}", usage());
+            return ExitCode::SUCCESS;
+        }
+        match arg.as_str() {
+            "--" => {}
+            "--list" => {
+                for (name, desc) in rfs::diagram::list_diagrams() {
+                    println!("{name:<6} {desc}");
+                }
+                return ExitCode::SUCCESS;
+            }
+            "--format" => {
+                let Some(v) = args.get(i + 1).cloned() else {
+                    eprintln!(
+                        "error: --format requires a value ({} )\n{}",
+                        rfs::diagram::list_diagrams()
+                            .iter()
+                            .map(|(n, _)| *n)
+                            .collect::<Vec<_>>()
+                            .join("|"),
+                        usage()
+                    );
+                    return ExitCode::FAILURE;
+                };
+                i += 1;
+                opts.format = v;
+            }
+            "--out" => {
+                let Some(v) = args.get(i + 1).cloned() else {
+                    eprintln!("error: --out requires a value (FILE)\n{}", usage());
+                    return ExitCode::FAILURE;
+                };
+                i += 1;
+                opts.out = Some(std::path::PathBuf::from(v));
+            }
+            "--render" => {
+                let Some(v) = args.get(i + 1).cloned() else {
+                    eprintln!("error: --render requires a value (svg)\n{}", usage());
+                    return ExitCode::FAILURE;
+                };
+                i += 1;
+                if v != "svg" {
+                    eprintln!("error: --render expects svg (got '{}')\n{}", v, usage());
+                    return ExitCode::FAILURE;
+                }
+                opts.render_svg = true;
+            }
+            "--print-script" => opts.print_script = true,
+            "--log-level" => {
+                let Some(v) = args.get(i + 1).cloned() else {
+                    eprintln!(
+                        "error: --log-level requires a value (off|error|warn|info|debug)\n{}",
+                        usage()
+                    );
+                    return ExitCode::FAILURE;
+                };
+                i += 1;
+                match LogLevel::parse(&v) {
+                    Some(l) => log_level = l,
+                    None => {
+                        eprintln!(
+                            "error: --log-level expects off|error|warn|info|debug (got '{}')\n{}",
+                            v,
+                            usage()
+                        );
+                        return ExitCode::FAILURE;
+                    }
+                }
+            }
+            "--dot" | "--plantuml" | "--mermaid" => {
+                let Some(v) = args.get(i + 1).cloned() else {
+                    eprintln!("error: {} requires a value (PATH)\n{}", arg, usage());
+                    return ExitCode::FAILURE;
+                };
+                i += 1;
+                tool_override_mut(&mut opts, &arg).path = Some(v);
+            }
+            "--dot-args" | "--plantuml-args" | "--mermaid-args" => {
+                let Some(v) = args.get(i + 1).cloned() else {
+                    eprintln!("error: {} requires a value (ARGS)\n{}", arg, usage());
+                    return ExitCode::FAILURE;
+                };
+                i += 1;
+                tool_override_mut(&mut opts, &arg).args = Some(v);
+            }
+            _ if arg.starts_with('-') => {
+                eprintln!("unknown option: {}\n{}", arg, usage());
+                return ExitCode::FAILURE;
+            }
+            _ => {
+                if path.is_some() {
+                    eprintln!("unexpected extra argument: {}\n{}", arg, usage());
+                    return ExitCode::FAILURE;
+                }
+                path = Some(arg);
+            }
+        }
+        i += 1;
+    }
+
+    let Some(path) = path else {
+        eprintln!("error: rfs diagram requires a spec file\n{}", usage());
+        return ExitCode::FAILURE;
+    };
+
+    // Fatal diagnostics bypass the logger (always stderr, drive exit code);
+    // the logger carries informational progress output only.
+    let logger = Logger::new(log_level);
+    match rfs::diagram::run_diagram(std::path::Path::new(&path), &opts) {
+        Ok(result) => {
+            logger.debug(&result.note);
+            if let Some(text) = result.stdout {
+                // `print!` (not println): the generated text already ends with
+                // a newline, and callers may redirect stdout to a file - the
+                // bytes must be reproduced exactly (codegen convention).
+                print!("{text}");
+            }
+            ExitCode::SUCCESS
+        }
+        Err(e) => {
+            eprintln!("error: {e}");
+            ExitCode::FAILURE
+        }
+    }
+}
+
+/// Route a tool flag (`--dot`/`--plantuml`/`--mermaid`, with or without the
+/// `-args` suffix) to its override slot.
+fn tool_override_mut<'a>(
+    opts: &'a mut rfs::diagram::DiagramOptions,
+    flag: &str,
+) -> &'a mut rfs::diagram::ToolOverride {
+    match flag.strip_suffix("-args").unwrap_or(flag) {
+        "--dot" => &mut opts.dot,
+        "--plantuml" => &mut opts.plantuml,
+        "--mermaid" => &mut opts.mermaid,
+        _ => unreachable!("flag checked by caller: {flag}"),
     }
 }

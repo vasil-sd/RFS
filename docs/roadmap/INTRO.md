@@ -33,7 +33,7 @@ activation: `TOOLCHAIN.md`. Session entry point for LLM-assisted work: `START.md
 | `PHASE_N_TASK_M.md` (M = task number from `PHASE_N_PLAN.md`, including correction numbers like `4a`) | One detailed file per top-level planned task (subtask rows live inside their parent's task file) | Written after user confirmation of `PHASE_N_PLAN.md` (planning step j), reviewed by the user (step k); frozen afterwards - only its "Task corrections" section is appended to |
 | `PHASE_N_TASK_M_STATUS.md` | Task completion report: files added/changed/removed, functionality deltas, tests, findings | Written once when the task exit criteria are reached (implementation step m, template 2.5.2) or when an unimplemented task is cancelled (template 2.5.1); not rewritten afterwards |
 
-Phase state (2026-10-19):
+Phase state (2026-10-21):
 
 | Phase | State | Files present |
 |---|---|---|
@@ -42,7 +42,7 @@ Phase state (2026-10-19):
 | 2 - Core DSL and production code generation | COMPLETE | `PHASE_2.md`, `PHASE_2_STATUS.md` |
 | 3 - PSL-like properties and monitors | COMPLETE | `PHASE_3.md`, `PHASE_3_PLAN.md`, `PHASE_3_TASK_{13,15-24}.md` (+ `_STATUS` files), `PHASE_3_STATUS.md` |
 | 4 - Scalable model checking | COMPLETE (close-out 2026-10-20: full verification green, `PHASE_4_STATUS.md`) | `PHASE_4.md`, `PHASE_4_PLAN.md`, `PHASE_4_TASK_{1..14}.md` + `PHASE_4_TASK_10B.md` (+ `_STATUS` files), `PHASE_4_STATUS.md` |
-| 5 - Full toolchain and production integration | in progress (tasks 1-3 of 16 done) | `PHASE_5.md`, `PHASE_5_PLAN.md`, `PHASE_5_TASK_{1..16}.md` (+ `_STATUS`) |
+| 5 - Full toolchain and production integration | in progress (tasks 1-3 + 8 of 16 done) | `PHASE_5.md`, `PHASE_5_PLAN.md`, `PHASE_5_TASK_{1..16}.md` (+ `_STATUS`) |
 | 6 - Production hardening and v1.0 | not started | `PHASE_6.md` |
 
 Keep this table current: update it when a phase is planned, completed, or re-planned.

@@ -13,7 +13,8 @@
 //! IDE/tooling consumers).
 
 use crate::ir::{
-    BinOp, Expr, Formula, Ir, Module, OnError, PatternExpr, PatternVariant, Type, UnaryOp,
+    BinOp, Expr, Formula, Ir, Module, OnError, OutputExpr, PatternExpr, PatternVariant, Type,
+    UnaryOp,
 };
 use crate::json_rw::Json;
 use std::path::Path;
@@ -63,7 +64,7 @@ pub fn run_info(path: &Path, opts: &InfoOptions) -> Result<String, String> {
 // Shared renderers (type/expr/formula/pattern -> string)
 // ---------------------------------------------------------------------------
 
-fn render_type(ty: &Type) -> String {
+pub(crate) fn render_type(ty: &Type) -> String {
     match ty {
         Type::Bool => "bool".to_string(),
         Type::Bit { width } => format!("bit<{width}>"),
@@ -102,7 +103,7 @@ fn render_bin_op(op: &BinOp) -> &'static str {
 
 /// Compact expression rendering (parens on compound nodes - readability over
 /// precedence fidelity; `info` is a static view, not source regeneration).
-fn render_expr(e: &Expr) -> String {
+pub(crate) fn render_expr(e: &Expr) -> String {
     match e {
         Expr::Int { value } => value.to_string(),
         Expr::Bool { value } => value.to_string(),
@@ -180,10 +181,27 @@ fn render_formula(f: &Formula) -> String {
 }
 
 /// `Group` or `Group(Variant(...))`.
-fn render_pattern_variant_group(group: &str, variant: &Option<PatternVariant>) -> String {
+pub(crate) fn render_pattern_variant_group(
+    group: &str,
+    variant: &Option<PatternVariant>,
+) -> String {
     match variant {
         None => group.to_string(),
         Some(v) => format!("{group}({})", render_pattern_variant(v)),
+    }
+}
+
+/// Compact output-expression rendering for diagram labels: `Ack`,
+/// `Grant(G(node, frame))`. Same compact style as [`render_expr`]; used by
+/// `rfs diagram` (task 8) so emitted data reads identically in every format.
+pub(crate) fn render_output(o: &OutputExpr) -> String {
+    match &o.variant {
+        None => o.group.clone(),
+        Some(v) if o.args.is_empty() => format!("{}({v})", o.group),
+        Some(v) => {
+            let args: Vec<String> = o.args.iter().map(render_expr).collect();
+            format!("{}({}({}))", o.group, v, args.join(", "))
+        }
     }
 }
 

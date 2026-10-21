@@ -6,9 +6,11 @@
 //! extra parameters must be overridable, with ENVIRONMENT VARIABLES as the
 //! preferred mechanism:
 //!
-//! - Paths: `RFS_RUSTC`, `RFS_GCC`, `RFS_DOT` (rfs-build uses `RFS_BIN`).
-//! - Extra parameters: `RFS_RUSTC_ARGS`, `RFS_GCC_ARGS`, `RFS_DOT_ARGS`
-//!   (space-separated, appended verbatim to the invocation).
+//! - Paths: `RFS_RUSTC`, `RFS_GCC`, `RFS_DOT`, `RFS_PLANTUML`,
+//!   `RFS_MERMAID` (rfs-build uses `RFS_BIN`).
+//! - Extra parameters: `RFS_RUSTC_ARGS`, `RFS_GCC_ARGS`, `RFS_DOT_ARGS`,
+//!   `RFS_PLANTUML_ARGS`, `RFS_MERMAID_ARGS` (space-separated, appended
+//!   verbatim to the invocation).
 //!
 //! Precedence for the tool PATH: **CLI flag > environment variable > bare
 //! name on PATH**. For extra args both sources are used: env-var args first,
@@ -46,6 +48,18 @@ impl ExtTool {
         name: "dot",
         env_path_var: "RFS_DOT",
         env_args_var: "RFS_DOT_ARGS",
+    };
+    /// PlantUML (diagram SVG rendering, Phase 5 task 8).
+    pub const PLANTUML: ExtTool = ExtTool {
+        name: "plantuml",
+        env_path_var: "RFS_PLANTUML",
+        env_args_var: "RFS_PLANTUML_ARGS",
+    };
+    /// Mermaid CLI `mmdc` (diagram SVG rendering, Phase 5 task 8).
+    pub const MERMAID: ExtTool = ExtTool {
+        name: "mmdc",
+        env_path_var: "RFS_MERMAID",
+        env_args_var: "RFS_MERMAID_ARGS",
     };
 
     /// Resolve the tool PATH and extra parameters.

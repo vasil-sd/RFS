@@ -123,3 +123,51 @@ gcc -Wall out.c -I/workspace/host/z3/include -L/workspace/host/z3/bin -lz3 \
 
 `-Wl,-rpath` keeps the binary runnable without `LD_LIBRARY_PATH`; drop it and
 export `LD_LIBRARY_PATH=/workspace/host/z3/bin` instead if rpath is unwanted.
+
+## 6. Diagram rendering tools (dot / plantuml / mermaid) — Phase 5 task 8
+
+`rfs diagram` generates diagram SOURCE in pure Rust with no external tools.
+Only `--render svg` invokes an external renderer, and it is STRICT: a missing
+or failing tool makes rfs exit 1 (no graceful degradation - CI/CD requirement).
+All three renderers are OPTIONAL system dependencies; text generation works
+without any of them.
+
+### 6.1 Install (verified in this environment, Ubuntu 24.04)
+
+```sh
+sudo apt install graphviz plantuml     # dot 2.43.0, plantuml 1.2020.02 (pulls OpenJDK 21)
+sudo apt install nodejs npm            # node v18.19.1, npm 9.2.0
+npm install -g @mermaid-js/mermaid-cli # mmdc (bundles mermaid 12.2.0)
+```
+
+### 6.2 Parameterization (unified with the other external tools)
+
+| Tool | Env PATH var | Env args var | CLI overrides |
+|---|---|---|---|
+| `dot` | `RFS_DOT` | `RFS_DOT_ARGS` | `--dot PATH`, `--dot-args "..."` |
+| `plantuml` | `RFS_PLANTUML` | `RFS_PLANTUML_ARGS` | `--plantuml PATH`, `--plantuml-args "..."` |
+| `mmdc` | `RFS_MERMAID` | `RFS_MERMAID_ARGS` | `--mermaid PATH`, `--mermaid-args "..."` |
+
+Precedence: CLI flag > env var > bare name on PATH. Env args come first, CLI
+args appended (same as rustc/gcc). `--print-script` prints the exact invocation
+as a self-contained POSIX sh script instead of executing it.
+
+### 6.3 Running the tools by hand
+
+```sh
+rfs diagram --format dot  --out d.dot spec.rfs && dot -Tsvg d.dot -o d.svg
+rfs diagram --format puml --out d.puml spec.rfs && plantuml -tsvg d.puml   # writes d.svg next to the input
+rfs diagram --format mmd  --out d.mmd  spec.rfs && mmdc -i d.mmd -o d.svg -q
+```
+
+### 6.4 Gotchas (observed)
+
+- **mmdc as root** cannot launch Chrome without `--no-sandbox`; rfs therefore
+  always passes a generated puppeteer config (`{"args":["--no-sandbox","--disable-dev-shm-usage"]}`,
+  overridable via `RFS_MERMAID_PUPPETEER_ARGS`). `mmdc -o` only accepts
+  md/svg/png/pdf extensions (not `/dev/null`).
+- **plantuml** exits **200** on a syntax error (and still writes an error SVG),
+  so rfs gates on the exit status, not file presence.
+- **Two `mmdc` processes must not run concurrently** in this container: under
+  parallel Chrome launches one of them fails nondeterministically. The test
+  suite serializes real-tool invocations for this reason; do the same in CI.

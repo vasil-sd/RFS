@@ -1245,3 +1245,899 @@ fn e2e_info_usage_lists_info_and_rejects_unknown_option() {
     assert!(String::from_utf8_lossy(&out.stderr).contains("unknown option: --bogus"));
     cleanup(&root);
 }
+
+// ---------------------------------------------------------------------------
+// rfs diagram (Phase 5 task 8)
+// ---------------------------------------------------------------------------
+
+/// Small hand-written spec exercising every feature the generators must map:
+/// 3 states, initial state, unit + struct-variant events, a guard, emitted
+/// outputs, and an on_error fallback with its own emit.
+const PIN_DIAGRAM_RFS: &str = "module pin_fsm {
+  enum State { Idle, Active, Error }
+  initial Idle
+
+  event Tick
+  event Cmd(Go(level: bit<4>))
+
+  output Ack(Ack(code: bit<8>))
+
+  var counter: bit<8> init 0
+
+  transition Idle on Tick {
+    next Active;
+    set counter = counter + 1;
+  }
+  transition Active on Cmd(Go(lvl)) where lvl > 2 {
+    emit Ack(Ack(counter));
+    next Active;
+  }
+  transition Active on Tick {
+    next Idle;
+  }
+
+  on_error {
+    next Error;
+    emit Ack(Ack(99));
+  }
+}\n";
+
+fn diagram_opts(format: &str) -> rfs::diagram::DiagramOptions {
+    rfs::diagram::DiagramOptions {
+        format: format.to_string(),
+        ..Default::default()
+    }
+}
+
+fn diagram_stdout(spec: &std::path::Path, format: &str) -> String {
+    let result = rfs::diagram::run_diagram(spec, &diagram_opts(format))
+        .unwrap_or_else(|e| panic!("{format}: {e}"));
+    result.stdout.expect("text mode emits stdout")
+}
+
+#[test]
+fn diagram_pinned_dot_output() {
+    let root = tmp_root("diag_pin_dot");
+    let f = write_file(&root, "spec.rfs", PIN_DIAGRAM_RFS);
+    assert_eq!(
+        diagram_stdout(&f, "dot"),
+        "digraph pin_fsm {
+  rankdir=LR;
+  node [shape=box];
+  \"Idle\" [style=filled, fillcolor=\"#e0e0e0\"];
+  \"Active\";
+  \"Error\";
+  \"Idle\" -> \"Active\" [label=\"Tick -> Active\"];
+  \"Active\" -> \"Active\" [label=\"Cmd(Go(lvl)) [(lvl > 2)] -> Active\"];
+  \"Active\" -> \"Idle\" [label=\"Tick -> Idle\"];
+  \"Idle\" -> \"Error\" [label=\"on_error -> Error\", style=dashed];
+  \"Active\" -> \"Error\" [label=\"on_error -> Error\", style=dashed];
+  \"Error\" -> \"Error\" [label=\"on_error -> Error\", style=dashed];
+}\n"
+    );
+    cleanup(&root);
+}
+
+#[test]
+fn diagram_pinned_puml_output() {
+    let root = tmp_root("diag_pin_puml");
+    let f = write_file(&root, "spec.rfs", PIN_DIAGRAM_RFS);
+    assert_eq!(
+        diagram_stdout(&f, "puml"),
+        "@startuml
+title pin_fsm
+[*] --> Idle
+Idle --> Active : Tick
+Active --> Active : Cmd(Go(lvl)) \\n (lvl > 2)
+note right on link : emits Ack(Ack(counter))
+Active --> Idle : Tick
+Idle -[dashed]-> Error : on_error
+note right on link : emits Ack(Ack(99))
+Active -[dashed]-> Error : on_error
+note right on link : emits Ack(Ack(99))
+Error -[dashed]-> Error : on_error
+note right on link : emits Ack(Ack(99))
+@enduml\n"
+    );
+    cleanup(&root);
+}
+
+#[test]
+fn diagram_pinned_mmd_output() {
+    let root = tmp_root("diag_pin_mmd");
+    let f = write_file(&root, "spec.rfs", PIN_DIAGRAM_RFS);
+    assert_eq!(
+        diagram_stdout(&f, "mmd"),
+        "stateDiagram-v2
+  [*] --> Idle
+  Idle --> Active: Tick
+  Active --> Active: Cmd(Go(lvl)) \\n (lvl > 2) \\n emits Ack(Ack(counter))
+  Active --> Idle: Tick
+  Idle --> Error: [on_error] \\n emits Ack(Ack(99))
+  Active --> Error: [on_error] \\n emits Ack(Ack(99))
+  Error --> Error: [on_error] \\n emits Ack(Ack(99))\n"
+    );
+    cleanup(&root);
+}
+
+#[test]
+fn diagram_pinned_table_output() {
+    let root = tmp_root("diag_pin_table");
+    let f = write_file(&root, "spec.rfs", PIN_DIAGRAM_RFS);
+    assert_eq!(
+        diagram_stdout(&f, "table"),
+        "Module: pin_fsm
+States: Idle, Active, Error
+Initial: Idle
+
+Transition matrix (rows = states, columns = events):
+
+state  | Tick      | Cmd(Go(lvl))
+-------+----------+------------------------------------------------
+Idle   | -> Active | -
+Active | -> Idle | [(lvl > 2)] -> Active; emits Ack(Ack(counter))
+Error  | - | -
+
+on_error (from any state): -> Error; emits Ack(Ack(99))
+
+Variables:
+  counter: bit<8> = 0
+Events:
+  Tick
+  Cmd: Go(level: bit<4>)
+Outputs:
+  Ack: Ack(code: bit<8>)\n"
+    );
+    cleanup(&root);
+}
+
+#[test]
+fn diagram_pinned_md_output() {
+    let root = tmp_root("diag_pin_md");
+    let f = write_file(&root, "spec.rfs", PIN_DIAGRAM_RFS);
+    assert_eq!(
+        diagram_stdout(&f, "md"),
+        "# pin_fsm - transition table
+
+**States:** Idle, Active, Error
+
+**Initial state:** Idle
+
+## Transition matrix
+
+| state | Tick | Cmd(Go(lvl)) |
+| --- | --- | --- |
+| Idle | -> Active | - |
+| Active | -> Idle | [(lvl > 2)] -> Active; emits Ack(Ack(counter)) |
+| Error | - | - |
+
+## on_error
+
+From any state: `-> Error`; emits Ack(Ack(99))
+
+## Variables
+
+- `counter: bit<8>` = `0`
+
+## Events
+
+- `Tick`
+- `Cmd: Go(level: bit<4>)`
+
+## Outputs
+
+- `Ack: Ack(code: bit<8>)`\n"
+    );
+    cleanup(&root);
+}
+
+#[test]
+fn diagram_all_formats_sweep_valid_examples() {
+    let files = rfs::collect_rfs_files("examples/valid").expect("collect examples");
+    assert!(
+        files.len() >= 45,
+        "expected the full example set, got {}",
+        files.len()
+    );
+    for f in &files {
+        for format in ["dot", "puml", "mmd", "table", "md"] {
+            let result = rfs::diagram::run_diagram(f, &diagram_opts(format))
+                .unwrap_or_else(|e| panic!("{format} on {}: {e}", f.display()));
+            let text = result.stdout.expect("text mode emits stdout");
+            assert!(
+                !text.is_empty(),
+                "{format} on {} emitted nothing",
+                f.display()
+            );
+        }
+    }
+}
+
+/// True when a bare tool name resolves on PATH (for gating real-tool tests).
+fn tool_on_path(name: &str) -> bool {
+    std::env::var_os("PATH")
+        .map(|paths| std::env::split_paths(&paths).any(|dir| dir.join(name).is_file()))
+        .unwrap_or(false)
+}
+
+fn write_stub(path: &std::path::Path, body: &str) {
+    std::fs::write(path, body).unwrap();
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let mut p = std::fs::metadata(path).unwrap().permissions();
+        p.set_mode(0o755);
+        std::fs::set_permissions(path, p).unwrap();
+    }
+}
+
+#[test]
+fn e2e_diagram_valid_exits_zero_and_prints() {
+    let root = tmp_root("e2e_diag_ok");
+    let f = write_file(&root, "a.rfs", PIN_DIAGRAM_RFS);
+    let out = std::process::Command::new(rfs_bin())
+        .args(["diagram"])
+        .arg(&f)
+        .output()
+        .expect("run rfs");
+    assert!(
+        out.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(stdout.starts_with("digraph pin_fsm"), "stdout: {stdout}");
+    cleanup(&root);
+}
+
+#[test]
+fn e2e_diagram_invalid_spec_exits_one() {
+    let root = tmp_root("e2e_diag_bad");
+    let f = write_file(&root, "bad.rfs", BAD_STATE_RFS);
+    let out = std::process::Command::new(rfs_bin())
+        .args(["diagram"])
+        .arg(&f)
+        .output()
+        .expect("run rfs");
+    assert!(!out.status.success());
+    assert!(String::from_utf8_lossy(&out.stderr).contains("error:"));
+    cleanup(&root);
+}
+
+#[test]
+fn e2e_diagram_render_dot_real_tool() {
+    let _g = diag_lock();
+    clear_tool_env();
+    if !tool_on_path("dot") {
+        eprintln!("skipping: dot not on PATH");
+        return;
+    }
+    let root = tmp_root("e2e_diag_dot");
+    let f = write_file(&root, "a.rfs", PIN_DIAGRAM_RFS);
+    let svg = root.join("out.svg");
+    let out = std::process::Command::new(rfs_bin())
+        .args(["diagram", "--render", "svg", "--out"])
+        .arg(&svg)
+        .arg(&f)
+        .output()
+        .expect("run rfs");
+    assert!(
+        out.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let src = root.join("out.dot");
+    assert!(src.is_file(), "source written next to the SVG");
+    let text = std::fs::read_to_string(&svg).expect("svg exists");
+    assert!(text.contains("pin_fsm"), "svg content: state/label missing");
+    assert!(text.contains("Cmd(Go(lvl))"), "event label must render");
+    cleanup(&root);
+}
+
+#[test]
+fn e2e_diagram_render_puml_real_tool() {
+    let _g = diag_lock();
+    clear_tool_env();
+    if !tool_on_path("plantuml") {
+        eprintln!("skipping: plantuml not on PATH");
+        return;
+    }
+    let root = tmp_root("e2e_diag_puml");
+    let f = write_file(&root, "a.rfs", PIN_DIAGRAM_RFS);
+    let svg = root.join("out.svg");
+    let out = std::process::Command::new(rfs_bin())
+        .args(["diagram", "--format", "puml", "--render", "svg", "--out"])
+        .arg(&svg)
+        .arg(&f)
+        .output()
+        .expect("run rfs");
+    assert!(
+        out.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let src = root.join("out.puml");
+    assert!(src.is_file(), "puml source written next to the SVG");
+    let text = std::fs::read_to_string(&svg).expect("svg exists");
+    // The real plantuml accepted our syntax (exit 0) AND rendered the content.
+    assert!(text.contains("Cmd(Go(lvl))"), "event label must render");
+    assert!(text.contains("lvl > 2"), "guard must render");
+    assert!(
+        text.contains("emits Ack(Ack(counter))"),
+        "note-on-link must render"
+    );
+    cleanup(&root);
+}
+
+#[test]
+fn e2e_diagram_render_mmd_real_tool() {
+    let _g = diag_lock();
+    clear_tool_env();
+    if !tool_on_path("mmdc") {
+        eprintln!("skipping: mmdc not on PATH");
+        return;
+    }
+    let root = tmp_root("e2e_diag_mmd");
+    let f = write_file(&root, "a.rfs", PIN_DIAGRAM_RFS);
+    let svg = root.join("out.svg");
+    let out = std::process::Command::new(rfs_bin())
+        .args(["diagram", "--format", "mmd", "--render", "svg", "--out"])
+        .arg(&svg)
+        .arg(&f)
+        .output()
+        .expect("run rfs");
+    assert!(
+        out.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let src = root.join("out.mmd");
+    assert!(src.is_file(), "mmd source written next to the SVG");
+    let text = std::fs::read_to_string(&svg).expect("svg exists");
+    // The real mmdc accepted our syntax (exit 0) AND rendered the content
+    // (mermaid's grammar is loose, so exit code alone would not prove it).
+    assert!(text.contains("Cmd(Go(lvl))"), "event label must render");
+    assert!(
+        text.contains("emits Ack(Ack(counter))"),
+        "emitted data must render"
+    );
+    cleanup(&root);
+}
+
+/// Negative control: the harness MUST detect a plantuml syntax error (exit 200)
+/// - and NOT be fooled by the error-SVG file plantuml still writes.
+#[test]
+fn diagram_puml_negative_control_exit_200() {
+    if !tool_on_path("plantuml") {
+        eprintln!("skipping: plantuml not on PATH");
+        return;
+    }
+    let root = tmp_root("diag_puml_neg");
+    let bad = root.join("bad.puml");
+    std::fs::write(&bad, "@startuml\nthis is not valid puml @@@\n@enduml\n").unwrap();
+    let svg = root.join("bad.svg");
+    let tool = rfs::ext_tool::ExtTool::PLANTUML.resolve(None, None);
+    let err = rfs::diagrams::plantuml::render_svg(&tool, &bad, &svg)
+        .expect_err("syntax error must be detected");
+    let joined = err.join("; ");
+    assert!(joined.contains("200"), "exit code in diagnostic: {joined}");
+    assert!(
+        joined.contains("Error line"),
+        "tool stderr captured: {joined}"
+    );
+    cleanup(&root);
+}
+
+/// Negative control: the harness MUST detect a mermaid parse error (exit 1).
+#[test]
+fn diagram_mmd_negative_control_parse_error() {
+    if !tool_on_path("mmdc") {
+        eprintln!("skipping: mmdc not on PATH");
+        return;
+    }
+    let root = tmp_root("diag_mmd_neg");
+    let bad = root.join("bad.mmd");
+    std::fs::write(
+        &bad,
+        "stateDiagram-v2\n  [*] --> A\n  state B {\n    B1 --> B2\n",
+    )
+    .unwrap();
+    let svg = root.join("bad.svg");
+    let tool = rfs::ext_tool::ExtTool::MERMAID.resolve(None, None);
+    let err = rfs::diagrams::mermaid::render_svg(&tool, &bad, &svg)
+        .expect_err("parse error must be detected");
+    let joined = err.join("; ");
+    assert!(
+        joined.contains("Parse error"),
+        "tool stderr captured: {joined}"
+    );
+    cleanup(&root);
+}
+
+/// Env-mutating tests share process-global state - serialize them.
+static DIAG_ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+/// Clear every diagram tool env var so ambient settings can't leak in.
+fn clear_tool_env() {
+    set_env(&[
+        ("RFS_DOT", None),
+        ("RFS_DOT_ARGS", None),
+        ("RFS_PLANTUML", None),
+        ("RFS_PLANTUML_ARGS", None),
+        ("RFS_MERMAID", None),
+        ("RFS_MERMAID_ARGS", None),
+    ]);
+}
+
+/// Take the diagram env lock, recovering from poisoning so one panicking
+/// test cannot poison every later env-sensitive test.
+fn diag_lock() -> std::sync::MutexGuard<'static, ()> {
+    DIAG_ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner())
+}
+
+fn set_env(pairs: &[(&str, Option<&str>)]) {
+    for (k, v) in pairs {
+        match v {
+            Some(val) => std::env::set_var(k, val),
+            None => std::env::remove_var(k),
+        }
+    }
+}
+
+#[test]
+fn e2e_diagram_stub_plantuml_receives_env_and_cli_args() {
+    let _g = diag_lock();
+    clear_tool_env();
+    let root = tmp_root("diag_stub_puml");
+    let argv_file = root.join("argv.txt");
+    let stub = root.join("stub_plantuml");
+    write_stub(
+        &stub,
+        &format!("#!/bin/sh\necho \"$@\" > {}\nexit 0\n", argv_file.display()),
+    );
+    let f = write_file(&root, "a.rfs", PIN_DIAGRAM_RFS);
+    let svg = root.join("out.svg");
+    set_env(&[
+        ("RFS_PLANTUML", Some(stub.to_str().unwrap())),
+        ("RFS_PLANTUML_ARGS", Some("-env1 -env2")),
+    ]);
+    let out = std::process::Command::new(rfs_bin())
+        .args([
+            "diagram",
+            "--format",
+            "puml",
+            "--render",
+            "svg",
+            "--out",
+            svg.to_str().unwrap(),
+            "--plantuml-args",
+            "-cli1",
+        ])
+        .arg(&f)
+        .output()
+        .expect("run rfs");
+    set_env(&[("RFS_PLANTUML", None), ("RFS_PLANTUML_ARGS", None)]);
+    assert!(
+        out.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let argv = std::fs::read_to_string(&argv_file)
+        .expect("stub ran")
+        .trim()
+        .to_string();
+    // env args first, CLI args appended, then the real arguments.
+    let src_path = root.join("out.puml");
+    assert_eq!(
+        argv,
+        format!("-env1 -env2 -cli1 -tsvg {}", src_path.display()),
+        "argv: {argv}"
+    );
+    cleanup(&root);
+}
+
+#[test]
+fn e2e_diagram_stub_dot_receives_env_and_cli_args() {
+    let _g = diag_lock();
+    clear_tool_env();
+    let root = tmp_root("diag_stub_dot");
+    let argv_file = root.join("argv.txt");
+    let stub = root.join("stub_dot");
+    write_stub(
+        &stub,
+        &format!("#!/bin/sh\necho \"$@\" > {}\nexit 0\n", argv_file.display()),
+    );
+    let f = write_file(&root, "a.rfs", PIN_DIAGRAM_RFS);
+    let svg = root.join("out.svg");
+    set_env(&[
+        ("RFS_DOT", Some(stub.to_str().unwrap())),
+        ("RFS_DOT_ARGS", Some("-Gdpi=150")),
+    ]);
+    let out = std::process::Command::new(rfs_bin())
+        .args([
+            "diagram",
+            "--render",
+            "svg",
+            "--out",
+            svg.to_str().unwrap(),
+            "--dot-args",
+            "-x",
+        ])
+        .arg(&f)
+        .output()
+        .expect("run rfs");
+    set_env(&[("RFS_DOT", None), ("RFS_DOT_ARGS", None)]);
+    assert!(
+        out.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let argv = std::fs::read_to_string(&argv_file)
+        .expect("stub ran")
+        .trim()
+        .to_string();
+    let src_path = root.join("out.dot");
+    assert_eq!(
+        argv,
+        format!(
+            "-Gdpi=150 -x -Tsvg {} -o {}",
+            src_path.display(),
+            svg.display()
+        ),
+        "argv: {argv}"
+    );
+    cleanup(&root);
+}
+
+#[test]
+fn e2e_diagram_flag_path_beats_env_for_mermaid() {
+    let _g = diag_lock();
+    clear_tool_env();
+    let root = tmp_root("diag_stub_mmd");
+    let marker_a = root.join("marker_a.txt");
+    let marker_b = root.join("marker_b.txt");
+    let stub_a = root.join("stub_a");
+    let stub_b = root.join("stub_b");
+    write_stub(
+        &stub_a,
+        &format!("#!/bin/sh\ntouch {}\nexit 0\n", marker_a.display()),
+    );
+    write_stub(
+        &stub_b,
+        &format!("#!/bin/sh\ntouch {}\nexit 0\n", marker_b.display()),
+    );
+    let f = write_file(&root, "a.rfs", PIN_DIAGRAM_RFS);
+    let svg = root.join("out.svg");
+    set_env(&[("RFS_MERMAID", Some(stub_a.to_str().unwrap()))]);
+    let out = std::process::Command::new(rfs_bin())
+        .args([
+            "diagram",
+            "--format",
+            "mmd",
+            "--render",
+            "svg",
+            "--out",
+            svg.to_str().unwrap(),
+            "--mermaid",
+            stub_b.to_str().unwrap(),
+        ])
+        .arg(&f)
+        .output()
+        .expect("run rfs");
+    set_env(&[("RFS_MERMAID", None)]);
+    assert!(
+        out.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    assert!(
+        !marker_a.exists(),
+        "env-var stub must NOT be used when a flag is given"
+    );
+    assert!(marker_b.exists(), "flag path wins (FLAG > ENV precedence)");
+    cleanup(&root);
+}
+
+#[test]
+fn e2e_diagram_missing_dot_tool_exits_one() {
+    let _g = diag_lock();
+    clear_tool_env();
+    let root = tmp_root("diag_missing_dot");
+    let f = write_file(&root, "a.rfs", PIN_DIAGRAM_RFS);
+    let svg = root.join("out.svg");
+    set_env(&[("RFS_DOT", Some("/nonexistent/rfs_test_dot"))]);
+    let out = std::process::Command::new(rfs_bin())
+        .args(["diagram", "--render", "svg", "--out"])
+        .arg(&svg)
+        .arg(&f)
+        .output()
+        .expect("run rfs");
+    set_env(&[("RFS_DOT", None)]);
+    assert!(
+        !out.status.success(),
+        "strict semantics: missing tool is an error"
+    );
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(stderr.contains("failed to run dot"), "stderr: {stderr}");
+    cleanup(&root);
+}
+
+#[test]
+fn e2e_diagram_failing_plantuml_propagates_stderr() {
+    let _g = diag_lock();
+    clear_tool_env();
+    let root = tmp_root("diag_fail_puml");
+    let stub = root.join("failing_plantuml");
+    write_stub(
+        &stub,
+        "#!/bin/sh\necho \"Error line 3 in file: bad.puml\" >&2\nexit 200\n",
+    );
+    let f = write_file(&root, "a.rfs", PIN_DIAGRAM_RFS);
+    let svg = root.join("out.svg");
+    set_env(&[("RFS_PLANTUML", Some(stub.to_str().unwrap()))]);
+    let out = std::process::Command::new(rfs_bin())
+        .args(["diagram", "--format", "puml", "--render", "svg", "--out"])
+        .arg(&svg)
+        .arg(&f)
+        .output()
+        .expect("run rfs");
+    set_env(&[("RFS_PLANTUML", None)]);
+    assert!(
+        !out.status.success(),
+        "strict semantics: renderer failure is an error"
+    );
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(stderr.contains("plantuml exited"), "stderr: {stderr}");
+    assert!(
+        stderr.contains("Error line 3 in file: bad.puml"),
+        "captured tool stderr must surface: {stderr}"
+    );
+    cleanup(&root);
+}
+
+#[test]
+fn e2e_diagram_failing_mmdc_exits_one() {
+    let _g = diag_lock();
+    clear_tool_env();
+    let root = tmp_root("diag_fail_mmd");
+    let stub = root.join("failing_mmdc");
+    write_stub(
+        &stub,
+        "#!/bin/sh\necho \"Error: Parse error on line 1:\" >&2\nexit 1\n",
+    );
+    let f = write_file(&root, "a.rfs", PIN_DIAGRAM_RFS);
+    let svg = root.join("out.svg");
+    set_env(&[("RFS_MERMAID", Some(stub.to_str().unwrap()))]);
+    let out = std::process::Command::new(rfs_bin())
+        .args(["diagram", "--format", "mmd", "--render", "svg", "--out"])
+        .arg(&svg)
+        .arg(&f)
+        .output()
+        .expect("run rfs");
+    set_env(&[("RFS_MERMAID", None)]);
+    assert!(
+        !out.status.success(),
+        "strict semantics: renderer failure is an error"
+    );
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(stderr.contains("mmdc exited"), "stderr: {stderr}");
+    cleanup(&root);
+}
+
+fn print_script_of(root: &std::path::Path, args: &[&str]) -> String {
+    let out = std::process::Command::new(rfs_bin())
+        .args(args)
+        .current_dir(root)
+        .output()
+        .expect("run rfs");
+    assert!(
+        out.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    String::from_utf8_lossy(&out.stdout).into_owned()
+}
+
+#[test]
+fn e2e_diagram_print_script_puml_render_pinned() {
+    let root = tmp_root("diag_script_puml");
+    let _g = diag_lock();
+    clear_tool_env();
+    write_file(&root, "spec.rfs", PIN_DIAGRAM_RFS);
+    let script = print_script_of(
+        &root,
+        &[
+            "diagram",
+            "--format",
+            "puml",
+            "--render",
+            "svg",
+            "--out",
+            "build/diagram.svg",
+            "--print-script",
+            "spec.rfs",
+        ],
+    );
+    assert_eq!(script, "#!/bin/sh
+# rfs 0.1.0 - generated by `rfs diagram --format puml --render svg --out build/diagram.svg spec.rfs` on spec.rfs
+# tools: plantuml=plantuml
+set -e
+# step 1: write generated diagram source
+cat > build/diagram.puml <<'__RFS_DIAGRAM_SOURCE__'
+@startuml
+title pin_fsm
+[*] --> Idle
+Idle --> Active : Tick
+Active --> Active : Cmd(Go(lvl)) \\n (lvl > 2)
+note right on link : emits Ack(Ack(counter))
+Active --> Idle : Tick
+Idle -[dashed]-> Error : on_error
+note right on link : emits Ack(Ack(99))
+Active -[dashed]-> Error : on_error
+note right on link : emits Ack(Ack(99))
+Error -[dashed]-> Error : on_error
+note right on link : emits Ack(Ack(99))
+@enduml
+__RFS_DIAGRAM_SOURCE__
+# step 2: render svg
+plantuml -tsvg build/diagram.puml
+");
+    cleanup(&root);
+}
+
+#[test]
+fn e2e_diagram_print_script_mmd_render_pinned() {
+    let root = tmp_root("diag_script_mmd");
+    let _g = diag_lock();
+    clear_tool_env();
+    write_file(&root, "spec.rfs", PIN_DIAGRAM_RFS);
+    let script = print_script_of(
+        &root,
+        &[
+            "diagram",
+            "--format",
+            "mmd",
+            "--render",
+            "svg",
+            "--out",
+            "build/diagram.svg",
+            "--print-script",
+            "spec.rfs",
+        ],
+    );
+    // The mermaid script carries the puppeteer-config step between the heredoc
+    // and the mmdc invocation (root/container Chrome requirement).
+    assert!(
+        script.contains(r#"printf '%s' '{"args":["--no-sandbox","--disable-dev-shm-usage"]}' > build/diagram.puppeteer.json"#),
+        "puppeteer step: {script}"
+    );
+    assert!(
+        script.contains(
+            "mmdc -i build/diagram.mmd -o build/diagram.svg -p build/diagram.puppeteer.json -q"
+        ),
+        "mmdc invocation: {script}"
+    );
+    let tail = script
+        .split("__RFS_DIAGRAM_SOURCE__\n")
+        .nth(1)
+        .unwrap_or("");
+    assert_eq!(
+        tail,
+        "# step 2: write mmdc puppeteer config (Chrome needs --no-sandbox when rfs runs as root)\nprintf '%s' '{\"args\":[\"--no-sandbox\",\"--disable-dev-shm-usage\"]}' > build/diagram.puppeteer.json\n# step 3: render svg\nmmdc -i build/diagram.mmd -o build/diagram.svg -p build/diagram.puppeteer.json -q\n"
+    );
+    cleanup(&root);
+}
+
+#[test]
+fn e2e_diagram_print_script_no_tool_pinned() {
+    let root = tmp_root("diag_script_notool");
+    let _g = diag_lock();
+    clear_tool_env();
+    write_file(&root, "spec.rfs", PIN_DIAGRAM_RFS);
+    let script = print_script_of(&root, &["diagram", "--print-script", "spec.rfs"]);
+    assert_eq!(
+        script,
+        "#!/bin/sh
+# rfs 0.1.0 - generated by `rfs diagram --format dot spec.rfs` on spec.rfs
+set -e
+# step 1: no external tools needed (text format)
+echo 'rfs diagram --format dot <spec> emits text; nothing to run'
+"
+    );
+    cleanup(&root);
+}
+
+#[test]
+fn e2e_diagram_list_pinned() {
+    let _g = diag_lock();
+    clear_tool_env();
+    let out = std::process::Command::new(rfs_bin())
+        .args(["diagram", "--list"])
+        .output()
+        .expect("run rfs");
+    assert!(out.status.success());
+    assert_eq!(String::from_utf8_lossy(&out.stdout), "dot    Graphviz DOT state diagram (pure Rust generation; SVG via the dot binary)
+puml   PlantUML state diagram (edge label 'event \\n guard', emitted data via note on link; SVG via the plantuml binary)
+mmd    Mermaid stateDiagram-v2 (all transition info in multi-line edge labels; SVG via the mmdc binary)
+table  Transition table + variable/event summary (plain text)
+md     Transition table + variable/event summary (Markdown)\n");
+}
+
+#[test]
+fn e2e_diagram_rejects_unknown_format() {
+    let root = tmp_root("diag_badfmt");
+    let f = write_file(&root, "a.rfs", PIN_DIAGRAM_RFS);
+    let out = std::process::Command::new(rfs_bin())
+        .args(["diagram", "--format", "bogus"])
+        .arg(&f)
+        .output()
+        .expect("run rfs");
+    assert!(!out.status.success());
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(
+        stderr.contains("unknown diagram format 'bogus'"),
+        "stderr: {stderr}"
+    );
+    assert!(
+        stderr.contains("dot, puml, mmd, table, md"),
+        "registered list shown: {stderr}"
+    );
+    cleanup(&root);
+}
+
+#[test]
+fn e2e_diagram_render_requires_out_svg() {
+    let root = tmp_root("diag_render_out");
+    let f = write_file(&root, "a.rfs", PIN_DIAGRAM_RFS);
+    // No --out at all.
+    let out = std::process::Command::new(rfs_bin())
+        .args(["diagram", "--format", "puml", "--render", "svg"])
+        .arg(&f)
+        .output()
+        .expect("run rfs");
+    assert!(!out.status.success());
+    assert!(String::from_utf8_lossy(&out.stderr).contains("requires --out FILE ending in .svg"));
+    // Wrong extension.
+    let out = std::process::Command::new(rfs_bin())
+        .args([
+            "diagram",
+            "--format",
+            "puml",
+            "--render",
+            "svg",
+            "--out",
+            root.join("x.png").to_str().unwrap(),
+        ])
+        .arg(&f)
+        .output()
+        .expect("run rfs");
+    assert!(!out.status.success());
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(stderr.contains("ending in .svg"), "stderr: {stderr}");
+    cleanup(&root);
+}
+
+#[test]
+fn e2e_diagram_table_md_have_no_renderer() {
+    let root = tmp_root("diag_norenderer");
+    let f = write_file(&root, "a.rfs", PIN_DIAGRAM_RFS);
+    for format in ["table", "md"] {
+        let out = std::process::Command::new(rfs_bin())
+            .args([
+                "diagram",
+                "--format",
+                format,
+                "--render",
+                "svg",
+                "--out",
+                root.join("x.svg").to_str().unwrap(),
+            ])
+            .arg(&f)
+            .output()
+            .expect("run rfs");
+        assert!(!out.status.success(), "{format} must reject --render");
+        let stderr = String::from_utf8_lossy(&out.stderr);
+        assert!(stderr.contains("has no SVG renderer"), "stderr: {stderr}");
+    }
+    cleanup(&root);
+}

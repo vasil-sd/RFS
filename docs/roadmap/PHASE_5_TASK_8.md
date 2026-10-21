@@ -17,7 +17,18 @@ is pure-Rust text generation with **no external tool calls**; the flag
 `--render svg` additionally invokes the format's external tool (`dot` /
 `plantuml` / `mmdc`) to produce an SVG. External-tool parameterization is
 unified with task 3's resolver: `RFS_DOT`/`RFS_PLANTUML`/`RFS_MERMAID` (+
-`*_ARGS` env vars), overriding CLI flags, and `--print-script` mode.
+`*_ARGS` env vars), overriding CLI flags, and `--print-script` mode. Render
+requests are STRICT: a missing or failing render tool is an error (exit 1) -
+no graceful degradation (user decision 2026-10-21, CI/CD rationale below).
+
+> **Strictness decision (user requirement, 2026-10-21)**: a command either does
+> what was requested or throws an error. RFS is embedded in CI/CD pipelines,
+> where silent degradation ("tool missing -> just write the source") hides
+> broken environments. Therefore `--render svg` with a missing/unresolvable
+> tool OR a renderer that exits non-zero => rfs exits 1 with a diagnostic on
+> stderr (including captured tool stderr). Users who want fallback behaviour
+> compose it themselves: try `--render`, and on failure fall back to plain
+> text generation, or run the `--print-script` output in their own wrapper.
 
 ## Context
 
@@ -47,7 +58,7 @@ unified with task 3's resolver: `RFS_DOT`/`RFS_PLANTUML`/`RFS_MERMAID` (+
   }
   ```
 - `src/diagram.rs` (new): registry + shared CLI plumbing (arg parsing,
-  generate-to-stdout/file, `--render` orchestration, fallback warning,
+  generate-to-stdout/file, `--render` orchestration with strict error propagation,
   `--print-script` assembly). No format-specific logic lives here.
 
 ### Data source and determinism
@@ -134,15 +145,23 @@ unified with task 3's resolver: `RFS_DOT`/`RFS_PLANTUML`/`RFS_MERMAID` (+
   rows/section marked) + typed variable/event summaries; `md` wraps the same
   data layer in Markdown. Shared builder in `tables.rs`. No renderer.
 
-### Rendering, fallback, script mode (user requirement 5)
+### Rendering, strict error semantics, script mode (user requirement 5)
 - `--render svg` requires `--out FILE` ending in `.svg`; the generated source
   is written NEXT TO it with the plugin's extension (same stem:
   `--format puml --out build/diagram.svg` -> writes `build/diagram.puml` and
   renders to `build/diagram.svg`). Both files persist (reviewable).
 - Without `--render`: text goes to stdout or `--out FILE`; NO external tool is
   ever invoked (primary behaviour).
-- Renderer tool missing at render time -> WARN on stderr, still write the
-  source file, exit 0 (graceful degradation; documented optional dependency).
+- **STRICT render errors (no graceful degradation - user decision 2026-10-21,
+  applies to ALL formats incl. DOT)**: at render time, if the tool is missing
+  / unresolvable OR the renderer process exits non-zero -> rfs exits **1**
+  with a diagnostic on stderr (which tool, resolved path, captured tool
+  stderr). The generated source file may remain on disk (useful for debugging;
+  documented), but the command result carries the failure. Rationale: RFS runs
+  inside CI/CD pipelines - a command either does what was requested or throws
+  an error; silent fallbacks hide broken environments. Users who want a
+  fallback compose it themselves (try render, on error generate text only, or
+  drive the `--print-script` output from their own wrapper script).
 - `--print-script` (task 3's Script builder): for `--render`, a self-contained
   POSIX sh script - header (rfs version, spec, resolved tool paths/args),
   heredoc step writing the generated source, (mermaid only: step writing the
@@ -172,7 +191,7 @@ the plugin list and the new env vars)
 
 | File | Operation | Brief description |
 |------|-----------|-------------------|
-| `src/diagram.rs` | new | DiagramPlugin API + registry (list/get), CLI arg parsing, generate/render orchestration, fallback warning, --print-script assembly |
+| `src/diagram.rs` | new | DiagramPlugin API + registry (list/get), CLI arg parsing, generate/render orchestration with strict error propagation, --print-script assembly |
 | `src/diagrams/mod.rs` | new | plugin modules wiring (mirrors src/backends/mod.rs) |
 | `src/diagrams/dot.rs` | new | Graphviz DOT generator + render_svg via resolved dot (-Tsvg) |
 | `src/diagrams/plantuml.rs` | new | PlantUML state-diagram generator (label = event\n guard; note-on-link = emitted data; -[dashed]-> on_error) + render_svg via plantuml -tsvg |
@@ -245,16 +264,17 @@ puppeteer JSON (`RFS_MERMAID_PUPPETEER_ARGS`). Pin output for the small spec.
 ### Action 5: ext_tool presets + render orchestration
 Add RFS_PLANTUML/RFS_MERMAID presets to `src/ext_tool.rs`; wire `--render
 svg` in `src/diagram.rs`: write source next to `--out *.svg`, invoke the
-plugin's renderer via the resolved tool (capturing stderr for diagnostics),
-missing tool -> warn + keep source file + exit 0. `--print-script` assembly
-for all formats (self-contained script per Context).
+plugin's renderer via the resolved tool; missing/unresolvable tool OR
+non-zero renderer exit -> rfs exit 1 with diagnostic incl. captured tool
+stderr (strict semantics per Context - ALL formats, DOT included).
+`--print-script` assembly for all formats (self-contained script per Context).
 
 #### Affected files
 
 | File | Operation | Description + rationale |
 |------|-----------|-------------------------|
 | `src/ext_tool.rs` | change | two new presets; existing unit tests unchanged/green |
-| `src/diagram.rs` | change | render path, fallback, script emission |
+| `src/diagram.rs` | change | render path, strict error propagation, script emission |
 
 ### Action 6: command wiring
 Dispatch in `src/main.rs`, options (`--format dot|puml|mmd|table|md` default
@@ -287,8 +307,11 @@ other commands).
 4. **Parameterization proof**: stub tools (as in task 3) for dot/plantuml/
    mmdc - argv incl. `--*-args` env+CLI values reaches the process;
    FLAG>ENV>PATH precedence spot-checked for one new tool.
-5. **Fallback**: RFS_DOT pointed at a missing path + `--render svg` -> warning
-   on stderr, source file written, exit 0.
+5. **Strict render errors** (all formats, DOT included): (a) RFS_DOT pointed
+   at a missing path + `--render svg` -> exit 1 + diagnostic naming the tool;
+   (b) renderer failure propagates: stub plantuml exiting 200 + `--render svg`
+   -> rfs exit 1 with the captured tool stderr in the diagnostic; (c) same for
+   a stub mmdc exiting 1.
 6. **--print-script**: byte-pinned scripts - (a) puml+render (heredoc +
    plantuml line), (b) mmd+render (heredoc + puppeteer JSON step + mmdc
    line), (c) dot without render (no-tool script).
@@ -319,7 +342,8 @@ existing external-tool documentation style.
 - `rfs diagram` command on a plugin registry: 5 formats (`dot`, `puml`,
   `mmd`, `table`, `md`); adding a format = one module + one registry line.
 - Primary behaviour = pure text generation, zero tool calls; `--render svg`
-  invokes the format's tool (dot/plantuml/mmdc) with graceful fallback.
+  invokes the format's tool (dot/plantuml/mmdc) with STRICT error semantics
+  (missing/failing tool -> exit 1 + diagnostic; no graceful degradation).
 - Unified parameterization: `RFS_DOT`/`RFS_PLANTUML`/`RFS_MERMAID` +
   `*_ARGS`, overriding flags, `--print-script` (self-contained scripts).
 - Tool-acceptance tests for generated puml/mmd (incl. negative controls) and
@@ -329,12 +353,16 @@ existing external-tool documentation style.
 - [ ] All five formats byte-pinned for the small spec; 45-example sweep green (text path).
 - [ ] Generated puml accepted by real plantuml (exit 0, expected strings in SVG); negative control fails with exit 200 through the same harness.
 - [ ] Generated mmd accepted by real mmdc (exit 0, expected strings in SVG, auto puppeteer config works as root); negative control fails with exit 1 + `Parse error`.
-- [ ] dot render path green with real dot; missing-tool fallback warns + keeps source + exit 0 (test).
+- [ ] dot render path green with real dot; missing tool AND renderer failure both yield exit 1 + diagnostic for every format (tests, DOT included).
 - [ ] Stub-tool argv/args proof for all three tools incl. env+CLI precedence; --print-script outputs byte-pinned (puml, mmd-with-puppeteer-step, no-tool).
 - [ ] BUILD.md + TOOLCHAIN.md contain install/run instructions for dot/plantuml/mermaid.
 - [ ] Full suite green (`cargo test` root + `--workspace`), generated-code tests unchanged, clippy zero-new, fmt clean.
 
 ## Non-goals
+- Graceful degradation on render failure (EXCLUDED by user decision 2026-10-21:
+  missing/failing render tool is always an error; fallbacks are composed by
+  users in their CI, e.g. via `--print-script` or a try-render-then-generate
+  wrapper).
 - PNG output (v1 renders SVG only; `dot -Tpng` is a trivial later extension).
 - Interactive/animated diagrams, layout engines in Rust.
 - Composite/nested state rendering (RFS FSMs are flat; plugins stay simple).

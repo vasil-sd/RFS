@@ -125,6 +125,13 @@ that echo their argv.
 - Fuzz target execution (cargo-fuzz/clang wiring is task 12).
 - Parallel test execution across backends (sequential is fine for v1).
 
+## Task corrections
+
+| Correction | Description + rationale |
+|------------|-------------------------|
+| C7-1: rustc invocation includes `--test` | The task file's pipeline sketch says `rustc --edition 2021 <artifact>.rs -o ...`, but the Rust test artifact is production code + a `#[cfg(test)]` module with NO `main`: without `--test` the compile fails (cfg(test) off, no main function). The shipped invocation is `rustc --edition 2021 --test` - exactly what the parity suite's `compile_rust(as_test=true)` has always used. Pinned by the stub-tool argv test and the byte-pinned script. |
+| C7-2: script pinning = byte-pinned wrapper + cross-checked heredoc body | The generated Rust test artifact for the minimal spec is 218 lines; embedding it as a literal (the diagram tests' approach, viable at ~20 lines) was rejected. Instead the deterministic wrapper (header, tools line, all step comments + command lines) is byte-pinned AND the heredoc body is asserted equal to the actual `rfs codegen rust test --out` output in the same test - strictly stronger than re-embedding: any drift between script and codegen fails. |
+
 ## Other information
 - Temp dir cleanup must happen on failure paths too (use a guard/drop).
 - Keep the command thin: no logic duplicated from codegen/renderers.

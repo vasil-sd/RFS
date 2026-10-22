@@ -18,6 +18,7 @@ pub mod parser;
 pub mod printer;
 pub mod smt_emit;
 pub mod smt_plan;
+pub mod test_cmd;
 pub mod training;
 pub mod validator;
 

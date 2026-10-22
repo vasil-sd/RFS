@@ -806,3 +806,19 @@ sed -n "<start>,<end>p" TASKS.md            # one specific entry by line range
 - Pre-existing fixes found during verification: `tests/smt_bounded_test.rs` scratch manifest gained an empty `[workspace]` table (since task 1's workspace conversion the `--features smt` suite was red - "current package believes it's in a workspace when it's not"; fails identically on pristine tree); zero-warning bar extended to ALL generated C artifacts (transition-less specs 29/30 had pre-existing warnings; conditional `cont_handler`/`fuzz_stop_handler` emission).
 - Docs: CODEGEN.md 5.2 (both-backend rendering section), src/backends/C.md (file layout + test-artifact paragraph), BUILD.md (337 root / 345 workspace / 339 smt; parity description; baseline 2026-10-22 after task 6), KB.md (Tests row + C source-map row), INTRO.md row 5 -> "tasks 1-6 + 8-9 of 16 done", PHASE_5_TASK_6_STATUS.md, task corrections C6-1..C6-3 in PHASE_5_TASK_6.md.
 - Verification: cargo build clean; cargo test 337/337 root (was 333), 345/345 workspace (was 341); --features smt 339/339 (was red pre-task, now fixed); generated-code 1453/1453 unchanged; C sweep all 45 valid examples: gcc -Wall zero warnings + 417 per-test lines + 0 failures; fuzz-skeleton sweep 45/45 clean with plain gcc (no clang in env); C production byte-stability vs pre-change build on 175 artifacts = exactly the one RFS_UNUSED token; clippy identical to 12-warning baseline (diff-verified); fmt clean.
+
+## 2026-10-22 00:35 — Phase 5 task 7: `rfs test` command (generate + compile + run, both backends, tool parameterization, --print-script)
+
+### Interpretation & plan
+
+- "Lets execute task 7" = implement Phase 5 task 7 per docs/roadmap/PHASE_5_TASK_7.md (deps 5+6 done): the CI entry point that generates, compiles and runs the extended test suite in one invocation.
+- Plan: new src/test_cmd.rs (pipeline + script renderer) on task 3's ext_tool resolver/Script emitter; main.rs dispatch + usage; frontend_test e2e suite (both backends pass/fail, byte-pinned --print-script, stub-tool precedence proofs, error pins); docs sync.
+
+### Report
+
+- `rfs test <spec> [--backend rust|c] [--steps N] [--rustc/--gcc PATH] [--*-args] [--print-script] [--log-level]`: parse+validate -> codegen via registry dispatch -> temp dir (Drop-cleanup guard) -> compile (`rustc --edition 2021 --test` / `gcc -Wall`) -> run (per-test results stream on stdout; tool/compile diagnostics on stderr). Exit 0 all-pass; exit 1 test failure / compile error / usage-parse-validation error.
+- `--print-script`: self-contained deterministic POSIX sh (heredoc source + compile + run + cleanup) via task 3's Script emitter; verified by hand that `rfs test --print-script spec | sh` runs the whole pipeline and cleans up.
+- Corrections: C7-1 rustc needs `--test` (task file sketch omitted it - artifact has no main without cfg(test)); C7-2 script pinning = byte-pinned wrapper + heredoc body cross-checked against actual codegen output (218-line literal rejected).
+- Tests: +5 frontend e2e (both backends exit 0 passing / exit 1 injected invariant failure with failing test visible; print-script pin + no-execution proof via nonexistent tool path; stub argv proofs flag>env>PATH incl. a `rustc`-named stub on replaced child PATH + env-args-then-cli-args order for rustc and gcc; usage/parse/validation error pins).
+- Docs: BUILD.md (342/350 counts, command row, baseline), KB.md 4.5 (six-command intro fix + test subsection) + section 1, INTRO row "tasks 1-7 + 8-9 of 16", PHASE_5_TASK_7_STATUS.md.
+- Verification: cargo test 342/342 root (was 337), 350/350 workspace, 344/344 --features smt; generated-code 1453/1453 unchanged; clippy identical to baseline (diff-verified); fmt clean.

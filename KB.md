@@ -50,7 +50,7 @@ Read order for a new assistant:
 | Invalid examples | 12 files | All fail as expected (parse or validation), including TLA-syntax anti-patterns, Phase 2 semantic errors (duplicate priority, shadowed duplicate transition, on_error without next, bad version header, duplicate set), and the Phase 3 `always[0]` zero-bound error. |
 | Validator | Phase 1 working | `src/validator.rs` performs name resolution, pattern/output checks, expression typing, and formula typing. |
 | Code generator | Phase 2 working (plugin system) | `src/codegen.rs` defines the Backend plugin API, the `BACKENDS` registry, and `rfs codegen` CLI parsing; shared analysis in `codegen_fsm/test/mc.rs` + `mc_plan.rs` (Phase 4 MC plan) + `monitor.rs` (Phase 3 monitors) + `smt_plan.rs`/`smt_emit.rs` (Phase 4 SMT); **Rust and C backends** under `src/backends/` each implement production/test/mc (C MC mirrors the Rust exact engine - same summary line, counterexample fields, and CLI wire format). See `CODEGEN.md`. |
-| Tests | Passing | 337 non-doc tests in the main crate (179 lib, 7 cross-backend parity incl. the Phase 5 task 6 per-test result-list + coverage-line comparison of both backends' generated test executables, 5 benchmark MC, 43 codegen, 3 examples, 77 frontend CLI logic, 2 integration examples, 4 parser-library comparison, 9 liveness MC, 4 monitor integration, 4 training; +2 more with `--features smt`); generated aggregate unit-test crate currently has 1453 passing tests (179 modules; since Phase 5 task 5 each module also carries the extended plan classes - per-transition, invariant, monitor-violating-trace and random-trace tests; it also compiles the valid training snippets, so the count moves with the snippet sets). |
+| Tests | Passing | 342 non-doc tests in the main crate (179 lib, 7 cross-backend parity incl. the Phase 5 task 6 per-test result-list + coverage-line comparison of both backends' generated test executables, 5 benchmark MC, 43 codegen, 3 examples, 82 frontend CLI logic incl. the Phase 5 task 7 `rfs test` suite (both backends exit 0 on a passing spec / exit 1 on an injected invariant failure, byte-pinned --print-script with the heredoc body cross-checked against codegen output, stub-tool proof of flag > env > PATH precedence + extra-arg order, usage/parse/validation error pins), 2 integration examples, 4 parser-library comparison, 9 liveness MC, 4 monitor integration, 4 training; +2 more with `--features smt`); generated aggregate unit-test crate currently has 1453 passing tests (179 modules; since Phase 5 task 5 each module also carries the extended plan classes - per-transition, invariant, monitor-violating-trace and random-trace tests; it also compiles the valid training snippets, so the count moves with the snippet sets). |
 | LLM training set | Maintained, 11 categories | `training/<category>/rfs_training.jsonl` stores category-specific SFT examples (design, syntax_semantics, properties_temporal_logic, model_checking, model_checking_space, model_checking_properties, codegen_rust, examples_explain, frontend_cli, project_tooling, tla_adaptation); `all_rfs_training.jsonl` is the generated aggregate (231 examples; Phase 4 task 12 added eventually/until + exact-MC-status/abstraction/liveness-counterexample coverage). |
 | Training snippets | Generated | `training/<category>/snippets/valid/*.rfs` and `snippets/invalid/*.rfs` are extracted from training JSONL, validated, and tested by the parser suite. |
 | Lint/format | Clean | `cargo clippy --all-targets` and `cargo fmt` were clean at last verification. |
@@ -746,7 +746,7 @@ Important functions in `src/parser.rs`:
 
 ### 4.5 CLI behavior
 
-Three subcommands, dispatched in `src/main.rs` (logic in `src/frontend.rs` / `src/codegen.rs`); any other first argument prints the usage and exits 1:
+Six subcommands (`parse`, `validate`, `info`, `test`, `diagram`, `codegen`), dispatched in `src/main.rs` (logic in `src/frontend.rs` / `src/info.rs` / `src/test_cmd.rs` / `src/diagram.rs` / `src/codegen.rs`); any other first argument prints the usage and exits 1:
 
 #### `parse` subcommand (Phase 1): format conversion
 
@@ -791,6 +791,16 @@ cargo run -- codegen rust mc spec.rfs --assumes a1,a2 --out fsm_mc.rs
 - MC-only codegen options (Phase 4): `--mode exact|fuzz|smt-bounded` (default `exact`; `smt-bounded` requires the `smt` cargo feature at codegen time), `--max-states N` (default 1,000,000), `--nondet`, `--timeout-sec N` (default 0 = off; wall-clock only, NOT parity-guaranteed), `--threads N` (default 1; exact mode is byte-identical for any N), `--smt-bound N` (default 10). All are embedded as defaults in the generated binary and overridable at runtime; `--fast` is runtime-only (non-parity early abort).
 - Warnings go to stderr; generated source goes to stdout or `--out`. Exit code 0 on success, 1 for unknown backend, bad extension, parse, or generation errors.
 - The plugin API and the procedure for adding a new target language are documented in `CODEGEN.md`; the Rust backend's internals in `src/backends/RUST.md`.
+
+#### `test` subcommand (Phase 5 task 7): generate + compile + run in one invocation
+
+```sh
+cargo run -- test [--backend rust|c] [--steps N] [--rustc PATH] [--gcc PATH] \
+    [--rustc-args "..."] [--gcc-args "..."] [--print-script] \
+    [--log-level off|error|warn|info|debug] <spec.rfs|spec.json>
+```
+
+The CI entry point for generated tests: parse+validate the spec, codegen the `test` artifact (registry dispatch) into a temp dir (cleaned on every exit path), compile it with the resolved tool (`rustc --edition 2021 --test` for backend rust, `gcc -Wall` for backend c), and run the executable. Per-test results stream on stdout (libtest lines for rust, `PASS <name>`/`FAIL <name>` for c); tool resolution + compile diagnostics go to stderr via the logging helper. Tool paths/args follow task 3's resolver: `RFS_RUSTC`/`RFS_GCC` (+ `*_ARGS`) env vars preferred, overridden by `--rustc`/`--gcc PATH` + `--*-args` flags, default bare name on PATH. `--print-script` prints a self-contained deterministic POSIX sh script (heredoc source + compile + run + cleanup steps) instead of executing - exit 0 either way. Exit codes: 0 all tests pass; 1 test failure, compile error, or usage/parse/validation error (consistent with the other commands).
 
 ### 4.6 Training-set organization
 

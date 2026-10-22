@@ -2141,3 +2141,368 @@ fn e2e_diagram_table_md_have_no_renderer() {
     }
     cleanup(&root);
 }
+
+// ---------------------------------------------------------------------------
+// Phase 5 task 7: `rfs test` command (generate + compile + run, both
+// backends; external-tool parameterization; --print-script).
+// ---------------------------------------------------------------------------
+
+/// A spec whose generated invariant test FAILS deterministically: x starts
+/// false while `prop p : always (x)` - the invariant re-check fails at sample
+/// 0 in BOTH backends.
+const FAILING_RFS: &str = "module fail_demo { enum State { A } initial A event Go var x: bool init false transition A on Go { next A; } prop p : always (x) ; }";
+
+/// Env-mutating `rfs test` tests share process-global state - serialize them
+/// (same pattern as the diagram env tests).
+static TEST_ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+fn test_lock() -> std::sync::MutexGuard<'static, ()> {
+    TEST_ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner())
+}
+
+/// Clear the rfs-test tool env vars so ambient settings can't leak in.
+fn clear_test_env() {
+    set_env(&[
+        ("RFS_RUSTC", None),
+        ("RFS_RUSTC_ARGS", None),
+        ("RFS_GCC", None),
+        ("RFS_GCC_ARGS", None),
+    ]);
+}
+
+/// `rfs test <passing spec>` exits 0 in BOTH backends, streaming per-test
+/// results on stdout.
+#[test]
+fn e2e_test_passing_spec_both_backends_exit_zero() {
+    let _g = test_lock();
+    clear_test_env();
+    let root = tmp_root("t7_pass");
+    let f = write_file(&root, "ok.rfs", VALID_RFS);
+    for backend in ["rust", "c"] {
+        let out = std::process::Command::new(rfs_bin())
+            .args(["test", "--backend", backend])
+            .arg(&f)
+            .output()
+            .expect("spawn rfs test");
+        assert!(
+            out.status.success(),
+            "{backend}: exit {:?}; stderr: {}",
+            out.status.code(),
+            String::from_utf8_lossy(&out.stderr)
+        );
+        let stdout = String::from_utf8_lossy(&out.stdout);
+        if backend == "rust" {
+            assert!(stdout.contains("test result: ok"), "{backend}: {stdout}");
+            assert!(
+                stdout.contains("initial_state_is_correct ... ok"),
+                "{backend}: per-test lines missing: {stdout}"
+            );
+        } else {
+            assert!(
+                stdout.contains("PASS initial_state_is_correct"),
+                "{backend}: per-test lines missing: {stdout}"
+            );
+            assert!(
+                stdout.contains("all generated C tests passed"),
+                "{backend}: {stdout}"
+            );
+        }
+    }
+    cleanup(&root);
+}
+
+/// A spec whose invariant test fails exits 1 in BOTH backends with the
+/// failing test visible on stdout.
+#[test]
+fn e2e_test_failing_variant_exits_one() {
+    let _g = test_lock();
+    clear_test_env();
+    let root = tmp_root("t7_fail");
+    let f = write_file(&root, "bad.rfs", FAILING_RFS);
+    for backend in ["rust", "c"] {
+        let out = std::process::Command::new(rfs_bin())
+            .args(["test", "--backend", backend])
+            .arg(&f)
+            .output()
+            .expect("spawn rfs test");
+        assert_eq!(
+            out.status.code(),
+            Some(1),
+            "{backend}: stderr: {}",
+            String::from_utf8_lossy(&out.stderr)
+        );
+        let stdout = String::from_utf8_lossy(&out.stdout);
+        if backend == "rust" {
+            assert!(
+                stdout.contains("test tests::invariant_p ... FAILED"),
+                "{backend}: failing test not visible: {stdout}"
+            );
+        } else {
+            assert!(
+                stdout.contains("FAIL invariant_p"),
+                "{backend}: failing test not visible: {stdout}"
+            );
+        }
+    }
+    cleanup(&root);
+}
+
+/// `--print-script` is byte-pinned (wrapper) and performs NO execution: the
+/// resolved tool points at a non-existent path, so an executing run would
+/// fail with exit 1 - script mode still exits 0. The heredoc body must be
+/// exactly what `rfs codegen rust test` emits.
+#[test]
+fn e2e_test_print_script_pinned_and_no_execution() {
+    let _g = test_lock();
+    clear_test_env();
+    let root = tmp_root("t7_script");
+    write_file(&root, "ok.rfs", VALID_RFS);
+    set_env(&[("RFS_RUSTC", Some("/nonexistent/rustc-stub"))]);
+
+    let out = std::process::Command::new(rfs_bin())
+        .args(["test", "--print-script", "ok.rfs"])
+        .current_dir(&root)
+        .output()
+        .expect("spawn rfs test");
+    assert!(
+        out.status.success(),
+        "script mode must not execute; stderr: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let script = String::from_utf8_lossy(&out.stdout);
+
+    // The heredoc body is exactly the codegen output (cross-checked).
+    let gen = std::process::Command::new(rfs_bin())
+        .args(["codegen", "rust", "test", "ok.rfs", "--out", "gen.rs"])
+        .current_dir(&root)
+        .output()
+        .expect("spawn rfs codegen");
+    assert!(
+        gen.status.success(),
+        "{}",
+        String::from_utf8_lossy(&gen.stderr)
+    );
+    let expected_source = std::fs::read_to_string(root.join("gen.rs")).unwrap();
+
+    let start = "cat > spec_test.rs <<'__RFS_TEST_SOURCE__'\n";
+    let end = "\n__RFS_TEST_SOURCE__\n";
+    let si = script.find(start).expect("heredoc start");
+    let body_start = si + start.len();
+    // `end` starts with the source's final newline: the body runs up to and
+    // including that newline; the suffix starts at the closing delimiter.
+    let ei_rel = script[body_start..].find(end).expect("heredoc end");
+    let body = &script[body_start..body_start + ei_rel + 1];
+    assert_eq!(
+        body, expected_source,
+        "heredoc body must equal the codegen output"
+    );
+
+    // The wrapper is byte-pinned around the body.
+    let pinned_prefix = format!(
+        "#!/bin/sh\n\
+         # rfs {} - generated by `rfs test --backend rust ok.rfs` on ok.rfs\n\
+         # tools: rustc=/nonexistent/rustc-stub\n\
+         set -e\n\
+         # step 1: write generated test artifact (from `rfs codegen <backend> test`)\n\
+         {start}",
+        env!("CARGO_PKG_VERSION")
+    );
+    let pinned_suffix = {
+        "__RFS_TEST_SOURCE__\n\
+         # step 2: compile the generated test artifact\n\
+         /nonexistent/rustc-stub --edition 2021 --test spec_test.rs -o spec_test_bin\n\
+         # step 3: run the generated tests\n\
+         ./spec_test_bin\n\
+         # step 4: clean up generated artifacts\n\
+         rm -f spec_test.rs spec_test_bin\n"
+    };
+    assert_eq!(
+        script,
+        format!("{pinned_prefix}{body}{pinned_suffix}"),
+        "script wrapper drifted"
+    );
+    cleanup(&root);
+}
+
+/// Tool precedence (flag > env var > PATH) proven end-to-end with stub tools
+/// that record their argv; extra args reach the compiler (env args first,
+/// then CLI args). The stub exits 0 without producing a binary, so the run
+/// step fails - the command exits 1 and the recorded argv is the proof.
+#[test]
+fn e2e_test_tool_precedence_stub_tools() {
+    let _g = test_lock();
+    clear_test_env();
+    let root = tmp_root("t7_tools");
+    let f = write_file(&root, "ok.rfs", VALID_RFS);
+
+    // Stub that records its argv and exits 0 (no binary produced).
+    let case = |tag: &str,
+                env_pairs: &[(&str, Option<&str>)],
+                cli_args: &[&str],
+                path_override: Option<String>|
+     -> String {
+        let argv_file = root.join(format!("{tag}_argv.txt"));
+        let stub = root.join(format!("stub_{tag}"));
+        write_stub(
+            &stub,
+            &format!("#!/bin/sh\necho \"$@\" > {}\nexit 0\n", argv_file.display()),
+        );
+        // Reset the tool env first: cases run sequentially and must not leak
+        // overrides into each other.
+        clear_test_env();
+        for (k, v) in env_pairs {
+            match v {
+                Some(val) => std::env::set_var(k, val),
+                None => std::env::remove_var(k),
+            }
+        }
+        let mut cmd = std::process::Command::new(rfs_bin());
+        cmd.args(["test"]);
+        cmd.args(cli_args);
+        if let Some(p) = path_override {
+            cmd.env("PATH", p);
+        }
+        let out = cmd.arg(&f).output().expect("spawn rfs test");
+        assert_eq!(
+            out.status.code(),
+            Some(1),
+            "{tag}: run step must fail (stub produces no binary); stderr: {}",
+            String::from_utf8_lossy(&out.stderr)
+        );
+        std::fs::read_to_string(&argv_file)
+            .unwrap_or_else(|e| panic!("{tag}: stub was never invoked ({e})"))
+            .trim_end()
+            .to_string()
+    };
+
+    // (a) flag beats env var: RFS_RUSTC points elsewhere, --rustc wins.
+    let argv = case(
+        "flag",
+        &[("RFS_RUSTC", Some("/nonexistent/other-rustc"))],
+        &["--rustc", root.join("stub_flag").to_str().unwrap()],
+        None,
+    );
+    // No extra args, no env-var tool: bare compile argv (temp paths volatile).
+    assert!(argv.contains("/spec_test.rs -o /"), "argv: {argv}");
+    assert!(argv.ends_with("spec_test_bin"), "argv: {argv}");
+
+    // (b) env var beats PATH default.
+    let argv = case(
+        "env",
+        &[("RFS_RUSTC", Some(root.join("stub_env").to_str().unwrap()))],
+        &[],
+        None,
+    );
+    assert!(argv.starts_with("--edition 2021 --test "), "argv: {argv}");
+
+    // (c) PATH fallback: no env var, no flag - a `rustc` stub on PATH wins.
+    write_stub(
+        &root.join("rustc"),
+        &format!(
+            "#!/bin/sh\necho \"$@\" > {}\nexit 0\n",
+            root.join("path_argv.txt").display()
+        ),
+    );
+    let argv = case("path", &[], &[], Some(root.display().to_string()));
+    assert!(argv.starts_with("--edition 2021 --test "), "argv: {argv}");
+
+    // (d) extra args reach the compiler: env args first, then CLI args.
+    let argv = case(
+        "args",
+        &[
+            ("RFS_RUSTC", Some(root.join("stub_args").to_str().unwrap())),
+            ("RFS_RUSTC_ARGS", Some("--env-arg")),
+        ],
+        &["--rustc-args", "--cli-arg"],
+        None,
+    );
+    assert!(
+        argv.starts_with("--env-arg --cli-arg --edition 2021 --test "),
+        "argv: {argv}"
+    );
+
+    // (e) the C pair is wired the same way (RFS_GCC env var).
+    let argv = case(
+        "gcc",
+        &[("RFS_GCC", Some(root.join("stub_gcc").to_str().unwrap()))],
+        &["--backend", "c"],
+        None,
+    );
+    assert!(argv.starts_with("-Wall "), "argv: {argv}");
+    assert!(argv.contains("/spec_test.c -o /"), "argv: {argv}");
+    assert!(argv.ends_with("spec_test_bin"), "argv: {argv}");
+
+    clear_test_env();
+    cleanup(&root);
+}
+
+/// Usage/parse/validation errors all exit 1 with pinned diagnostics
+/// (consistent with the other commands).
+#[test]
+fn e2e_test_usage_and_parse_errors() {
+    let _g = test_lock();
+    clear_test_env();
+    let root = tmp_root("t7_usage");
+
+    // Missing spec.
+    let out = std::process::Command::new(rfs_bin())
+        .arg("test")
+        .output()
+        .expect("spawn rfs");
+    assert_eq!(out.status.code(), Some(1));
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(stderr.contains("rfs test requires a spec file"), "{stderr}");
+
+    // Unknown option.
+    let out = std::process::Command::new(rfs_bin())
+        .args(["test", "--bogus"])
+        .output()
+        .expect("spawn rfs");
+    assert_eq!(out.status.code(), Some(1));
+    assert!(String::from_utf8_lossy(&out.stderr).contains("unknown option: --bogus"));
+
+    // Unknown backend.
+    let f = write_file(&root, "ok.rfs", VALID_RFS);
+    let out = std::process::Command::new(rfs_bin())
+        .args(["test", "--backend", "fortran"])
+        .arg(&f)
+        .output()
+        .expect("spawn rfs");
+    assert_eq!(out.status.code(), Some(1));
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(stderr.contains("unknown backend 'fortran'"), "{stderr}");
+
+    // Unparseable spec.
+    let bad = write_file(&root, "bad.rfs", UNPARSEABLE_RFS);
+    let out = std::process::Command::new(rfs_bin())
+        .args(["test"])
+        .arg(&bad)
+        .output()
+        .expect("spawn rfs");
+    assert_eq!(out.status.code(), Some(1));
+
+    // Validation error.
+    let bad2 = write_file(&root, "badstate.rfs", BAD_STATE_RFS);
+    let out = std::process::Command::new(rfs_bin())
+        .args(["test"])
+        .arg(&bad2)
+        .output()
+        .expect("spawn rfs");
+    assert_eq!(out.status.code(), Some(1));
+
+    // Wrong extension.
+    let txt = write_file(&root, "ok.txt", VALID_RFS);
+    let out = std::process::Command::new(rfs_bin())
+        .args(["test"])
+        .arg(&txt)
+        .output()
+        .expect("spawn rfs");
+    assert_eq!(out.status.code(), Some(1));
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(
+        stderr.contains("must have extension .rfs or .json"),
+        "{stderr}"
+    );
+
+    cleanup(&root);
+}

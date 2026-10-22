@@ -137,13 +137,15 @@ after Phase 4 close-out (2026-10-20). Findings that shape this plan:
 | C1 | (phase-wide) | change | `--state-limit`/`--time-limit` from PHASE_5.md are NOT introduced: Phase 4 shipped `--max-states`/`--timeout-sec` (parity-pinned in tests, docs, training data, generated-binary wire format). The shipped names stay canonical; no aliases. |
 | C2 | (phase-wide) | remove | `--features` from PHASE_5.md's option list is dropped: its intent is covered by the explicit `--no-std`/`--with-property-monitors` flags; rfs-build exposes cargo feature passthrough separately. |
 | C3 | 2. | change | The task sketch's infallible `to_json(&T) -> Json` became FALLIBLE `Ir::to_json(&self) -> Result<Json, String>`: unsigned IR fields (`u64` bounds/int literals, `usize` ids) can hold values up to `u64::MAX` (the parser accepts them), which the i64 value model cannot represent - failing with a clear error beats silent clamping. `from_json` rejects negative integers for those fields. Also confirmed during execution: output is byte-identical to the pre-migration format on all 45 valid examples (compact AND pretty), so no test re-pinning was needed. |
+| C4 | 17. (new) | add | User request (2026-10-22): new task 17 on top of the planned 16 - extend `rfs test` with a clang+libFuzzer fuzz suite for BOTH backends (consuming the tasks 5/6 skeleton extra files), suite-selection flags (`--suite unit\|fuzz`, default unit), env-var parameterization aligned with the ext_tool conventions (`RFS_CLANG*`, `RFS_CARGO_FUZZ*`, `RFS_FUZZ_FLAGS`), `--print-script` coverage, and installing + documenting clang/cargo-fuzz. See `PHASE_5_TASK_17.md`. |
 
 ## Other information
 
 - **Execution order / dependencies** (see the task-list summary presented with
   this plan): tasks 1, 2, 4, 9 can start immediately in parallel tracks;
   3 <- 2; 5 <- 4; 6 <- 4+5; 7 <- 5+6; 8 <- 3; 10 <- 2; 11 <- 1+9; 12 <- 6+11;
-  13 <- 3; 14 <- 1..13; 15 <- 1..14; 16 <- 14+15. Critical paths: 2 -> 3 -> 8
+  13 <- 3; 14 <- 1..13; 15 <- 1..14; 16 <- 14+15; 17 <- 3+5+6+7 (user-added,
+  C4). Critical paths: 2 -> 3 -> 8
   (CLI infrastructure track) and 4 -> 5 -> 6 -> 7 (test-generation track);
   11/12 (adapters + examples) run after 1+9.
 - **External-tool + script-mode testing**: the resolver precedence (flag > env

@@ -891,12 +891,27 @@ fn mc_exact_flags_embedded_as_runtime_defaults() {
         ..Default::default()
     };
     assert!(gen(module, backend, &timed).contains("const DEFAULT_TIMEOUT_SEC: u64 = 30;"));
+
+    // Counterexample report format (task 10): text is the default.
+    assert!(out.contains("const DEFAULT_COUNTEREXAMPLE_FORMAT: u8 = 0;"));
+    let json_fmt = codegen::BackendOptions {
+        counterexample_format: rfs::codegen_mc::CounterexampleFormat::Json,
+        ..Default::default()
+    };
+    assert!(
+        gen(module, backend, &json_fmt).contains("const DEFAULT_COUNTEREXAMPLE_FORMAT: u8 = 1;")
+    );
+
+    // The C backend embeds the same default as a #define.
+    let c_backend = codegen::get_backend("c").unwrap();
+    assert!(gen(module, c_backend, &base).contains("#define DEFAULT_COUNTEREXAMPLE_FORMAT 0"));
+    assert!(gen(module, c_backend, &json_fmt).contains("#define DEFAULT_COUNTEREXAMPLE_FORMAT 1"));
 }
 
 #[test]
 fn mc_flag_parsing_roundtrip() {
     let req = codegen::parse_codegen_args(&argss(
-        "rust mc spec.rfs --mode fuzz --max-states 777 --nondet --timeout-sec 9",
+        "rust mc spec.rfs --mode fuzz --max-states 777 --nondet --timeout-sec 9 --counterexample-format json",
     ))
     .unwrap();
     match req {
@@ -905,12 +920,17 @@ fn mc_flag_parsing_roundtrip() {
             mc_max_states,
             mc_nondet,
             mc_timeout_sec,
+            counterexample_format,
             ..
         } => {
             assert_eq!(mc_mode, codegen::McMode::Fuzz);
             assert_eq!(mc_max_states, 777);
             assert!(mc_nondet);
             assert_eq!(mc_timeout_sec, 9);
+            assert_eq!(
+                counterexample_format,
+                rfs::codegen_mc::CounterexampleFormat::Json
+            );
         }
         _ => panic!("expected Generate request"),
     }
@@ -922,14 +942,171 @@ fn mc_flag_parsing_roundtrip() {
             mc_max_states,
             mc_nondet,
             mc_timeout_sec,
+            counterexample_format,
             ..
         } => {
             assert_eq!(mc_mode, codegen::McMode::Exact);
             assert_eq!(mc_max_states, 1000000);
             assert!(!mc_nondet);
             assert_eq!(mc_timeout_sec, 0);
+            assert_eq!(
+                counterexample_format,
+                rfs::codegen_mc::CounterexampleFormat::Text
+            );
         }
         _ => panic!("expected Generate request"),
+    }
+    // Invalid values are rejected with the pinned message.
+    let errs = codegen::parse_codegen_args(&argss("rust mc spec.rfs --counterexample-format yaml"))
+        .unwrap_err();
+    assert_eq!(
+        errs,
+        vec![rfs::codegen_mc::COUNTEREXAMPLE_FORMAT_ERROR.to_string()]
+    );
+}
+
+#[test]
+fn mc_json_writer_embedded_and_dependency_free() {
+    // Task 10: the JSON writer is EMBEDDED in both backends' generated MC
+    // source (self-contained artifacts - no serde or other JSON dependency).
+    let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    let ir = parse_module(&root.join("examples/valid/02_counter.rfs"));
+    let module = &ir.modules[0];
+    for backend_name in ["rust", "c"] {
+        let backend = codegen::get_backend(backend_name).unwrap();
+        let out = codegen::CodegenCommandKind::ModelChecker
+            .run(backend, module, &codegen::BackendOptions::default())
+            .unwrap()
+            .code;
+        // The escaping primitive is named per backend (Rust: mc_json_escape,
+        // C port: mjb_escape).
+        let esc_marker = if backend_name == "rust" {
+            "mc_json_escape"
+        } else {
+            "mjb_escape"
+        };
+        assert!(
+            out.contains(esc_marker),
+            "{backend_name}: embedded JSON writer missing"
+        );
+        assert!(
+            out.contains("build_mc_json_doc") || out.contains("mc_json_doc_head"),
+            "{backend_name}: canonical document builder missing"
+        );
+        assert!(
+            out.contains("ce_trace_json")
+                && out.contains("ce_lasso_json")
+                && out.contains("ce_deadlock_json"),
+            "{backend_name}: counterexample kind builders missing"
+        );
+        assert!(
+            !out.to_ascii_lowercase().contains("serde"),
+            "{backend_name}: generated MC must not reference serde"
+        );
+    }
+}
+
+#[test]
+fn mc_enum_input_field_domain_qualified_both_backends() {
+    // Pre-existing fix found during task 10 verification: a CONCRETE enum
+    // input field made the Rust engine enumerate BARE variant names
+    // (`[Red, Green]`), which does not compile; the C engine was already
+    // qualified. Both backends must now generate compiling engines for such
+    // specs (the plan carries the enum name: ValueDomain::Enum { name, .. }).
+    let src = r#"module m {
+  enum State { A, B }
+  initial A
+  enum Mode { M1, M2 }
+  event E(V(mode: Mode))
+  transition A on E(V(mode)) where mode == Mode::M1 { next B; }
+  prop p : always (state != B) ;
+}"#;
+    let ir = rfs::parse_source(src).expect("enum-input spec must parse");
+    assert_eq!(ir.modules.len(), 1);
+    let module = &ir.modules[0];
+
+    let rust_backend = codegen::get_backend("rust").unwrap();
+    let rust_code = codegen::CodegenCommandKind::ModelChecker
+        .run(rust_backend, module, &codegen::BackendOptions::default())
+        .unwrap()
+        .code;
+    assert!(
+        rust_code.contains("Mode::M1"),
+        "Rust engine must enumerate qualified variant paths"
+    );
+
+    let c_backend = codegen::get_backend("c").unwrap();
+    let c_code = codegen::CodegenCommandKind::ModelChecker
+        .run(c_backend, module, &codegen::BackendOptions::default())
+        .unwrap()
+        .code;
+    assert!(
+        c_code.contains("MODE_M1"),
+        "C engine must enumerate qualified constants"
+    );
+
+    // Compile + run both engines (gated on tool availability): the spec fails
+    // with a property violation, and the outputs must be byte-identical.
+    let have_rustc = tool_on_path("rustc");
+    let have_gcc = std::path::Path::new("/usr/bin/gcc").exists();
+    if have_rustc && have_gcc {
+        let dir = std::env::temp_dir().join(format!("rfs_enum_mc_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let rs = dir.join("m_mc.rs");
+        let c = dir.join("m_mc.c");
+        std::fs::write(&rs, &rust_code).unwrap();
+        std::fs::write(&c, &c_code).unwrap();
+        let rbin = dir.join("m_mc_rust");
+        let cbin = dir.join("m_mc_c");
+        let out = std::process::Command::new("rustc")
+            .args(["--edition", "2021"])
+            .arg(&rs)
+            .arg("-o")
+            .arg(&rbin)
+            .output()
+            .expect("spawn rustc");
+        assert!(
+            out.status.success(),
+            "rustc failed on enum-input MC codegen:\n{}",
+            String::from_utf8_lossy(&out.stderr)
+        );
+        let out = std::process::Command::new("/usr/bin/gcc")
+            .arg("-Wall")
+            .arg(&c)
+            .arg("-o")
+            .arg(&cbin)
+            .output()
+            .expect("spawn gcc");
+        assert!(
+            out.status.success(),
+            "gcc failed on enum-input MC codegen:\n{}",
+            String::from_utf8_lossy(&out.stderr)
+        );
+        let r = std::process::Command::new(&rbin)
+            .output()
+            .expect("run rust engine");
+        let c2 = std::process::Command::new(&cbin)
+            .output()
+            .expect("run c engine");
+        assert_eq!(
+            r.status.code(),
+            Some(1),
+            "{}",
+            String::from_utf8_lossy(&r.stdout)
+        );
+        assert_eq!(
+            c2.status.code(),
+            Some(1),
+            "{}",
+            String::from_utf8_lossy(&c2.stdout)
+        );
+        assert_eq!(
+            r.stdout, c2.stdout,
+            "enum-input MC outputs must be byte-identical across backends"
+        );
+    } else {
+        eprintln!("note: rustc/gcc not available - enum-input compile check skipped");
     }
 }
 

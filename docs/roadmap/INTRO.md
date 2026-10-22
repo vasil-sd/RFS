@@ -42,7 +42,7 @@ Phase state (2026-10-21):
 | 2 - Core DSL and production code generation | COMPLETE | `PHASE_2.md`, `PHASE_2_STATUS.md` |
 | 3 - PSL-like properties and monitors | COMPLETE | `PHASE_3.md`, `PHASE_3_PLAN.md`, `PHASE_3_TASK_{13,15-24}.md` (+ `_STATUS` files), `PHASE_3_STATUS.md` |
 | 4 - Scalable model checking | COMPLETE (close-out 2026-10-20: full verification green, `PHASE_4_STATUS.md`) | `PHASE_4.md`, `PHASE_4_PLAN.md`, `PHASE_4_TASK_{1..14}.md` + `PHASE_4_TASK_10B.md` (+ `_STATUS` files), `PHASE_4_STATUS.md` |
-| 5 - Full toolchain and production integration | in progress (tasks 1-7 + 8-9 of 16 done) | `PHASE_5.md`, `PHASE_5_PLAN.md`, `PHASE_5_TASK_{1..16}.md` (+ `_STATUS`) |
+| 5 - Full toolchain and production integration | in progress (tasks 1-7 + 8-10 of 16 done) | `PHASE_5.md`, `PHASE_5_PLAN.md`, `PHASE_5_TASK_{1..16}.md` (+ `_STATUS`) |
 | 6 - Production hardening and v1.0 | not started | `PHASE_6.md` |
 
 Keep this table current: update it when a phase is planned, completed, or re-planned.

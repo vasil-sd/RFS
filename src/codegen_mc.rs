@@ -242,6 +242,306 @@ pub fn exact_summary_line(
     s
 }
 
+// ---------------------------------------------------------------------------
+// Counterexample report format (Phase 5 task 10)
+// ---------------------------------------------------------------------------
+
+/// Report format of the exact-mode counterexample document. `Text` is the
+/// parity-pinned human-readable default; `Json` emits ONE compact JSON
+/// document carrying the same data (see [`McJsonReport`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CounterexampleFormat {
+    /// The pinned text report (default; byte-identical across backends).
+    Text,
+    /// A single machine-readable JSON document (byte-identical across
+    /// backends; key ordering is part of the contract - see below).
+    Json,
+}
+
+impl CounterexampleFormat {
+    /// Wire name for `--counterexample-format`.
+    pub fn wire(&self) -> &'static str {
+        match self {
+            Self::Text => "text",
+            Self::Json => "json",
+        }
+    }
+
+    /// Parse the CLI value. Accepts exactly `text` or `json`.
+    pub fn parse(s: &str) -> Option<Self> {
+        match s {
+            "text" => Some(Self::Text),
+            "json" => Some(Self::Json),
+            _ => None,
+        }
+    }
+}
+
+/// Pinned error message for an invalid `--counterexample-format` value.
+pub const COUNTEREXAMPLE_FORMAT_ERROR: &str =
+    "--counterexample-format requires a value (json|text)";
+
+// ---------------------------------------------------------------------------
+// JSON counterexample report document (Phase 5 task 10)
+// ---------------------------------------------------------------------------
+//
+// KEY ORDERING IS PART OF THE BYTE-PARITY CONTRACT. The generated engines
+// (Rust and C) must emit the document with EXACTLY this key sequence, in
+// compact form (no whitespace outside strings), so both backends' output is
+// byte-identical for the same run:
+//
+//   top level:      status, metrics, [reason, label, step], statistics,
+//                   [counterexample]
+//   metrics:        states, transitions, max_depth
+//   statistics:     unexpected_terminations, monitor_size_bits,
+//                   memory_estimate_bytes
+//   counterexample: kind, then per kind:
+//     "trace":            initial_state, initial_vars, steps
+//     "lasso":            initial_state, initial_vars, prefix, cycle,
+//                         cycle_length
+//     "deadlock-config":  depth, state, vars
+//   step object:    input, outputs, from_state, to_state, vars
+//   input/output:   variant, fields (fields in declaration order)
+//
+// `reason`/`label`/`step` and `counterexample` are present IFF status is
+// "fail". Strings use the shared writer's escaping contract (json_rw.rs);
+// integers are unsigned decimal (every value in this document is
+// non-negative; bit<N> fields render as their unsigned value, matching the
+// text report). The toolchain-side builder below renders the canonical
+// document; the generated engines embed a minimal copy of the same writer
+// and must produce byte-identical output for the same run data.
+
+/// Top-level field names (declaration order = wire order).
+pub const JSON_KEY_STATUS: &str = "status";
+pub const JSON_KEY_METRICS: &str = "metrics";
+pub const JSON_KEY_STATES: &str = "states";
+pub const JSON_KEY_TRANSITIONS: &str = "transitions";
+pub const JSON_KEY_MAX_DEPTH: &str = "max_depth";
+pub const JSON_KEY_REASON: &str = "reason";
+pub const JSON_KEY_LABEL: &str = "label";
+pub const JSON_KEY_STEP: &str = "step";
+pub const JSON_KEY_STATISTICS: &str = "statistics";
+pub const JSON_KEY_UNEXPECTED_TERMINATIONS: &str = "unexpected_terminations";
+pub const JSON_KEY_MONITOR_SIZE_BITS: &str = "monitor_size_bits";
+pub const JSON_KEY_MEMORY_ESTIMATE_BYTES: &str = "memory_estimate_bytes";
+pub const JSON_KEY_COUNTEREXAMPLE: &str = "counterexample";
+/// Counterexample field names.
+pub const JSON_KEY_KIND: &str = "kind";
+pub const JSON_CE_KIND_TRACE: &str = "trace";
+pub const JSON_CE_KIND_LASSO: &str = "lasso";
+pub const JSON_CE_KIND_DEADLOCK_CONFIG: &str = "deadlock-config";
+pub const JSON_KEY_INITIAL_STATE: &str = "initial_state";
+pub const JSON_KEY_INITIAL_VARS: &str = "initial_vars";
+pub const JSON_KEY_STEPS: &str = "steps";
+pub const JSON_KEY_PREFIX: &str = "prefix";
+pub const JSON_KEY_CYCLE: &str = "cycle";
+pub const JSON_KEY_CYCLE_LENGTH: &str = "cycle_length";
+pub const JSON_KEY_DEPTH: &str = "depth";
+pub const JSON_KEY_STATE: &str = "state";
+pub const JSON_KEY_VARS: &str = "vars";
+pub const JSON_KEY_INPUT: &str = "input";
+pub const JSON_KEY_OUTPUTS: &str = "outputs";
+pub const JSON_KEY_FROM_STATE: &str = "from_state";
+pub const JSON_KEY_TO_STATE: &str = "to_state";
+pub const JSON_KEY_VARIANT: &str = "variant";
+pub const JSON_KEY_FIELDS: &str = "fields";
+
+/// One input/output value in a JSON counterexample: the variant name plus
+/// its fields in declaration order. Field values use the shared `Json`
+/// model: bool -> Bool, bit<N> -> Int (unsigned decimal), enum -> Str
+/// (variant name) - the same names the text report prints.
+#[derive(Debug, Clone)]
+pub struct JsonIo {
+    pub variant: String,
+    pub fields: Vec<(String, crate::json_rw::Json)>,
+}
+
+/// One step of a counterexample trace (mirrors one `step N` line of the
+/// text report).
+#[derive(Debug, Clone)]
+pub struct JsonStep {
+    pub input: JsonIo,
+    pub outputs: Vec<JsonIo>,
+    pub from_state: String,
+    pub to_state: String,
+    pub vars: Vec<(String, crate::json_rw::Json)>,
+}
+
+/// The counterexample payload (present iff the run failed).
+#[derive(Debug, Clone)]
+pub enum JsonCounterexample {
+    /// Property violation (incl. sample-0): the full trace.
+    Trace {
+        initial_state: String,
+        initial_vars: Vec<(String, crate::json_rw::Json)>,
+        steps: Vec<JsonStep>,
+    },
+    /// Liveness violation: prefix + one cycle iteration; `cycle_length` is
+    /// the number of steps in `cycle`.
+    Lasso {
+        initial_state: String,
+        initial_vars: Vec<(String, crate::json_rw::Json)>,
+        prefix: Vec<JsonStep>,
+        cycle: Vec<JsonStep>,
+        cycle_length: i64,
+    },
+    /// Deadlock: the terminal configuration (depth = its graph depth).
+    DeadlockConfig {
+        depth: i64,
+        state: String,
+        vars: Vec<(String, crate::json_rw::Json)>,
+    },
+}
+
+/// One exact-mode run result in the JSON report's data model. The builder
+/// renders the canonical document; both backends' generated engines must
+/// produce byte-identical output for the same run.
+#[derive(Debug, Clone)]
+pub struct McJsonReport {
+    pub status: ExactStatus,
+    pub states: i64,
+    pub transitions: i64,
+    pub max_depth: i64,
+    /// (reason, label, step) - present iff `status` is [`ExactStatus::Fail`].
+    pub fail: Option<(FailReason, String, i64)>,
+    pub unexpected_terminations: i64,
+    pub monitor_size_bits: i64,
+    pub memory_estimate_bytes: i64,
+    /// Present iff `status` is [`ExactStatus::Fail`].
+    pub counterexample: Option<JsonCounterexample>,
+}
+
+fn json_io(io: &JsonIo) -> crate::json_rw::Json {
+    use crate::json_rw::Json;
+    Json::obj(vec![
+        (JSON_KEY_VARIANT.to_string(), Json::str(&io.variant)),
+        (JSON_KEY_FIELDS.to_string(), Json::obj(io.fields.clone())),
+    ])
+}
+
+fn json_step(step: &JsonStep) -> crate::json_rw::Json {
+    use crate::json_rw::Json;
+    Json::obj(vec![
+        (JSON_KEY_INPUT.to_string(), json_io(&step.input)),
+        (
+            JSON_KEY_OUTPUTS.to_string(),
+            Json::arr(step.outputs.iter().map(json_io).collect()),
+        ),
+        (JSON_KEY_FROM_STATE.to_string(), Json::str(&step.from_state)),
+        (JSON_KEY_TO_STATE.to_string(), Json::str(&step.to_state)),
+        (JSON_KEY_VARS.to_string(), Json::obj(step.vars.clone())),
+    ])
+}
+
+impl JsonCounterexample {
+    /// Render the counterexample object (key order per the module docs).
+    pub fn to_json(&self) -> crate::json_rw::Json {
+        use crate::json_rw::Json;
+        match self {
+            JsonCounterexample::Trace {
+                initial_state,
+                initial_vars,
+                steps,
+            } => Json::obj(vec![
+                (JSON_KEY_KIND.to_string(), Json::str(JSON_CE_KIND_TRACE)),
+                (JSON_KEY_INITIAL_STATE.to_string(), Json::str(initial_state)),
+                (
+                    JSON_KEY_INITIAL_VARS.to_string(),
+                    Json::obj(initial_vars.clone()),
+                ),
+                (
+                    JSON_KEY_STEPS.to_string(),
+                    Json::arr(steps.iter().map(json_step).collect()),
+                ),
+            ]),
+            JsonCounterexample::Lasso {
+                initial_state,
+                initial_vars,
+                prefix,
+                cycle,
+                cycle_length,
+            } => Json::obj(vec![
+                (JSON_KEY_KIND.to_string(), Json::str(JSON_CE_KIND_LASSO)),
+                (JSON_KEY_INITIAL_STATE.to_string(), Json::str(initial_state)),
+                (
+                    JSON_KEY_INITIAL_VARS.to_string(),
+                    Json::obj(initial_vars.clone()),
+                ),
+                (
+                    JSON_KEY_PREFIX.to_string(),
+                    Json::arr(prefix.iter().map(json_step).collect()),
+                ),
+                (
+                    JSON_KEY_CYCLE.to_string(),
+                    Json::arr(cycle.iter().map(json_step).collect()),
+                ),
+                (JSON_KEY_CYCLE_LENGTH.to_string(), Json::int(*cycle_length)),
+            ]),
+            JsonCounterexample::DeadlockConfig { depth, state, vars } => Json::obj(vec![
+                (
+                    JSON_KEY_KIND.to_string(),
+                    Json::str(JSON_CE_KIND_DEADLOCK_CONFIG),
+                ),
+                (JSON_KEY_DEPTH.to_string(), Json::int(*depth)),
+                (JSON_KEY_STATE.to_string(), Json::str(state)),
+                (JSON_KEY_VARS.to_string(), Json::obj(vars.clone())),
+            ]),
+        }
+    }
+}
+
+impl McJsonReport {
+    /// Build the canonical JSON document (key order per the module docs).
+    pub fn to_json(&self) -> crate::json_rw::Json {
+        use crate::json_rw::Json;
+        let mut pairs: Vec<(String, Json)> = vec![
+            (JSON_KEY_STATUS.to_string(), Json::str(self.status.wire())),
+            (
+                JSON_KEY_METRICS.to_string(),
+                Json::obj(vec![
+                    (JSON_KEY_STATES.to_string(), Json::int(self.states)),
+                    (
+                        JSON_KEY_TRANSITIONS.to_string(),
+                        Json::int(self.transitions),
+                    ),
+                    (JSON_KEY_MAX_DEPTH.to_string(), Json::int(self.max_depth)),
+                ]),
+            ),
+        ];
+        if let Some((reason, label, step)) = &self.fail {
+            pairs.push((JSON_KEY_REASON.to_string(), Json::str(reason.wire())));
+            pairs.push((JSON_KEY_LABEL.to_string(), Json::str(label)));
+            pairs.push((JSON_KEY_STEP.to_string(), Json::int(*step)));
+        }
+        pairs.push((
+            JSON_KEY_STATISTICS.to_string(),
+            Json::obj(vec![
+                (
+                    JSON_KEY_UNEXPECTED_TERMINATIONS.to_string(),
+                    Json::int(self.unexpected_terminations),
+                ),
+                (
+                    JSON_KEY_MONITOR_SIZE_BITS.to_string(),
+                    Json::int(self.monitor_size_bits),
+                ),
+                (
+                    JSON_KEY_MEMORY_ESTIMATE_BYTES.to_string(),
+                    Json::int(self.memory_estimate_bytes),
+                ),
+            ]),
+        ));
+        if let Some(ce) = &self.counterexample {
+            pairs.push((JSON_KEY_COUNTEREXAMPLE.to_string(), ce.to_json()));
+        }
+        Json::obj(pairs)
+    }
+
+    /// Compact rendering (the wire form the generated engines print).
+    pub fn to_json_string(&self) -> String {
+        self.to_json().to_string_compact()
+    }
+}
+
 /// Codegen-time defaults for the exact-mode runtime flags (D-P4-7). Embedded
 /// as constants in the generated binary; overridable at runtime.
 pub const EXACT_DEFAULT_MAX_STATES: usize = 1_000_000;
@@ -315,6 +615,186 @@ mod tests {
                 Some((FailReason::Deadlock, "-", 4))
             ),
             "model-check summary: status=fail states=10 transitions=20 max_depth=4 reason=deadlock label=- step=4"
+        );
+    }
+
+    #[test]
+    fn counterexample_format_wire_and_parse() {
+        assert_eq!(CounterexampleFormat::Text.wire(), "text");
+        assert_eq!(CounterexampleFormat::Json.wire(), "json");
+        assert_eq!(
+            CounterexampleFormat::parse("text"),
+            Some(CounterexampleFormat::Text)
+        );
+        assert_eq!(
+            CounterexampleFormat::parse("json"),
+            Some(CounterexampleFormat::Json)
+        );
+        assert_eq!(CounterexampleFormat::parse("JSON"), None);
+        assert_eq!(CounterexampleFormat::parse(""), None);
+        assert_eq!(
+            COUNTEREXAMPLE_FORMAT_ERROR,
+            "--counterexample-format requires a value (json|text)"
+        );
+    }
+
+    /// One synthetic trace step exercising all three field types.
+    fn step(input: &str, seq: i64) -> JsonStep {
+        use crate::json_rw::Json;
+        JsonStep {
+            input: JsonIo {
+                variant: input.to_string(),
+                fields: vec![("seq".to_string(), Json::int(seq))],
+            },
+            outputs: vec![JsonIo {
+                variant: "Ack".to_string(),
+                fields: vec![("ok".to_string(), Json::bool(true))],
+            }],
+            from_state: "A".to_string(),
+            to_state: "B".to_string(),
+            vars: vec![
+                ("flag".to_string(), Json::bool(false)),
+                ("seq".to_string(), Json::int(seq)),
+                ("mode".to_string(), Json::str("Idle")),
+            ],
+        }
+    }
+
+    #[test]
+    fn json_report_pass_complete_shape() {
+        let r = McJsonReport {
+            status: ExactStatus::PassComplete,
+            states: 4,
+            transitions: 3,
+            max_depth: 2,
+            fail: None,
+            unexpected_terminations: 0,
+            monitor_size_bits: 16,
+            memory_estimate_bytes: 208,
+            counterexample: None,
+        };
+        assert_eq!(
+            r.to_json_string(),
+            "{\"status\":\"pass-complete\",\"metrics\":{\"states\":4,\"transitions\":3,\"max_depth\":2},\"statistics\":{\"unexpected_terminations\":0,\"monitor_size_bits\":16,\"memory_estimate_bytes\":208}}"
+        );
+    }
+
+    #[test]
+    fn json_report_unknown_shape() {
+        let r = McJsonReport {
+            status: ExactStatus::UnknownStateLimit,
+            states: 100,
+            transitions: 99,
+            max_depth: 50,
+            fail: None,
+            unexpected_terminations: 2,
+            monitor_size_bits: 8,
+            memory_estimate_bytes: 4000,
+            counterexample: None,
+        };
+        assert_eq!(
+            r.to_json_string(),
+            "{\"status\":\"unknown-state-limit\",\"metrics\":{\"states\":100,\"transitions\":99,\"max_depth\":50},\"statistics\":{\"unexpected_terminations\":2,\"monitor_size_bits\":8,\"memory_estimate_bytes\":4000}}"
+        );
+    }
+
+    #[test]
+    fn json_report_fail_property_shape() {
+        let r = McJsonReport {
+            status: ExactStatus::Fail,
+            states: 7,
+            transitions: 6,
+            max_depth: 3,
+            fail: Some((FailReason::PropertyViolation, "no_bad".to_string(), 2)),
+            unexpected_terminations: 1,
+            monitor_size_bits: 24,
+            memory_estimate_bytes: 504,
+            counterexample: Some(JsonCounterexample::Trace {
+                initial_state: "A".to_string(),
+                initial_vars: vec![("flag".to_string(), crate::json_rw::Json::bool(true))],
+                steps: vec![step("Req", 0), step("Ack", 1)],
+            }),
+        };
+        assert_eq!(
+            r.to_json_string(),
+            "{\"status\":\"fail\",\"metrics\":{\"states\":7,\"transitions\":6,\"max_depth\":3},\"reason\":\"property-violation\",\"label\":\"no_bad\",\"step\":2,\"statistics\":{\"unexpected_terminations\":1,\"monitor_size_bits\":24,\"memory_estimate_bytes\":504},\"counterexample\":{\"kind\":\"trace\",\"initial_state\":\"A\",\"initial_vars\":{\"flag\":true},\"steps\":[{\"input\":{\"variant\":\"Req\",\"fields\":{\"seq\":0}},\"outputs\":[{\"variant\":\"Ack\",\"fields\":{\"ok\":true}}],\"from_state\":\"A\",\"to_state\":\"B\",\"vars\":{\"flag\":false,\"seq\":0,\"mode\":\"Idle\"}},{\"input\":{\"variant\":\"Ack\",\"fields\":{\"seq\":1}},\"outputs\":[{\"variant\":\"Ack\",\"fields\":{\"ok\":true}}],\"from_state\":\"A\",\"to_state\":\"B\",\"vars\":{\"flag\":false,\"seq\":1,\"mode\":\"Idle\"}}]}}"
+        );
+    }
+
+    #[test]
+    fn json_report_fail_liveness_shape() {
+        let r = McJsonReport {
+            status: ExactStatus::Fail,
+            states: 3,
+            transitions: 2,
+            max_depth: 1,
+            fail: Some((FailReason::LivenessViolation, "ev".to_string(), 0)),
+            unexpected_terminations: 0,
+            monitor_size_bits: 4,
+            memory_estimate_bytes: 120,
+            counterexample: Some(JsonCounterexample::Lasso {
+                initial_state: "A".to_string(),
+                initial_vars: vec![],
+                prefix: vec![],
+                cycle: vec![step("Tick", 0), step("Tick", 1)],
+                cycle_length: 2,
+            }),
+        };
+        assert_eq!(
+            r.to_json_string(),
+            "{\"status\":\"fail\",\"metrics\":{\"states\":3,\"transitions\":2,\"max_depth\":1},\"reason\":\"liveness-violation\",\"label\":\"ev\",\"step\":0,\"statistics\":{\"unexpected_terminations\":0,\"monitor_size_bits\":4,\"memory_estimate_bytes\":120},\"counterexample\":{\"kind\":\"lasso\",\"initial_state\":\"A\",\"initial_vars\":{},\"prefix\":[],\"cycle\":[{\"input\":{\"variant\":\"Tick\",\"fields\":{\"seq\":0}},\"outputs\":[{\"variant\":\"Ack\",\"fields\":{\"ok\":true}}],\"from_state\":\"A\",\"to_state\":\"B\",\"vars\":{\"flag\":false,\"seq\":0,\"mode\":\"Idle\"}},{\"input\":{\"variant\":\"Tick\",\"fields\":{\"seq\":1}},\"outputs\":[{\"variant\":\"Ack\",\"fields\":{\"ok\":true}}],\"from_state\":\"A\",\"to_state\":\"B\",\"vars\":{\"flag\":false,\"seq\":1,\"mode\":\"Idle\"}}],\"cycle_length\":2}}"
+        );
+    }
+
+    #[test]
+    fn json_report_fail_deadlock_shape() {
+        let r = McJsonReport {
+            status: ExactStatus::Fail,
+            states: 4,
+            transitions: 3,
+            max_depth: 2,
+            fail: Some((FailReason::Deadlock, "-".to_string(), 2)),
+            unexpected_terminations: 0,
+            monitor_size_bits: 0,
+            memory_estimate_bytes: 160,
+            counterexample: Some(JsonCounterexample::DeadlockConfig {
+                depth: 2,
+                state: "Term".to_string(),
+                vars: vec![("seq".to_string(), crate::json_rw::Json::int(9))],
+            }),
+        };
+        assert_eq!(
+            r.to_json_string(),
+            "{\"status\":\"fail\",\"metrics\":{\"states\":4,\"transitions\":3,\"max_depth\":2},\"reason\":\"deadlock\",\"label\":\"-\",\"step\":2,\"statistics\":{\"unexpected_terminations\":0,\"monitor_size_bits\":0,\"memory_estimate_bytes\":160},\"counterexample\":{\"kind\":\"deadlock-config\",\"depth\":2,\"state\":\"Term\",\"vars\":{\"seq\":9}}}"
+        );
+    }
+
+    #[test]
+    fn json_report_escaping_contract() {
+        // The writer's escaping contract applies to every string field
+        // (labels, variant/state names): quote, backslash and control chars.
+        let r = McJsonReport {
+            status: ExactStatus::Fail,
+            states: 1,
+            transitions: 0,
+            max_depth: 0,
+            fail: Some((
+                FailReason::PropertyViolation,
+                "a\"b\\c\u{01}d".to_string(),
+                0,
+            )),
+            unexpected_terminations: 0,
+            monitor_size_bits: 0,
+            memory_estimate_bytes: 32,
+            counterexample: Some(JsonCounterexample::DeadlockConfig {
+                depth: 0,
+                state: "S\t1".to_string(),
+                vars: vec![],
+            }),
+        };
+        assert_eq!(
+            r.to_json_string(),
+            "{\"status\":\"fail\",\"metrics\":{\"states\":1,\"transitions\":0,\"max_depth\":0},\"reason\":\"property-violation\",\"label\":\"a\\\"b\\\\c\\u0001d\",\"step\":0,\"statistics\":{\"unexpected_terminations\":0,\"monitor_size_bits\":0,\"memory_estimate_bytes\":32},\"counterexample\":{\"kind\":\"deadlock-config\",\"depth\":0,\"state\":\"S\\t1\",\"vars\":{}}}"
         );
     }
 

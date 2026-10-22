@@ -123,6 +123,13 @@ pub struct BackendOptions {
     /// SMT-mode unrolling bound default (`--smt-bound`, task 11; the generated
     /// binary also accepts runtime `--bound N`).
     pub mc_smt_bound: usize,
+    /// Exact-mode counterexample report format (Phase 5 task 10): text
+    /// (default, the parity-pinned human-readable report) or json (a single
+    /// machine-readable document, byte-identical across backends). Embedded
+    /// in the generated binary as the runtime default; overridable at
+    /// runtime with `--counterexample-format`. Exact mode only - fuzz and
+    /// smt-bounded modes keep their own output.
+    pub counterexample_format: crate::codegen_mc::CounterexampleFormat,
 }
 
 impl Default for BackendOptions {
@@ -138,6 +145,7 @@ impl Default for BackendOptions {
             mc_timeout_sec: crate::codegen_mc::EXACT_DEFAULT_TIMEOUT_SEC,
             mc_threads: crate::codegen_mc::EXACT_DEFAULT_THREADS,
             mc_smt_bound: crate::codegen_mc::SMT_DEFAULT_BOUND,
+            counterexample_format: crate::codegen_mc::CounterexampleFormat::Text,
         }
     }
 }
@@ -397,6 +405,7 @@ pub enum CodegenRequest {
         mc_timeout_sec: u64,
         mc_threads: usize,
         mc_smt_bound: usize,
+        counterexample_format: crate::codegen_mc::CounterexampleFormat,
     },
 }
 
@@ -460,6 +469,7 @@ pub fn parse_codegen_args(args: &[String]) -> Result<CodegenRequest, Vec<String>
     let mut mc_timeout_sec = crate::codegen_mc::EXACT_DEFAULT_TIMEOUT_SEC;
     let mut mc_threads = crate::codegen_mc::EXACT_DEFAULT_THREADS;
     let mut mc_smt_bound = crate::codegen_mc::SMT_DEFAULT_BOUND;
+    let mut counterexample_format = crate::codegen_mc::CounterexampleFormat::Text;
     let mut i = 2;
     while i < rest.len() {
         match rest[i].as_str() {
@@ -539,6 +549,16 @@ pub fn parse_codegen_args(args: &[String]) -> Result<CodegenRequest, Vec<String>
                     _ => errors.push("--smt-bound requires a positive integer argument".into()),
                 }
             }
+            "--counterexample-format" => {
+                i += 1;
+                match rest
+                    .get(i)
+                    .and_then(|v| crate::codegen_mc::CounterexampleFormat::parse(v))
+                {
+                    Some(f) => counterexample_format = f,
+                    None => errors.push(crate::codegen_mc::COUNTEREXAMPLE_FORMAT_ERROR.to_string()),
+                }
+            }
             other if other.starts_with('-') => errors.push(format!("unknown option: {}", other)),
             other => errors.push(format!("unexpected extra argument: {}", other)),
         }
@@ -561,6 +581,7 @@ pub fn parse_codegen_args(args: &[String]) -> Result<CodegenRequest, Vec<String>
             mc_timeout_sec,
             mc_threads,
             mc_smt_bound,
+            counterexample_format,
         },
         errors,
     )

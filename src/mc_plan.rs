@@ -43,8 +43,9 @@ pub enum ValueDomain {
     /// `bit<N>`: 0..=max ascending (max = 2^N - 1; saturated to u64::MAX for
     /// N >= 64, which exact MC cannot enumerate anyway).
     Int { max: u64 },
-    /// Enum type: declared variants in declaration order.
-    Enum { variants: Vec<String> },
+    /// Enum type: the enum's name (for qualified variant rendering) and
+    /// its declared variants in declaration order.
+    Enum { name: String, variants: Vec<String> },
 }
 
 /// Per-field enumeration spec of one event variant (declaration order).
@@ -299,6 +300,7 @@ fn value_domain(ty: &Type, module: &Module) -> ValueDomain {
             ValueDomain::Int { max }
         }
         Type::Enum { name } => ValueDomain::Enum {
+            name: name.clone(),
             variants: module
                 .enums
                 .iter()
@@ -971,7 +973,8 @@ mod tests {
         assert_eq!(
             domains[2],
             Some(ValueDomain::Enum {
-                variants: vec!["M1".into(), "M2".into(), "M3".into()]
+                name: "Mode".into(),
+                variants: vec!["M1".into(), "M2".into(), "M3".into()],
             })
         );
         // Unit variant has no fields.

@@ -305,7 +305,7 @@ fn domain_loop(d: &ValueDomain, k: usize) -> (String, String) {
             format!("_c{k} <= {}", int_c_literal(*max, None)),
             format!("_c{k}"),
         ),
-        ValueDomain::Enum { variants } => (
+        ValueDomain::Enum { variants, .. } => (
             format!("_c{k} < {}", variants.len()),
             format!("_dom_{k}[(size_t)_c{k}]"),
         ),
@@ -338,7 +338,7 @@ fn domain_size(d: &ValueDomain) -> usize {
     match d {
         ValueDomain::Bool => 2,
         ValueDomain::Int { max } => (*max as usize).saturating_add(1),
-        ValueDomain::Enum { variants } => variants.len(),
+        ValueDomain::Enum { variants, .. } => variants.len(),
     }
 }
 
@@ -415,6 +415,16 @@ fn exact_codegen_c(
         options.mc_timeout_sec
     ));
     s.push_str(&format!("#define DEFAULT_THREADS {}\n", options.mc_threads));
+    // Counterexample report format (Phase 5 task 10): 0 = text (default),
+    // 1 = json. Runtime-overridable with --counterexample-format.
+    s.push_str(&format!(
+        "#define DEFAULT_COUNTEREXAMPLE_FORMAT {}\n",
+        if options.counterexample_format == crate::codegen_mc::CounterexampleFormat::Json {
+            1
+        } else {
+            0
+        }
+    ));
     s.push_str(&format!(
         "#define CONFIG_TOTAL_BYTES {}\n",
         plan.encoding.total_bytes
@@ -472,7 +482,7 @@ fn exact_codegen_c(
         let mut concrete_idx: Vec<usize> = Vec::new();
         for (i, f) in vs.fields.iter().enumerate() {
             if f.concrete {
-                if let ValueDomain::Enum { variants } = f.domain.as_ref().unwrap() {
+                if let ValueDomain::Enum { variants, .. } = f.domain.as_ref().unwrap() {
                     let ety = crate::backends::c::c_type(&vinfo.fields[i].1)
                         .map_err(|e| e.to_string())?;
                     let vals: Vec<String> = variants
@@ -600,6 +610,12 @@ fn exact_codegen_c(
     // The BFS engine (static; see D-P4-2..6).
     s.push_str(EXACT_ENGINE_C);
 
+    // JSON counterexample report (Phase 5 task 10): embedded port of the
+    // toolchain writer + canonical document builders, then the
+    // codegen-specific input/output/vars renderers for this module.
+    s.push_str(JSON_WRITER_C);
+    s.push_str(&json_renderers_c(module));
+
     // Liveness (Phase 4 task 7, D-P4-9/10/11): C mirror of the Rust
     // LIV_ENGINE - per-leaf progress automata + product limit-vector analysis
     // on the explored graph, rendered from the same decomposition.
@@ -697,6 +713,110 @@ fn exact_codegen_c(
 
     s.push_str(EXACT_RUN_C);
     Ok((s, warnings))
+}
+
+/// Codegen-specific JSON renderers for this module's input/output/vars types
+/// (Phase 5 task 10). Names use `rust_ident` - the same name source as the
+/// text report printers - so JSON and text carry identical data.
+fn json_renderers_c(module: &Module) -> String {
+    let variants = codegen_fsm::build_variants(module);
+    let mut s = String::new();
+
+    for (kw, arg, list) in [
+        ("input", "in", &variants.inputs),
+        ("output", "o", &variants.outputs),
+    ] {
+        let fn_name = if kw == "input" {
+            "mc_json_input"
+        } else {
+            "mc_json_output"
+        };
+        if list.is_empty() {
+            s.push_str(&format!(
+                "static void {fn_name}(mc_json_buf_t* b, const {kw}_t* {arg}) {{ (void){arg}; mjb_str(b, \"{{\\\"variant\\\":\\\"?\\\",\\\"fields\\\":{{}}}}\"); }}\n"
+            ));
+            continue;
+        }
+        let arms: Vec<String> = list
+            .iter()
+            .map(|vi| {
+                let kind = format!("{}_{}", kw.to_uppercase(), vi.unique_name.to_uppercase());
+                if vi.fields.is_empty() {
+                    format!(
+                        "        case {kind}: mjb_str(b, \"\\\"{}\\\",\\\"fields\\\":{{}}\"); break;",
+                        crate::backends::rust::rust_ident(&vi.unique_name)
+                    )
+                } else {
+                    let member = format!("{kw}_{}", vi.unique_name.to_lowercase());
+                    let parts: Vec<String> = vi
+                        .fields
+                        .iter()
+                        .enumerate()
+                        .map(|(i, (fname, fty))| {
+                            let sep = if i == 0 { "" } else { "," };
+                            let expr = format!("{arg}->payload.{member}.{cf}", cf = c_ident(fname));
+                            format!(
+                                "mjb_str(b, \"{}\\\"{}\\\":\"); {}",
+                                sep,
+                                crate::backends::rust::rust_ident(fname),
+                                json_value_c(fty, &expr)
+                            )
+                        })
+                        .collect();
+                    format!(
+                        "        case {kind}: mjb_str(b, \"\\\"{}\\\",\\\"fields\\\":{{\"); {} mjb_char(b, '}}'); break;",
+                        crate::backends::rust::rust_ident(&vi.unique_name),
+                        parts.join(" ")
+                    )
+                }
+            })
+            .collect();
+        s.push_str(&format!(
+            "static void {fn_name}(mc_json_buf_t* b, const {kw}_t* {arg}) {{\n    mjb_str(b, \"{{\\\"variant\\\":\");\n    switch ({arg}->kind) {{\n{arms}\n        default: mjb_str(b, \"\\\"?\\\"\"); break;\n    }}\n    mjb_char(b, '}}');\n}}\n",
+            arms = arms.join("\n")
+        ));
+    }
+
+    // mc_json_vars: declaration order.
+    if module.vars.is_empty() {
+        s.push_str(
+            "static void mc_json_vars(mc_json_buf_t* b, const vars_t* v) { (void)v; mjb_str(b, \"{}\"); }\n",
+        );
+    } else {
+        let parts: Vec<String> = module
+            .vars
+            .iter()
+            .enumerate()
+            .map(|(i, v)| {
+                let sep = if i == 0 {
+                    String::new()
+                } else {
+                    "mjb_char(b, ','); ".to_string()
+                };
+                format!(
+                    "{sep}mjb_str(b, \"\\\"{}\\\":\"); {}",
+                    crate::backends::rust::rust_ident(&v.name),
+                    json_value_c(&v.ty, &format!("v->{}", c_ident(&v.name)))
+                )
+            })
+            .collect();
+        s.push_str(&format!(
+            "static void mc_json_vars(mc_json_buf_t* b, const vars_t* v) {{\n    mjb_char(b, '{{'); {} mjb_char(b, '}}');\n}}\n",
+            parts.join(" ")
+        ));
+    }
+    s
+}
+
+/// C statement appending the JSON rendering of `expr` (type `ty`): bool ->
+/// true/false, bit<N> -> unsigned long long decimal (the same reduction the
+/// text printers use), enum -> variant name via the shared lookup function.
+fn json_value_c(ty: &Type, expr: &str) -> String {
+    match ty {
+        Type::Bool => format!("mjb_str(b, {expr} ? \"true\" : \"false\");"),
+        Type::Bit { .. } => format!("mjb_int(b, (unsigned long long){expr});"),
+        Type::Enum { name } => format!("mjb_escape(b, {}_name_c({expr}));", c_ident(name)),
+    }
 }
 
 /// Re-index the skeleton leaves in first-appearance order and render the
@@ -1557,6 +1677,166 @@ static void liv_note(const liv_graph_t* g, const liv_property_t* prop, const liv
     buf[off] = 0;
 }
 "#;
+/// Embedded JSON writer + canonical report document builders (Phase 5
+/// task 10). A port of the toolchain's `src/json_rw.rs` compact writer
+/// (same escaping contract), appending to a growing buffer. Integers are
+/// unsigned long long: every value in this document is non-negative and
+/// bit<64> fields reach 2^64-1. Key ordering is the byte-parity contract
+/// (see `codegen_mc.rs` in the toolchain). The generated binary stays
+/// dependency-free by construction.
+const JSON_WRITER_C: &str = r#"
+typedef struct { char* data; size_t len; size_t cap; } mc_json_buf_t;
+
+static void mjb_reserve(mc_json_buf_t* b, size_t extra) {
+    if (b->len + extra + 1 > b->cap) {
+        size_t ncap = b->cap ? b->cap : 64;
+        while (ncap < b->len + extra + 1) ncap *= 2;
+        char* nd = (char*)realloc(b->data, ncap);
+        if (!nd) { fprintf(stderr, "out of memory\n"); exit(2); }
+        b->data = nd;
+        b->cap = ncap;
+    }
+}
+static void mjb_push(mc_json_buf_t* b, const char* s, size_t n) {
+    mjb_reserve(b, n);
+    memcpy(b->data + b->len, s, n);
+    b->len += n;
+}
+static void mjb_char(mc_json_buf_t* b, char c) { mjb_push(b, &c, 1); }
+static void mjb_str(mc_json_buf_t* b, const char* s) { mjb_push(b, s, strlen(s)); }
+
+/// Escape a string exactly per the toolchain writer's contract: `"` `\\`
+/// `\\b` `\\t` `\\n` `\\f` `\\r`; other control chars U+0000..=U+001F as
+/// \\u00XX (lowercase hex); everything else raw bytes (UTF-8 passes through).
+static void mjb_escape(mc_json_buf_t* b, const char* s) {
+    mjb_char(b, '"');
+    for (const unsigned char* p = (const unsigned char*)s; *p; p++) {
+        switch (*p) {
+            case '"': mjb_str(b, "\\\""); break;
+            case '\\': mjb_str(b, "\\\\"); break;
+            case 0x08: mjb_str(b, "\\b"); break;
+            case 0x09: mjb_str(b, "\\t"); break;
+            case 0x0A: mjb_str(b, "\\n"); break;
+            case 0x0C: mjb_str(b, "\\f"); break;
+            case 0x0D: mjb_str(b, "\\r"); break;
+            default:
+                if (*p < 0x20) { char tmp[8]; snprintf(tmp, sizeof(tmp), "\\u%04x", (unsigned)*p); mjb_str(b, tmp); }
+                else mjb_char(b, (char)*p);
+        }
+    }
+    mjb_char(b, '"');
+}
+static void mjb_int(mc_json_buf_t* b, unsigned long long n) {
+    char tmp[32];
+    snprintf(tmp, sizeof(tmp), "%llu", n);
+    mjb_str(b, tmp);
+}
+/// NUL-terminate (the buffer is not kept terminated while growing).
+static void mjb_done(mc_json_buf_t* b) { mjb_reserve(b, 0); b->data[b->len] = 0; }
+
+// Forward declarations: the codegen-specific renderers are emitted after
+// this block (they need the module's input/output/vars types).
+static void mc_json_input(mc_json_buf_t* b, const input_t* in);
+static void mc_json_output(mc_json_buf_t* b, const output_t* o);
+static void mc_json_vars(mc_json_buf_t* b, const vars_t* v);
+
+/// The canonical report document head - key order is the byte-parity
+/// contract (see codegen_mc.rs in the toolchain): status, metrics
+/// (states, transitions, max_depth), [reason, label, step on fail],
+/// statistics (unexpected_terminations, monitor_size_bits,
+/// memory_estimate_bytes). Leaves the top-level object OPEN: the caller
+/// appends `,"counterexample":{...}` (fail only) and closes with
+/// mjb_char(b, '}').
+static void mc_json_doc_head(
+    mc_json_buf_t* b, const char* status,
+    unsigned long long states, unsigned long long transitions, unsigned long long max_depth,
+    int has_fail, const char* fail_reason, const char* fail_label, unsigned long long fail_step,
+    unsigned long long unexpected_terminations, unsigned long long monitor_size_bits,
+    unsigned long long memory_estimate_bytes) {
+    mjb_str(b, "{\"status\":"); mjb_escape(b, status);
+    mjb_str(b, ",\"metrics\":{\"states\":"); mjb_int(b, states);
+    mjb_str(b, ",\"transitions\":"); mjb_int(b, transitions);
+    mjb_str(b, ",\"max_depth\":"); mjb_int(b, max_depth);
+    mjb_char(b, '}');
+    if (has_fail) {
+        mjb_str(b, ",\"reason\":"); mjb_escape(b, fail_reason);
+        mjb_str(b, ",\"label\":"); mjb_escape(b, fail_label);
+        mjb_str(b, ",\"step\":"); mjb_int(b, fail_step);
+    }
+    mjb_str(b, ",\"statistics\":{\"unexpected_terminations\":"); mjb_int(b, unexpected_terminations);
+    mjb_str(b, ",\"monitor_size_bits\":"); mjb_int(b, monitor_size_bits);
+    mjb_str(b, ",\"memory_estimate_bytes\":"); mjb_int(b, memory_estimate_bytes);
+    mjb_char(b, '}');
+}
+
+/// One trace step: {\"input\":...,\"outputs\":[...],\"from_state\":...,\"to_state\":...,\"vars\":...}.
+static void mc_json_step(mc_json_buf_t* b, const trace_step_t* s) {
+    mjb_str(b, "{\"input\":");
+    mc_json_input(b, &s->input);
+    mjb_str(b, ",\"outputs\":[");
+    for (int i = 0; i < s->n_outputs; i++) {
+        if (i > 0) mjb_char(b, ',');
+        mc_json_output(b, &s->outputs[i]);
+    }
+    mjb_str(b, "],\"from_state\":");
+    mjb_escape(b, state_name_c(s->from));
+    mjb_str(b, ",\"to_state\":");
+    mjb_escape(b, state_name_c(s->to));
+    mjb_str(b, ",\"vars\":");
+    mc_json_vars(b, &s->vars);
+    mjb_char(b, '}');
+}
+
+/// Counterexample kind \"trace\": the full trace (property violation, incl.
+/// sample-0).
+static void ce_trace_json(mc_json_buf_t* b, const rfs_trace_t* trace) {
+    mjb_str(b, "{\"kind\":\"trace\",\"initial_state\":");
+    mjb_escape(b, state_name_c(trace->initial_state));
+    mjb_str(b, ",\"initial_vars\":");
+    mc_json_vars(b, &trace->initial_vars);
+    mjb_str(b, ",\"steps\":[");
+    for (int i = 0; i < trace->len; i++) {
+        if (i > 0) mjb_char(b, ',');
+        mc_json_step(b, &trace->steps[i]);
+    }
+    mjb_str(b, "]}");
+}
+
+/// Counterexample kind \"lasso\": prefix + one cycle iteration (liveness).
+static void ce_lasso_json(mc_json_buf_t* b, const rfs_trace_t* trace, int cycle_start) {
+    mjb_str(b, "{\"kind\":\"lasso\",\"initial_state\":");
+    mjb_escape(b, state_name_c(trace->initial_state));
+    mjb_str(b, ",\"initial_vars\":");
+    mc_json_vars(b, &trace->initial_vars);
+    mjb_str(b, ",\"prefix\":[");
+    for (int i = 0; i < cycle_start; i++) {
+        if (i > 0) mjb_char(b, ',');
+        mc_json_step(b, &trace->steps[i]);
+    }
+    mjb_str(b, "],\"cycle\":[");
+    for (int i = cycle_start; i < trace->len; i++) {
+        if (i > cycle_start) mjb_char(b, ',');
+        mc_json_step(b, &trace->steps[i]);
+    }
+    mjb_str(b, "],\"cycle_length\":");
+    mjb_int(b, (unsigned long long)(trace->len - cycle_start));
+    mjb_char(b, '}');
+}
+
+/// Counterexample kind \"deadlock-config\": the terminal configuration.
+static void ce_deadlock_json(mc_json_buf_t* b, const rfs_trace_t* trace, int depth) {
+    const state_t st = trace->len == 0 ? trace->initial_state : trace->steps[trace->len - 1].to;
+    const vars_t* vv = trace->len == 0 ? &trace->initial_vars : &trace->steps[trace->len - 1].vars;
+    mjb_str(b, "{\"kind\":\"deadlock-config\",\"depth\":");
+    mjb_int(b, (unsigned long long)depth);
+    mjb_str(b, ",\"state\":");
+    mjb_escape(b, state_name_c(st));
+    mjb_str(b, ",\"vars\":");
+    mc_json_vars(b, vv);
+    mjb_char(b, '}');
+}
+"#;
+
 /// The exact-mode entry point (generated verbatim into every C MC binary).
 const EXACT_RUN_C: &str = r#"
 static long mc_elapsed_sec(const struct timespec* t0) {
@@ -1572,6 +1852,7 @@ static int run_exact(int argc, char** argv) {
     long timeout_sec = DEFAULT_TIMEOUT_SEC;
     int threads = DEFAULT_THREADS;
     int fast = 0;
+    int counterexample_format = DEFAULT_COUNTEREXAMPLE_FORMAT;
     const char* assumes_arg = "all";
     for (int i = 1; i < argc; i++) {
         if (strcmp(argv[i], "--max-states") == 0 && i + 1 < argc) max_states = atoi(argv[++i]);
@@ -1579,6 +1860,7 @@ static int run_exact(int argc, char** argv) {
         else if (strcmp(argv[i], "--timeout-sec") == 0 && i + 1 < argc) timeout_sec = atol(argv[++i]);
         else if (strcmp(argv[i], "--threads") == 0 && i + 1 < argc) threads = atoi(argv[++i]);
         else if (strcmp(argv[i], "--fast") == 0) fast = 1;
+        else if (strcmp(argv[i], "--counterexample-format") == 0 && i + 1 < argc) counterexample_format = strcmp(argv[++i], "json") == 0 ? 1 : 0;
         else if (strcmp(argv[i], "--assumes") == 0 && i + 1 < argc) assumes_arg = argv[++i];
     }
     if (threads < 1) threads = 1;
@@ -1610,6 +1892,20 @@ static int run_exact(int argc, char** argv) {
     init_fsm.active_assumes = active;
     init_fsm.n_active_assumes = n_active;
     if (init_fsm.prop_label[0] != 0) {
+        if (counterexample_format == 1) {
+            // JSON report (Phase 5 task 10): one compact document, same data
+            // as the text report; key order is the byte-parity contract.
+            mc_json_buf_t jb = {0};
+            mc_json_doc_head(&jb, "fail", 1, 0, 0, 1, "property-violation", init_fsm.prop_label,
+                             (unsigned long long)init_fsm.prop_step, 0, MONITORS_BITS,
+                             (unsigned long long)(CONFIG_TOTAL_BYTES + 32));
+            mjb_str(&jb, ",\"counterexample\":");
+            ce_trace_json(&jb, &init_fsm.trace);
+            mjb_char(&jb, '}');
+            mjb_done(&jb);
+            printf("%s\n", jb.data);
+            exit(1);
+        }
         printf("FAIL\n");
         printf("model-check summary: status=fail states=1 transitions=0 max_depth=0 reason=property-violation label=%s step=%d\n", init_fsm.prop_label, init_fsm.prop_step);
         // Same dedicated sample-0 report as the Rust exact runtime.
@@ -1910,6 +2206,30 @@ done:
 
     // Report (D-P4-4): human line, pinned machine line, statistics.
     size_t mem_est = (size_t)n_nodes * ((size_t)CONFIG_TOTAL_BYTES + 32);
+    if (counterexample_format == 1) {
+        // JSON report (Phase 5 task 10): one compact document carrying the
+        // same data as the text report below; key order is the byte-parity
+        // contract (see codegen_mc.rs in the toolchain).
+        mc_json_buf_t jb = {0};
+        const char* st_wire = status == 1 ? "pass-complete" : (status == 4 ? "fail" : "unknown-state-limit");
+        int has_fail = status == 4;
+        mc_json_doc_head(&jb, st_wire, (unsigned long long)n_nodes, (unsigned long long)transitions,
+                         (unsigned long long)max_depth, has_fail, fail_wire, fail_label,
+                         (unsigned long long)fail_step, (unsigned long long)unexpected,
+                         MONITORS_BITS, (unsigned long long)mem_est);
+        if (has_fail) {
+            fsm_t cfsm;
+            mc_replay(fail_cid, fail_input, fail_trans, n_fail_steps, nondet, active, n_active, inputs, &cfsm);
+            mjb_str(&jb, ",\"counterexample\":");
+            if (is_liveness) ce_lasso_json(&jb, &cfsm.trace, fail_step);
+            else if (is_deadlock) ce_deadlock_json(&jb, &cfsm.trace, fail_step);
+            else ce_trace_json(&jb, &cfsm.trace);
+        }
+        mjb_char(&jb, '}');
+        mjb_done(&jb);
+        printf("%s\n", jb.data);
+        exit(status == 1 ? 0 : (status == 4 ? 1 : 2));
+    }
     if (status == 1) printf("PASS (complete)\n");
     else if (status == 4) printf("FAIL\n");
     else if (status == 3) printf("UNKNOWN (state limit reached, timeout after %lds)\n", mc_elapsed_sec(&t0));

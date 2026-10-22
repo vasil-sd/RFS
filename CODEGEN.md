@@ -151,7 +151,8 @@ pub enum CodegenRequest {
                out: Option<String>, assumptions: AssumptionSelection, steps: usize,
                with_property_monitors: bool,
                mc_mode: McMode, mc_max_states: usize, mc_nondet: bool,
-               mc_timeout_sec: u64, mc_threads: usize, mc_smt_bound: usize },
+               mc_timeout_sec: u64, mc_threads: usize, mc_smt_bound: usize,
+               counterexample_format: CounterexampleFormat },
 }
 
 pub fn parse_codegen_args(args: &[String]) -> Result<CodegenRequest, Vec<String>>;
@@ -159,13 +160,15 @@ pub fn parse_codegen_args(args: &[String]) -> Result<CodegenRequest, Vec<String>
 
 Defaults: `--assumes all`, `--steps 4`, no `--out` (stdout), monitors off,
 no `--no-std`; MC flags default to `--mode exact`, `--max-states 1000000`,
-no `--nondet`, `--timeout-sec 0` (off), `--threads 1`, `--smt-bound 10`. Parse
-errors: missing subcommand, unknown command name, `--out`/`--assumes` without
-value, non-numeric `--steps`, `--with-property-monitors` on a non-production
-command (test/mc always include property monitors), `--no-std` on a
-non-production command (pinned `NO_STD_PRODUCTION_ONLY_ERROR`; the test/mc
-backend entry points enforce the same rule at library level), bad `--mode`
-value (exact|fuzz|smt-bounded), non-positive `--threads`/`--smt-bound`, unknown
+no `--nondet`, `--timeout-sec 0` (off), `--threads 1`, `--smt-bound 10`,
+`--counterexample-format text`. Parse errors: missing subcommand, unknown
+command name, `--out`/`--assumes` without value, non-numeric `--steps`,
+`--with-property-monitors` on a non-production command (test/mc always include
+property monitors), `--no-std` on a non-production command (pinned
+`NO_STD_PRODUCTION_ONLY_ERROR`; the test/mc backend entry points enforce the
+same rule at library level), bad `--mode` value (exact|fuzz|smt-bounded),
+non-positive `--threads`/`--smt-bound`, bad `--counterexample-format` value
+(pinned `COUNTEREXAMPLE_FORMAT_ERROR`; accepts exactly `json`|`text`), unknown
 options, stray positional arguments. The parser does **not** check the input
 extension or the backend name — those are done in the CLI layer (below) so
 tests can exercise parsing in isolation.
@@ -338,6 +341,29 @@ Exact mode (default):
   `EXACT_DEFAULT_MAX_STATES = 1_000_000`, `EXACT_DEFAULT_TIMEOUT_SEC = 0` (off;
   wall-clock only, NOT parity-guaranteed), `EXACT_DEFAULT_THREADS = 1`,
   `SMT_DEFAULT_BOUND = 10`.
+- `CounterexampleFormat` (Phase 5 task 10): the exact-mode report format -
+  `Text` (default; the pinned human-readable report) or `Json` (one compact
+  machine-readable document). Codegen flag `--counterexample-format json|text`
+  is embedded as the runtime default (`DEFAULT_COUNTEREXAMPLE_FORMAT`),
+  overridable at runtime by the generated binary. Exact mode only - fuzz and
+  smt-bounded modes keep their own output.
+- The JSON report model (task 10): `McJsonReport` (status, metrics,
+  reason/label/step on fail, statistics, counterexample) +
+  `JsonCounterexample` (`trace` / `lasso` with prefix+cycle+cycle_length /
+  `deadlock-config`) + `JsonStep`/`JsonIo`. **Key ordering is part of the
+  byte-parity contract** (documented next to the `JSON_KEY_*` constants):
+  top level `status, metrics, [reason, label, step], statistics,
+  [counterexample]`; `metrics` = `states, transitions, max_depth`;
+  `statistics` = `unexpected_terminations, monitor_size_bits,
+  memory_estimate_bytes`; step objects = `input, outputs, from_state,
+  to_state, vars`; input/output objects = `variant, fields` (declaration
+  order). Strings use the `json_rw.rs` escaping contract; integers are
+  unsigned decimal. Each backend embeds a minimal copy of the shared writer
+  (Rust: value-tree writer with u64 integers - every document value is
+  non-negative and bit<64> fields reach 2^64-1; C: direct-append port of the
+  same contract) so generated binaries stay dependency-free. Parity extends
+  to byte-identical JSON across backends (asserted over all property-bearing
+  examples + a golden full-document pin).
 
 Legacy fuzz mode (`--mode fuzz`) retains its types: `McConfig` (bound, runs,
 seed, assumption selection, violation specs, unexpected-event probability + CLI

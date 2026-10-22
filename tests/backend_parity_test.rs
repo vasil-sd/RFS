@@ -1052,3 +1052,416 @@ fn mc_liveness_truncated_mode_sound() {
         }
     }
 }
+
+// ---------------------------------------------------------------------------
+// Task 10: JSON counterexample report - byte-identical across backends
+// ---------------------------------------------------------------------------
+
+fn json_options() -> rfs::codegen::BackendOptions {
+    rfs::codegen::BackendOptions {
+        counterexample_format: rfs::codegen_mc::CounterexampleFormat::Json,
+        ..rfs::codegen::BackendOptions::default()
+    }
+}
+
+fn generate_spec_json(backend_name: &str, spec: &Path) -> String {
+    let src = std::fs::read_to_string(spec).unwrap_or_else(|e| panic!("read {:?}: {e}", spec));
+    let ir = rfs::parse_source(&src)
+        .unwrap_or_else(|e| panic!("{:?} must parse ({backend_name}): {e}", spec));
+    assert_eq!(ir.modules.len(), 1);
+    let backend = rfs::codegen::get_backend(backend_name)
+        .unwrap_or_else(|| panic!("backend {backend_name} registered"));
+    rfs::codegen::CodegenCommandKind::ModelChecker
+        .run(backend, &ir.modules[0], &json_options())
+        .unwrap_or_else(|e| {
+            panic!(
+                "MC codegen ({backend_name}) must succeed for {:?}: {e:?}",
+                spec
+            )
+        })
+        .code
+}
+
+fn mc_json_binary(spec: &Path, backend_name: &str) -> PathBuf {
+    let stem = spec.file_stem().unwrap().to_string_lossy().into_owned();
+    cached_binary(&format!("mcjson|{stem}|{backend_name}"), |dir| {
+        let ext = if backend_name == "c" { "c" } else { "rs" };
+        let src = dir.join(format!("{stem}_mc_json.{ext}"));
+        std::fs::write(&src, generate_spec_json(backend_name, spec)).expect("write MC source");
+        let bin = dir.join(format!("{stem}_mc_json_{backend_name}"));
+        if backend_name == "c" {
+            compile_c(&src, &bin);
+        } else {
+            compile_rust(&src, &bin, false);
+        }
+        bin
+    })
+}
+
+fn generate_inline_json(backend_name: &str, src: &str) -> String {
+    let ir = rfs::parse_source(src)
+        .unwrap_or_else(|e| panic!("inline spec must parse ({backend_name}): {e}"));
+    assert_eq!(ir.modules.len(), 1);
+    let backend = rfs::codegen::get_backend(backend_name)
+        .unwrap_or_else(|| panic!("backend {backend_name} registered"));
+    rfs::codegen::CodegenCommandKind::ModelChecker
+        .run(backend, &ir.modules[0], &json_options())
+        .unwrap_or_else(|e| panic!("MC codegen ({backend_name}) must succeed: {e:?}"))
+        .code
+}
+
+fn mc_json_binary_for(tag: &str, backend_name: &str, src: &str) -> PathBuf {
+    cached_binary(&format!("mcjson|{tag}|{backend_name}"), |dir| {
+        let ext = if backend_name == "c" { "c" } else { "rs" };
+        let s = dir.join(format!("{tag}_mc_json.{ext}"));
+        std::fs::write(&s, generate_inline_json(backend_name, src)).expect("write MC source");
+        let b = dir.join(format!("{tag}_mc_json_{backend_name}"));
+        if backend_name == "c" {
+            compile_c(&s, &b);
+        } else {
+            compile_rust(&s, &b, false);
+        }
+        b
+    })
+}
+
+/// The statistics block of a TEXT run: (unexpected terminations, monitor size
+/// bits, memory estimate bytes).
+fn parse_text_stats(stdout: &str) -> (usize, usize, usize) {
+    let mut unexpected = 0usize;
+    let mut monitors = 0usize;
+    let mut mem = 0usize;
+    for line in stdout.lines() {
+        let t = line.trim_start();
+        if let Some(n) = t.strip_prefix("unexpected terminations: ") {
+            unexpected = n.parse().unwrap_or(0);
+        } else if let Some(n) = t.strip_prefix("monitor size: ") {
+            monitors = n
+                .split_whitespace()
+                .next()
+                .and_then(|x| x.parse().ok())
+                .unwrap_or(0);
+        } else if let Some(n) = t.strip_prefix("memory estimate: ") {
+            mem = n
+                .split_whitespace()
+                .next()
+                .and_then(|x| x.parse().ok())
+                .unwrap_or(0);
+        }
+    }
+    (unexpected, monitors, mem)
+}
+
+/// Number of `step N` lines in a TEXT run's counterexample trace.
+fn text_step_count(stdout: &str) -> usize {
+    stdout
+        .lines()
+        .filter(|l| l.trim_start().starts_with("step "))
+        .count()
+}
+
+#[test]
+fn mc_json_report_parity_all_property_bearing_examples() {
+    // For EVERY property-bearing example: the JSON report must be
+    // (1) byte-identical across backends, (2) strict-parseable and in
+    // canonical compact form (round-trips through the toolchain reader),
+    // (3) value-agreeing with the TEXT run's parsed fields.
+    for spec in property_bearing_examples() {
+        let name = example_name(&spec);
+        let rust = run_bin(&mc_json_binary(&spec, "rust"), &[]);
+        let c = run_bin(&mc_json_binary(&spec, "c"), &[]);
+        assert_eq!(
+            rust.0, c.0,
+            "[{name}] JSON exit codes must match\n[rust]\n{}\n[c]\n{}",
+            rust.1, c.1
+        );
+        assert_eq!(
+            rust.1, c.1,
+            "[{name}] JSON stdout must be byte-identical across backends\n[rust]\n{}\n[c]\n{}",
+            rust.1, c.1
+        );
+        let rust_out = &rust.1;
+        // Strict parse + canonical form (key order is the contract). The
+        // document is one line; stdout carries the trailing newline.
+        let doc_text = rust.1.strip_suffix('\n').unwrap_or(&rust.1);
+        let doc = rfs::json_rw::parse(doc_text)
+            .unwrap_or_else(|e| panic!("[{name}] JSON must strict-parse: {e}\n{}", rust.1));
+        assert_eq!(
+            doc.to_string_compact(),
+            doc_text,
+            "[{name}] JSON must be in canonical compact form"
+        );
+
+        // Value agreement with the text run (same engine, same data).
+        let text = run_mc(&spec, "rust", &[]);
+        assert_eq!(
+            text.exit_code,
+            Some(rust.0),
+            "[{name}] text/JSON exit codes diverge"
+        );
+        let e = parse_exact(&text.stdout, rust.0);
+        assert_eq!(
+            doc.get("status").and_then(|v| v.as_str()),
+            Some(e.status.as_str()),
+            "[{name}] status must agree with the text run: {rust_out}"
+        );
+        let metrics = doc.get("metrics").expect("[{name}] metrics object missing");
+        assert_eq!(
+            metrics.get("states").and_then(|v| v.as_int()),
+            Some(e.states as i64)
+        );
+        assert_eq!(
+            metrics.get("transitions").and_then(|v| v.as_int()),
+            Some(e.transitions as i64)
+        );
+        assert_eq!(
+            metrics.get("max_depth").and_then(|v| v.as_int()),
+            Some(e.max_depth as i64)
+        );
+        match e.reason {
+            Some(ref r) => assert_eq!(doc.get("reason").and_then(|v| v.as_str()), Some(r.as_str())),
+            None => assert!(
+                doc.get("reason").is_none(),
+                "[{name}] reason on non-fail: {rust_out}"
+            ),
+        }
+        match e.label {
+            Some(l) => assert_eq!(doc.get("label").and_then(|v| v.as_str()), Some(l.as_str())),
+            None => assert!(
+                doc.get("label").is_none(),
+                "[{name}] label on non-fail: {rust_out}"
+            ),
+        }
+        match e.step {
+            Some(s) => assert_eq!(doc.get("step").and_then(|v| v.as_int()), Some(s as i64)),
+            None => assert!(
+                doc.get("step").is_none(),
+                "[{name}] step on non-fail: {rust_out}"
+            ),
+        }
+        let (unexpected, monitors, mem) = parse_text_stats(&text.stdout);
+        let stats = doc
+            .get("statistics")
+            .expect("[{name}] statistics object missing");
+        assert_eq!(
+            stats
+                .get("unexpected_terminations")
+                .and_then(|v| v.as_int()),
+            Some(unexpected as i64)
+        );
+        assert_eq!(
+            stats.get("monitor_size_bits").and_then(|v| v.as_int()),
+            Some(monitors as i64)
+        );
+        assert_eq!(
+            stats.get("memory_estimate_bytes").and_then(|v| v.as_int()),
+            Some(mem as i64)
+        );
+
+        // Counterexample: present iff fail; kind matches the reason; the
+        // step data agrees with the text trace.
+        if e.status == "fail" {
+            let ce = doc
+                .get("counterexample")
+                .expect("[{name}] fail must carry a counterexample");
+            let kind = ce.get("kind").and_then(|v| v.as_str()).unwrap_or("");
+            match e.reason.as_deref() {
+                Some("property-violation") => assert_eq!(kind, "trace", "[{name}] {rust_out}"),
+                Some("liveness-violation") => assert_eq!(kind, "lasso", "[{name}] {rust_out}"),
+                Some("deadlock") => assert_eq!(kind, "deadlock-config", "[{name}] {rust_out}"),
+                other => panic!("[{name}] unexpected reason {other:?} in fail run"),
+            }
+            let n_text_steps = text_step_count(&text.stdout);
+            match kind {
+                "trace" => assert_eq!(
+                    ce.get("steps").and_then(|v| v.as_arr()).map(|a| a.len()),
+                    Some(n_text_steps),
+                    "[{name}] trace step count must match the text run"
+                ),
+                "lasso" => {
+                    let prefix = ce
+                        .get("prefix")
+                        .and_then(|v| v.as_arr())
+                        .map(|a| a.len())
+                        .unwrap_or(0);
+                    let cycle = ce
+                        .get("cycle")
+                        .and_then(|v| v.as_arr())
+                        .map(|a| a.len())
+                        .unwrap_or(0);
+                    assert_eq!(
+                        prefix + cycle,
+                        n_text_steps,
+                        "[{name}] lasso steps must match the text run"
+                    );
+                    let cl = ce
+                        .get("cycle_length")
+                        .and_then(|v| v.as_int())
+                        .unwrap_or(-1);
+                    assert_eq!(
+                        cl as usize, cycle,
+                        "[{name}] cycle_length must equal |cycle|"
+                    );
+                }
+                "deadlock-config" => {
+                    let depth = ce.get("depth").and_then(|v| v.as_int()).unwrap_or(-1);
+                    assert_eq!(
+                        depth,
+                        e.deadlock_depth.map(|d| d as i64).unwrap_or(-2),
+                        "[{name}] deadlock depth must match the text run"
+                    );
+                }
+                other => panic!("[{name}] unknown counterexample kind {other:?}"),
+            }
+        } else {
+            assert!(
+                doc.get("counterexample").is_none(),
+                "[{name}] non-fail must not carry a counterexample: {rust_out}"
+            );
+        }
+    }
+}
+
+#[test]
+fn mc_json_five_status_reason_cases() {
+    // Action 4: the five status/reason combinations, byte-identical JSON
+    // across backends in each:
+    //   pass-complete          - example 43 (liveness-bearing, passes)
+    //   fail/property-violation- example 13 (no_bad at step 1)
+    //   fail/liveness-violation - inline eventually-fail spec (lasso)
+    //   fail/deadlock           - example 04 (terminal state, depth 2)
+    //   unknown-state-limit     - example 43 truncated to 1 state
+    let root = root();
+    let ex43 = root.join("examples/valid/43_sliding_window.rfs");
+    let ex13 = root.join("examples/valid/13_properties_safety.rfs");
+    let ex04 = root.join("examples/valid/04_tcp_handshake_like.rfs");
+
+    // One status/reason combination to verify.
+    struct JsonCase {
+        tag: &'static str,
+        spec: PathBuf,
+        args: &'static [&'static str],
+        want_status: &'static str,
+        want_reason: Option<&'static str>,
+    }
+
+    let cases = vec![
+        JsonCase {
+            tag: "pass",
+            spec: ex43.clone(),
+            args: &[],
+            want_status: "pass-complete",
+            want_reason: None,
+        },
+        JsonCase {
+            tag: "prop_fail",
+            spec: ex13.clone(),
+            args: &[],
+            want_status: "fail",
+            want_reason: Some("property-violation"),
+        },
+        JsonCase {
+            tag: "deadlock",
+            spec: ex04.clone(),
+            args: &[],
+            want_status: "fail",
+            want_reason: Some("deadlock"),
+        },
+        JsonCase {
+            tag: "unknown",
+            spec: ex43,
+            args: &["--max-states", "1"],
+            want_status: "unknown-state-limit",
+            want_reason: None,
+        },
+    ];
+    for case in cases {
+        let want_code = match case.want_status {
+            "pass-complete" => 0,
+            "unknown-state-limit" => 2,
+            _ => 1,
+        };
+        for backend in ["rust", "c"] {
+            let bin = mc_json_binary(&case.spec, backend);
+            let (code, out) = run_bin(&bin, case.args);
+            assert_eq!(code, want_code, "{backend} {}: {out}", case.tag);
+            let doc = rfs::json_rw::parse(&out)
+                .unwrap_or_else(|e| panic!("{backend} {}: JSON must parse: {e}\n{out}", case.tag));
+            assert_eq!(
+                doc.get("status").and_then(|v| v.as_str()),
+                Some(case.want_status),
+                "{backend} {}: {out}",
+                case.tag
+            );
+            match case.want_reason {
+                Some(r) => assert_eq!(doc.get("reason").and_then(|v| v.as_str()), Some(r)),
+                None => assert!(doc.get("reason").is_none(), "{backend} {}: {out}", case.tag),
+            }
+        }
+        // Cross-backend byte identity.
+        let r = run_bin(&mc_json_binary(&case.spec, "rust"), case.args);
+        let c = run_bin(&mc_json_binary(&case.spec, "c"), case.args);
+        assert_eq!(
+            r.1, c.1,
+            "{} JSON must be byte-identical across backends",
+            case.tag
+        );
+    }
+
+    // fail/liveness-violation (lasso) on the inline eventually-fail spec.
+    for backend in ["rust", "c"] {
+        let bin = mc_json_binary_for("pin_liv", backend, LIV_FAIL_EV_SPEC);
+        let (code, out) = run_bin(&bin, &[]);
+        assert_eq!(code, 1, "{backend}: {out}");
+        let doc = rfs::json_rw::parse(&out).unwrap_or_else(|e| panic!("{backend}: {e}\n{out}"));
+        assert_eq!(doc.get("status").and_then(|v| v.as_str()), Some("fail"));
+        assert_eq!(
+            doc.get("reason").and_then(|v| v.as_str()),
+            Some("liveness-violation")
+        );
+        let ce = doc.get("counterexample").expect("lasso missing");
+        assert_eq!(ce.get("kind").and_then(|v| v.as_str()), Some("lasso"));
+        assert_eq!(ce.get("cycle_length").and_then(|v| v.as_int()), Some(2));
+    }
+    let r = run_bin(
+        &mc_json_binary_for("pin_liv", "rust", LIV_FAIL_EV_SPEC),
+        &[],
+    );
+    let c = run_bin(&mc_json_binary_for("pin_liv", "c", LIV_FAIL_EV_SPEC), &[]);
+    assert_eq!(
+        r.1, c.1,
+        "lasso JSON must be byte-identical across backends"
+    );
+}
+
+/// Golden full-document pin (task 10): a small spec exercising enum vars,
+/// an enum input field and an enum output field in ONE trace counterexample.
+/// The exact bytes are the cross-backend contract - any drift in key order,
+/// escaping or value rendering breaks this.
+const JSON_GOLDEN_SPEC: &str = r#"
+module rich {
+  enum State { A, B }
+  initial A
+  enum Color { Red, Green }
+  event Go(G(c: Color))
+  output Done(D(c: Color))
+  var color: Color init Color::Red
+  transition A on Go(G(c)) where c == Color::Green { next B; set color = c; emit Done(D(c)); }
+  prop p : always (state != B) ;
+}
+"#;
+const JSON_GOLDEN_DOC: &str = "{\"status\":\"fail\",\"metrics\":{\"states\":1,\"transitions\":1,\"max_depth\":0},\"reason\":\"property-violation\",\"label\":\"p\",\"step\":1,\"statistics\":{\"unexpected_terminations\":1,\"monitor_size_bits\":0,\"memory_estimate_bytes\":33},\"counterexample\":{\"kind\":\"trace\",\"initial_state\":\"A\",\"initial_vars\":{\"color\":\"Red\"},\"steps\":[{\"input\":{\"variant\":\"Go_G\",\"fields\":{\"c\":\"Green\"}},\"outputs\":[{\"variant\":\"Done_D\",\"fields\":{\"c\":\"Green\"}}],\"from_state\":\"A\",\"to_state\":\"B\",\"vars\":{\"color\":\"Green\"}}]}}";
+
+#[test]
+fn mc_json_golden_document_pin() {
+    for backend in ["rust", "c"] {
+        let bin = mc_json_binary_for("golden", backend, JSON_GOLDEN_SPEC);
+        let (code, out) = run_bin(&bin, &[]);
+        assert_eq!(code, 1, "{backend}: {out}");
+        assert_eq!(
+            out,
+            format!("{JSON_GOLDEN_DOC}\n"),
+            "{backend}: golden JSON document drifted"
+        );
+    }
+}

@@ -104,6 +104,16 @@ fn exact_codegen(
         "const DEFAULT_THREADS: usize = {};\n",
         options.mc_threads
     ));
+    // Counterexample report format (Phase 5 task 10): 0 = text (default),
+    // 1 = json. Runtime-overridable with --counterexample-format.
+    s.push_str(&format!(
+        "const DEFAULT_COUNTEREXAMPLE_FORMAT: u8 = {};\n",
+        if options.counterexample_format == crate::codegen_mc::CounterexampleFormat::Json {
+            1
+        } else {
+            0
+        }
+    ));
     s.push_str(&format!(
         "const CONFIG_TOTAL_BYTES: usize = {};\n",
         plan.encoding.total_bytes
@@ -233,6 +243,12 @@ fn exact_codegen(
     // The BFS engine (static; see D-P4-2..6).
     s.push_str(EXACT_ENGINE);
 
+    // JSON counterexample report (Phase 5 task 10): embedded minimal copy of
+    // the toolchain writer + canonical document builders, then the
+    // codegen-specific input/output/vars renderers for this module.
+    s.push_str(JSON_WRITER_RUST);
+    s.push_str(&json_renderers_rust(module));
+
     // Liveness (Phase 4 task 6, D-P4-9/10/11): obligation decomposition,
     // per-leaf sample evaluators, the static engine, and the property table.
     let liv = crate::mc_plan::LivenessDecomposition::compute(module);
@@ -309,6 +325,98 @@ fn exact_codegen(
     Ok((s, warnings))
 }
 
+/// Codegen-specific JSON renderers for this module's input/output/vars types
+/// (Phase 5 task 10). Names use `rust_ident` - the same name source as the
+/// text report printers - so JSON and text carry identical data.
+fn json_renderers_rust(module: &Module) -> String {
+    use crate::backends::rust::rust_ident;
+    let variants = crate::codegen_fsm::build_variants(module);
+    let mut s = String::new();
+
+    // mc_json_input / mc_json_output: match over the tagged enum (Copy, so
+    // `*v` binds fields by value).
+    for (name, list) in [("Input", &variants.inputs), ("Output", &variants.outputs)] {
+        let fn_name = if name == "Input" {
+            "mc_json_input"
+        } else {
+            "mc_json_output"
+        };
+        if list.is_empty() {
+            // Uninhabited enum: the match is trivially exhaustive.
+            s.push_str(&format!(
+                "fn {fn_name}(v: &{name}) -> McJson {{ match *v {{}} }}\n"
+            ));
+            continue;
+        }
+        let arms: Vec<String> = list
+            .iter()
+            .map(|vi| {
+                let ident = rust_ident(&vi.unique_name);
+                if vi.fields.is_empty() {
+                    format!("    {name}::{ident} => mc_json_io(\"{ident}\", Vec::new()),")
+                } else {
+                    let bindings: Vec<String> =
+                        vi.fields.iter().map(|(f, _)| rust_ident(f)).collect();
+                    let fields: Vec<String> = vi
+                        .fields
+                        .iter()
+                        .map(|(fname, fty)| {
+                            format!(
+                                "(\"{}\".to_string(), {})",
+                                rust_ident(fname),
+                                json_value_rust(fty, &rust_ident(fname))
+                            )
+                        })
+                        .collect();
+                    format!(
+                        "    {name}::{ident} {{ {} }} => mc_json_io(\"{ident}\", vec![{}]),",
+                        bindings.join(", "),
+                        fields.join(", ")
+                    )
+                }
+            })
+            .collect();
+        s.push_str(&format!(
+            "fn {fn_name}(v: &{name}) -> McJson {{ match *v {{\n{}\n}} }}\n",
+            arms.join("\n")
+        ));
+    }
+
+    // mc_json_vars: declaration order.
+    if module.vars.is_empty() {
+        s.push_str("fn mc_json_vars(v: &Vars) -> McJson { let _ = v; McJson::obj(Vec::new()) }\n");
+    } else {
+        let fields: Vec<String> = module
+            .vars
+            .iter()
+            .map(|v| {
+                format!(
+                    "(\"{}\".to_string(), {})",
+                    rust_ident(&v.name),
+                    json_value_rust(&v.ty, &format!("v.{}", rust_ident(&v.name)))
+                )
+            })
+            .collect();
+        s.push_str(&format!(
+            "fn mc_json_vars(v: &Vars) -> McJson {{ McJson::obj(vec![{}]) }}\n",
+            fields.join(", ")
+        ));
+    }
+    s
+}
+
+/// JSON rendering of an expression of type `ty`: bool -> Bool, bit<N> -> Int
+/// (unsigned, `as u64` - the same reduction the engine's config packing
+/// uses), enum -> Str via Debug (the variant name the text report prints).
+fn json_value_rust(ty: &crate::ir::Type, expr: &str) -> String {
+    use crate::ir::Type;
+    match ty {
+        Type::Bool => format!("McJson::bool({expr})"),
+        Type::Bit { .. } => format!("McJson::int({expr} as u64)"),
+        Type::Enum { .. } => format!("McJson::str(format!(\"{{:?}}\", {expr}))"),
+    }
+}
+
 /// Re-index the skeleton leaves in first-appearance order and render the
 /// boolean expression over `t[0..L)` (per-leaf satisfaction flags).
 fn flatten_skeleton(
@@ -346,8 +454,12 @@ fn domain_iter(d: &ValueDomain) -> String {
     match d {
         ValueDomain::Bool => "[false, true]".into(),
         ValueDomain::Int { max } => format!("0..={max}"),
-        ValueDomain::Enum { variants } => {
-            let vs: Vec<String> = variants.iter().map(|v| rust_ident(v)).collect();
+        ValueDomain::Enum { name, variants } => {
+            // Qualified variant paths (bare names would not resolve).
+            let vs: Vec<String> = variants
+                .iter()
+                .map(|v| format!("{}::{}", rust_ident(name), rust_ident(v)))
+                .collect();
             format!("[{}]", vs.join(", "))
         }
     }
@@ -840,6 +952,173 @@ fn liv_note(graph: &LivGraph, prop: &LivProperty, w: &LivWitness) -> String {
 }
 "#;
 /// The exact-mode entry point (generated verbatim into every MC binary).
+/// Embedded JSON writer + canonical report document builders (Phase 5
+/// task 10). A minimal copy of the toolchain's `src/json_rw.rs` compact
+/// writer (same escaping contract) with u64 integers: every value in this
+/// document is non-negative, and bit<64> fields reach 2^64-1. Key ordering
+/// is the byte-parity contract (see `codegen_mc.rs` in the toolchain). The
+/// generated binary stays self-contained by construction.
+const JSON_WRITER_RUST: &str = r#"
+#[derive(Clone)]
+enum McJson { Bool(bool), Int(u64), Str(String), Arr(Vec<McJson>), Obj(Vec<(String, McJson)>) }
+
+impl McJson {
+    fn bool(b: bool) -> Self { McJson::Bool(b) }
+    fn int(n: u64) -> Self { McJson::Int(n) }
+    fn str(s: impl Into<String>) -> Self { McJson::Str(s.into()) }
+    fn arr(items: Vec<McJson>) -> Self { McJson::Arr(items) }
+    fn obj(pairs: Vec<(String, McJson)>) -> Self { McJson::Obj(pairs) }
+    /// Compact rendering (no whitespace outside strings).
+    fn to_string(&self) -> String { let mut out = String::new(); mc_json_write(&mut out, self); out }
+}
+
+fn mc_json_write(out: &mut String, v: &McJson) {
+    match v {
+        McJson::Bool(b) => out.push_str(if *b { "true" } else { "false" }),
+        McJson::Int(n) => out.push_str(&n.to_string()),
+        McJson::Str(s) => mc_json_escape(out, s),
+        McJson::Arr(items) => {
+            out.push('[');
+            for (i, item) in items.iter().enumerate() { if i > 0 { out.push(','); } mc_json_write(out, item); }
+            out.push(']');
+        }
+        McJson::Obj(pairs) => {
+            out.push('{');
+            for (i, (k, val)) in pairs.iter().enumerate() {
+                if i > 0 { out.push(','); }
+                mc_json_escape(out, k);
+                out.push(':');
+                mc_json_write(out, val);
+            }
+            out.push('}');
+        }
+    }
+}
+
+/// Escape a string exactly per the toolchain writer's contract: `"` `\\`
+/// `\\b` `\\t` `\\n` `\\f` `\\r`; other control chars U+0000..=U+001F as
+/// \\u00XX (lowercase hex); everything else raw UTF-8.
+fn mc_json_escape(out: &mut String, s: &str) {
+    out.push('"');
+    for c in s.chars() {
+        match c {
+            '"' => out.push_str("\\\""),
+            '\\' => out.push_str("\\\\"),
+            '\u{0008}' => out.push_str("\\b"),
+            '\t' => out.push_str("\\t"),
+            '\n' => out.push_str("\\n"),
+            '\u{000C}' => out.push_str("\\f"),
+            '\r' => out.push_str("\\r"),
+            c if (c as u32) < 0x20 => { out.push_str(&format!("\\u{:04x}", c as u32)); }
+            c => out.push(c),
+        }
+    }
+    out.push('"');
+}
+
+/// The canonical report document builder - key order is the byte-parity
+/// contract (see codegen_mc.rs in the toolchain): status, metrics
+/// (states, transitions, max_depth), [reason, label, step on fail],
+/// statistics (unexpected_terminations, monitor_size_bits,
+/// memory_estimate_bytes), [counterexample on fail].
+fn build_mc_json_doc(
+    status: &str, states: u64, transitions: u64, max_depth: u64,
+    fail: Option<(&str, &str, u64)>,
+    unexpected_terminations: u64, monitor_size_bits: u64, memory_estimate_bytes: u64,
+    counterexample: Option<McJson>,
+) -> McJson {
+    let mut pairs: Vec<(String, McJson)> = vec![
+        ("status".to_string(), McJson::str(status)),
+        ("metrics".to_string(), McJson::obj(vec![
+            ("states".to_string(), McJson::int(states)),
+            ("transitions".to_string(), McJson::int(transitions)),
+            ("max_depth".to_string(), McJson::int(max_depth)),
+        ])),
+    ];
+    if let Some((reason, label, step)) = fail {
+        pairs.push(("reason".to_string(), McJson::str(reason)));
+        pairs.push(("label".to_string(), McJson::str(label)));
+        pairs.push(("step".to_string(), McJson::int(step)));
+    }
+    pairs.push(("statistics".to_string(), McJson::obj(vec![
+        ("unexpected_terminations".to_string(), McJson::int(unexpected_terminations)),
+        ("monitor_size_bits".to_string(), McJson::int(monitor_size_bits)),
+        ("memory_estimate_bytes".to_string(), McJson::int(memory_estimate_bytes)),
+    ])));
+    if let Some(ce) = counterexample { pairs.push(("counterexample".to_string(), ce)); }
+    McJson::obj(pairs)
+}
+
+/// One input/output value: {\"variant\":V,\"fields\":{...}} (fields in
+/// declaration order).
+fn mc_json_io(variant: &str, fields: Vec<(String, McJson)>) -> McJson {
+    McJson::obj(vec![("variant".to_string(), McJson::str(variant)), ("fields".to_string(), McJson::obj(fields))])
+}
+
+/// One trace step: {\"input\":...,\"outputs\":[...],\"from_state\":...,\"to_state\":...,\"vars\":...}.
+fn mc_json_step(input: McJson, outputs: Vec<McJson>, from_state: &str, to_state: &str, vars: McJson) -> McJson {
+    McJson::obj(vec![
+        ("input".to_string(), input),
+        ("outputs".to_string(), McJson::arr(outputs)),
+        ("from_state".to_string(), McJson::str(from_state)),
+        ("to_state".to_string(), McJson::str(to_state)),
+        ("vars".to_string(), vars),
+    ])
+}
+
+/// All steps of a replayed trace, in order.
+fn trace_steps_json(fsm: &Fsm) -> Vec<McJson> {
+    fsm.trace.steps.iter().map(|s| mc_json_step(
+        mc_json_input(&s.input),
+        s.outputs.iter().map(mc_json_output).collect(),
+        &format!("{:?}", s.from_state),
+        &format!("{:?}", s.to_state),
+        mc_json_vars(&s.vars),
+    )).collect()
+}
+
+/// Counterexample kind \"trace\": the full trace (property violation, incl.
+/// sample-0).
+fn ce_trace_json(fsm: &Fsm) -> McJson {
+    McJson::obj(vec![
+        ("kind".to_string(), McJson::str("trace")),
+        ("initial_state".to_string(), McJson::str(format!("{:?}", fsm.trace.initial_state))),
+        ("initial_vars".to_string(), mc_json_vars(&fsm.trace.initial_vars)),
+        ("steps".to_string(), McJson::arr(trace_steps_json(fsm))),
+    ])
+}
+
+/// Counterexample kind \"lasso\": prefix + one cycle iteration (liveness).
+fn ce_lasso_json(fsm: &Fsm, cycle_start: usize) -> McJson {
+    let all = trace_steps_json(fsm);
+    let (prefix, cycle) = all.split_at(cycle_start);
+    McJson::obj(vec![
+        ("kind".to_string(), McJson::str("lasso")),
+        ("initial_state".to_string(), McJson::str(format!("{:?}", fsm.trace.initial_state))),
+        ("initial_vars".to_string(), mc_json_vars(&fsm.trace.initial_vars)),
+        ("prefix".to_string(), McJson::arr(prefix.to_vec())),
+        ("cycle".to_string(), McJson::arr(cycle.to_vec())),
+        ("cycle_length".to_string(), McJson::int(cycle.len() as u64)),
+    ])
+}
+
+/// Counterexample kind \"deadlock-config\": the terminal configuration.
+fn ce_deadlock_json(fsm: &Fsm, depth: usize) -> McJson {
+    let (state, vars) = if fsm.trace.steps.is_empty() {
+        (format!("{:?}", fsm.trace.initial_state), mc_json_vars(&fsm.trace.initial_vars))
+    } else {
+        let last = &fsm.trace.steps[fsm.trace.steps.len() - 1];
+        (format!("{:?}", last.to_state), mc_json_vars(&last.vars))
+    };
+    McJson::obj(vec![
+        ("kind".to_string(), McJson::str("deadlock-config")),
+        ("depth".to_string(), McJson::int(depth as u64)),
+        ("state".to_string(), McJson::str(state)),
+        ("vars".to_string(), vars),
+    ])
+}
+"#;
+
 const EXACT_RUN: &str = r#"
 /// One successor outcome of a config expansion (task 10B): computed in
 /// parallel (phase A), committed sequentially in canonical order (phase B).
@@ -895,6 +1174,7 @@ fn run_exact() -> ! {
     let mut timeout_sec = DEFAULT_TIMEOUT_SEC;
     let mut threads = DEFAULT_THREADS;
     let mut fast = false;
+    let mut counterexample_format = DEFAULT_COUNTEREXAMPLE_FORMAT;
     let mut assumes_arg = "all".to_string();
     let mut i = 1;
     while i < args.len() {
@@ -904,6 +1184,7 @@ fn run_exact() -> ! {
             "--timeout-sec" => { i += 1; timeout_sec = args.get(i).and_then(|x| x.parse().ok()).unwrap_or(DEFAULT_TIMEOUT_SEC); }
             "--threads" => { i += 1; threads = args.get(i).and_then(|x| x.parse().ok()).unwrap_or(DEFAULT_THREADS); }
             "--fast" => { fast = true; }
+            "--counterexample-format" => { i += 1; counterexample_format = match args.get(i).map(|s| s.as_str()) { Some("json") => 1, _ => 0 }; }
             "--assumes" => { i += 1; assumes_arg = args.get(i).cloned().unwrap_or_else(|| "all".into()); }
             _ => {}
         }
@@ -917,6 +1198,18 @@ fn run_exact() -> ! {
     let mut init_fsm = Fsm::new();
     init_fsm.active_assumes = active_assumes.clone();
     if let Some(pv) = &init_fsm.property_violation {
+        if counterexample_format == 1 {
+            // JSON report (Phase 5 task 10): one compact document, same data
+            // as the text report; key order is the byte-parity contract.
+            let doc = build_mc_json_doc(
+                "fail", 1, 0, 0,
+                Some(("property-violation", pv.label.as_str(), pv.step as u64)),
+                0, MONITORS_BITS as u64, (CONFIG_TOTAL_BYTES + 32) as u64,
+                Some(ce_trace_json(&init_fsm)),
+            );
+            println!("{}", doc.to_string());
+            std::process::exit(1);
+        }
         println!("FAIL");
         println!("{}", exact_summary_line("fail", 1, 0, 0, Some(("property-violation", &pv.label, pv.step))));
         println!("property violation: {}", pv.label);
@@ -1127,6 +1420,31 @@ fn run_exact() -> ! {
     // Report (D-P4-4): human line, pinned machine line, statistics.
     let states = nodes.len();
     let mem_est = states * (CONFIG_TOTAL_BYTES + 32);
+    if counterexample_format == 1 {
+        // JSON report (Phase 5 task 10): one compact document carrying the
+        // same data as the text report below; key order is the byte-parity
+        // contract (see codegen_mc.rs in the toolchain).
+        let st_wire = match status { 1 => "pass-complete", 4 => "fail", _ => "unknown-state-limit" };
+        let fail = if status == 4 { Some((fail_wire, fail_label.as_str(), fail_step as u64)) } else { None };
+        let ce: Option<McJson> = if status == 4 {
+            let fsm = replay(&fail_path, nondet, &active_assumes);
+            if is_deadlock {
+                Some(ce_deadlock_json(&fsm, fail_step))
+            } else if let Some((_, w)) = &liv_result {
+                Some(ce_lasso_json(&fsm, w.cycle_start))
+            } else {
+                Some(ce_trace_json(&fsm))
+            }
+        } else {
+            None
+        };
+        let doc = build_mc_json_doc(
+            st_wire, states as u64, transitions as u64, max_depth as u64, fail,
+            unexpected as u64, MONITORS_BITS as u64, mem_est as u64, ce,
+        );
+        println!("{}", doc.to_string());
+        std::process::exit(if status == 1 { 0 } else if status == 4 { 1 } else { 2 });
+    }
     match status {
         1 => println!("PASS (complete)"),
         4 => println!("FAIL"),

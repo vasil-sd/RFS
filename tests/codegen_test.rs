@@ -1420,6 +1420,183 @@ fn no_std_compile_sweep_and_body_parity_all_valid_examples() {
 }
 
 // ---------------------------------------------------------------------------
+// --with-protocol-fsm (Phase 5 task 11): opt-in `impl ProtocolFsm for Fsm`
+// emission linking the artifact to the rfs-adapters crate.
+// ---------------------------------------------------------------------------
+
+/// The exact emitted block (byte pin; mirrors rust_fsm::emit_protocol_fsm_impl).
+const PF_IMPL_BLOCK: &str = "\
+// ProtocolFsm adapter surface (opt-in via --with-protocol-fsm, Phase 5
+// task 11): this is the one documented opt-in that links a generated
+// artifact to an external crate (rfs-adapters).
+use rfs_adapters::ProtocolFsm;
+
+impl ProtocolFsm for Fsm {
+    type Input = Input;
+    type Output = Output;
+    type Error = StepError;
+
+    fn new() -> Self { Fsm::new() }
+    fn step(&mut self, input: Self::Input) -> Result<Vec<Self::Output>, Self::Error> {
+        Fsm::step(self, input)
+    }
+}";
+
+#[test]
+fn cli_protocol_fsm_flag_parsing() {
+    // production and test accept the flag (both backends parse identically).
+    for backend in ["rust", "c"] {
+        for cmd in ["production", "test"] {
+            let req = codegen::parse_codegen_args(&argss(&format!(
+                "{backend} {cmd} spec.rfs --with-protocol-fsm"
+            )))
+            .unwrap();
+            match req {
+                codegen::CodegenRequest::Generate {
+                    with_protocol_fsm, ..
+                } => {
+                    assert!(with_protocol_fsm)
+                }
+                other => panic!("expected Generate, got {:?}", other),
+            }
+        }
+    }
+    // Default is off.
+    let req = codegen::parse_codegen_args(&argss("rust production spec.rfs")).unwrap();
+    match req {
+        codegen::CodegenRequest::Generate {
+            with_protocol_fsm, ..
+        } => assert!(!with_protocol_fsm),
+        other => panic!("expected Generate, got {:?}", other),
+    }
+    // mc is rejected with the pinned message.
+    let errs =
+        codegen::parse_codegen_args(&argss("rust mc spec.rfs --with-protocol-fsm")).unwrap_err();
+    assert_eq!(errs, vec![codegen::PROTOCOL_FSM_MC_ERROR.to_string()]);
+}
+
+#[test]
+fn cli_protocol_fsm_e2e_exit_codes_and_output() {
+    let spec =
+        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("examples/valid/01_trivial_two_state.rfs");
+    // production --with-protocol-fsm: exit 0, the impl block on stdout.
+    let out = std::process::Command::new(rfs_bin())
+        .args(["codegen", "rust", "production"])
+        .arg(&spec)
+        .arg("--with-protocol-fsm")
+        .output()
+        .expect("spawn rfs");
+    assert!(
+        out.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let text = String::from_utf8_lossy(&out.stdout);
+    assert!(text.contains(PF_IMPL_BLOCK), "{text}");
+
+    // mc --with-protocol-fsm: exit 1 + pinned diagnostic on stderr.
+    let out = std::process::Command::new(rfs_bin())
+        .args(["codegen", "rust", "mc"])
+        .arg(&spec)
+        .arg("--with-protocol-fsm")
+        .output()
+        .expect("spawn rfs");
+    assert_eq!(out.status.code(), Some(1));
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(
+        stderr.contains(codegen::PROTOCOL_FSM_MC_ERROR),
+        "stderr: {stderr}"
+    );
+}
+
+#[test]
+fn protocol_fsm_emission_pins_and_default_unchanged() {
+    let ir = example_module("01_trivial_two_state.rfs");
+    let module = &ir.modules[0];
+    let default_code =
+        rfs::backends::rust_fsm::generate_production(module, &codegen::BackendOptions::default())
+            .unwrap()
+            .code;
+    // Default output is unchanged: no trace of the trait at all.
+    assert!(!default_code.contains("ProtocolFsm"));
+    assert!(!default_code.contains("rfs_adapters"));
+
+    let pf_code = rfs::backends::rust_fsm::generate_production(
+        module,
+        &codegen::BackendOptions {
+            with_protocol_fsm: true,
+            ..Default::default()
+        },
+    )
+    .unwrap()
+    .code;
+    // The exact block, exactly once, after the inherent `impl Fsm`.
+    assert_eq!(pf_code.matches(PF_IMPL_BLOCK).count(), 1);
+    let pf_pos = pf_code.find(PF_IMPL_BLOCK).expect("block present");
+    let inherent_pos = pf_code.find("impl Fsm {").expect("inherent impl present");
+    assert!(pf_pos > inherent_pos);
+    // Byte-level pin: the flag-on artifact is EXACTLY the default artifact
+    // plus the block (leading newline + trailing newline from the emission).
+    assert_eq!(pf_code, format!("{default_code}\n{PF_IMPL_BLOCK}\n"));
+
+    // The test artifact carries the same block (before the #[cfg(test)] module).
+    let test_code = rfs::backends::rust_test::generate_unit_tests(
+        module,
+        &codegen::BackendOptions {
+            with_protocol_fsm: true,
+            ..Default::default()
+        },
+    )
+    .unwrap()
+    .code;
+    assert_eq!(test_code.matches(PF_IMPL_BLOCK).count(), 1);
+    let t_pf = test_code.find(PF_IMPL_BLOCK).unwrap();
+    let t_tests = test_code.find("#[cfg(test)]").expect("test module present");
+    assert!(t_pf < t_tests);
+
+    // The C backend ignores the flag: byte-identical output.
+    let c_default =
+        rfs::backends::c_fsm::generate_production(module, &codegen::BackendOptions::default())
+            .unwrap()
+            .code;
+    let c_pf = rfs::backends::c_fsm::generate_production(
+        module,
+        &codegen::BackendOptions {
+            with_protocol_fsm: true,
+            ..Default::default()
+        },
+    )
+    .unwrap()
+    .code;
+    assert_eq!(c_default, c_pf);
+}
+
+#[test]
+fn mc_entry_points_reject_protocol_fsm() {
+    // Library-level guard (beyond the CLI parser): both mc entry points
+    // reject the flag with the same pinned message.
+    let ir = example_module("01_trivial_two_state.rfs");
+    let module = &ir.modules[0];
+    let options = codegen::BackendOptions {
+        with_protocol_fsm: true,
+        ..Default::default()
+    };
+    for (name, result) in [
+        (
+            "rust mc",
+            rfs::backends::rust_mc::generate_model_checker(module, &options),
+        ),
+        (
+            "c mc",
+            rfs::backends::c_mc::generate_model_checker(module, &options),
+        ),
+    ] {
+        let errs = result.expect_err(&format!("{name} should reject --with-protocol-fsm"));
+        assert_eq!(errs, vec![codegen::PROTOCOL_FSM_MC_ERROR.to_string()]);
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Phase 5 task 5: Rust test renderer (four extended plan classes) + the
 // separate libfuzzer_sys fuzz-target skeleton.
 // ---------------------------------------------------------------------------

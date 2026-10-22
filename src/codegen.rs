@@ -84,6 +84,13 @@ impl std::str::FromStr for AssumptionSelection {
 pub const NO_STD_PRODUCTION_ONLY_ERROR: &str =
     "--no-std is only supported for the production command";
 
+/// Pinned error message for `--with-protocol-fsm` on the `mc` command
+/// (Phase 5 task 11): the trait impl belongs to the production/test surface;
+/// the model checker keeps its own runtime. The CLI parser and the Rust mc
+/// entry point both reject with this exact text.
+pub const PROTOCOL_FSM_MC_ERROR: &str =
+    "--with-protocol-fsm is only valid for the production and test commands";
+
 /// Options shared by all backend commands. A backend may ignore fields that do
 /// not apply to a specific command (for example `steps` is only meaningful for
 /// the `test` command).
@@ -130,6 +137,15 @@ pub struct BackendOptions {
     /// runtime with `--counterexample-format`. Exact mode only - fuzz and
     /// smt-bounded modes keep their own output.
     pub counterexample_format: crate::codegen_mc::CounterexampleFormat,
+    /// Emit the opt-in `impl ProtocolFsm for Fsm` (Phase 5 task 11): links
+    /// the generated artifact to the `rfs-adapters` crate via
+    /// `use rfs_adapters::ProtocolFsm;` - the one documented opt-in that
+    /// connects generated code to an external crate. OFF by default (the
+    /// plain surface is unchanged). Rust backend only: production + test
+    /// commands emit the impl, `mc` rejects it ([`PROTOCOL_FSM_MC_ERROR`]),
+    /// and the C backend ignores it (Rust-ecosystem surface; the C
+    /// equivalent is the plain step API).
+    pub with_protocol_fsm: bool,
 }
 
 impl Default for BackendOptions {
@@ -146,6 +162,7 @@ impl Default for BackendOptions {
             mc_threads: crate::codegen_mc::EXACT_DEFAULT_THREADS,
             mc_smt_bound: crate::codegen_mc::SMT_DEFAULT_BOUND,
             counterexample_format: crate::codegen_mc::CounterexampleFormat::Text,
+            with_protocol_fsm: false,
         }
     }
 }
@@ -406,6 +423,7 @@ pub enum CodegenRequest {
         mc_threads: usize,
         mc_smt_bound: usize,
         counterexample_format: crate::codegen_mc::CounterexampleFormat,
+        with_protocol_fsm: bool,
     },
 }
 
@@ -470,6 +488,7 @@ pub fn parse_codegen_args(args: &[String]) -> Result<CodegenRequest, Vec<String>
     let mut mc_threads = crate::codegen_mc::EXACT_DEFAULT_THREADS;
     let mut mc_smt_bound = crate::codegen_mc::SMT_DEFAULT_BOUND;
     let mut counterexample_format = crate::codegen_mc::CounterexampleFormat::Text;
+    let mut with_protocol_fsm = false;
     let mut i = 2;
     while i < rest.len() {
         match rest[i].as_str() {
@@ -559,6 +578,13 @@ pub fn parse_codegen_args(args: &[String]) -> Result<CodegenRequest, Vec<String>
                     None => errors.push(crate::codegen_mc::COUNTEREXAMPLE_FORMAT_ERROR.to_string()),
                 }
             }
+            "--with-protocol-fsm" => {
+                if command == CodegenCommandKind::ModelChecker {
+                    errors.push(PROTOCOL_FSM_MC_ERROR.to_string());
+                } else {
+                    with_protocol_fsm = true;
+                }
+            }
             other if other.starts_with('-') => errors.push(format!("unknown option: {}", other)),
             other => errors.push(format!("unexpected extra argument: {}", other)),
         }
@@ -582,6 +608,7 @@ pub fn parse_codegen_args(args: &[String]) -> Result<CodegenRequest, Vec<String>
             mc_threads,
             mc_smt_bound,
             counterexample_format,
+            with_protocol_fsm,
         },
         errors,
     )

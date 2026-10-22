@@ -1,8 +1,15 @@
 # Phase 5 task 1: the repository is a cargo WORKSPACE. The root package
 # (`rfs`, the toolchain) is an implicit member; `crates/*` holds the helper
-# crates (rfs-build now; rfs-adapters and examples from tasks 11/12).
+# crates (rfs-build, rfs-adapters from tasks 1/11) and `crates/examples/*`
+# the example crates (sync_handler/async_handler from task 11).
 [workspace]
-members = ["crates/*"]
+# Explicit list (not a bare `crates/*` glob): `crates/examples` itself has no
+# manifest, and the examples are members via their own glob.
+members = [
+    "crates/rfs-build",
+    "crates/rfs-adapters",
+    "crates/examples/*",
+]
 
 [package]
 name = "rfs"

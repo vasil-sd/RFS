@@ -32,6 +32,11 @@ pub fn generate_model_checker(
             crate::codegen::NO_STD_PRODUCTION_ONLY_ERROR.to_string()
         ]);
     }
+    // The ProtocolFsm impl belongs to the production/test surface (Phase 5
+    // task 11); the model checker keeps its own runtime.
+    if options.with_protocol_fsm {
+        return Err(vec![crate::codegen::PROTOCOL_FSM_MC_ERROR.to_string()]);
+    }
     // SMT bounded mode (task 11): a standalone libz3-based binary - no FSM
     // core, no exact/fuzz runtimes. The spec section is rendered from the
     // shared plan (smt_plan/smt_emit) so both backends build identical

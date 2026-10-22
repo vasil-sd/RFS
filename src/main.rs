@@ -296,6 +296,7 @@ fn cmd_codegen(args: &[String]) -> ExitCode {
             mc_threads,
             mc_smt_bound,
             counterexample_format,
+            with_protocol_fsm,
         }) => {
             let Some(backend) = codegen::get_backend(&backend_name) else {
                 eprintln!(
@@ -335,6 +336,7 @@ fn cmd_codegen(args: &[String]) -> ExitCode {
                 mc_threads,
                 mc_smt_bound,
                 counterexample_format,
+                with_protocol_fsm,
             };
             match command.run(backend, &ir.modules[0], &options) {
                 Err(errors) => {

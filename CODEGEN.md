@@ -79,6 +79,7 @@ pub struct BackendOptions {
     pub steps: usize,                      // example-run length K (default 4)
     pub no_std: bool,                      // production only (task 9): Rust #![no_std]+alloc; C no-op
     pub with_property_monitors: bool,      // production only (D-P3-6); test/mc always include monitors
+    pub with_protocol_fsm: bool,           // production+test only (task 11): emit `impl ProtocolFsm for Fsm`
 }
 
 /// Result of one generation command.
@@ -95,7 +96,23 @@ pub struct ExtraFile { pub name: String, pub content: String }
 ```
 
 `AssumptionSelection` implements `FromStr` (`all`, `none`, or a comma-separated
-label list), `Default = All`, and derives `PartialEq, Eq`. `NO_STD_PRODUCTION_ONLY_ERROR` is the pinned rejection message for `--no-std` on a non-production command; both the CLI parser and the four test/mc backend entry points return it, so one string covers every path.
+label list), `Default = All`, and derives `PartialEq, Eq`. `NO_STD_PRODUCTION_ONLY_ERROR` is the pinned rejection message for `--no-std` on a non-production command; both the CLI parser and the four test/mc backend entry points return it, so one string covers every path. `PROTOCOL_FSM_MC_ERROR` is the analogous pinned rejection for `--with-protocol-fsm` on `mc` (the trait impl belongs to the production/test surface; the model checker keeps its own runtime) - enforced by the CLI parser and by both mc entry points at library level.
+
+**`--with-protocol-fsm` (Phase 5 task 11)**: opt-in emission of
+`impl ProtocolFsm for Fsm` in the Rust production/test artifacts, where
+`ProtocolFsm` is the trait from the `rfs-adapters` workspace crate
+(`crates/rfs-adapters`). This is the ONE documented opt-in that links a
+generated artifact to an external crate: the emitted block starts with
+`use rfs_adapters::ProtocolFsm;`, so a consuming crate must depend on
+`rfs-adapters`. OFF by default - the plain surface (and every byte of default
+output) is unchanged. Rust backend only: the C backend accepts and ignores
+the flag (the ProtocolFsm trait is a Rust-ecosystem surface; the C equivalent
+is the plain step API). The emitted impl forwards to the inherent `Fsm`
+methods explicitly (`Fsm::new()` / `Fsm::step(self, input)`) so it does not
+recurse into itself. Emission point: after the inherent `impl Fsm`, before
+the `#[cfg(test)]` module (test artifacts). Byte-pinned in
+`tests/codegen_test.rs` (`PF_IMPL_BLOCK`; flag-on output = default output +
+the block exactly).
 
 ### 3.2 Registry
 
@@ -152,14 +169,16 @@ pub enum CodegenRequest {
                with_property_monitors: bool,
                mc_mode: McMode, mc_max_states: usize, mc_nondet: bool,
                mc_timeout_sec: u64, mc_threads: usize, mc_smt_bound: usize,
-               counterexample_format: CounterexampleFormat },
+               counterexample_format: CounterexampleFormat,
+               with_protocol_fsm: bool },
 }
 
 pub fn parse_codegen_args(args: &[String]) -> Result<CodegenRequest, Vec<String>>;
 ```
 
 Defaults: `--assumes all`, `--steps 4`, no `--out` (stdout), monitors off,
-no `--no-std`; MC flags default to `--mode exact`, `--max-states 1000000`,
+no `--no-std`, no `--with-protocol-fsm`; MC flags default to `--mode exact`,
+`--max-states 1000000`,
 no `--nondet`, `--timeout-sec 0` (off), `--threads 1`, `--smt-bound 10`,
 `--counterexample-format text`. Parse errors: missing subcommand, unknown
 command name, `--out`/`--assumes` without value, non-numeric `--steps`,
@@ -168,8 +187,10 @@ property monitors), `--no-std` on a non-production command (pinned
 `NO_STD_PRODUCTION_ONLY_ERROR`; the test/mc backend entry points enforce the
 same rule at library level), bad `--mode` value (exact|fuzz|smt-bounded),
 non-positive `--threads`/`--smt-bound`, bad `--counterexample-format` value
-(pinned `COUNTEREXAMPLE_FORMAT_ERROR`; accepts exactly `json`|`text`), unknown
-options, stray positional arguments. The parser does **not** check the input
+(pinned `COUNTEREXAMPLE_FORMAT_ERROR`; accepts exactly `json`|`text`),
+`--with-protocol-fsm` on `mc` (pinned `PROTOCOL_FSM_MC_ERROR`; the mc backend
+entry points enforce the same rule at library level), unknown options, stray
+positional arguments. The parser does **not** check the input
 extension or the backend name — those are done in the CLI layer (below) so
 tests can exercise parsing in isolation.
 
@@ -206,6 +227,7 @@ rfs codegen rust --help
 rfs codegen rust production spec.rfs --out fsm.rs
 rfs codegen rust production spec.rfs --with-property-monitors --out fsm.rs
 rfs codegen rust production spec.rfs --no-std --out fsm.rs   # #![no_std] + extern crate alloc (identical API)
+rfs codegen rust production spec.rfs --with-protocol-fsm --out fsm.rs  # + impl ProtocolFsm (links to rfs-adapters)
 rfs codegen rust test spec.json --steps 6 --out fsm_test.rs
 rfs codegen rust mc spec.rfs --assumes a1,a2 --out fsm_mc.rs
 ```
@@ -469,7 +491,10 @@ checks; keep any such checks aligned with section 4.2 above.
 ## 9. Invariants
 
 1. Generated source is a single self-contained file per command; no external
-   dependencies; compiles with stable Rust, edition 2021.
+   dependencies; compiles with stable Rust, edition 2021. The ONE documented
+   exception (Phase 5 task 11): `--with-protocol-fsm` (off by default) emits
+   an `impl ProtocolFsm for Fsm` block that references the `rfs-adapters`
+   crate - the opt-in that links a generated artifact to an external crate.
 2. Codegen is deterministic: same IR + same options ⇒ byte-identical output.
 3. Production code and model checker consume the **same IR module**; they must
    not diverge in transition semantics.

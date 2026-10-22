@@ -122,8 +122,8 @@ pub(crate) fn representative_input_expr(
 pub static PRODUCTION_INFO: BackendCommandInfo = BackendCommandInfo {
     name: "production",
     summary: "Generate production Rust FSM code (Fsm::step, trace recording, assumption handlers)",
-    usage: "rfs codegen rust production <spec.rfs|spec.json> [--out FILE] [--assumes all|none|l1,l2]",
-    options: "--assumes all|none|label1,label2  assumptions to activate (default: all)\n      --out FILE                    write generated source to FILE (default: stdout)",
+    usage: "rfs codegen rust production <spec.rfs|spec.json> [--out FILE] [--assumes all|none|l1,l2] [--with-protocol-fsm]",
+    options: "--assumes all|none|label1,label2  assumptions to activate (default: all)\n      --with-protocol-fsm         emit `impl ProtocolFsm for Fsm` (opt-in; links the artifact to the rfs-adapters crate - it must then be a dependency of the consuming crate)\n      --out FILE                    write generated source to FILE (default: stdout)",
 };
 
 /// Command: generate Rust FSM code plus a unit-test module + a separate
@@ -131,8 +131,8 @@ pub static PRODUCTION_INFO: BackendCommandInfo = BackendCommandInfo {
 pub static TEST_INFO: BackendCommandInfo = BackendCommandInfo {
     name: "test",
     summary: "Generate Rust FSM code + unit tests (module-level, per-transition, invariant, monitor-violation, random-trace) + separate fuzz_target.rs",
-    usage: "rfs codegen rust test <spec.rfs|spec.json> --out FILE [--steps N] [--assumes all|none|l1,l2]",
-    options: "--steps N  example-run length K (default: 4)\n      --assumes all|none|label1,label2  assumptions to activate (default: all)\n      --out FILE                    REQUIRED: write the test artifact to FILE; the libfuzzer_sys fuzz skeleton is written next to it as fuzz_target.rs (stdout mode is refused - no graceful degradation)",
+    usage: "rfs codegen rust test <spec.rfs|spec.json> --out FILE [--steps N] [--assumes all|none|l1,l2] [--with-protocol-fsm]",
+    options: "--steps N  example-run length K (default: 4)\n      --assumes all|none|label1,label2  assumptions to activate (default: all)\n      --with-protocol-fsm         emit `impl ProtocolFsm for Fsm` (opt-in; links the artifact to the rfs-adapters crate - it must then be a dependency of the consuming crate)\n      --out FILE                    REQUIRED: write the test artifact to FILE; the libfuzzer_sys fuzz skeleton is written next to it as fuzz_target.rs (stdout mode is refused - no graceful degradation)",
 };
 
 /// Command: generate a bounded model-checker Rust executable.

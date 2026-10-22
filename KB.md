@@ -623,8 +623,7 @@ them (lasso counterexamples for violations). See `DESIGN.md` section 11.
 ```toml
 [dependencies]
 nom = "8.0.0"
-serde = { version = "1.0.229", features = ["derive"] }
-serde_json = "1.0.154"
+z3 = { version = "0.21", optional = true }   # feature `smt` only
 
 [dev-dependencies]
 chumsky = "0.13"
@@ -635,9 +634,16 @@ Meaning:
 | Dependency | Role |
 |---|---|
 | `nom` | Main parser combinator library. |
-| `serde` | IR serialization/deserialization. |
-| `serde_json` | JSON output and round-trip tests. |
+| `z3` (optional, `smt`) | Solver-environment sanity checks for the feature-gated SMT tests; generated binaries link libz3 directly. |
 | `chumsky` | Dev-only comparison smoke test; not used by main parser. |
+
+Workspace crates (Phase 5): `crates/rfs-build` is dependency-free; `crates/rfs-adapters`
+carries the ONLY external dependency of the workspace beyond the root package -
+`futures` 0.3, OPTIONAL behind its `async` feature (default features are std-only).
+It must never leak into the `rfs` toolchain or generated code; the examples
+(`sync_handler` adds nothing, `async_handler` depends on `futures` directly for
+its executor) are the only other consumers. (serde/serde_json were removed in
+Phase 5 task 2 - all JSON goes through the hand-rolled `src/json_rw.rs`.)
 
 ### 4.2 Source files
 
@@ -665,7 +671,10 @@ Meaning:
 | `src/bin/extract_training_snippets.rs` | Cargo bin behind `cargo extract-training-snippets`; refreshes `training/*/snippets`. |
 | `src/bin/generate_code_tests.rs` | Generates the aggregate generated-code unit-test crate. |
 | `src/bin/test_generated_code.rs` | Generates, compiles, and runs the aggregate generated-code unit tests. |
-| `src/main.rs` | CLI entry point: `parse` subcommand (format conversion), `validate` subcommand (file/dir validation), `codegen` subcommand (backend registry dispatch). Unknown subcommands print the usage and exit 1. Argument parsing and exit codes live here; logic lives in `src/frontend.rs` / `src/codegen.rs`. |
+| `src/main.rs` | CLI entry point: six subcommands - `parse` (format conversion), `validate` (file/dir validation), `codegen` (backend registry dispatch), `info`, `diagram` (plugin registry), `test` (generate + compile + run). Unknown subcommands print the usage and exit 1. Argument parsing and exit codes live here; logic lives in `src/frontend.rs` / `src/codegen.rs` / `src/test_cmd.rs`. |
+| `crates/rfs-build/` | build.rs helper crate: invokes the `rfs` toolchain at build time (`RFS_BIN` -> PATH resolution, cargo rerun directives); builder options `.backend()`, `.with_property_monitors()`, `.no_std()`, `.with_protocol_fsm()`. Dependency-free. |
+| `crates/rfs-adapters/` | Rust-ecosystem integration layer (Phase 5 task 11): the `ProtocolFsm` trait (`Input`/`Output`/`Error` associated types + `new()` + `step(&mut self, input) -> Result<Vec<Output>, Error>`) + four generic adapters - `channel` (std mpsc, FSM on its own thread), `async_adapter` (futures Stream; steps synchronously in `poll_next`, any executor works), `callback` (`drive(fsm, decide, max_steps)` reactive loop), `minimal` (no_std step-forwarding wrapper that is itself a `ProtocolFsm`). `#![no_std]` core with `std` (default) / `async` features; never depends on generated code. |
+| `crates/examples/sync_handler/`, `crates/examples/async_handler/` | Example crates (Phase 5 task 11): spec-43 sliding-window ARQ driven end to end over the channel adapter / futures stream adapter; build.rs generates the FSM via rfs-build with `--with-protocol-fsm`; each carries its session as a test + a demo binary. See their READMEs. |
 
 ### 4.3 Public API
 
@@ -789,6 +798,7 @@ cargo run -- codegen rust mc spec.rfs --assumes a1,a2 --out fsm_mc.rs
 - A generate request resolves the backend by name, selects the input format from the file extension (`.rfs`/`.json`; anything else is an error), converts the file to IR, and runs the command on `ir.modules[0]`.
 - Common options: `--assumes all|none|label1,label2` (default `all`), `--steps N` for the test command (default 4), `--out FILE` (default stdout; parent directories are created). The Rust `test` command additionally emits a separate `fuzz_target.rs` (a `libfuzzer_sys` skeleton - see section 13.3): it is written next to `--out`, so the `test` command REQUIRES `--out FILE` and exits 1 in stdout mode (strict - no silent file loss).
 - MC-only codegen options (Phase 4): `--mode exact|fuzz|smt-bounded` (default `exact`; `smt-bounded` requires the `smt` cargo feature at codegen time), `--max-states N` (default 1,000,000), `--nondet`, `--timeout-sec N` (default 0 = off; wall-clock only, NOT parity-guaranteed), `--threads N` (default 1; exact mode is byte-identical for any N), `--smt-bound N` (default 10). All are embedded as defaults in the generated binary and overridable at runtime; `--fast` is runtime-only (non-parity early abort).
+- Protocol-FSM opt-in (Phase 5 task 11): `--with-protocol-fsm` on `rfs codegen rust production|test` emits `impl ProtocolFsm for Fsm` (the trait from `crates/rfs-adapters`) - the ONE documented opt-in that links a generated artifact to an external crate (`use rfs_adapters::ProtocolFsm;`). OFF by default (default output byte-identical); `mc` rejects it with the pinned `PROTOCOL_FSM_MC_ERROR`; the C backend accepts and ignores it (Rust-ecosystem surface). Consumers pull the artifact in via `include!` of an OUT_DIR body file with build.rs stripping the inner attributes (see `crates/examples/*`).
 - MC report format (Phase 5 task 10): `--counterexample-format json|text` (default `text`, the parity-pinned human-readable report). `json` makes the EXACT engine print one compact machine-readable document instead of the text report - status, metrics, reason/label/step (fail only), statistics, and the counterexample (`trace` / `lasso` with prefix+cycle+cycle_length / `deadlock-config`); key ordering is part of the byte-parity contract and the JSON is byte-identical across backends. Exact mode only - fuzz and smt-bounded keep their own output.
 - Warnings go to stderr; generated source goes to stdout or `--out`. Exit code 0 on success, 1 for unknown backend, bad extension, parse, or generation errors.
 - The plugin API and the procedure for adding a new target language are documented in `CODEGEN.md`; the Rust backend's internals in `src/backends/RUST.md`.

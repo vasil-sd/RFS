@@ -15,10 +15,12 @@
 //! ```
 //!
 //! ```rust,ignore
-//! // consumer/src/lib.rs
-//! pub mod handshake {
-//!     include!(concat!(env!("OUT_DIR"), "/handshake.rs"));
-//! }
+//! // consumer/src/lib.rs - a `#[path]` module (NOT `include!`): generated
+//! // artifacts start with inner attributes (`#![allow(...)]`, or
+//! // `#![no_std]` + `extern crate alloc` under --no-std), which rustc
+//! // rejects inside a macro expansion but accepts in a module file.
+//! #[path = concat!(env!("OUT_DIR"), "/handshake.rs")]
+//! pub mod handshake;
 //! ```
 //!
 //! ## Toolchain location
@@ -103,6 +105,7 @@ pub struct RfsBuild {
     backend: String,
     with_property_monitors: bool,
     no_std: bool,
+    with_protocol_fsm: bool,
 }
 
 impl RfsBuild {
@@ -114,6 +117,7 @@ impl RfsBuild {
             backend: "rust".into(),
             with_property_monitors: false,
             no_std: false,
+            with_protocol_fsm: false,
         }
     }
 
@@ -143,6 +147,15 @@ impl RfsBuild {
     /// no-op (plain C is already dependency-free). Off by default.
     pub fn no_std(mut self, on: bool) -> Self {
         self.no_std = on;
+        self
+    }
+
+    /// Emit the opt-in `impl ProtocolFsm for Fsm` (`--with-protocol-fsm`,
+    /// Phase 5 task 11): links the generated artifact to the `rfs-adapters`
+    /// crate, so the consuming crate must depend on it. Rust backend only
+    /// (the C backend ignores the flag). Off by default.
+    pub fn with_protocol_fsm(mut self, on: bool) -> Self {
+        self.with_protocol_fsm = on;
         self
     }
 
@@ -210,6 +223,9 @@ impl RfsBuild {
         }
         if self.no_std {
             cmd.arg("--no-std");
+        }
+        if self.with_protocol_fsm {
+            cmd.arg("--with-protocol-fsm");
         }
         let output = cmd.output().map_err(|e| {
             err(format!(
@@ -460,6 +476,47 @@ mod tests {
             args.trim(),
             format!(
                 "codegen rust production {} --out {} --with-property-monitors --no-std",
+                spec.display(),
+                artifact.display()
+            )
+        );
+
+        set_env(&[("RFS_BIN", None), ("OUT_DIR", None)]);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn with_protocol_fsm_option_pins_argv() {
+        let _g = ENV_LOCK.lock().unwrap();
+        let dir = temp_dir("protocolfsm");
+        let out = dir.join("out");
+        std::fs::create_dir_all(&out).unwrap();
+        let stub = write_stub(&dir);
+        let spec = write_spec(&dir, "handshake.rfs");
+
+        set_env(&[
+            ("RFS_BIN", Some(stub.to_str().unwrap())),
+            ("OUT_DIR", Some(out.to_str().unwrap())),
+        ]);
+
+        // Off by default: no --with-protocol-fsm in argv.
+        RfsBuild::new(&spec)
+            .compile()
+            .expect("default stub compile");
+        let args = std::fs::read_to_string(dir.join("stub_args.txt")).unwrap();
+        assert!(!args.contains("--with-protocol-fsm"), "{}", args);
+
+        // .with_protocol_fsm(true) appends the flag after the other options.
+        let artifact = RfsBuild::new(&spec)
+            .no_std(true)
+            .with_protocol_fsm(true)
+            .compile()
+            .expect("protocol-fsm stub compile");
+        let args = std::fs::read_to_string(dir.join("stub_args.txt")).unwrap();
+        assert_eq!(
+            args.trim(),
+            format!(
+                "codegen rust production {} --out {} --no-std --with-protocol-fsm",
                 spec.display(),
                 artifact.display()
             )

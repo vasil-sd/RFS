@@ -1,0 +1,14 @@
+# Phase 5 task 11 example: drive the generated sliding-window ARQ sender
+# (spec 43) from another thread over std mpsc channels via the rfs-adapters
+# channel adapter. The FSM is generated at build time by rfs-build with the
+# opt-in --with-protocol-fsm flag.
+[package]
+name = "sync_handler"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+rfs-adapters = { path = "../../rfs-adapters" }
+
+[build-dependencies]
+rfs-build = { path = "../../rfs-build" }

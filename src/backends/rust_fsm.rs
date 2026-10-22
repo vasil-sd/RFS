@@ -108,6 +108,9 @@ impl<'a> Gen<'a> {
         g.emit_trace_and_handlers();
         g.emit_monitors().map_err(|e| vec![e])?;
         g.emit_fsm_impl().map_err(|e| vec![e])?;
+        if g.options.with_protocol_fsm {
+            g.emit_protocol_fsm_impl();
+        }
         if with_tests {
             let tests = crate::backends::rust_test::emit_test_module(
                 g.module,
@@ -117,6 +120,33 @@ impl<'a> Gen<'a> {
             g.code.push_str(&tests);
         }
         Ok(g)
+    }
+
+    /// The opt-in `ProtocolFsm` impl (Phase 5 task 11, `--with-protocol-fsm`):
+    /// links this artifact to the `rfs-adapters` crate - the one documented
+    /// opt-in that connects generated code to an external crate. The inherent
+    /// `Fsm` methods are called explicitly so the trait impl forwards instead
+    /// of recursing (inherent methods shadow trait methods in path syntax).
+    fn emit_protocol_fsm_impl(&mut self) {
+        self.code.push_str(
+            r#"
+// ProtocolFsm adapter surface (opt-in via --with-protocol-fsm, Phase 5
+// task 11): this is the one documented opt-in that links a generated
+// artifact to an external crate (rfs-adapters).
+use rfs_adapters::ProtocolFsm;
+
+impl ProtocolFsm for Fsm {
+    type Input = Input;
+    type Output = Output;
+    type Error = StepError;
+
+    fn new() -> Self { Fsm::new() }
+    fn step(&mut self, input: Self::Input) -> Result<Vec<Self::Output>, Self::Error> {
+        Fsm::step(self, input)
+    }
+}
+"#,
+        );
     }
 
     /// Whether property-monitor machinery is emitted at all (D-P3-6).

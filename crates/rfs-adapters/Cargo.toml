@@ -1,0 +1,24 @@
+# Phase 5 task 11: the Rust-ecosystem integration layer for generated RFS
+# FSMs - the ProtocolFsm trait + generic adapters. The crate is #![no_std]
+# with optional std/futures features; it never depends on generated code.
+[package]
+name = "rfs-adapters"
+version = "0.1.0"
+edition = "2021"
+
+[features]
+default = ["std"]
+# The sync channel adapter (std::sync::mpsc + std::thread).
+std = []
+# The futures-based stream adapter (the only external dependency of this
+# crate; it must not leak into the rfs toolchain or generated code).
+# Implies `std` (futures' default features are std-based).
+async = ["std", "dep:futures"]
+
+[dependencies]
+futures = { version = "0.3", optional = true }
+
+[dev-dependencies]
+# Test-only: generates a no_std production artifact for the no_std-minimal
+# compile check (never used by the library itself).
+rfs = { path = "../../" }

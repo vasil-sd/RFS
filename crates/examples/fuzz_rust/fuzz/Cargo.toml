@@ -7,6 +7,10 @@ version = "0.1.0"
 edition = "2021"
 publish = false
 
+# cargo-fuzz marker (required by `cargo fuzz` to recognize the harness).
+[package.metadata]
+cargo-fuzz = true
+
 [workspace]
 
 [dependencies]

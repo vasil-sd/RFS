@@ -2506,3 +2506,504 @@ fn e2e_test_usage_and_parse_errors() {
 
     cleanup(&root);
 }
+
+// ---------------------------------------------------------------------------
+// Phase 5 task 17: `rfs test --suite fuzz` (libFuzzer pipelines for both
+// backends; suite selection; RFS_CLANG*/RFS_CARGO_FUZZ*/RFS_FUZZ_FLAGS;
+// --print-script coverage).
+// ---------------------------------------------------------------------------
+
+/// Clear the task 17 tool env vars so ambient settings can't leak in.
+fn clear_fuzz_env() {
+    set_env(&[
+        ("RFS_CLANG", None),
+        ("RFS_CLANG_ARGS", None),
+        ("RFS_CARGO_FUZZ", None),
+        ("RFS_CARGO_FUZZ_ARGS", None),
+        ("RFS_FUZZ_FLAGS", None),
+        ("ASAN_OPTIONS", None),
+    ]);
+}
+
+fn clear_all_test_env() {
+    clear_test_env();
+    clear_fuzz_env();
+}
+
+/// Suite selection is pinned: default = unit only (the fuzz tools are never
+/// consulted - RFS_CLANG points at a nonexistent path and the run still
+/// passes); `--suite fuzz` = fuzz only; `--suite unit,fuzz` = both; invalid
+/// names and non-positive budgets are usage errors.
+#[test]
+fn e2e_fuzz_suite_selection_pinned() {
+    let _g = test_lock();
+    clear_all_test_env();
+    let root = tmp_root("t17_sel");
+    let f = write_file(&root, "ok.rfs", VALID_RFS);
+
+    // (a) Default suite: unit only. A broken RFS_CLANG must not matter.
+    set_env(&[("RFS_CLANG", Some("/nonexistent/clang-stub"))]);
+    let out = std::process::Command::new(rfs_bin())
+        .args(["test", "--backend", "c"])
+        .arg(&f)
+        .output()
+        .expect("spawn rfs test");
+    assert!(
+        out.status.success(),
+        "default suite must not touch clang; stderr: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(stdout.contains("PASS initial_state_is_correct"), "{stdout}");
+
+    // (b) --suite fuzz: no unit tests run at all (real clang this time).
+    set_env(&[("RFS_CLANG", None)]);
+    if tool_on_path("clang") {
+        let out = std::process::Command::new(rfs_bin())
+            .args([
+                "test",
+                "--backend",
+                "c",
+                "--suite",
+                "fuzz",
+                "--fuzz-max-total-time",
+                "1",
+            ])
+            .arg(&f)
+            .output()
+            .expect("spawn rfs test");
+        assert!(
+            out.status.success(),
+            "stderr: {}",
+            String::from_utf8_lossy(&out.stderr)
+        );
+        let stdout = String::from_utf8_lossy(&out.stdout);
+        assert!(
+            !stdout.contains("PASS "),
+            "fuzz-only must skip unit tests: {stdout}"
+        );
+        let stderr = String::from_utf8_lossy(&out.stderr);
+        assert!(
+            stderr.contains("fuzz target ran within its budget"),
+            "{stderr}"
+        );
+    } else {
+        eprintln!("note: clang not available - fuzz-only selection check skipped");
+    }
+
+    // (c) --suite unit,fuzz: both suites run.
+    if tool_on_path("clang") {
+        let out = std::process::Command::new(rfs_bin())
+            .args([
+                "test",
+                "--backend",
+                "c",
+                "--suite",
+                "unit,fuzz",
+                "--fuzz-max-total-time",
+                "1",
+            ])
+            .arg(&f)
+            .output()
+            .expect("spawn rfs test");
+        assert!(
+            out.status.success(),
+            "stderr: {}",
+            String::from_utf8_lossy(&out.stderr)
+        );
+        let stdout = String::from_utf8_lossy(&out.stdout);
+        assert!(stdout.contains("PASS initial_state_is_correct"), "{stdout}");
+        let stderr = String::from_utf8_lossy(&out.stderr);
+        assert!(stderr.contains("all generated c tests passed"), "{stderr}");
+        assert!(
+            stderr.contains("fuzz target ran within its budget"),
+            "{stderr}"
+        );
+    }
+
+    // (d) Invalid suite name -> usage error, exit 1.
+    let out = std::process::Command::new(rfs_bin())
+        .args(["test", "--backend", "c", "--suite", "bogus"])
+        .arg(&f)
+        .output()
+        .expect("spawn rfs test");
+    assert_eq!(out.status.code(), Some(1));
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(
+        stderr.contains("--suite expects unit|fuzz (got 'bogus')"),
+        "{stderr}"
+    );
+
+    // (e) Non-positive budget -> usage error, exit 1.
+    for bad in ["0", "-3"] {
+        let out = std::process::Command::new(rfs_bin())
+            .args(["test", "--fuzz-max-total-time", bad])
+            .arg(&f)
+            .output()
+            .expect("spawn rfs test");
+        assert_eq!(out.status.code(), Some(1), "budget {bad}");
+        let stderr = String::from_utf8_lossy(&out.stderr);
+        assert!(
+            stderr.contains("--fuzz-max-total-time expects a positive integer"),
+            "{stderr}"
+        );
+    }
+
+    clear_all_test_env();
+    cleanup(&root);
+}
+
+/// Missing tools for a SELECTED fuzz suite -> exit 1 + pinned diagnostics;
+/// the default suite is unaffected (covered by the selection test).
+#[test]
+fn e2e_fuzz_missing_tools_pinned() {
+    let _g = test_lock();
+    clear_all_test_env();
+    let root = tmp_root("t17_missing");
+    let f = write_file(&root, "ok.rfs", VALID_RFS);
+
+    // (a) Missing clang (RFS_CLANG at a nonexistent path).
+    set_env(&[("RFS_CLANG", Some("/nonexistent/clang-stub"))]);
+    let out = std::process::Command::new(rfs_bin())
+        .args(["test", "--backend", "c", "--suite", "fuzz"])
+        .arg(&f)
+        .output()
+        .expect("spawn rfs test");
+    assert_eq!(out.status.code(), Some(1));
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(
+        stderr.contains("clang not found at '/nonexistent/clang-stub' (required for --suite fuzz)"),
+        "{stderr}"
+    );
+
+    // (b) Missing cargo-fuzz: a stub `cargo` without the fuzz subcommand.
+    let stub = root.join("fake_cargo");
+    write_stub(
+        &stub,
+        "#!/bin/sh\necho \"error: no such command: `fuzz`\" >&2\nexit 101\n",
+    );
+    set_env(&[("RFS_CARGO_FUZZ", Some(stub.to_str().unwrap()))]);
+    let out = std::process::Command::new(rfs_bin())
+        .args(["test", "--backend", "rust", "--suite", "fuzz"])
+        .arg(&f)
+        .output()
+        .expect("spawn rfs test");
+    assert_eq!(out.status.code(), Some(1));
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(
+        stderr.contains("cargo-fuzz not found (required for --suite fuzz on the rust backend)"),
+        "{stderr}"
+    );
+
+    clear_all_test_env();
+    cleanup(&root);
+}
+
+/// Real-tool e2e (availability-gated): both backends build + run a bounded
+/// fuzz target on a passing spec -> exit 0. Environment gaps (no clang, no
+/// cargo-fuzz, no nightly) skip with a note; anything else fails.
+#[test]
+fn e2e_fuzz_real_tools_both_backends_exit_zero() {
+    let _g = test_lock();
+    clear_all_test_env();
+    let root = tmp_root("t17_real");
+    let f = write_file(&root, "ok.rfs", VALID_RFS);
+
+    // C: needs clang on PATH.
+    if tool_on_path("clang") {
+        let out = std::process::Command::new(rfs_bin())
+            .args([
+                "test",
+                "--backend",
+                "c",
+                "--suite",
+                "fuzz",
+                "--fuzz-max-total-time",
+                "2",
+            ])
+            .arg(&f)
+            .output()
+            .expect("spawn rfs test");
+        assert!(
+            out.status.success(),
+            "stderr: {}",
+            String::from_utf8_lossy(&out.stderr)
+        );
+    } else {
+        eprintln!("note: clang not available - C real-tool fuzz check skipped");
+    }
+
+    // Rust: needs cargo-fuzz + a nightly toolchain (the scaffold pins one).
+    let out = std::process::Command::new(rfs_bin())
+        .args([
+            "test",
+            "--backend",
+            "rust",
+            "--suite",
+            "fuzz",
+            "--fuzz-max-total-time",
+            "2",
+        ])
+        .arg(&f)
+        .output()
+        .expect("spawn rfs test");
+    if !out.status.success() {
+        let stderr = String::from_utf8_lossy(&out.stderr);
+        if stderr.contains("cargo-fuzz not found") || stderr.contains("nightly") {
+            eprintln!("note: cargo-fuzz/nightly unavailable - Rust real-tool fuzz check skipped");
+            clear_all_test_env();
+            cleanup(&root);
+            return;
+        }
+        panic!("rust fuzz run failed; stderr: {stderr}");
+    }
+
+    clear_all_test_env();
+    cleanup(&root);
+}
+
+/// A fuzzer non-zero exit -> command exit 1 (stub-pinned, C side): a fake
+/// clang that "builds" a binary which exits 31. The rust side shares the
+/// same run-failure code path (cargo-fuzz run non-success -> Err).
+#[test]
+fn e2e_fuzz_crash_stub_exits_one() {
+    let _g = test_lock();
+    clear_all_test_env();
+    let root = tmp_root("t17_crash");
+    let f = write_file(&root, "ok.rfs", VALID_RFS);
+
+    // POSIX sh stub: find the -o target and make it a failing binary.
+    let stub = root.join("fake_clang");
+    write_stub(
+        &stub,
+        "#!/bin/sh\nprev=\nfor a in \"$@\"; do\n  if [ \"$prev\" = \"-o\" ]; then printf \"#!/bin/sh\\nexit 31\\n\" > \"$a\"; chmod +x \"$a\"; fi\n  prev=$a\ndone\nexit 0\n",
+    );
+    set_env(&[("RFS_CLANG", Some(stub.to_str().unwrap()))]);
+    let out = std::process::Command::new(rfs_bin())
+        .args(["test", "--backend", "c", "--suite", "fuzz"])
+        .arg(&f)
+        .output()
+        .expect("spawn rfs test");
+    assert_eq!(out.status.code(), Some(1));
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(stderr.contains("fuzz target exited non-zero"), "{stderr}");
+
+    clear_all_test_env();
+    cleanup(&root);
+}
+
+/// Stub argv proofs for the full fuzz pipelines: exact command lines, extra
+/// args in env-then-CLI order right after the tool (the ext_tool contract).
+#[test]
+fn e2e_fuzz_stub_argv_proofs() {
+    let _g = test_lock();
+    clear_all_test_env();
+    let root = tmp_root("t17_argv");
+    let f = write_file(&root, "ok.rfs", VALID_RFS);
+
+    // (a) C pipeline: the stub records argv and exits 0 without producing a
+    // binary -> the run step fails (exit 1); the recorded argv is the proof.
+    let c_argv = root.join("c_argv.txt");
+    let c_stub = root.join("stub_clang");
+    write_stub(
+        &c_stub,
+        &format!("#!/bin/sh\necho \"$@\" > {}\nexit 0\n", c_argv.display()),
+    );
+    set_env(&[
+        ("RFS_CLANG", Some(c_stub.to_str().unwrap())),
+        ("RFS_CLANG_ARGS", Some("--env-arg")),
+    ]);
+    let out = std::process::Command::new(rfs_bin())
+        .args([
+            "test",
+            "--backend",
+            "c",
+            "--suite",
+            "fuzz",
+            "--clang-args",
+            "--cli-arg",
+        ])
+        .arg(&f)
+        .output()
+        .expect("spawn rfs test");
+    assert_eq!(out.status.code(), Some(1), "run step must fail (no binary)");
+    let argv = std::fs::read_to_string(&c_argv)
+        .unwrap_or_else(|e| panic!("clang stub never invoked: {e}"))
+        .trim_end()
+        .to_string();
+    // env args, CLI args, then the pinned recipe (temp paths are volatile).
+    assert!(
+        argv.starts_with("--env-arg --cli-arg -O1 -fsanitize=fuzzer,address -o "),
+        "argv: {argv}"
+    );
+    assert!(argv.contains("/fuzz_bin /"), "argv: {argv}");
+    assert!(argv.ends_with("fuzz_target.c"), "argv: {argv}");
+
+    // (b) Rust pipeline: the stub records BOTH invocations (build, then run)
+    // and exits 0 -> the command succeeds; two argv lines are the proof.
+    let r_argv = root.join("r_argv.txt");
+    let r_stub = root.join("stub_cargo");
+    write_stub(
+        &r_stub,
+        &format!("#!/bin/sh\necho \"$@\" >> {}\nexit 0\n", r_argv.display()),
+    );
+    set_env(&[
+        ("RFS_CARGO_FUZZ", Some(r_stub.to_str().unwrap())),
+        ("RFS_CARGO_FUZZ_ARGS", Some("--env-arg")),
+        ("RFS_FUZZ_FLAGS", Some("-env-fuzz-flag")),
+    ]);
+    let out = std::process::Command::new(rfs_bin())
+        .args([
+            "test",
+            "--backend",
+            "rust",
+            "--suite",
+            "fuzz",
+            "--cargo-fuzz-args",
+            "--cli-arg",
+            "--fuzz-max-total-time",
+            "7",
+            "--fuzz-flags",
+            "-cli-fuzz-flag",
+        ])
+        .arg(&f)
+        .output()
+        .expect("spawn rfs test");
+    assert!(
+        out.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let r_argv_text = std::fs::read_to_string(&r_argv)
+        .unwrap_or_else(|e| panic!("cargo-fuzz stub never invoked: {e}"));
+    let lines: Vec<&str> = r_argv_text.lines().collect();
+    assert_eq!(
+        lines.len(),
+        2,
+        "expected build + run invocations: {lines:?}"
+    );
+    // Fixed `fuzz` subcommand right after the tool, then env args, CLI args.
+    assert_eq!(lines[0], "fuzz --env-arg --cli-arg build");
+    // `-max_total_time` first, then RFS_FUZZ_FLAGS (env), then --fuzz-flags.
+    assert_eq!(lines[1], "fuzz --env-arg --cli-arg run fuzz_target -- -max_total_time=7 -env-fuzz-flag -cli-fuzz-flag");
+
+    clear_all_test_env();
+    cleanup(&root);
+}
+
+/// `--print-script` with the fuzz suite: byte-pinned wrapper around the two
+/// heredoc bodies (cross-checked against actual codegen output), no execution
+/// (RFS_CLANG at a nonexistent path would fail an executing run).
+#[test]
+fn e2e_fuzz_print_script_pinned_and_no_execution() {
+    let _g = test_lock();
+    clear_all_test_env();
+    let root = tmp_root("t17_script");
+    write_file(&root, "ok.rfs", VALID_RFS);
+    set_env(&[("RFS_CLANG", Some("/nonexistent/clang-stub"))]);
+
+    let out = std::process::Command::new(rfs_bin())
+        .args([
+            "test",
+            "--backend",
+            "c",
+            "--suite",
+            "fuzz",
+            "--print-script",
+            "ok.rfs",
+        ])
+        .current_dir(&root)
+        .output()
+        .expect("spawn rfs test");
+    assert!(
+        out.status.success(),
+        "script mode must not execute; stderr: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let script = String::from_utf8_lossy(&out.stdout).to_string();
+
+    // Cross-check the heredoc bodies against actual codegen output.
+    let gen = std::process::Command::new(rfs_bin())
+        .args(["codegen", "c", "test", "ok.rfs", "--out", "gen_test.c"])
+        .current_dir(&root)
+        .output()
+        .expect("spawn rfs codegen");
+    assert!(
+        gen.status.success(),
+        "{}",
+        String::from_utf8_lossy(&gen.stderr)
+    );
+    let expected_skeleton = std::fs::read_to_string(root.join("fuzz_target.c")).unwrap();
+    let gen = std::process::Command::new(rfs_bin())
+        .args([
+            "codegen",
+            "c",
+            "production",
+            "ok.rfs",
+            "--out",
+            "gen_prod.c",
+        ])
+        .current_dir(&root)
+        .output()
+        .expect("spawn rfs codegen");
+    assert!(
+        gen.status.success(),
+        "{}",
+        String::from_utf8_lossy(&gen.stderr)
+    );
+    let expected_fsm = std::fs::read_to_string(root.join("gen_prod.c")).unwrap();
+
+    // Extract the two heredoc bodies.
+    let extract = |script: &str, start_marker: &str, end_marker: &str| -> String {
+        let si = script.find(start_marker).expect("heredoc start");
+        let body_start = si + start_marker.len();
+        let ei_rel = script[body_start..].find(end_marker).expect("heredoc end");
+        // The body runs up to and including the source's final newline; the
+        // suffix starts at the closing delimiter.
+        script[body_start..body_start + ei_rel + 1].to_string()
+    };
+    let skel_body = extract(
+        &script,
+        "cat > fuzz_target.c <<'__RFS_FUZZ_TARGET_C__'\n",
+        "\n__RFS_FUZZ_TARGET_C__\n",
+    );
+    let fsm_body = extract(
+        &script,
+        "cat > rfs_generated_fsm.c <<'__RFS_GENERATED_FSM_C__'\n",
+        "\n__RFS_GENERATED_FSM_C__\n",
+    );
+    assert_eq!(skel_body, expected_skeleton, "skeleton heredoc drifted");
+    assert_eq!(fsm_body, expected_fsm, "production heredoc drifted");
+
+    // The wrapper is byte-pinned around the bodies.
+    let pinned_prefix = format!(
+        "#!/bin/sh\n\
+         # rfs {} - generated by `rfs test --backend c --suite fuzz ok.rfs` on ok.rfs\n\
+         # tools: clang=/nonexistent/clang-stub\n\
+         # note: requires clang + libFuzzer runtime (RFS_CLANG / RFS_CLANG_ARGS)\n\
+         set -e\n\
+         # step 1: write the emitted fuzz skeleton (from `rfs codegen c test` extra file)\n\
+         cat > fuzz_target.c <<'__RFS_FUZZ_TARGET_C__'\n",
+        env!("CARGO_PKG_VERSION")
+    );
+    let pinned_middle = "\
+__RFS_FUZZ_TARGET_C__\n\
+# step 2: write the generated production source (the skeleton's hardcoded #include target)\n\
+cat > rfs_generated_fsm.c <<'__RFS_GENERATED_FSM_C__'\n";
+    let pinned_suffix = "\
+__RFS_GENERATED_FSM_C__\n\
+# step 3: build the C fuzz target\n\
+/nonexistent/clang-stub -O1 -fsanitize=fuzzer,address -o fuzz_bin fuzz_target.c\n\
+# step 4: run the C fuzz target bounded (leak detection off - no free API in the generated FSM)\n\
+ASAN_OPTIONS=\"detect_leaks=0${ASAN_OPTIONS:+:$ASAN_OPTIONS}\" ./fuzz_bin -max_total_time=30\n\
+# step 5: clean up generated artifacts\n\
+rm -f fuzz_target.c rfs_generated_fsm.c fuzz_bin\n";
+    assert_eq!(
+        script,
+        format!("{pinned_prefix}{skel_body}{pinned_middle}{fsm_body}{pinned_suffix}"),
+        "script wrapper drifted"
+    );
+
+    clear_all_test_env();
+    cleanup(&root);
+}

@@ -5,23 +5,30 @@ use std::process::ExitCode;
 use rfs::{codegen, frontend, Format};
 
 fn usage() -> String {
-    "RFS toolchain\n\nusage:\n  rfs parse --input <rfs|json> --output <rfs|json> <file-or-dir> [--target-dir DIR]\n  rfs validate [--input <rfs|json>] <file-or-dir>\n  rfs info [--json] [--log-level off|error|warn|info|debug] <spec.rfs|spec.json>\n  rfs test [--backend rust|c] [--steps N] [--rustc PATH] [--gcc PATH] [--rustc-args \"...\"]\n           [--gcc-args \"...\"] [--print-script] [--log-level off|error|warn|info|debug]\n           <spec.rfs|spec.json>\n  rfs diagram --list | --format dot|puml|mmd|table|md [options] <spec.rfs|spec.json>\n  rfs codegen --list | --help | <backend> --help\n  rfs codegen <backend> <production|test|mc> <spec.rfs|spec.json> [--out FILE] [--assumes ...] [--steps N]\n\nparse: load RFS or IR-JSON files, convert through the IR, and write formatted\n       output. With a directory input, only files matching --input are scanned;\n       without --target-dir each output is written next to its input file, with\n       --target-dir the input directory structure is preserved inside it. The\n       original extension is replaced (never stacked). Conversions whose output\n       would overwrite the input file are refused.\n\nvalidate: parse + semantically validate RFS or IR-JSON files. For a file input\n         the extension selects the format and errors go to stderr; for a\n         directory input --input is required and each failing source file gets\n         a <name>.rfs-validation.err file next to it.\n\ninfo: static spec introspection - per module: version, initial state, enums,
+    "RFS toolchain\n\nusage:\n  rfs parse --input <rfs|json> --output <rfs|json> <file-or-dir> [--target-dir DIR]\n  rfs validate [--input <rfs|json>] <file-or-dir>\n  rfs info [--json] [--log-level off|error|warn|info|debug] <spec.rfs|spec.json>\n  rfs test [--backend rust|c] [--suite unit|fuzz ...] [--steps N] [--rustc PATH] [--gcc PATH]\n           [--rustc-args \"...\"] [--gcc-args \"...\"] [--clang PATH] [--clang-args \"...\"]\n           [--cargo-fuzz PATH] [--cargo-fuzz-args \"...\"] [--fuzz-max-total-time SEC] [--fuzz-flags \"...\"]\n           [--print-script] [--log-level off|error|warn|info|debug] <spec.rfs|spec.json>\n  rfs diagram --list | --format dot|puml|mmd|table|md [options] <spec.rfs|spec.json>\n  rfs codegen --list | --help | <backend> --help\n  rfs codegen <backend> <production|test|mc> <spec.rfs|spec.json> [--out FILE] [--assumes ...] [--steps N]\n\nparse: load RFS or IR-JSON files, convert through the IR, and write formatted\n       output. With a directory input, only files matching --input are scanned;\n       without --target-dir each output is written next to its input file, with\n       --target-dir the input directory structure is preserved inside it. The\n       original extension is replaced (never stacked). Conversions whose output\n       would overwrite the input file are refused.\n\nvalidate: parse + semantically validate RFS or IR-JSON files. For a file input\n         the extension selects the format and errors go to stderr; for a\n         directory input --input is required and each failing source file gets\n         a <name>.rfs-validation.err file next to it.\n\ninfo: static spec introspection - per module: version, initial state, enums,
       events/outputs with variants + field types, variables with types + init,
       transition count, and properties/assumptions each with monitor-subset
       status (monitored / skipped: reason). No model checking. `--json` emits
       a machine-readable document (stable key order, all keys present); 
       `--log-level` filters stderr progress output.
 
-test: generate + compile + run the extended test suite for the spec in one
+test: generate + compile + run the selected test suites for the spec in one
       invocation (the CI entry point for generated tests; model checking stays
-      `rfs codegen <backend> mc` + the generated binary). The artifact is
-      compiled with rustc --edition 2021 --test (backend rust) or gcc -Wall
-      (backend c) and the executable's per-test results stream on stdout.
-      Tool paths/args: RFS_RUSTC/RFS_GCC (+ *_ARGS) env vars, overridden by
-      --rustc/--gcc PATH + --*-args flags; `--print-script` prints a
-      self-contained POSIX sh script instead of executing. Exit 0 = all tests
-      pass; exit 1 = test failure, compile error, or usage/parse/validation
-      error (consistent with the other commands).
+      `rfs codegen <backend> mc` + the generated binary). Suites (--suite,
+      repeatable or comma-separated, default unit): unit = the extended test
+      artifact compiled with rustc --edition 2021 --test (backend rust) or
+      gcc -Wall (backend c), per-test results on stdout; fuzz = the libFuzzer
+      target built from the emitted skeleton (C: clang -O1
+      -fsanitize=fuzzer,address; Rust: a temp cargo-fuzz project via cargo
+      fuzz build/run) run bounded with -max_total_time (--fuzz-max-total-time,
+      default 30 s; extra runtime flags via RFS_FUZZ_FLAGS / --fuzz-flags).
+      Tool paths/args: RFS_RUSTC/RFS_GCC/RFS_CLANG/RFS_CARGO_FUZZ (+ *_ARGS)
+      env vars, overridden by the matching PATH + --*-args flags; missing
+      clang/cargo-fuzz is an error only when the fuzz suite is selected.
+      `--print-script` prints a self-contained POSIX sh script instead of
+      executing. Exit 0 = every selected suite passes; exit 1 = test failure,
+      fuzzer crash, compile error, missing tool for a selected suite, or
+      usage/parse/validation error (consistent with the other commands).
 
 diagram: state-diagram + table formats as plugins (one module per format).
          PRIMARY behaviour is pure text generation with NO external tool calls;
@@ -480,6 +487,8 @@ fn cmd_test(args: &[String]) -> ExitCode {
     let mut opts = rfs::test_cmd::TestOptions::default();
     let mut log_level = LogLevel::Info;
     let mut path: Option<String> = None;
+    // The first --suite replaces the default [Unit]; later ones append.
+    let mut suite_given = false;
 
     let mut i = 0;
     while i < args.len() {
@@ -490,7 +499,19 @@ fn cmd_test(args: &[String]) -> ExitCode {
         }
         match arg.as_str() {
             "--" => {}
-            "--backend" | "--steps" | "--rustc" | "--gcc" | "--rustc-args" | "--gcc-args"
+            "--backend"
+            | "--steps"
+            | "--rustc"
+            | "--gcc"
+            | "--rustc-args"
+            | "--gcc-args"
+            | "--clang"
+            | "--clang-args"
+            | "--cargo-fuzz"
+            | "--cargo-fuzz-args"
+            | "--suite"
+            | "--fuzz-max-total-time"
+            | "--fuzz-flags"
             | "--log-level" => {
                 let Some(v) = args.get(i + 1).cloned() else {
                     eprintln!("error: {} requires a value\n{}", arg, usage());
@@ -514,6 +535,47 @@ fn cmd_test(args: &[String]) -> ExitCode {
                     "--gcc" => opts.gcc_path = Some(v),
                     "--rustc-args" => opts.rustc_args = Some(v),
                     "--gcc-args" => opts.gcc_args = Some(v),
+                    "--clang" => opts.clang_path = Some(v),
+                    "--clang-args" => opts.clang_args = Some(v),
+                    "--cargo-fuzz" => opts.cargo_fuzz_path = Some(v),
+                    "--cargo-fuzz-args" => opts.cargo_fuzz_args = Some(v),
+                    "--suite" => {
+                        // Repeatable or comma-separated; order-preserving dedupe.
+                        if !suite_given {
+                            opts.suites.clear();
+                            suite_given = true;
+                        }
+                        for part in v.split(',') {
+                            let part = part.trim();
+                            match rfs::test_cmd::TestSuite::from_str(part) {
+                                Some(s) => {
+                                    if !opts.suites.contains(&s) {
+                                        opts.suites.push(s);
+                                    }
+                                }
+                                None => {
+                                    eprintln!(
+                                        "error: --suite expects unit|fuzz (got '{}')\n{}",
+                                        part,
+                                        usage()
+                                    );
+                                    return ExitCode::FAILURE;
+                                }
+                            }
+                        }
+                    }
+                    "--fuzz-max-total-time" => match v.parse::<u64>() {
+                        Ok(n) if n > 0 => opts.fuzz_max_total_time = n,
+                        _ => {
+                            eprintln!(
+                                "error: --fuzz-max-total-time expects a positive integer (got '{}')\n{}",
+                                v,
+                                usage()
+                            );
+                            return ExitCode::FAILURE;
+                        }
+                    },
+                    "--fuzz-flags" => opts.fuzz_flags = Some(v),
                     "--log-level" => match LogLevel::parse(&v) {
                         Some(l) => log_level = l,
                         None => {

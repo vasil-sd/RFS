@@ -171,3 +171,68 @@ rfs diagram --format mmd  --out d.mmd  spec.rfs && mmdc -i d.mmd -o d.svg -q
 - **Two `mmdc` processes must not run concurrently** in this container: under
   parallel Chrome launches one of them fails nondeterministically. The test
   suite serializes real-tool invocations for this reason; do the same in CI.
+
+## 7. clang + libFuzzer + cargo-fuzz - `rfs test --suite fuzz` (Phase 5 task 17)
+
+The fuzz suites of `rfs test` build and bounded-run the libFuzzer targets that
+tasks 5/6 emit as skeleton extra files. The UNIT suite (the default) needs
+none of this section; the tools are required ONLY when `--suite fuzz` is
+selected (missing tool -> exit 1 + diagnostic, no graceful degradation).
+
+### 7.1 Install (verified in this environment, Ubuntu 24.04)
+
+```sh
+# clang WITH the libFuzzer runtime (Ubuntu ships libclang_rt.fuzzer inside the
+# `clang` package):
+sudo apt-get install -y clang          # installed: clang 18.1.3-1ubuntu1 at /usr/bin/clang
+
+# cargo-fuzz for the Rust side (into the project-local CARGO_HOME):
+cargo install cargo-fuzz --locked      # installed: cargo-fuzz v0.13.2
+
+# A NIGHTLY toolchain - cargo-fuzz builds with `-Zsanitizer=address`, which is
+# nightly-only. The rfs scaffold pins `channel = "nightly"` INSIDE the temp
+# project (rust-toolchain.toml), so your default toolchain stays untouched:
+rustup toolchain install nightly --profile minimal
+```
+
+### 7.2 Verification (copy-paste)
+
+```sh
+# C: a trivial libFuzzer target builds, links and runs bounded (exit 0):
+printf '#include <stdint.h>\n#include <stddef.h>\nint LLVMFuzzerTestOneInput(const uint8_t* d, size_t s){(void)d;(void)s;return 0;}\n' > /tmp/fz.c
+clang -O1 -fsanitize=fuzzer,address -o /tmp/fz /tmp/fz.c && /tmp/fz -max_total_time=2
+cargo fuzz --version        # cargo-fuzz present on PATH (project-local CARGO_HOME)
+rustc +nightly --version    # the toolchain the Rust scaffold pins
+```
+
+### 7.3 Parameterization (unified with the other external tools)
+
+| Env var | Meaning |
+|---|---|
+| `RFS_CLANG` / `RFS_CLANG_ARGS` | clang PATH override / extra build args (env args first, then `--clang-args`) - C fuzz pipeline only |
+| `RFS_CARGO_FUZZ` / `RFS_CARGO_FUZZ_ARGS` | the CARGO PATH used for `cargo fuzz ...` (the `fuzz` subcommand is fixed) / extra args between `fuzz` and the subcommand verb - Rust fuzz pipeline only |
+| `RFS_FUZZ_FLAGS` | EXTRA libFuzzer RUNTIME flags appended after `-max_total_time=<N>` (both backends; CLI `--fuzz-flags` appended after the env value) |
+
+CLI overrides: `--clang PATH`, `--clang-args "..."`, `--cargo-fuzz PATH`,
+`--cargo-fuzz-args "..."`, `--fuzz-max-total-time SEC` (default 30),
+`--fuzz-flags "..."`. Precedence per tool: flag > env var > bare name on PATH.
+
+### 7.4 Gotchas (observed)
+
+- **The C pipeline runs with `ASAN_OPTIONS=detect_leaks=0`** (merged over any
+  user value): the generated C FSM has NO free API - process-lifetime buffers,
+  one allocation set per fuzz iteration - so ASan's exit-time leak report would
+  fail every run. In-flight memory errors are still caught; re-enable leaks via
+  `ASAN_OPTIONS=detect_leaks=1` if you know what you are doing.
+- **The C build compiles ONLY `fuzz_target.c`**: the skeleton `#include`s the
+  production source (`rfs_generated_fsm.c`, written next to it), so passing both
+  files to clang is a multiple-definition link error.
+- **cargo-fuzz needs nightly** (`-Zsanitizer=address`). The scaffold writes a
+  `rust-toolchain.toml` pinning `channel = "nightly"` inside the temp project;
+  rfs strips a non-nightly inherited `RUSTUP_TOOLCHAIN` from the cargo-fuzz
+  subprocess (a parent `cargo test`/`cargo run` under rustup pins stable, which
+  would otherwise override the file). An explicit nightly pin is respected.
+- The Rust scaffold's harness manifest carries `[package.metadata]
+cargo-fuzz = true` (required for `cargo fuzz` to recognize it) and pins
+  `libfuzzer-sys = "=0.4.13"` - the release present in the local registry cache,
+  so the temp-project build works OFFLINE.

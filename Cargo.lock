@@ -172,6 +172,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "fuzz_rust"
+version = "0.1.0"
+dependencies = [
+ "rfs-build",
+]
+
+[[package]]
 name = "hashbrown"
 version = "0.15.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"

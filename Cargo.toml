@@ -3,12 +3,15 @@
 # crates (rfs-build, rfs-adapters from tasks 1/11) and `crates/examples/*`
 # the example crates (sync_handler/async_handler from task 11).
 [workspace]
-# Explicit list (not a bare `crates/*` glob): `crates/examples` itself has no
-# manifest, and the examples are members via their own glob.
+# Explicit list (not globs): `crates/examples` itself has no manifest, and
+# the C example projects (c_sync_handler, fuzz_c - Phase 5 task 12) are
+# Makefile-driven and NOT cargo members.
 members = [
     "crates/rfs-build",
     "crates/rfs-adapters",
-    "crates/examples/*",
+    "crates/examples/sync_handler",
+    "crates/examples/async_handler",
+    "crates/examples/fuzz_rust",
 ]
 
 [package]

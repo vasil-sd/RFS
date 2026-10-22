@@ -46,10 +46,13 @@
 //!
 //! ## Scope
 //!
-//! Only the `production` codegen command is supported (that is what build.rs
-//! consumers want). The crate adds no dependencies and never modifies the
-//! spec; parse/validation/codegen failures from `rfs` become build failures
-//! with the rfs diagnostics in the message.
+//! The `production` codegen command is the default (that is what most build.rs
+//! consumers want); `.test_command()` selects the `test` command, whose extra
+//! file is the libfuzzer fuzz skeleton written next to the main artifact
+//! (`fuzz_target.rs` / `fuzz_target.c`) - used by the Phase 5 task 12 fuzz
+//! examples. The crate adds no dependencies and never modifies the spec;
+//! parse/validation/codegen failures from `rfs` become build failures with
+//! the rfs diagnostics in the message.
 //!
 //! `.no_std(true)` (Phase 5 task 9) maps to the production-only `--no-std`
 //! flag: the generated Rust becomes `#![no_std]` + `extern crate alloc` with
@@ -103,6 +106,10 @@ pub fn resolve_rfs_bin() -> Result<PathBuf, RfsBuildError> {
 pub struct RfsBuild {
     spec: PathBuf,
     backend: String,
+    /// The codegen command: "production" (default) or "test" (Phase 5 task
+    /// 12 - the libfuzzer fuzz skeleton is written next to the main artifact
+    /// as `fuzz_target.rs` / `fuzz_target.c`).
+    command: &'static str,
     with_property_monitors: bool,
     no_std: bool,
     with_protocol_fsm: bool,
@@ -115,6 +122,7 @@ impl RfsBuild {
         Self {
             spec: spec.into(),
             backend: "rust".into(),
+            command: "production",
             with_property_monitors: false,
             no_std: false,
             with_protocol_fsm: false,
@@ -128,9 +136,18 @@ impl RfsBuild {
         self
     }
 
-    /// Select the `production` codegen command (the default and only supported
-    /// command). Kept explicit so build scripts read intent clearly.
+    /// Select the `production` codegen command (the default). Kept explicit
+    /// so build scripts read intent clearly.
     pub fn production(self) -> Self {
+        self
+    }
+
+    /// Select the `test` codegen command (Phase 5 task 12): the main artifact
+    /// is the test source and the libfuzzer fuzz skeleton is written NEXT TO
+    /// it as `fuzz_target.rs` (rust) / `fuzz_target.c` (c). Build scripts use
+    /// this to obtain the emitted skeleton for a cargo-fuzz / clang harness.
+    pub fn test_command(mut self) -> Self {
+        self.command = "test";
         self
     }
 
@@ -214,7 +231,7 @@ impl RfsBuild {
         let mut cmd = Command::new(&rfs_bin);
         cmd.arg("codegen")
             .arg(&self.backend)
-            .arg("production")
+            .arg(self.command)
             .arg(&self.spec)
             .arg("--out")
             .arg(&artifact);
@@ -517,6 +534,39 @@ mod tests {
             args.trim(),
             format!(
                 "codegen rust production {} --out {} --no-std --with-protocol-fsm",
+                spec.display(),
+                artifact.display()
+            )
+        );
+
+        set_env(&[("RFS_BIN", None), ("OUT_DIR", None)]);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn test_command_pins_argv() {
+        let _g = ENV_LOCK.lock().unwrap();
+        let dir = temp_dir("testcmd");
+        let out = dir.join("out");
+        std::fs::create_dir_all(&out).unwrap();
+        let stub = write_stub(&dir);
+        let spec = write_spec(&dir, "handshake.rfs");
+
+        set_env(&[
+            ("RFS_BIN", Some(stub.to_str().unwrap())),
+            ("OUT_DIR", Some(out.to_str().unwrap())),
+        ]);
+
+        // .test_command() switches the argv command from production to test.
+        let artifact = RfsBuild::new(&spec)
+            .test_command()
+            .compile()
+            .expect("stub compile");
+        let args = std::fs::read_to_string(dir.join("stub_args.txt")).unwrap();
+        assert_eq!(
+            args.trim(),
+            format!(
+                "codegen rust test {} --out {}",
                 spec.display(),
                 artifact.display()
             )

@@ -1,0 +1,21 @@
+# The cargo-fuzz harness package (Phase 5 task 12). DETACHED from the
+# repository workspace (empty [workspace] table - cargo-fuzz convention);
+# it is never built by the outer `cargo test --workspace`.
+[package]
+name = "fuzz_rust-fuzz"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[workspace]
+
+[dependencies]
+libfuzzer-sys = "0.4"
+fuzz_rust = { path = ".." }
+
+[[bin]]
+name = "arq"
+path = "fuzz_targets/arq.rs"
+harness = false
+test = false
+doc = false

@@ -1,0 +1,14 @@
+# Phase 5 task 12 example: cargo-fuzz harness wiring the emitted libfuzzer_sys
+# skeleton (task 5) to the generated spec-43 ARQ sender. The root crate is a
+# plain lib holding the generated production FSM; fuzz/ is the DETACHED
+# cargo-fuzz workspace (its own [workspace] table, per cargo-fuzz convention)
+# and is NOT a member of this repository's workspace.
+[package]
+name = "fuzz_rust"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+
+[build-dependencies]
+rfs-build = { path = "../../rfs-build" }

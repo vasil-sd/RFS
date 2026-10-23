@@ -1,0 +1,35 @@
+# Phase 6 task 2a: wide bitvector ops in generated C - variable shifts by
+# amounts >= width (RFS semantics: the result is 0, NOT undefined behavior)
+# and a bit<16> multiplication whose product exceeds INT_MAX (computed in a
+# uint64-wide intermediate). The differential regression test
+# tests/wide_ops_parity_test.rs drives the exact boundary inputs
+# (k = 8/31/32/64/255 + the wide multiply) through BOTH backends and asserts
+# byte-identical per-step state.
+module wide_ops {
+  enum State { S }
+  initial S
+  event ShiftL(L(k: bit<8>))
+  event ShiftR(R(k: bit<8>))
+  event Mul
+  event Load
+  var w: bit<8> init 1
+  var a: bit<16> init 50000
+  var b: bit<16> init 50000
+  transition S on ShiftL(L(k)) {
+    next S;
+    set w = w << k;
+  }
+  transition S on ShiftR(R(k)) {
+    next S;
+    set w = w >> k;
+  }
+  transition S on Mul where b == 50000 {
+    next S;
+    set a = a * b;
+  }
+  transition S on Load {
+    next S;
+    set w = 255;
+  }
+  prop b_unchanged : always (b == 50000) ;
+}

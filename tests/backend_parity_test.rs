@@ -600,6 +600,21 @@ fn pinned(name: &str) -> Pinned {
             trigger_step: None,
             violation_step: None,
         },
+        // Phase 6 task 2a: the wide-ops example (variable shifts k >= width,
+        // bit<16> product above INT_MAX) - pass-complete; re-pinned from
+        // actual exact-mode output, both backends agree.
+        "50_wide_ops.rfs" => Pinned {
+            exit_code: 0,
+            status: "pass-complete",
+            states: 148,
+            transitions: 76072,
+            max_depth: 6,
+            reason: None,
+            label: None,
+            step: None,
+            trigger_step: None,
+            violation_step: None,
+        },
         other => panic!(
             "no pinned exact-mode expectation for {other} - add one (re-pin from actual output)"
         ),
@@ -653,7 +668,7 @@ fn mc_exact_results_match_re_pinned_values() {
     // 13_properties_safety, 8 deadlocks at terminal states). Example 43 is the
     // first liveness-bearing spec (task 6): pass-complete in both backends;
     // examples 44/45 are the Phase 4 benchmark specs (task 8): pass-complete.
-    assert_eq!((n_pass, n_fail), (10, 9), "pass/fail split drifted");
+    assert_eq!((n_pass, n_fail), (11, 9), "pass/fail split drifted");
 }
 
 // ---------------------------------------------------------------------------

@@ -1920,7 +1920,7 @@ mod tests {
         let root = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
         let files: Vec<std::path::PathBuf> =
             crate::collect_rfs_files(root.join("examples/valid")).expect("examples");
-        assert_eq!(files.len(), 46, "corpus size");
+        assert_eq!(files.len(), 47, "corpus size");
         for file in &files {
             let src = std::fs::read_to_string(file).expect("read spec");
             let ir = parse_source(&src).expect("parse spec");
@@ -2062,7 +2062,7 @@ mod tests {
         let root = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
         let files: Vec<std::path::PathBuf> =
             crate::collect_rfs_files(root.join("examples/valid")).expect("examples");
-        assert_eq!(files.len(), 46, "corpus size");
+        assert_eq!(files.len(), 47, "corpus size");
         // Recursive signal evaluator for the reference monitors (VarExpr atoms
         // only - the planned traces carry no input/output samples beyond the
         // step input, which is not part of a state/vars atom).

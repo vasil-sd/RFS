@@ -114,6 +114,21 @@ maximum emit count over all transitions and the on_error block.
   and `prop_trigger_step` (the C analogue of Rust's
   `StepError::PropertyViolation`). Out-of-subset formulas (R1-R4) are skipped
   with the IDENTICAL warning text as Rust.
+- **Bitvector arithmetic lowering (Phase 6 task 2a)**: `+`/`-` render
+  `({type})(((l) op (r)) & mask)` - no overflow is possible after C integer
+  promotion for width <= 16, and unsigned wrap is defined for 32/64. SHIFTS
+  render uint64-wide operands with a runtime guard,
+  `({type})((((uint64_t)(r)) < W ? ((uint64_t)(l) op (uint64_t)(r)) :
+  ((uint64_t)0)) & mask)` - one uniform form for literal and variable
+  amounts, implementing the RFS rule `amount >= width -> 0` (the previous
+  promotion-based rendering was undefined behavior when a variable amount
+  reached the promoted LHS width, e.g. gcc wrapped the count mod 32).
+  MULTIPLICATION computes in a uint64_t-wide intermediate,
+  `({type})(((uint64_t)(l) * (uint64_t)(r)) & mask)` - so bit<16> products
+  above INT_MAX are not signed overflow. uint64 is wide enough for every
+  C-legal width (8/16/32/64; other widths are a codegen error, D8). See the
+  `[^c-ub]` footnote in `docs/SEMANTICS.md` section 2.2 and the cross-backend
+  differential pins in `tests/wide_ops_parity_test.rs`.
 - **Version header**: emitted as `#define RFS_SPEC_VERSION "..."`.
 
 ## 5. Model checker (Phase 4)

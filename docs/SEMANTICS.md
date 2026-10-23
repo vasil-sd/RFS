@@ -102,23 +102,26 @@ bitvector left operand and a bitvector-or-literal right operand (no width
 equality required); logical operators require boolean operands. Guard, formula
 expression atoms, and assignment values must type-check as shown above.
 
-[^c-ub]: IMPLEMENTED BEHAVIOR, flagged divergence (found in the Phase 6 task 1
-    cross-check pass). The RUST backend implements the table exactly: shifts
-    are guarded (`amount >= width -> 0`), arithmetic uses u128 intermediates
-    with wrapping ops + mask. The GENERATED C code instead renders `((l) op
-    (r)) & mask` relying on C integer promotion, which is well-defined only
-    while the intermediate stays in range: (a) a shift by a VARIABLE amount
-    >= the promoted left-operand width (>= 32 for `bit<8..32>` left operands,
-    >= 64 for `bit<64>`) is undefined behavior in C - Rust defines it as `0`;
-    (b) multiplying two `bit<16>` values whose product exceeds INT_MAX is
-    signed overflow (undefined behavior) in C. No current valid example or
-    test exercises either case (all variable shift amounts are `bit<2>`; no
-    example uses `*`), so all existing parity pins hold - but the divergence
-    is reachable from a spec such as `set w = w << k;` with `k: bit<8>`. Fix
-    tracked as plan correction / new task 2a (C expression lowering to
-    uint64_t-wide operands + guarded shifts, plus cross-backend differential
-    pins). Until then, specs relying on large variable shift amounts or wide
-    multiplications have UNSPECIFIED C behavior.
+[^c-ub]: Historical divergence, RESOLVED by Phase 6 task 2a (found in the
+    Phase 6 task 1 cross-check pass). The RUST backend implements the table
+    exactly: shifts are guarded (`amount >= width -> 0`), arithmetic uses u128
+    intermediates with wrapping ops + mask. The GENERATED C code previously
+    rendered `((l) op (r)) & mask` relying on C integer promotion, which is
+    well-defined only while the intermediate stays in range: (a) a shift by a
+    VARIABLE amount >= the promoted left-operand width (>= 32 for
+    `bit<8..32>` left operands, >= 64 for `bit<64>`) was undefined behavior in
+    C - Rust defines it as `0`; (b) multiplying two `bit<16>` values whose
+    product exceeds INT_MAX was signed overflow (undefined behavior) in C. No
+    valid example or test exercised either case at the time (all variable
+    shift amounts were `bit<2>`; no example used `*`), so all existing parity
+    pins held - but the divergence was reachable from a spec such as
+    `set w = w << k;` with `k: bit<8>`. Task 2a fixed the C lowering:
+    shifts render uint64-wide operands with a runtime `amount >= width -> 0`
+    guard (one uniform form for literal and variable amounts), multiplication
+    computes in a uint64_t-wide intermediate, and
+    `examples/valid/50_wide_ops.rfs` + `tests/wide_ops_parity_test.rs` pin the
+    boundary behavior cross-backend (see `src/backends/C.md` section 4).
+    Generated C is now well-defined for all inputs.
 
 ### 2.3 Events and outputs
 

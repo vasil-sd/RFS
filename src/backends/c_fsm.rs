@@ -666,7 +666,18 @@ fn gen_expr_c(e: &Expr, env: &Env, ctx: &Ctx, module: &Module) -> Result<String,
                         BinOp::Minus => "-",
                         _ => "*",
                     };
-                    let body = format!("({}) {} ({})", l, sym, r);
+                    // Phase 6 task 2a: multiplication computes in a
+                    // uint64_t-wide intermediate so bit<16> products above
+                    // INT_MAX are not signed overflow (UB); the low w bits are
+                    // exactly RFS's modular result. `+`/`-` stay as-is (no
+                    // overflow possible after promotion for width <= 16;
+                    // unsigned wrap is defined for 32/64) - minimal byte churn.
+                    let body = match (op, width) {
+                        (BinOp::Star, Some(_)) => {
+                            format!("((uint64_t)({}) * (uint64_t)({}))", l, r)
+                        }
+                        _ => format!("({}) {} ({})", l, sym, r),
+                    };
                     if let Some(w) = width {
                         // bit<N> arithmetic is modular at N bits (parity with
                         // the Rust backend's wrapping ops): C types are wider
@@ -724,16 +735,34 @@ fn gen_expr_c(e: &Expr, env: &Env, ctx: &Ctx, module: &Module) -> Result<String,
                     } else {
                         ">>"
                     };
-                    let body = format!("({}) {} (uint64_t)({})", l, sym, r);
-                    if width.is_some() {
-                        Ok(format!(
-                            "({})(({}) & ({}))",
-                            ctype(&ty),
-                            body,
-                            mask_c_expr(width.unwrap())
-                        ))
-                    } else {
-                        Ok(format!("({})", body))
+                    match width {
+                        Some(w) => {
+                            // Phase 6 task 2a: RFS shifts are (l op r) mod 2^w
+                            // with `amount >= w -> 0` (docs/SEMANTICS.md
+                            // section 2.2). The old rendering `(l) op
+                            // (uint64_t)(r)` relied on C integer promotion and
+                            // was UNDEFINED when the variable amount reached
+                            // the promoted LHS width (>= 32 for bit<8..32>,
+                            // >= 64 for bit<64>) - e.g. gcc wraps the count
+                            // mod 32, diverging from Rust. The operands are
+                            // widened to uint64_t (wide enough for every
+                            // C-legal width 8/16/32/64) and a runtime guard
+                            // implements `amount >= w -> 0`; one uniform form
+                            // for literal and variable amounts, matching the
+                            // Rust backend's `if amount >= width { 0 } else
+                            // { ... }`.
+                            Ok(format!(
+                                "({})((((uint64_t)({})) < {} ? ((uint64_t)({}) {} (uint64_t)({})) : ((uint64_t)0)) & ({}))",
+                                ctype(&ty),
+                                r,
+                                w,
+                                l,
+                                sym,
+                                r,
+                                mask_c_expr(w)
+                            ))
+                        }
+                        None => Ok(format!("({} {} (uint64_t)({}))", l, sym, r)),
                     }
                 }
             }

@@ -44,7 +44,7 @@ fn codegen_mc(src: &str) -> (String, Vec<String>) {
         ..rfs::codegen::BackendOptions::default()
     };
     let out = rfs::codegen::CodegenCommandKind::ModelChecker
-        .run(backend, &ir.modules[0], &options)
+        .run(backend, &ir, &options)
         .expect("MC codegen must succeed");
     (out.code, out.warnings)
 }

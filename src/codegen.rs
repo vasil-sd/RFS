@@ -16,7 +16,7 @@
 //!   specs, sequence-generation phases, run-status taxonomy).
 
 use crate::backends::{c, rust};
-use crate::ir::Module;
+use crate::ir::{Ir, Module};
 use std::fmt::Write as _;
 
 // ---------------------------------------------------------------------------
@@ -146,6 +146,15 @@ pub struct BackendOptions {
     /// and the C backend ignores it (Rust-ecosystem surface; the C
     /// equivalent is the plain step API).
     pub with_protocol_fsm: bool,
+    /// v1.0 spec hash (Phase 6, D-P6-3): first 16 hex chars of the SHA-256 of
+    /// the CANONICAL IR JSON of the whole input file (`Ir::to_json()` text -
+    /// deterministic per D-P5-2). The standard entry point
+    /// [`CodegenCommandKind::run`] stamps it once per invocation; it is embedded
+    /// in line 1 of every generated artifact (both backends, all commands +
+    /// fuzz skeletons) so users can detect spec/toolchain drift in checked-in
+    /// code. Empty only when a library caller renders without going through
+    /// `run` and did not stamp it.
+    pub spec_hash: String,
 }
 
 impl Default for BackendOptions {
@@ -163,6 +172,7 @@ impl Default for BackendOptions {
             mc_smt_bound: crate::codegen_mc::SMT_DEFAULT_BOUND,
             counterexample_format: crate::codegen_mc::CounterexampleFormat::Text,
             with_protocol_fsm: false,
+            spec_hash: String::new(),
         }
     }
 }
@@ -382,8 +392,31 @@ impl CodegenCommandKind {
             .expect("backend registers all commands")
     }
 
-    /// Dispatch to the backend's function pointer for this command.
+    /// Standard dispatch (the CLI rule): generate for the FIRST module of
+    /// `ir`, stamping the v1.0 spec hash (D-P6-3) - SHA-256 of the canonical
+    /// IR JSON of the WHOLE input file, first 16 hex chars - into the options
+    /// so every artifact carries it in its line-1 header. One hash per
+    /// artifact; multi-module files share the file's hash.
     pub fn run(
+        self,
+        backend: &Backend,
+        ir: &Ir,
+        options: &BackendOptions,
+    ) -> Result<CodegenOutput, Vec<String>> {
+        // Canonical IR JSON text (deterministic key order/format per D-P5-2)
+        // is the hash input - the whole file, all modules.
+        let json_text = ir.to_json().map_err(|e| vec![e])?.to_string();
+        let mut stamped = options.clone();
+        stamped.spec_hash = crate::spec_hash::spec_hash16(&json_text);
+        self.run_module(backend, &ir.modules[0], &stamped)
+    }
+
+    /// Per-module dispatch for library consumers that generate each module of
+    /// a multi-module file individually (the CLI rule - first module via
+    /// [`Self::run`] - is not applied here). The caller owns
+    /// `options.spec_hash`: stamp it with the same whole-file hash when parity
+    /// with CLI artifacts matters.
+    pub fn run_module(
         self,
         backend: &Backend,
         module: &Module,

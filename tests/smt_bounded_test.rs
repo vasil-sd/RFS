@@ -137,7 +137,7 @@ fn generate(backend_name: &str, src: &str, what: &str) -> String {
         ..rfs::codegen::BackendOptions::default()
     };
     rfs::codegen::CodegenCommandKind::ModelChecker
-        .run(backend, &ir.modules[0], &options)
+        .run(backend, &ir, &options)
         .unwrap_or_else(|e| panic!("smt-bounded codegen {backend_name} for {what}: {e:?}"))
         .code
 }

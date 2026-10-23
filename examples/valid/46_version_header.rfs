@@ -1,0 +1,27 @@
+# Phase 6 task 2 (D-P6-1): v1.0 syntax version header formalization example.
+# The module-level `version "X.Y[.Z]"` header is metadata: stored in the IR,
+# round-tripped by the printer, shown by `rfs info`, and emitted as
+# SPEC_VERSION in generated code. When present it must match X.Y or X.Y.Z
+# (validator); specs without a header are legacy v0.x and remain valid.
+module version_header version "1.0" {
+  enum State { Idle, Busy }
+  initial Idle
+  event Start
+  event Tick
+  event Stop
+  output Ack
+  var busy_ticks: bit<4> init 0
+  transition Idle on Start {
+    next Busy;
+    emit Ack;
+  }
+  transition Busy on Tick {
+    next Busy;
+    set busy_ticks = busy_ticks + 1;
+  }
+  transition Busy on Stop {
+    next Idle;
+    set busy_ticks = 0;
+  }
+  prop idle_means_no_ticks : always (state == Idle -> busy_ticks == 0) ;
+}

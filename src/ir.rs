@@ -25,7 +25,14 @@
 
 use crate::json_rw::Json;
 
-pub const IR_VERSION: u32 = 0;
+/// The IR schema version written by this toolchain (`to_json`). v1 since
+/// Phase 6 (v1.0, D-P6-2). READ POLICY: `from_json` accepts the current
+/// version and ALL previous minor versions (0..=IR_VERSION), so documents
+/// written by older toolchains keep loading; higher versions are rejected
+/// with a pinned error (forward compatibility belongs to newer toolchains).
+/// Breaking schema changes must bump this constant and update the round-trip
+/// tests (DESIGN.md D10 evolution rule; docs/user/MIGRATION.md policy).
+pub const IR_VERSION: u32 = 1;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Ir {
@@ -445,8 +452,16 @@ impl IrJson for Ir {
     }
 
     fn from_json(v: &Json, path: &str) -> Result<Self, String> {
+        let ir_version = uint_field(v, path, "ir_version")?;
+        // Read policy (D-P6-2): current + all previous minor versions load.
+        if ir_version > IR_VERSION as u64 {
+            return Err(format!(
+                "unsupported IR version {ir_version} at {path}.ir_version \
+                 (this toolchain reads 0..={IR_VERSION})"
+            ));
+        }
         Ok(Ir {
-            ir_version: uint_field(v, path, "ir_version")? as u32,
+            ir_version: ir_version as u32,
             modules: arr_field(v, path, "modules")?
                 .iter()
                 .enumerate()

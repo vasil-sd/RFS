@@ -98,7 +98,7 @@ fn all_rust_commands_generate_for_valid_examples() {
             (codegen::CodegenCommandKind::ModelChecker, "fn main()"),
         ] {
             let out = kind
-                .run(backend, &ir.modules[0], &options)
+                .run(backend, &ir, &options)
                 .unwrap_or_else(|e| panic!("{} {:?} failed: {:?}", path.display(), kind, e));
             assert!(
                 out.code.contains(marker),
@@ -133,10 +133,10 @@ fn rust_production_flag_toggles_property_monitors() {
         ..codegen::BackendOptions::default()
     };
     let off = codegen::CodegenCommandKind::Production
-        .run(backend, &ir.modules[0], &off_opts)
+        .run(backend, &ir, &off_opts)
         .expect("production codegen (flag off)");
     let on = codegen::CodegenCommandKind::Production
-        .run(backend, &ir.modules[0], &on_opts)
+        .run(backend, &ir, &on_opts)
         .expect("production codegen (flag on)");
     assert_ne!(
         off.code, on.code,
@@ -197,10 +197,10 @@ fn steps_option_changes_test_generation() {
         ..codegen::BackendOptions::default()
     };
     let a = codegen::CodegenCommandKind::UnitTests
-        .run(backend, &ir.modules[0], &small)
+        .run(backend, &ir, &small)
         .unwrap();
     let b = codegen::CodegenCommandKind::UnitTests
-        .run(backend, &ir.modules[0], &big)
+        .run(backend, &ir, &big)
         .unwrap();
     assert_ne!(a.code, b.code, "steps option must affect generated tests");
 }
@@ -359,7 +359,7 @@ fn model_checker_codegen_contains_main() {
         ..codegen::BackendOptions::default()
     };
     let mc = codegen::CodegenCommandKind::ModelChecker
-        .run(backend, &ir.modules[0], &options)
+        .run(backend, &ir, &options)
         .expect("model checker codegen should succeed");
     assert!(mc.code.contains("fn main()"));
 }
@@ -381,7 +381,7 @@ fn priority_10_arm_precedes_priority_1_in_generated_step() {
         ..codegen::BackendOptions::default()
     };
     let out = codegen::CodegenCommandKind::Production
-        .run(backend, &ir.modules[0], &options)
+        .run(backend, &ir, &options)
         .expect("production codegen");
     // The priority-10 arm (next Open via the exact-seq Data match) must be
     // emitted before the priority-1 fallback arm in state Connecting.
@@ -409,7 +409,7 @@ fn on_error_fallback_replaces_unexpected_event_error() {
         ..codegen::BackendOptions::default()
     };
     let out = codegen::CodegenCommandKind::Production
-        .run(backend, &ir.modules[0], &options)
+        .run(backend, &ir, &options)
         .expect("production codegen");
     assert!(out.code.contains("on_error fallback"));
     // With on_error the step function no longer returns UnexpectedEvent.
@@ -429,7 +429,7 @@ fn version_header_becomes_spec_version_constant() {
         ..codegen::BackendOptions::default()
     };
     let out = codegen::CodegenCommandKind::Production
-        .run(backend, &ir.modules[0], &options)
+        .run(backend, &ir, &options)
         .expect("production codegen");
     assert!(out
         .code
@@ -449,7 +449,7 @@ fn generated_negative_test_asserts_on_error_landing() {
         ..codegen::BackendOptions::default()
     };
     let out = codegen::CodegenCommandKind::UnitTests
-        .run(backend, &ir.modules[0], &options)
+        .run(backend, &ir, &options)
         .expect("unit-test codegen");
     assert!(out.code.contains("on_error_found"));
 }
@@ -488,10 +488,15 @@ fn all_c_commands_generate_for_valid_examples() {
     };
     for path in &files {
         let ir = parse_module(path);
+        // v1.0 spec hash (D-P6-3): the whole file's canonical IR JSON, one
+        // hash per artifact - stamped once per file for this per-module sweep.
+        let mut stamped = options.clone();
+        stamped.spec_hash =
+            rfs::spec_hash::spec_hash16(&ir.to_json().expect("to_json").to_string());
         for module in &ir.modules {
             // Specs with bit widths outside 8/16/32/64 are rejected by the C backend.
             let result =
-                rfs::codegen::CodegenCommandKind::Production.run(backend, module, &options);
+                rfs::codegen::CodegenCommandKind::Production.run_module(backend, module, &stamped);
             if let Err(e) = &result {
                 assert!(
                     e.iter().any(|x| x.contains("bit widths")),
@@ -510,7 +515,7 @@ fn all_c_commands_generate_for_valid_examples() {
             assert!(out.code.contains("#include <stdint.h>"));
 
             let tests = rfs::codegen::CodegenCommandKind::UnitTests
-                .run(backend, module, &options)
+                .run_module(backend, module, &stamped)
                 .unwrap_or_else(|e| panic!("{} c test failed: {:?}", path.display(), e));
             assert!(
                 tests.code.contains("int main(void)"),
@@ -519,7 +524,7 @@ fn all_c_commands_generate_for_valid_examples() {
             );
 
             let mc = rfs::codegen::CodegenCommandKind::ModelChecker
-                .run(backend, module, &options)
+                .run_module(backend, module, &stamped)
                 .unwrap_or_else(|e| panic!("{} c mc failed: {:?}", path.display(), e));
             assert!(
                 mc.code.contains("model-check summary:"),
@@ -552,10 +557,10 @@ fn c_production_flag_toggles_property_monitors() {
         ..codegen::BackendOptions::default()
     };
     let off = rfs::codegen::CodegenCommandKind::Production
-        .run(backend, &ir.modules[0], &off_opts)
+        .run(backend, &ir, &off_opts)
         .expect("production codegen (flag off)");
     let on = rfs::codegen::CodegenCommandKind::Production
-        .run(backend, &ir.modules[0], &on_opts)
+        .run(backend, &ir, &on_opts)
         .expect("production codegen (flag on)");
     assert_ne!(
         off.code, on.code,
@@ -611,7 +616,7 @@ fn c_production_matches_rust_semantics_on_endpoint_protocol() {
         ..codegen::BackendOptions::default()
     };
     let out = rfs::codegen::CodegenCommandKind::Production
-        .run(backend, &ir.modules[0], &options)
+        .run(backend, &ir, &options)
         .expect("c production codegen");
     let pos_hi = out
         .code
@@ -652,7 +657,7 @@ fn mc_and_test_always_include_property_monitors() {
         codegen::CodegenCommandKind::UnitTests,
     ] {
         let out = kind
-            .run(rust, &ir.modules[0], &options)
+            .run(rust, &ir, &options)
             .unwrap_or_else(|e| panic!("rust {:?} failed: {:?}", kind, e));
         assert!(
             out.code.contains("pub struct PropMonitors"),
@@ -673,7 +678,7 @@ fn mc_and_test_always_include_property_monitors() {
         codegen::CodegenCommandKind::UnitTests,
     ] {
         let out = kind
-            .run(c, &ir.modules[0], &options)
+            .run(c, &ir, &options)
             .unwrap_or_else(|e| panic!("c {:?} failed: {:?}", kind, e));
         assert!(
             out.code.contains("rfs_property_violation_t"),
@@ -745,8 +750,14 @@ fn no_skip_warnings_for_in_subset_properties_both_backends() {
         };
         for path in &property_files {
             let ir = parse_module(path);
+            // v1.0 spec hash (D-P6-3): the whole file's canonical IR JSON,
+            // one hash per artifact - stamped once per file for this sweep.
+            let mut stamped = options.clone();
+            stamped.spec_hash =
+                rfs::spec_hash::spec_hash16(&ir.to_json().expect("to_json").to_string());
             for module in &ir.modules {
-                let result = codegen::CodegenCommandKind::Production.run(backend, module, &options);
+                let result =
+                    codegen::CodegenCommandKind::Production.run_module(backend, module, &stamped);
                 // The C backend rejects specs with unsupported bit widths (see
                 // all_c_commands_generate_for_valid_examples) - skip those.
                 if let Err(e) = &result {
@@ -808,7 +819,7 @@ fn liveness_properties_skip_with_identical_warning_both_backends() {
     // identical skip warning (MC-only properties).
     let source = "module m {\n  enum State { A, B }\n  initial A\n  event E\n  var flag: bool init false\n  transition A on E { next B; }\n  prop live : eventually (flag) ;\n  prop wait : !flag until flag ;\n  assume env : state == A until state == B ;\n}\n";
     let ir = rfs::parse_source(source).expect("liveness module should parse");
-    let module = &ir.modules[0];
+
     let options = codegen::BackendOptions {
         assumptions: codegen::AssumptionSelection::All,
         steps: 4,
@@ -820,7 +831,7 @@ fn liveness_properties_skip_with_identical_warning_both_backends() {
     for backend_name in ["rust", "c"] {
         let backend = codegen::get_backend(backend_name).unwrap();
         let out = codegen::CodegenCommandKind::Production
-            .run(backend, module, &options)
+            .run(backend, &ir, &options)
             .unwrap_or_else(|e| panic!("{} production failed: {:?}", backend_name, e));
         warnings_by_backend.push(out.warnings);
     }
@@ -841,15 +852,10 @@ fn mc_exact_flags_embedded_as_runtime_defaults() {
     let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
     let ir = parse_module(&root.join("examples/valid/02_counter.rfs"));
     let backend = codegen::get_backend("rust").unwrap();
-    let module = &ir.modules[0];
 
-    fn gen(
-        module: &rfs::ir::Module,
-        backend: &codegen::Backend,
-        opts: &codegen::BackendOptions,
-    ) -> String {
+    fn gen(ir: &rfs::ir::Ir, backend: &codegen::Backend, opts: &codegen::BackendOptions) -> String {
         codegen::CodegenCommandKind::ModelChecker
-            .run(backend, module, opts)
+            .run(backend, ir, opts)
             .unwrap()
             .code
     }
@@ -857,7 +863,7 @@ fn mc_exact_flags_embedded_as_runtime_defaults() {
     let base = codegen::BackendOptions {
         ..Default::default()
     };
-    let out = gen(module, backend, &base);
+    let out = gen(&ir, backend, &base);
     // Exact mode is the default (D-P4-7).
     assert!(out.contains("const DEFAULT_MODE: u8 = 0;"));
     assert!(out.contains("const DEFAULT_MAX_STATES: usize = 1000000;"));
@@ -872,25 +878,25 @@ fn mc_exact_flags_embedded_as_runtime_defaults() {
         mc_mode: codegen::McMode::Fuzz,
         ..Default::default()
     };
-    assert!(gen(module, backend, &fuzz).contains("const DEFAULT_MODE: u8 = 1;"));
+    assert!(gen(&ir, backend, &fuzz).contains("const DEFAULT_MODE: u8 = 1;"));
 
     let limited = codegen::BackendOptions {
         mc_max_states: 5000,
         ..Default::default()
     };
-    assert!(gen(module, backend, &limited).contains("const DEFAULT_MAX_STATES: usize = 5000;"));
+    assert!(gen(&ir, backend, &limited).contains("const DEFAULT_MAX_STATES: usize = 5000;"));
 
     let nondet = codegen::BackendOptions {
         mc_nondet: true,
         ..Default::default()
     };
-    assert!(gen(module, backend, &nondet).contains("const DEFAULT_NONDET: bool = true;"));
+    assert!(gen(&ir, backend, &nondet).contains("const DEFAULT_NONDET: bool = true;"));
 
     let timed = codegen::BackendOptions {
         mc_timeout_sec: 30,
         ..Default::default()
     };
-    assert!(gen(module, backend, &timed).contains("const DEFAULT_TIMEOUT_SEC: u64 = 30;"));
+    assert!(gen(&ir, backend, &timed).contains("const DEFAULT_TIMEOUT_SEC: u64 = 30;"));
 
     // Counterexample report format (task 10): text is the default.
     assert!(out.contains("const DEFAULT_COUNTEREXAMPLE_FORMAT: u8 = 0;"));
@@ -898,14 +904,12 @@ fn mc_exact_flags_embedded_as_runtime_defaults() {
         counterexample_format: rfs::codegen_mc::CounterexampleFormat::Json,
         ..Default::default()
     };
-    assert!(
-        gen(module, backend, &json_fmt).contains("const DEFAULT_COUNTEREXAMPLE_FORMAT: u8 = 1;")
-    );
+    assert!(gen(&ir, backend, &json_fmt).contains("const DEFAULT_COUNTEREXAMPLE_FORMAT: u8 = 1;"));
 
     // The C backend embeds the same default as a #define.
     let c_backend = codegen::get_backend("c").unwrap();
-    assert!(gen(module, c_backend, &base).contains("#define DEFAULT_COUNTEREXAMPLE_FORMAT 0"));
-    assert!(gen(module, c_backend, &json_fmt).contains("#define DEFAULT_COUNTEREXAMPLE_FORMAT 1"));
+    assert!(gen(&ir, c_backend, &base).contains("#define DEFAULT_COUNTEREXAMPLE_FORMAT 0"));
+    assert!(gen(&ir, c_backend, &json_fmt).contains("#define DEFAULT_COUNTEREXAMPLE_FORMAT 1"));
 }
 
 #[test]
@@ -971,11 +975,11 @@ fn mc_json_writer_embedded_and_dependency_free() {
     // source (self-contained artifacts - no serde or other JSON dependency).
     let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
     let ir = parse_module(&root.join("examples/valid/02_counter.rfs"));
-    let module = &ir.modules[0];
+
     for backend_name in ["rust", "c"] {
         let backend = codegen::get_backend(backend_name).unwrap();
         let out = codegen::CodegenCommandKind::ModelChecker
-            .run(backend, module, &codegen::BackendOptions::default())
+            .run(backend, &ir, &codegen::BackendOptions::default())
             .unwrap()
             .code;
         // The escaping primitive is named per backend (Rust: mc_json_escape,
@@ -1023,11 +1027,10 @@ fn mc_enum_input_field_domain_qualified_both_backends() {
 }"#;
     let ir = rfs::parse_source(src).expect("enum-input spec must parse");
     assert_eq!(ir.modules.len(), 1);
-    let module = &ir.modules[0];
 
     let rust_backend = codegen::get_backend("rust").unwrap();
     let rust_code = codegen::CodegenCommandKind::ModelChecker
-        .run(rust_backend, module, &codegen::BackendOptions::default())
+        .run(rust_backend, &ir, &codegen::BackendOptions::default())
         .unwrap()
         .code;
     assert!(
@@ -1037,7 +1040,7 @@ fn mc_enum_input_field_domain_qualified_both_backends() {
 
     let c_backend = codegen::get_backend("c").unwrap();
     let c_code = codegen::CodegenCommandKind::ModelChecker
-        .run(c_backend, module, &codegen::BackendOptions::default())
+        .run(c_backend, &ir, &codegen::BackendOptions::default())
         .unwrap()
         .code;
     assert!(
@@ -1169,8 +1172,12 @@ fn cli_no_std_e2e_exit_codes_and_output() {
         String::from_utf8_lossy(&out.stderr)
     );
     let text = String::from_utf8_lossy(&out.stdout);
+    // v1.0 unified line-1 header (D-P6-3): spec 01's whole-file canonical IR
+    // JSON hash; the CLI stamps it via `run()`.
     assert!(
-        text.starts_with("// Generated by RFS Phase 1 codegen.\n#![no_std]\n"),
+        text.starts_with(
+            "// Generated by RFS v1.0.0 | spec sha256:0929208e6691b540 | module trivial\n#![no_std]\n"
+        ),
         "{text}"
     );
 
@@ -1229,9 +1236,22 @@ fn test_mc_entry_points_reject_no_std() {
 fn no_std_header_pins_and_std_unchanged() {
     let ir = example_module("01_trivial_two_state.rfs"); // no output payloads
     let module = &ir.modules[0];
-    let std_opts = codegen::BackendOptions::default();
+    // Stamp the v1.0 spec hash (D-P6-3) exactly as `run()` does so these
+    // direct library calls produce CLI-equivalent artifacts.
+    let spec_hash = rfs::spec_hash::spec_hash16(&ir.to_json().expect("to_json").to_string());
+    let header_line = format!(
+        "// Generated by RFS v{} | spec sha256:{} | module {}",
+        env!("CARGO_PKG_VERSION"),
+        spec_hash,
+        module.name
+    );
+    let std_opts = codegen::BackendOptions {
+        spec_hash: spec_hash.clone(),
+        ..Default::default()
+    };
     let nostd_opts = codegen::BackendOptions {
         no_std: true,
+        spec_hash,
         ..Default::default()
     };
 
@@ -1240,7 +1260,7 @@ fn no_std_header_pins_and_std_unchanged() {
         .code;
     let std_lines: Vec<&str> = std_code.lines().collect();
     // std mode is byte-stable (regression pin for the first two lines).
-    assert_eq!(std_lines[0], "// Generated by RFS Phase 1 codegen.");
+    assert_eq!(std_lines[0], header_line);
     assert!(std_lines[1].starts_with("#![allow(") && std_lines[1].ends_with(")]"));
     assert!(!std_code.contains("no_std"));
 
@@ -1249,7 +1269,7 @@ fn no_std_header_pins_and_std_unchanged() {
         .code;
     let nl: Vec<&str> = nostd_code.lines().collect();
     let expected_header: Vec<&str> = vec![
-        "// Generated by RFS Phase 1 codegen.",
+        &header_line,
         "#![no_std]",
         std_lines[1], // the identical #![allow(...)] line
         "extern crate alloc;",
@@ -1333,7 +1353,7 @@ fn no_std_compile_sweep_and_body_parity_all_valid_examples() {
     // diagram tests); generation + body parity run unconditionally.
     let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
     let specs = rfs::collect_rfs_files(root.join("examples/valid")).expect("examples/valid");
-    assert_eq!(specs.len(), 45, "sweep must cover all valid examples");
+    assert_eq!(specs.len(), 46, "sweep must cover all valid examples");
     let have_rustc = tool_on_path("rustc");
 
     let dir = std::env::temp_dir().join(format!("rfs_nostd_sweep_{}", std::process::id()));
@@ -1630,7 +1650,7 @@ fn rust_test_emits_all_four_extended_classes_for_property_examples() {
     for name in ["41_property_monitors.rfs", "43_sliding_window.rfs"] {
         let ir = example_module(name);
         let out = codegen::CodegenCommandKind::UnitTests
-            .run(backend, &ir.modules[0], &options)
+            .run(backend, &ir, &options)
             .unwrap_or_else(|e| panic!("{}: {e:?}", name));
         // Per-transition class (41 has transitions from every state).
         assert!(out.code.contains("fn t0_"), "{}: per-transition test", name);
@@ -1674,7 +1694,7 @@ fn rust_test_names_follow_the_pinned_convention() {
     for name in ["40_on_error_recovery.rfs", "41_property_monitors.rfs"] {
         let ir = example_module(name);
         let out = codegen::CodegenCommandKind::UnitTests
-            .run(backend, &ir.modules[0], &options)
+            .run(backend, &ir, &options)
             .unwrap_or_else(|e| panic!("{}: {e:?}", name));
         for t in extract_generated_test_names(&out.code) {
             let ok = matches!(
@@ -1708,7 +1728,7 @@ fn rust_test_steps_option_changes_random_trace_class() {
             ..codegen::BackendOptions::default()
         };
         codegen::CodegenCommandKind::UnitTests
-            .run(backend, &ir.modules[0], &options)
+            .run(backend, &ir, &options)
             .expect("unit-test codegen")
     };
     let a = run(2);
@@ -1735,7 +1755,7 @@ fn rust_test_emits_fuzz_skeleton_as_separate_file() {
     // 43 has a struct input variant with bool + bit<4> + bit<32> fields.
     let ir = example_module("43_sliding_window.rfs");
     let out = codegen::CodegenCommandKind::UnitTests
-        .run(backend, &ir.modules[0], &options)
+        .run(backend, &ir, &options)
         .expect("unit-test codegen");
     assert_eq!(out.extra_files.len(), 1);
     assert_eq!(out.extra_files[0].name, "fuzz_target.rs");
@@ -1860,7 +1880,7 @@ fn c_test_emits_all_four_extended_classes_for_property_examples() {
     for name in ["41_property_monitors.rfs", "43_sliding_window.rfs"] {
         let ir = example_module(name);
         let out = codegen::CodegenCommandKind::UnitTests
-            .run(backend, &ir.modules[0], &options)
+            .run(backend, &ir, &options)
             .unwrap_or_else(|e| panic!("{}: {e:?}", name));
         // Per-transition class.
         assert!(
@@ -1909,7 +1929,7 @@ fn c_test_names_follow_the_pinned_convention() {
     for name in ["40_on_error_recovery.rfs", "41_property_monitors.rfs"] {
         let ir = example_module(name);
         let out = codegen::CodegenCommandKind::UnitTests
-            .run(backend, &ir.modules[0], &options)
+            .run(backend, &ir, &options)
             .unwrap_or_else(|e| panic!("{}: {e:?}", name));
         let names = extract_c_test_names(&out.code);
         assert!(names.len() >= 4, "{}: harness table too small", name);
@@ -1945,7 +1965,7 @@ fn c_test_steps_option_changes_random_trace_class() {
             ..codegen::BackendOptions::default()
         };
         codegen::CodegenCommandKind::UnitTests
-            .run(backend, &ir.modules[0], &options)
+            .run(backend, &ir, &options)
             .expect("unit-test codegen")
     };
     let a = run(2);
@@ -1984,7 +2004,7 @@ fn c_test_emits_fuzz_skeleton_as_extra_file() {
     // 43 has a struct input variant with bool + bit<4> + bit<32> fields.
     let ir = example_module("43_sliding_window.rfs");
     let out = codegen::CodegenCommandKind::UnitTests
-        .run(backend, &ir.modules[0], &options)
+        .run(backend, &ir, &options)
         .expect("unit-test codegen");
     assert_eq!(out.extra_files.len(), 1);
     assert_eq!(out.extra_files[0].name, "fuzz_target.c");
@@ -2004,7 +2024,7 @@ fn c_test_emits_fuzz_skeleton_as_extra_file() {
     let _ = std::fs::remove_dir_all(&dir);
     std::fs::create_dir_all(&dir).unwrap();
     let prod = codegen::CodegenCommandKind::Production
-        .run(backend, &ir.modules[0], &options)
+        .run(backend, &ir, &options)
         .expect("production codegen");
     let main_c = dir.join("fsm_test.c");
     let prod_c = dir.join("rfs_generated_fsm.c");
@@ -2049,7 +2069,7 @@ fn c_fuzz_target_frees_per_input_and_bounded_run_stays_green() {
 
     // The production core exposes the lifecycle end.
     let prod = codegen::CodegenCommandKind::Production
-        .run(backend, &ir.modules[0], &options)
+        .run(backend, &ir, &options)
         .expect("production codegen");
     assert!(
         prod.code.contains("void fsm_free(fsm_t* f)"),
@@ -2058,7 +2078,7 @@ fn c_fuzz_target_frees_per_input_and_bounded_run_stays_green() {
 
     // The skeleton frees on every exit path (single-exit decode).
     let out = codegen::CodegenCommandKind::UnitTests
-        .run(backend, &ir.modules[0], &options)
+        .run(backend, &ir, &options)
         .expect("unit-test codegen");
     let fz = &out.extra_files[0].content;
     assert!(

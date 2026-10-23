@@ -27,7 +27,7 @@ fn generate_fsm_source(out_dir: &Path) -> PathBuf {
         ..rfs::codegen::BackendOptions::default()
     };
     let out = rfs::codegen::CodegenCommandKind::Production
-        .run(backend, &ir.modules[0], &options)
+        .run(backend, &ir, &options)
         .expect("production codegen must succeed");
     std::fs::create_dir_all(out_dir).expect("create scratch dir");
     let path = out_dir.join("endpoint_fsm.rs");

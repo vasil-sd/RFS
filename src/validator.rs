@@ -81,6 +81,17 @@ pub fn validate_ir(ir: &Ir) -> Result<(), Vec<ValidationError>> {
     }
 }
 
+/// v1.0 syntax version header format (Phase 6, D-P6-1): `X.Y` or `X.Y.Z`
+/// with non-empty all-digit components - the regex `^\d+\.\d+(\.\d+)?$`
+/// checked without a dependency.
+pub fn is_valid_version_format(v: &str) -> bool {
+    let parts: Vec<&str> = v.split('.').collect();
+    matches!(parts.len(), 2..=3)
+        && parts
+            .iter()
+            .all(|p| !p.is_empty() && p.bytes().all(|b| b.is_ascii_digit()))
+}
+
 pub fn validate_module(module: &Module) -> Vec<ValidationError> {
     let mut errors = Vec::new();
     let env0 = Env::for_module(module);
@@ -111,6 +122,20 @@ pub fn validate_module(module: &Module) -> Vec<ValidationError> {
             "module '{}' has transitions but no initial state",
             module.name
         )));
+    }
+
+    // Phase 6 v1.0 (D-P6-1): formalized syntax version header - when present
+    // it must match X.Y or X.Y.Z. The parser accepts any quoted string (old
+    // files still PARSE); this is a semantic error, consistent with the other
+    // module-level checks. Specs without a header are legacy v0.x and remain
+    // valid.
+    if let Some(v) = &module.version {
+        if !is_valid_version_format(v) {
+            errors.push(ValidationError::new(format!(
+                "module '{}' invalid version header '{}' (expected X.Y or X.Y.Z)",
+                module.name, v
+            )));
+        }
     }
 
     for v in &module.vars {
@@ -910,6 +935,36 @@ mod tests {
     fn version_header_is_parsed_into_module() {
         let m = module_from("module m version \"1.2.3\" { enum State { A } initial A }");
         assert_eq!(m.version.as_deref(), Some("1.2.3"));
+    }
+
+    #[test]
+    fn version_header_format_check() {
+        // Valid formats are accepted (X.Y and X.Y.Z).
+        for v in ["1.0", "1.2.3", "10.20.30"] {
+            let m = module_from(&format!(
+                "module m version \"{v}\" {{ enum State {{ A }} initial A }}"
+            ));
+            assert!(
+                validate_module(&m).is_empty(),
+                "{v} must validate: {:?}",
+                validate_module(&m)
+            );
+        }
+        // Absent header (legacy v0.x) is accepted.
+        let m = module_from("module m { enum State { A } initial A }");
+        assert!(validate_module(&m).is_empty());
+        // Malformed formats are semantic errors with the pinned message.
+        for v in ["1.x", "1", "1.2.3.4", "1..2"] {
+            let m = module_from(&format!(
+                "module m version \"{v}\" {{ enum State {{ A }} initial A }}"
+            ));
+            let errs = validate_module(&m);
+            assert!(
+                errs.iter().any(|e| e.message
+                    == format!("module 'm' invalid version header '{v}' (expected X.Y or X.Y.Z)")),
+                "{v} must be rejected with the pinned message: {errs:?}"
+            );
+        }
     }
 
     #[test]

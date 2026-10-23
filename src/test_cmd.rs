@@ -140,8 +140,6 @@ pub fn run_test(spec: &Path, opts: &TestOptions, log: &Logger) -> Result<TestOut
         let msgs: Vec<String> = errors.iter().map(|e| e.message.clone()).collect();
         return Err(format!("{}: {}", spec.display(), msgs.join("; ")));
     }
-    let module = &ir.modules[0];
-
     // 2. Resolve the backend and the external tools (task 3's resolver).
     let backend = codegen::get_backend(&opts.backend).ok_or_else(|| {
         format!(
@@ -176,7 +174,7 @@ pub fn run_test(spec: &Path, opts: &TestOptions, log: &Logger) -> Result<TestOut
         ..BackendOptions::default()
     };
     let out = CodegenCommandKind::UnitTests
-        .run(backend, module, &options)
+        .run(backend, &ir, &options)
         .map_err(|e| e.join("; "))?;
     let run_unit = opts.suites.contains(&TestSuite::Unit);
     let run_fuzz = opts.suites.contains(&TestSuite::Fuzz);
@@ -198,7 +196,7 @@ pub fn run_test(spec: &Path, opts: &TestOptions, log: &Logger) -> Result<TestOut
     // dispatch, same options - no renderer logic duplicated) and the emitted
     // skeleton. Generated BEFORE --print-script so both modes share them.
     let fuzz_ctx = if run_fuzz {
-        Some(build_fuzz_context(opts, backend, module, &options, &out)?)
+        Some(build_fuzz_context(opts, backend, &ir, &options, &out)?)
     } else {
         None
     };
@@ -329,7 +327,7 @@ struct FuzzContext {
 fn build_fuzz_context(
     opts: &TestOptions,
     backend: &Backend,
-    module: &crate::ir::Module,
+    ir: &crate::ir::Ir,
     options: &BackendOptions,
     test_out: &crate::codegen::CodegenOutput,
 ) -> Result<FuzzContext, String> {
@@ -337,7 +335,7 @@ fn build_fuzz_context(
         "the test codegen emitted no fuzz skeleton extra file (backend bug?)".to_string()
     })?;
     let prod = CodegenCommandKind::Production
-        .run(backend, module, options)
+        .run(backend, ir, options)
         .map_err(|e| e.join("; "))?;
     // Task 3's resolver for the fuzz tool: CLI flag > env var > bare name.
     let tool = if backend.name == "rust" {

@@ -370,8 +370,11 @@ fn cmd_codegen(args: &[String]) -> ExitCode {
                 mc_smt_bound,
                 counterexample_format,
                 with_protocol_fsm,
+                // Stamped from the whole-file canonical IR JSON by `run`
+                // (Phase 6, D-P6-3).
+                spec_hash: String::new(),
             };
-            match command.run(backend, &ir.modules[0], &options) {
+            match command.run(backend, &ir, &options) {
                 Err(errors) => {
                     for e in &errors {
                         eprintln!("codegen error: {}", e);

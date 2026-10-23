@@ -112,7 +112,7 @@ fn generate_full(
         ..rfs::codegen::BackendOptions::default()
     };
     command
-        .run(backend, &ir.modules[0], &options)
+        .run(backend, &ir, &options)
         .unwrap_or_else(|e| panic!("codegen {backend_name} {:?} must succeed: {e:?}", spec))
 }
 
@@ -586,6 +586,20 @@ fn pinned(name: &str) -> Pinned {
             trigger_step: None,
             violation_step: None,
         },
+        // Phase 6 task 2 (D-P6-1): the version-header example - pass-complete
+        // (re-pinned from actual exact-mode output, both backends agree).
+        "46_version_header.rfs" => Pinned {
+            exit_code: 0,
+            status: "pass-complete",
+            states: 17,
+            transitions: 33,
+            max_depth: 16,
+            reason: None,
+            label: None,
+            step: None,
+            trigger_step: None,
+            violation_step: None,
+        },
         other => panic!(
             "no pinned exact-mode expectation for {other} - add one (re-pin from actual output)"
         ),
@@ -639,7 +653,7 @@ fn mc_exact_results_match_re_pinned_values() {
     // 13_properties_safety, 8 deadlocks at terminal states). Example 43 is the
     // first liveness-bearing spec (task 6): pass-complete in both backends;
     // examples 44/45 are the Phase 4 benchmark specs (task 8): pass-complete.
-    assert_eq!((n_pass, n_fail), (9, 9), "pass/fail split drifted");
+    assert_eq!((n_pass, n_fail), (10, 9), "pass/fail split drifted");
 }
 
 // ---------------------------------------------------------------------------
@@ -905,7 +919,7 @@ fn generate_inline(backend_name: &str, src: &str) -> String {
         ..rfs::codegen::BackendOptions::default()
     };
     rfs::codegen::CodegenCommandKind::ModelChecker
-        .run(backend, &ir.modules[0], &options)
+        .run(backend, &ir, &options)
         .unwrap_or_else(|e| panic!("MC codegen ({backend_name}) must succeed: {e:?}"))
         .code
 }
@@ -1072,7 +1086,7 @@ fn generate_spec_json(backend_name: &str, spec: &Path) -> String {
     let backend = rfs::codegen::get_backend(backend_name)
         .unwrap_or_else(|| panic!("backend {backend_name} registered"));
     rfs::codegen::CodegenCommandKind::ModelChecker
-        .run(backend, &ir.modules[0], &json_options())
+        .run(backend, &ir, &json_options())
         .unwrap_or_else(|e| {
             panic!(
                 "MC codegen ({backend_name}) must succeed for {:?}: {e:?}",
@@ -1105,7 +1119,7 @@ fn generate_inline_json(backend_name: &str, src: &str) -> String {
     let backend = rfs::codegen::get_backend(backend_name)
         .unwrap_or_else(|| panic!("backend {backend_name} registered"));
     rfs::codegen::CodegenCommandKind::ModelChecker
-        .run(backend, &ir.modules[0], &json_options())
+        .run(backend, &ir, &json_options())
         .unwrap_or_else(|e| panic!("MC codegen ({backend_name}) must succeed: {e:?}"))
         .code
 }

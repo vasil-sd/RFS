@@ -1,0 +1,8 @@
+# Phase 6 task 2 (D-P6-1): malformed version header format.
+# The parser accepts any quoted string (so this PARSES), but the validator
+# rejects it: a version header must match X.Y or X.Y.Z. This is a semantic
+# error, distinct from invalid_bad_version_header.rfs (unquoted = parse error).
+module m version "1.x" {
+  enum State { A }
+  initial A
+}

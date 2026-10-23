@@ -116,7 +116,7 @@ fn generate(
         ..rfs::codegen::BackendOptions::default()
     };
     command
-        .run(backend, &ir.modules[0], &options)
+        .run(backend, &ir, &options)
         .unwrap_or_else(|e| panic!("codegen {backend_name} must succeed: {e:?}"))
         .code
 }

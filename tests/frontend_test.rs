@@ -710,7 +710,7 @@ fn ir_json_golden_compact_pins_key_order() {
     let ir = rfs::parse_source(GOLDEN_SPEC_RFS).expect("parse golden spec");
     assert_eq!(
         ir.to_json().expect("to_json").to_string(),
-        r#"{"ir_version":0,"modules":[{"name":"m","enums":[{"name":"State","variants":["Idle","Busy"]}],"initial_state":"Idle","events":[{"name":"Req","variants":[{"kind":"struct","name":"Value","fields":[{"name":"x","ty":{"kind":"bit","width":8}}]}]},{"name":"Ping","variants":[{"kind":"unit","name":"Ping"}]}],"outputs":[{"name":"Done","variants":[{"kind":"struct","name":"Ok","fields":[{"name":"code","ty":{"kind":"bit","width":4}}]}]}],"vars":[{"name":"n","ty":{"kind":"bit","width":8},"init":{"kind":"int","value":0}}],"transitions":[{"id":0,"state":"Idle","pattern":{"group":"Req","variant":{"kind":"struct","name":"Value","fields":[{"name":"x","pattern":{"kind":"bind","name":"x"}}]}},"guard":{"kind":"binary","op":"gt","left":{"kind":"path","path":["x"]},"right":{"kind":"int","value":0}},"next_state":"Busy","emits":[{"group":"Done","variant":"Ok","args":[{"kind":"int","value":1}]}],"assignments":[{"var":"n","value":{"kind":"binary","op":"plus","left":{"kind":"path","path":["x"]},"right":{"kind":"int","value":1}}}],"priority":null},{"id":1,"state":"Busy","pattern":{"group":"Ping","variant":null},"guard":null,"next_state":"Idle","emits":[],"assignments":[],"priority":null}],"properties":[{"name":"p1","formula":{"kind":"always","inner":{"kind":"implies","left":{"kind":"expr","expr":{"kind":"binary","op":"eq","left":{"kind":"path","path":["state"]},"right":{"kind":"path","path":["Idle"]}}},"right":{"kind":"eventually","inner":{"kind":"expr","expr":{"kind":"binary","op":"eq","left":{"kind":"path","path":["state"]},"right":{"kind":"path","path":["Busy"]}}}}}}}],"assumptions":[]}]}"#
+        r#"{"ir_version":1,"modules":[{"name":"m","enums":[{"name":"State","variants":["Idle","Busy"]}],"initial_state":"Idle","events":[{"name":"Req","variants":[{"kind":"struct","name":"Value","fields":[{"name":"x","ty":{"kind":"bit","width":8}}]}]},{"name":"Ping","variants":[{"kind":"unit","name":"Ping"}]}],"outputs":[{"name":"Done","variants":[{"kind":"struct","name":"Ok","fields":[{"name":"code","ty":{"kind":"bit","width":4}}]}]}],"vars":[{"name":"n","ty":{"kind":"bit","width":8},"init":{"kind":"int","value":0}}],"transitions":[{"id":0,"state":"Idle","pattern":{"group":"Req","variant":{"kind":"struct","name":"Value","fields":[{"name":"x","pattern":{"kind":"bind","name":"x"}}]}},"guard":{"kind":"binary","op":"gt","left":{"kind":"path","path":["x"]},"right":{"kind":"int","value":0}},"next_state":"Busy","emits":[{"group":"Done","variant":"Ok","args":[{"kind":"int","value":1}]}],"assignments":[{"var":"n","value":{"kind":"binary","op":"plus","left":{"kind":"path","path":["x"]},"right":{"kind":"int","value":1}}}],"priority":null},{"id":1,"state":"Busy","pattern":{"group":"Ping","variant":null},"guard":null,"next_state":"Idle","emits":[],"assignments":[],"priority":null}],"properties":[{"name":"p1","formula":{"kind":"always","inner":{"kind":"implies","left":{"kind":"expr","expr":{"kind":"binary","op":"eq","left":{"kind":"path","path":["state"]},"right":{"kind":"path","path":["Idle"]}}},"right":{"kind":"eventually","inner":{"kind":"expr","expr":{"kind":"binary","op":"eq","left":{"kind":"path","path":["state"]},"right":{"kind":"path","path":["Busy"]}}}}}}}],"assumptions":[]}]}"#
     );
 }
 
@@ -721,7 +721,7 @@ fn ir_json_golden_pretty_pins_layout() {
     assert_eq!(
         pretty,
         r#"{
-  "ir_version": 0,
+  "ir_version": 1,
   "modules": [
     {
       "name": "m",
@@ -936,6 +936,46 @@ fn ir_json_golden_pretty_pins_layout() {
   ]
 }"#
     );
+}
+
+/// Phase 6 task 2 (D-P6-2): IR read policy - `to_json` writes the current
+/// version (1); v0 documents still load; future versions are rejected with
+/// the pinned message.
+#[test]
+fn ir_version_read_policy_v0_loads_future_rejected() {
+    let ir = rfs::parse_source(GOLDEN_SPEC_RFS).expect("parse golden spec");
+    assert_eq!(rfs::IR_VERSION, 1);
+    assert_eq!(
+        ir.ir_version,
+        rfs::IR_VERSION,
+        "to_json writes the current version"
+    );
+
+    let set_version = |mut doc: rfs::json_rw::Json, v: i64| -> rfs::json_rw::Json {
+        if let rfs::json_rw::Json::Obj(pairs) = &mut doc {
+            if let Some(slot) = pairs.iter_mut().find(|(k, _)| k == "ir_version") {
+                slot.1 = rfs::json_rw::Json::int(v);
+            }
+        }
+        doc
+    };
+
+    // A v0 document (pre-Phase-6 format) still loads with unchanged content.
+    let v0_text = set_version(ir.to_json().expect("to_json"), 0).to_string();
+    let value = rfs::json_rw::parse(&v0_text).expect("v0 doc parses");
+    let back: Ir = Ir::from_json(&value).expect("v0 document must still load");
+    assert_eq!(back.ir_version, 0);
+    assert_eq!(back.modules, ir.modules, "v0 content must load unchanged");
+
+    // A future version (2) is rejected with the pinned message.
+    let v2_text = set_version(ir.to_json().expect("to_json"), 2).to_string();
+    let value = rfs::json_rw::parse(&v2_text).expect("v2 doc parses");
+    let err = Ir::from_json(&value).expect_err("future version must be rejected");
+    assert!(
+        err.contains("unsupported IR version 2"),
+        "pinned message: {err}"
+    );
+    assert!(err.contains("reads 0..=1"), "pinned range: {err}");
 }
 
 #[test]
@@ -1959,7 +1999,7 @@ fn e2e_diagram_print_script_puml_render_pinned() {
         ],
     );
     assert_eq!(script, "#!/bin/sh
-# rfs 0.1.0 - generated by `rfs diagram --format puml --render svg --out build/diagram.svg spec.rfs` on spec.rfs
+# rfs 1.0.0 - generated by `rfs diagram --format puml --render svg --out build/diagram.svg spec.rfs` on spec.rfs
 # tools: plantuml=plantuml
 set -e
 # step 1: write generated diagram source
@@ -2038,7 +2078,7 @@ fn e2e_diagram_print_script_no_tool_pinned() {
     assert_eq!(
         script,
         "#!/bin/sh
-# rfs 0.1.0 - generated by `rfs diagram --format dot spec.rfs` on spec.rfs
+# rfs 1.0.0 - generated by `rfs diagram --format dot spec.rfs` on spec.rfs
 set -e
 # step 1: no external tools needed (text format)
 echo 'rfs diagram --format dot <spec> emits text; nothing to run'

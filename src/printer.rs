@@ -795,12 +795,13 @@ module m {
     fn pre_liveness_ir_json_still_deserializes() {
         // D-P4-8: additive IR - a JSON document written before
         // eventually/until existed (no new variant kinds) must still
-        // deserialize; no IR_VERSION bump.
+        // deserialize; the liveness variants were additive (Phase 6's
+        // IR_VERSION bump is separate and versioned, see src/ir.rs).
         let ir = parse_source(
             "module m { enum State { A, B } initial A event E transition A on E { next B; } prop p : always (state == A -> next (state == B)) ; }",
         )
         .expect("parse");
-        assert_eq!(ir.ir_version, 0);
+        assert_eq!(ir.ir_version, crate::ir::IR_VERSION);
         let json = ir.to_json().expect("serialize").to_string();
         // The document contains no liveness variant kinds.
         assert!(!json.contains("\"eventually\"") && !json.contains("\"until\""));

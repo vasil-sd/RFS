@@ -5,7 +5,7 @@ use std::process::ExitCode;
 use rfs::{codegen, frontend, Format};
 
 fn usage() -> String {
-    "RFS toolchain\n\nusage:\n  rfs parse --input <rfs|json> --output <rfs|json> <file-or-dir> [--target-dir DIR]\n  rfs validate [--input <rfs|json>] <file-or-dir>\n  rfs info [--json] [--log-level off|error|warn|info|debug] <spec.rfs|spec.json>\n  rfs test [--backend rust|c] [--suite unit|fuzz ...] [--steps N] [--rustc PATH] [--gcc PATH]\n           [--rustc-args \"...\"] [--gcc-args \"...\"] [--clang PATH] [--clang-args \"...\"]\n           [--cargo-fuzz PATH] [--cargo-fuzz-args \"...\"] [--fuzz-max-total-time SEC] [--fuzz-flags \"...\"]\n           [--print-script] [--log-level off|error|warn|info|debug] <spec.rfs|spec.json>\n  rfs diagram --list | --format dot|puml|mmd|table|md [options] <spec.rfs|spec.json>\n  rfs codegen --list | --help | <backend> --help\n  rfs codegen <backend> <production|test|mc> <spec.rfs|spec.json> [--out FILE] [--assumes ...] [--steps N]\n\nparse: load RFS or IR-JSON files, convert through the IR, and write formatted\n       output. With a directory input, only files matching --input are scanned;\n       without --target-dir each output is written next to its input file, with\n       --target-dir the input directory structure is preserved inside it. The\n       original extension is replaced (never stacked). Conversions whose output\n       would overwrite the input file are refused.\n\nvalidate: parse + semantically validate RFS or IR-JSON files. For a file input\n         the extension selects the format and errors go to stderr; for a\n         directory input --input is required and each failing source file gets\n         a <name>.rfs-validation.err file next to it.\n\ninfo: static spec introspection - per module: version, initial state, enums,
+    "RFS toolchain\n\nusage:\n  rfs parse --input <rfs|json> --output <rfs|json> <file-or-dir> [--target-dir DIR]\n  rfs validate [--input <rfs|json>] [--json] <file-or-dir>\n  rfs info [--json] [--log-level off|error|warn|info|debug] <spec.rfs|spec.json>\n  rfs test [--backend rust|c] [--suite unit|fuzz ...] [--steps N] [--rustc PATH] [--gcc PATH]\n           [--rustc-args \"...\"] [--gcc-args \"...\"] [--clang PATH] [--clang-args \"...\"]\n           [--cargo-fuzz PATH] [--cargo-fuzz-args \"...\"] [--fuzz-max-total-time SEC] [--fuzz-flags \"...\"]\n           [--print-script] [--log-level off|error|warn|info|debug] <spec.rfs|spec.json>\n  rfs diagram --list | --format dot|puml|mmd|table|md [options] <spec.rfs|spec.json>\n  rfs codegen --list | --help | <backend> --help\n  rfs codegen <backend> <production|test|mc> <spec.rfs|spec.json> [--out FILE] [--assumes ...] [--steps N]\n\nparse: load RFS or IR-JSON files, convert through the IR, and write formatted\n       output. With a directory input, only files matching --input are scanned;\n       without --target-dir each output is written next to its input file, with\n       --target-dir the input directory structure is preserved inside it. The\n       original extension is replaced (never stacked). Conversions whose output\n       would overwrite the input file are refused.\n\nvalidate: parse + semantically validate RFS or IR-JSON files. For a file input\n         the extension selects the format and errors go to stderr; for a\n         directory input --input is required and each failing source file gets\n         a <name>.rfs-validation.err file next to it. `--json` emits structured\n         diagnostics on stdout instead (file mode: one object; directory mode:\n         an array of one object per failing file) - the shape editor\n         integrations consume (Phase 5 task 13).\n\ninfo: static spec introspection - per module: version, initial state, enums,
       events/outputs with variants + field types, variables with types + init,
       transition count, and properties/assumptions each with monitor-subset
       status (monitored / skipped: reason). No model checking. `--json` emits
@@ -168,6 +168,7 @@ fn cmd_parse(args: &[String]) -> ExitCode {
 
 fn cmd_validate(args: &[String]) -> ExitCode {
     let mut input_format: Option<Format> = None;
+    let mut as_json = false;
     let mut path: Option<String> = None;
 
     let mut i = 0;
@@ -186,6 +187,7 @@ fn cmd_validate(args: &[String]) -> ExitCode {
                     return ExitCode::FAILURE;
                 }
             },
+            "--json" => as_json = true,
             _ if arg.starts_with('-') => {
                 eprintln!("unknown option: {}\n{}", arg, usage());
                 return ExitCode::FAILURE;
@@ -209,47 +211,71 @@ fn cmd_validate(args: &[String]) -> ExitCode {
         return ExitCode::FAILURE;
     };
 
-    match frontend::run_validate(input_format, Path::new(&path)) {
-        Err(misuse) => {
-            for m in &misuse {
-                eprintln!("error: {}", m);
+    if as_json {
+        // Structured diagnostics for editor integrations (Phase 5 task 13):
+        // the pinned JSON document on stdout; exit codes unchanged (0/1).
+        match frontend::run_validate_structured(input_format, Path::new(&path)) {
+            Err(misuse) => {
+                for m in &misuse {
+                    eprintln!("error: {}", m);
+                }
+                ExitCode::FAILURE
             }
-            ExitCode::FAILURE
-        }
-        Ok(result) => {
-            let mut failed = 0usize;
-            for f in &result.ok_files {
-                println!("valid {}", f.display());
-            }
-            for (f, warns) in &result.warnings {
-                for msg in warns {
-                    eprintln!("warning: {}: {}", f.display(), msg);
+            Ok(failed) => {
+                let p = Path::new(&path);
+                // `print!` (not println): the rendered document already ends
+                // with a newline (codegen convention).
+                print!("{}", frontend::render_validate_json(p, p.is_dir(), &failed));
+                if failed.is_empty() {
+                    ExitCode::SUCCESS
+                } else {
+                    ExitCode::FAILURE
                 }
             }
-            for ff in &result.failed {
-                failed += 1;
-                if let Some(err_path) = &ff.err_file {
-                    println!(
-                        "invalid {} ({} error(s), written to {})",
-                        ff.path.display(),
-                        ff.errors.len(),
-                        err_path.display()
-                    );
-                } else {
-                    // File mode, or the err file could not be written:
-                    // report on stderr.
-                    for msg in &ff.errors {
-                        eprintln!("{}: {}", ff.path.display(), msg);
+        }
+    } else {
+        match frontend::run_validate(input_format, Path::new(&path)) {
+            Err(misuse) => {
+                for m in &misuse {
+                    eprintln!("error: {}", m);
+                }
+                ExitCode::FAILURE
+            }
+            Ok(result) => {
+                let mut failed = 0usize;
+                for f in &result.ok_files {
+                    println!("valid {}", f.display());
+                }
+                for (f, warns) in &result.warnings {
+                    for msg in warns {
+                        eprintln!("warning: {}: {}", f.display(), msg);
                     }
                 }
-            }
-            for w in &result.write_errors {
-                eprintln!("error: {}", w);
-            }
-            if failed > 0 || !result.write_errors.is_empty() {
-                ExitCode::FAILURE
-            } else {
-                ExitCode::SUCCESS
+                for ff in &result.failed {
+                    failed += 1;
+                    if let Some(err_path) = &ff.err_file {
+                        println!(
+                            "invalid {} ({} error(s), written to {})",
+                            ff.path.display(),
+                            ff.errors.len(),
+                            err_path.display()
+                        );
+                    } else {
+                        // File mode, or the err file could not be written:
+                        // report on stderr.
+                        for msg in &ff.errors {
+                            eprintln!("{}: {}", ff.path.display(), msg);
+                        }
+                    }
+                }
+                for w in &result.write_errors {
+                    eprintln!("error: {}", w);
+                }
+                if failed > 0 || !result.write_errors.is_empty() {
+                    ExitCode::FAILURE
+                } else {
+                    ExitCode::SUCCESS
+                }
             }
         }
     }

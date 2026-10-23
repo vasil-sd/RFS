@@ -1,0 +1,540 @@
+{
+  "$schema": "https://raw.githubusercontent.com/martinring/tmlanguage/master/tmlanguage.json",
+  "name": "RFS",
+  "scopeName": "source.rfs",
+  "patterns": [
+    {
+      "include": "#comment"
+    },
+    {
+      "include": "#module"
+    }
+  ],
+  "repository": {
+    "comment": {
+      "patterns": [
+        {
+          "name": "comment.line.double-slash.rfs",
+          "match": "//.*$"
+        },
+        {
+          "name": "comment.line.number-sign.rfs",
+          "match": "#.*$"
+        }
+      ]
+    },
+    "string": {
+      "name": "string.quoted.double.rfs",
+      "begin": "\"",
+      "end": "\"",
+      "patterns": [
+        {
+          "name": "constant.character.escape.rfs",
+          "match": "\\\\."
+        }
+      ]
+    },
+    "number": {
+      "name": "constant.numeric.rfs",
+      "match": "\\b[0-9]+\\b"
+    },
+    "boolean": {
+      "name": "constant.language.boolean.rfs",
+      "match": "\\b(?:true|false)\\b"
+    },
+    "primitive-type": {
+      "name": "storage.type.primitive.rfs",
+      "match": "\\b(?:bool|bit)\\b"
+    },
+    "enum-path": {
+      "match": "\\b([A-Za-z_][A-Za-z0-9_]*)::([A-Za-z_][A-Za-z0-9_]*)",
+      "captures": {
+        "1": {
+          "name": "entity.name.type.rfs"
+        },
+        "2": {
+          "name": "entity.name.constant.rfs"
+        }
+      }
+    },
+    "operator": {
+      "patterns": [
+        {
+          "name": "keyword.operator.comparison.rfs",
+          "match": "==|!=|<=|>=|<|>"
+        },
+        {
+          "name": "keyword.operator.logical.rfs",
+          "match": "&&|\\|\\||!|until"
+        },
+        {
+          "name": "keyword.operator.arithmetic.rfs",
+          "match": "\\+|-|\\*"
+        }
+      ]
+    },
+    "module": {
+      "begin": "\\b(module)\\b",
+      "beginCaptures": {
+        "1": {
+          "name": "keyword.control.module.rfs"
+        }
+      },
+      "end": "\\}",
+      "endCaptures": {
+        "0": {
+          "name": "punctuation.definition.block.end.rfs"
+        }
+      },
+      "patterns": [
+        {
+          "include": "#comment"
+        },
+        {
+          "include": "#version-header"
+        },
+        {
+          "include": "#string"
+        },
+        {
+          "include": "#enum-decl"
+        },
+        {
+          "include": "#initial-decl"
+        },
+        {
+          "include": "#event-output-decl"
+        },
+        {
+          "include": "#var-decl"
+        },
+        {
+          "include": "#prop-assume-decl"
+        },
+        {
+          "include": "#transition"
+        },
+        {
+          "include": "#on-error"
+        },
+        {
+          "include": "#enum-path"
+        },
+        {
+          "include": "#number"
+        },
+        {
+          "include": "#boolean"
+        },
+        {
+          "include": "#primitive-type"
+        },
+        {
+          "include": "#operator"
+        },
+        {
+          "match": "\\b([A-Z][A-Za-z0-9_]*)\\b",
+          "name": "entity.name.type.rfs"
+        },
+        {
+          "match": "\\b([a-z_][A-Za-z0-9_]*)\\b",
+          "name": "variable.other.rfs"
+        }
+      ]
+    },
+    "version-header": {
+      "match": "\\b(version)\\b",
+      "captures": {
+        "1": {
+          "name": "keyword.other.version.rfs"
+        }
+      }
+    },
+    "enum-decl": {
+      "begin": "\\b(enum)\\b\\s+([A-Za-z_][A-Za-z0-9_]*)",
+      "beginCaptures": {
+        "1": {
+          "name": "keyword.control.enum.rfs"
+        },
+        "2": {
+          "name": "entity.name.type.rfs"
+        }
+      },
+      "end": "\\}",
+      "endCaptures": {
+        "0": {
+          "name": "punctuation.definition.block.end.rfs"
+        }
+      },
+      "patterns": [
+        {
+          "include": "#comment"
+        },
+        {
+          "match": "\\b([A-Za-z_][A-Za-z0-9_]*)\\b",
+          "name": "entity.name.constant.rfs"
+        },
+        {
+          "match": ",",
+          "name": "punctuation.separator.comma.rfs"
+        }
+      ]
+    },
+    "initial-decl": {
+      "match": "\\b(initial)\\s+([A-Za-z_][A-Za-z0-9_]*)",
+      "captures": {
+        "1": {
+          "name": "keyword.control.initial.rfs"
+        },
+        "2": {
+          "name": "entity.name.constant.rfs"
+        }
+      }
+    },
+    "event-output-decl": {
+      "begin": "\\b(event|output)\\b\\s+([A-Za-z_][A-Za-z0-9_]*)",
+      "beginCaptures": {
+        "1": {
+          "name": "keyword.control.event.rfs"
+        },
+        "2": {
+          "name": "entity.name.function.rfs"
+        }
+      },
+      "end": "(?=$)",
+      "patterns": [
+        {
+          "include": "#comment"
+        },
+        {
+          "include": "#constructor-group"
+        },
+        {
+          "include": "#field-list"
+        }
+      ]
+    },
+    "constructor-group": {
+      "begin": "\\(",
+      "end": "\\)",
+      "patterns": [
+        {
+          "include": "#comment"
+        },
+        {
+          "include": "#field-list"
+        },
+        {
+          "match": "\\b([A-Za-z_][A-Za-z0-9_]*)\\b",
+          "name": "entity.name.constant.rfs"
+        }
+      ]
+    },
+    "field-list": {
+      "patterns": [
+        {
+          "include": "#comment"
+        },
+        {
+          "include": "#string"
+        },
+        {
+          "include": "#number"
+        },
+        {
+          "include": "#boolean"
+        },
+        {
+          "include": "#primitive-type"
+        },
+        {
+          "match": "\\b([a-z_][A-Za-z0-9_]*)\\s*:",
+          "captures": {
+            "1": {
+              "name": "variable.other.rfs"
+            }
+          },
+          "name": "meta.field-name.rfs"
+        },
+        {
+          "match": "\\b([A-Z][A-Za-z0-9_]*)\\b",
+          "name": "entity.name.type.rfs"
+        },
+        {
+          "match": "<|>",
+          "name": "punctuation.definition.angle.rfs"
+        },
+        {
+          "match": ",",
+          "name": "punctuation.separator.comma.rfs"
+        }
+      ]
+    },
+    "var-decl": {
+      "begin": "\\b(var)\\s+([a-z_][A-Za-z0-9_]*)\\s*(:)",
+      "beginCaptures": {
+        "1": {
+          "name": "keyword.control.var.rfs"
+        },
+        "2": {
+          "name": "variable.other.rfs"
+        },
+        "3": {
+          "name": "punctuation.separator.colon.rfs"
+        }
+      },
+      "end": "(?=$)",
+      "patterns": [
+        {
+          "include": "#comment"
+        },
+        {
+          "match": "\\b(init)\\b",
+          "name": "keyword.control.init.rfs"
+        },
+        {
+          "include": "#enum-path"
+        },
+        {
+          "include": "#number"
+        },
+        {
+          "include": "#boolean"
+        },
+        {
+          "include": "#primitive-type"
+        },
+        {
+          "include": "#operator"
+        },
+        {
+          "match": "\\b([A-Z][A-Za-z0-9_]*)\\b",
+          "name": "entity.name.type.rfs"
+        }
+      ]
+    },
+    "prop-assume-decl": {
+      "begin": "\\b(prop|assume)\\b\\s+([a-z_][A-Za-z0-9_]*)\\s*(:)",
+      "beginCaptures": {
+        "1": {
+          "name": "keyword.control.property.rfs"
+        },
+        "2": {
+          "name": "entity.name.function.rfs"
+        },
+        "3": {
+          "name": "punctuation.separator.colon.rfs"
+        }
+      },
+      "end": ";",
+      "endCaptures": {
+        "0": {
+          "name": "punctuation.terminator.statement.rfs"
+        }
+      },
+      "patterns": [
+        {
+          "include": "#comment"
+        },
+        {
+          "include": "#formula"
+        }
+      ]
+    },
+    "formula": {
+      "patterns": [
+        {
+          "include": "#comment"
+        },
+        {
+          "match": "\\b(always|eventually|bounded_eventually)\\b",
+          "name": "keyword.other.temporal.rfs"
+        },
+        {
+          "match": "\\b(until)\\b",
+          "name": "keyword.operator.logical.rfs"
+        },
+        {
+          "match": "\\b(input_is|output_has)\\b",
+          "name": "support.function.formula.rfs"
+        },
+        {
+          "include": "#number"
+        },
+        {
+          "include": "#boolean"
+        },
+        {
+          "include": "#operator"
+        },
+        {
+          "match": "\\[|\\]",
+          "name": "punctuation.definition.bound.rfs"
+        },
+        {
+          "match": "\\(|\\)",
+          "name": "punctuation.definition.parenthesis.rfs"
+        },
+        {
+          "match": "\\b([A-Z][A-Za-z0-9_]*)\\b",
+          "name": "entity.name.constant.rfs"
+        },
+        {
+          "match": "\\b([a-z_][A-Za-z0-9_]*)\\b",
+          "name": "variable.other.rfs"
+        }
+      ]
+    },
+    "transition": {
+      "begin": "\\b(transition)\\b\\s+([A-Za-z_][A-Za-z0-9_]*)\\s+(on)\\b",
+      "beginCaptures": {
+        "1": {
+          "name": "keyword.control.transition.rfs"
+        },
+        "2": {
+          "name": "entity.name.constant.rfs"
+        },
+        "3": {
+          "name": "keyword.control.on.rfs"
+        }
+      },
+      "end": "\\}",
+      "endCaptures": {
+        "0": {
+          "name": "punctuation.definition.block.end.rfs"
+        }
+      },
+      "patterns": [
+        {
+          "include": "#comment"
+        },
+        {
+          "match": "\\b(where)\\b",
+          "name": "keyword.control.where.rfs"
+        },
+        {
+          "match": "\\b(priority)\\s+([0-9]+)",
+          "captures": {
+            "1": {
+              "name": "keyword.control.priority.rfs"
+            },
+            "2": {
+              "name": "constant.numeric.rfs"
+            }
+          }
+        },
+        {
+          "include": "#pattern"
+        },
+        {
+          "include": "#transition-body"
+        }
+      ]
+    },
+    "pattern": {
+      "patterns": [
+        {
+          "match": "\\b([A-Z][A-Za-z0-9_]*)\\s*\\(",
+          "captures": {
+            "1": {
+              "name": "entity.name.function.rfs"
+            }
+          }
+        },
+        {
+          "include": "#field-list"
+        },
+        {
+          "match": "\\b([A-Z][A-Za-z0-9_]*)\\b",
+          "name": "entity.name.constant.rfs"
+        }
+      ]
+    },
+    "transition-body": {
+      "patterns": [
+        {
+          "include": "#comment"
+        },
+        {
+          "match": "\\b(next)\\s+([A-Za-z_][A-Za-z0-9_]*)\\s*;",
+          "captures": {
+            "1": {
+              "name": "keyword.control.next.rfs"
+            },
+            "2": {
+              "name": "entity.name.constant.rfs"
+            }
+          }
+        },
+        {
+          "match": "\\b(emit)\\s+([A-Z][A-Za-z0-9_]*)",
+          "captures": {
+            "1": {
+              "name": "keyword.control.emit.rfs"
+            },
+            "2": {
+              "name": "entity.name.function.rfs"
+            }
+          }
+        },
+        {
+          "match": "\\b(set)\\s+([a-z_][A-Za-z0-9_]*)\\s*=",
+          "captures": {
+            "1": {
+              "name": "keyword.control.set.rfs"
+            },
+            "2": {
+              "name": "variable.other.rfs"
+            }
+          }
+        },
+        {
+          "include": "#enum-path"
+        },
+        {
+          "include": "#number"
+        },
+        {
+          "include": "#boolean"
+        },
+        {
+          "include": "#operator"
+        },
+        {
+          "match": "\\(",
+          "name": "punctuation.definition.parenthesis.rfs"
+        },
+        {
+          "match": "\\)",
+          "name": "punctuation.definition.parenthesis.rfs"
+        },
+        {
+          "match": ";",
+          "name": "punctuation.terminator.statement.rfs"
+        }
+      ]
+    },
+    "on-error": {
+      "begin": "\\b(on_error)\\b",
+      "beginCaptures": {
+        "1": {
+          "name": "keyword.control.on-error.rfs"
+        }
+      },
+      "end": "\\}",
+      "endCaptures": {
+        "0": {
+          "name": "punctuation.definition.block.end.rfs"
+        }
+      },
+      "patterns": [
+        {
+          "include": "#comment"
+        },
+        {
+          "include": "#transition-body"
+        }
+      ]
+    }
+  }
+}

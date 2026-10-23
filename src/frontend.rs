@@ -371,6 +371,194 @@ pub struct ValidateOneResult {
     pub warnings: Vec<String>,
 }
 
+/// A structured diagnostic for `rfs validate --json` (Phase 5 task 13) - the
+/// shape editor integrations consume.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct StructuredError {
+    /// "parse" or "semantic".
+    pub kind: &'static str,
+    /// 1-based line of the error; 0 when unknown (semantic errors carry no
+    /// span - the validator reports messages only).
+    pub line: usize,
+    /// 1-based column of the error; 0 when unknown.
+    pub col: usize,
+    pub message: String,
+}
+
+/// Parse + validate one file with STRUCTURED diagnostics (`validate --json`).
+/// Ok holds the structured errors (empty on success); Err holds CLI-level
+/// misuse messages (bad extension, IO) - same contract as the text path.
+pub fn validate_one_structured(
+    path: &Path,
+    format: Format,
+) -> Result<Vec<StructuredError>, Vec<String>> {
+    let text = std::fs::read_to_string(path)
+        .map_err(|e| vec![format!("failed to read {}: {}", path.display(), e)])?;
+    let ir = match format {
+        Format::Rfs => match crate::parse_source(&text) {
+            Ok(ir) => ir,
+            Err(e) => {
+                let (line, col) = e.line_col();
+                return Ok(vec![StructuredError {
+                    kind: "parse",
+                    line,
+                    col,
+                    message: e.message,
+                }]);
+            }
+        },
+        Format::Json => {
+            let value = crate::json_rw::parse(&text)
+                .map_err(|e| vec![format!("invalid RFS IR JSON in {}: {}", path.display(), e)])?;
+            Ir::from_json(&value)
+                .map_err(|e| vec![format!("invalid RFS IR JSON in {}: {}", path.display(), e)])?
+        }
+    };
+    match validator::validate_ir(&ir) {
+        Ok(()) => Ok(Vec::new()),
+        Err(errors) => Ok(errors
+            .into_iter()
+            .map(|e| StructuredError {
+                kind: "semantic",
+                line: 0,
+                col: 0,
+                message: e.message,
+            })
+            .collect()),
+    }
+}
+
+/// One `validate --json` document (pinned shape - Phase 5 task 13):
+/// `{ "file": ..., "ok": ..., "errors": [ {kind,line,col,message} ] }`.
+fn validate_json_doc(path: &Path, errors: &[StructuredError]) -> crate::json_rw::Json {
+    crate::json_rw::Json::obj(vec![
+        (
+            "file".to_string(),
+            crate::json_rw::Json::str(path.display().to_string()),
+        ),
+        (
+            "ok".to_string(),
+            crate::json_rw::Json::bool(errors.is_empty()),
+        ),
+        (
+            "errors".to_string(),
+            crate::json_rw::Json::arr(
+                errors
+                    .iter()
+                    .map(|e| {
+                        crate::json_rw::Json::obj(vec![
+                            ("kind".to_string(), crate::json_rw::Json::str(e.kind)),
+                            ("line".to_string(), crate::json_rw::Json::int(e.line as i64)),
+                            ("col".to_string(), crate::json_rw::Json::int(e.col as i64)),
+                            ("message".to_string(), crate::json_rw::Json::str(&e.message)),
+                        ])
+                    })
+                    .collect(),
+            ),
+        ),
+    ])
+}
+
+/// Run STRUCTURED validation over a file or directory (`validate --json`).
+/// Mirrors `run_validate`'s traversal/extension contract (file: extension
+/// selects the format, `--input` must agree; directory: `--input` required,
+/// files collected by extension) but reports only FAILING files with
+/// structured errors and writes no `.rfs-validation.err` side files. Err
+/// holds CLI-level misuse messages.
+pub fn run_validate_structured(
+    input_format: Option<Format>,
+    path: &Path,
+) -> Result<Vec<(PathBuf, Vec<StructuredError>)>, Vec<String>> {
+    if path.is_file() {
+        let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
+        let fmt = Format::from_extension(ext).ok_or_else(|| {
+            vec![format!(
+                "file '{}' must have extension .rfs or .json",
+                path.display()
+            )]
+        })?;
+        if let Some(req) = input_format {
+            if req != fmt {
+                return Err(vec![format!(
+                    "--input {} conflicts with file extension '.{}' for '{}'",
+                    req.name(),
+                    fmt.ext(),
+                    path.display()
+                )]);
+            }
+        }
+        let errors = validate_one_structured(path, fmt)?;
+        if errors.is_empty() {
+            Ok(Vec::new())
+        } else {
+            Ok(vec![(path.to_path_buf(), errors)])
+        }
+    } else if path.is_dir() {
+        let fmt = input_format.ok_or_else(|| {
+            vec![format!(
+                "directory input requires --input rfs or --input json (got directory '{}')",
+                path.display()
+            )]
+        })?;
+        let files = collect_files_with_ext(path, fmt.ext());
+        if files.is_empty() {
+            return Err(vec![format!(
+                "no .{} files found under '{}'",
+                fmt.ext(),
+                path.display()
+            )]);
+        }
+        let mut failed = Vec::new();
+        for f in files {
+            match validate_one_structured(&f, fmt) {
+                Ok(errors) if !errors.is_empty() => failed.push((f, errors)),
+                Ok(_) => {}
+                Err(errors) => failed.push((
+                    f,
+                    errors
+                        .into_iter()
+                        .map(|m| StructuredError {
+                            kind: "semantic",
+                            line: 0,
+                            col: 0,
+                            message: m,
+                        })
+                        .collect(),
+                )),
+            }
+        }
+        Ok(failed)
+    } else {
+        Err(vec![format!(
+            "input path '{}' does not exist or is not a file or directory",
+            path.display()
+        )])
+    }
+}
+
+/// Render the `validate --json` stdout: one document for the input file
+/// (file mode - `ok: true` with empty errors on success) or an array of one
+/// document per FAILING file (directory mode). Pretty-printed like
+/// `rfs info --json`.
+pub fn render_validate_json(
+    input_path: &Path,
+    is_directory: bool,
+    failed: &[(PathBuf, Vec<StructuredError>)],
+) -> String {
+    let doc = if is_directory {
+        crate::json_rw::Json::arr(
+            failed
+                .iter()
+                .map(|(p, e)| validate_json_doc(p, e))
+                .collect(),
+        )
+    } else {
+        let errors = failed.first().map(|(_, e)| e.as_slice()).unwrap_or(&[]);
+        validate_json_doc(input_path, errors)
+    };
+    doc.to_string_pretty() + "\n"
+}
+
 /// Run validation over a file or directory. `Err` holds CLI-level misuse
 /// messages (bad extension, missing --input for directories, ...); `Ok` holds
 /// per-file results.

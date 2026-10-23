@@ -873,3 +873,16 @@ Per `PHASE_5_TASK_17.md` (user-requested addition, plan correction C4): extend t
 - Tests: +6 frontend e2e (suite selection incl. default-path-tool-free proof, missing tools pinned both backends, stub-pinned fuzzer crash exit, full-pipeline stub argv proofs C+Rust, byte-pinned --print-script with fuzz steps cross-checked vs codegen, real-tool gated e2e both backends) + 2 ext_tool unit pins.
 - Docs: TOOLCHAIN.md new section 7 (install/verify/env table/gotchas), BUILD.md command row + counts re-pinned (root 361->369, workspace 385->393, smt 363->371; clippy baseline 12->13) + checklist row, KB.md Tests row + 4.5 rfs test paragraph, PHASE_5_TASK_17_STATUS.md (C17-1..C17-5, D17-1).
 - Verification: cargo test 369/369 root, 393/393 workspace, 371/371 smt; real tools: C fuzz ~500k runs/3 s exit 0, Rust scaffold build+run exit 0 (also inside cargo test); manual `sh` run of a printed C-fuzz script exit 0 + self-cleanup; clippy 13 (re-pinned), fmt clean.
+
+## 2026-10-23 02:42 — Phase 5 task 13: IDE support - TextMate grammar + snippets for .rfs (ide/) + structured `rfs validate --json` diagnostics
+
+### Interpretation & plan
+Per PHASE_5_TASK_13.md: in-repo editor support (no LSP): ide/textmate/rfs.json + ide/snippets.rfs + ide/README.md, and validate --json with the pinned document shape {file, ok, errors:[{kind,line,col,message}]} (directory mode = array per failing file), reusing json_rw; grammar sanity test driven by a new parser::KEYWORDS source of truth.
+
+### Report
+- ide/: TextMate grammar (source.rfs; comments // and #, strings, numbers, booleans, all 28 keywords by class, bit<N>, enum paths A::B, formulas incl. temporal ops + input_is/output_has, module/enum/event/output/var/prop/assume/transition/on_error blocks), 5 snippets (module/transition/prop-always/prop-eventually/prop-until), README (VS Code local extension + one-click repo; Sublime .tmLanguage).
+- parser.rs: pub const KEYWORDS (28 keywords) + bidirectional self-scan drift-guard test (C13-2: no call-site refactor of the byte-sensitive parser).
+- frontend.rs: StructuredError + validate_one_structured (parse errors: real 1-based line/col from ParseError::line_col; semantic: 0/0 - no span, C13-1) + run_validate_structured (no .err side-files in JSON mode, C13-3) + render_validate_json (pretty like info --json, D13-1). main.rs: --json flag + usage; exit codes unchanged.
+- Tests: +5 frontend e2e (parse-error shape with line/col cross-checked vs ParseError, semantic shape pinned, ok=true on valid file, directory array of 12 docs exit 1, grammar sanity incl. snippets JSON) + 1 parser unit.
+- Docs: BUILD.md (ide/ row, validate --json row, counts 369->375 root / 393->399 ws / 371->377 smt), KB.md (validate + Tests rows), INTRO tasks 1-13 of 16, PHASE_5_TASK_13_STATUS.md.
+- Verification: cargo test 375/375 root, 399/399 workspace, 377/377 smt; text diagnostics + exit codes unchanged (pre-existing validate pins pass unmodified); clippy 13 = baseline; fmt clean.

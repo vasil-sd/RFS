@@ -3007,3 +3007,180 @@ rm -f fuzz_target.c rfs_generated_fsm.c fuzz_bin\n";
     clear_all_test_env();
     cleanup(&root);
 }
+
+// ---------------------------------------------------------------------------
+// Phase 5 task 13: `rfs validate --json` (structured diagnostics for editor
+// integrations) + the IDE grammar sanity test.
+// ---------------------------------------------------------------------------
+
+/// Parse-error document: shape pinned, and line/col cross-checked against the
+/// parser's own diagnostic (ParseError::line_col).
+#[test]
+fn e2e_validate_json_parse_error_shape_and_position() {
+    let _g = test_lock();
+    clear_all_test_env();
+    let file = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("examples/invalid/invalid_bad_version_header.rfs");
+
+    // Expected position from the parser's own diagnostic (cross-check).
+    let src = std::fs::read_to_string(&file).expect("read example");
+    let err = rfs::parse_source(&src).expect_err("example must not parse");
+    let (line, col) = err.line_col();
+
+    let out = std::process::Command::new(rfs_bin())
+        .args(["validate", "--json"])
+        .arg(&file)
+        .output()
+        .expect("spawn rfs validate --json");
+    assert_eq!(
+        out.status.code(),
+        Some(1),
+        "invalid file must exit 1; stderr: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&out.stdout).to_string();
+    let doc = rfs::json_rw::parse(&stdout).expect("JSON document must parse");
+
+    assert_eq!(
+        doc.get("file").and_then(|v| v.as_str()),
+        Some(file.display().to_string().as_str())
+    );
+    assert_eq!(doc.get("ok"), Some(&rfs::json_rw::Json::Bool(false)));
+    let errors = match doc.get("errors") {
+        Some(rfs::json_rw::Json::Arr(a)) => a,
+        _ => panic!("errors must be an array: {stdout}"),
+    };
+    assert_eq!(errors.len(), 1);
+    let e0 = &errors[0];
+    assert_eq!(e0.get("kind").and_then(|v| v.as_str()), Some("parse"));
+    assert_eq!(e0.get("line"), Some(&rfs::json_rw::Json::Int(line as i64)));
+    assert_eq!(e0.get("col"), Some(&rfs::json_rw::Json::Int(col as i64)));
+    assert_eq!(
+        e0.get("message").and_then(|v| v.as_str()),
+        Some(err.message.as_str())
+    );
+}
+
+/// Semantic-error document: shape pinned (kind "semantic", line/col 0 - the
+/// validator reports messages without spans), message matches the text
+/// diagnostic.
+#[test]
+fn e2e_validate_json_semantic_error_shape_pinned() {
+    let _g = test_lock();
+    clear_all_test_env();
+    let file = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("examples/invalid/invalid_always_zero_bound.rfs");
+
+    let out = std::process::Command::new(rfs_bin())
+        .args(["validate", "--json"])
+        .arg(&file)
+        .output()
+        .expect("spawn rfs validate --json");
+    assert_eq!(out.status.code(), Some(1));
+    let stdout = String::from_utf8_lossy(&out.stdout).to_string();
+    let doc = rfs::json_rw::parse(&stdout).expect("JSON document must parse");
+
+    assert_eq!(doc.get("ok"), Some(&rfs::json_rw::Json::Bool(false)));
+    let errors = match doc.get("errors") {
+        Some(rfs::json_rw::Json::Arr(a)) => a,
+        _ => panic!("errors must be an array: {stdout}"),
+    };
+    assert_eq!(errors.len(), 1);
+    let e0 = &errors[0];
+    assert_eq!(e0.get("kind").and_then(|v| v.as_str()), Some("semantic"));
+    assert_eq!(e0.get("line"), Some(&rfs::json_rw::Json::Int(0)));
+    assert_eq!(e0.get("col"), Some(&rfs::json_rw::Json::Int(0)));
+    assert_eq!(
+        e0.get("message").and_then(|v| v.as_str()),
+        Some("module 'always_zero_bound' property 'bad': always[N] requires N >= 1")
+    );
+}
+
+/// A valid file: ok=true, empty errors, exit 0.
+#[test]
+fn e2e_validate_json_ok_true_on_valid_file() {
+    let _g = test_lock();
+    clear_all_test_env();
+    let file = Path::new(env!("CARGO_MANIFEST_DIR")).join("examples/valid/43_sliding_window.rfs");
+
+    let out = std::process::Command::new(rfs_bin())
+        .args(["validate", "--json"])
+        .arg(&file)
+        .output()
+        .expect("spawn rfs validate --json");
+    assert!(
+        out.status.success(),
+        "valid file must exit 0; stderr: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&out.stdout).to_string();
+    let doc = rfs::json_rw::parse(&stdout).expect("JSON document must parse");
+    assert_eq!(doc.get("ok"), Some(&rfs::json_rw::Json::Bool(true)));
+    match doc.get("errors") {
+        Some(rfs::json_rw::Json::Arr(a)) => assert!(a.is_empty(), "errors must be empty: {stdout}"),
+        _ => panic!("errors must be an array: {stdout}"),
+    }
+}
+
+/// Directory mode: a JSON ARRAY with one document per failing file; exit 1.
+#[test]
+fn e2e_validate_json_directory_mode_array() {
+    let _g = test_lock();
+    clear_all_test_env();
+    let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("examples/invalid");
+
+    let out = std::process::Command::new(rfs_bin())
+        .args(["validate", "--json", "--input", "rfs"])
+        .arg(&dir)
+        .output()
+        .expect("spawn rfs validate --json (directory)");
+    assert_eq!(out.status.code(), Some(1), "failing files must exit 1");
+    let stdout = String::from_utf8_lossy(&out.stdout).to_string();
+    let doc = rfs::json_rw::parse(&stdout).expect("JSON array must parse");
+
+    let arr = match &doc {
+        rfs::json_rw::Json::Arr(a) => a,
+        _ => panic!("directory mode must emit an array: {stdout}"),
+    };
+    // Every file in examples/invalid fails validation.
+    let n_files = std::fs::read_dir(&dir)
+        .expect("read dir")
+        .filter_map(|e| e.ok())
+        .filter(|e| e.path().extension().is_some_and(|x| x == "rfs"))
+        .count();
+    assert_eq!(arr.len(), n_files, "one document per failing file");
+
+    for d in arr {
+        assert_eq!(d.get("ok"), Some(&rfs::json_rw::Json::Bool(false)));
+        let errors = match d.get("errors") {
+            Some(rfs::json_rw::Json::Arr(a)) if !a.is_empty() => a,
+            _ => panic!("failing file document must have non-empty errors: {stdout}"),
+        };
+        for e in errors {
+            let kind = e.get("kind").and_then(|v| v.as_str()).expect("kind");
+            assert!(kind == "parse" || kind == "semantic", "kind: {kind}");
+            assert!(e.get("line").is_some() && e.get("col").is_some());
+        }
+    }
+}
+
+/// IDE grammar sanity (Phase 5 task 13): the grammar file is valid JSON and
+/// covers EVERY parser keyword (drift guard - the list is shared with the
+/// parser via `rfs::parser::KEYWORDS`); the snippet set is present + valid.
+#[test]
+fn ide_grammar_valid_json_and_covers_all_keywords() {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR"));
+
+    let raw = std::fs::read_to_string(root.join("ide/textmate/rfs.json"))
+        .expect("ide/textmate/rfs.json must exist");
+    let _doc: rfs::json_rw::Json = rfs::json_rw::parse(&raw).expect("grammar must be valid JSON");
+
+    for kw in rfs::parser::KEYWORDS {
+        assert!(raw.contains(kw), "grammar missing keyword '{kw}'");
+    }
+
+    let snip = std::fs::read_to_string(root.join("ide/snippets.rfs"))
+        .expect("ide/snippets.rfs must exist");
+    let _sdoc: rfs::json_rw::Json =
+        rfs::json_rw::parse(&snip).expect("snippets must be valid JSON");
+}

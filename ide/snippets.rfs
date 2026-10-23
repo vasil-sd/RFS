@@ -1,0 +1,64 @@
+{
+  "RFS module": {
+    "prefix": [
+      "module",
+      "rfs"
+    ],
+    "body": [
+      "module ${1:name} {",
+      "\tenum State { ${2:Initial}, ${3:Done} }",
+      "\tinitial ${2:Initial}",
+      "",
+      "\tevent ${4:Go}",
+      "",
+      "\ttransition ${2:Initial} on ${4:Go} {",
+      "\t\tnext ${3:Done};",
+      "\t}",
+      "}"
+    ],
+    "description": "RFS module skeleton: one enum, initial state, one event, one transition"
+  },
+  "RFS transition": {
+    "prefix": [
+      "transition",
+      "tr"
+    ],
+    "body": [
+      "transition ${1:From} on ${2:Event} {",
+      "\tnext ${3:To};",
+      "\temit ${4:Output};",
+      "\tset ${5:var} = ${6:value};",
+      "}"
+    ],
+    "description": "RFS transition block (next/emit/set statements)"
+  },
+  "RFS property (always)": {
+    "prefix": [
+      "prop",
+      "prop-always"
+    ],
+    "body": [
+      "prop ${1:name} : always (${2:condition}) ;"
+    ],
+    "description": "Safety property: the condition holds at every sample"
+  },
+  "RFS property (eventually)": {
+    "prefix": [
+      "prop-eventually",
+      "liveness"
+    ],
+    "body": [
+      "prop ${1:name} : eventually (${2:condition}) ;"
+    ],
+    "description": "Liveness property: the condition holds at some future sample"
+  },
+  "RFS assumption (always)": {
+    "prefix": [
+      "assume"
+    ],
+    "body": [
+      "assume ${1:name} : always (${2:condition}) ;"
+    ],
+    "description": "Environment assumption (e.g. timing bounds via bounded_eventually[N])"
+  }
+}

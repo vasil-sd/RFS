@@ -11,6 +11,41 @@ use nom::{
 };
 use std::path::Path;
 
+/// All RFS v0 keywords - the single source of truth for the language's
+/// reserved words (Phase 5 task 13). The IDE grammar sanity test consumes
+/// this list, and `keyword_list_matches_parser_sites` pins it against the
+/// parser's own call sites in both directions.
+pub const KEYWORDS: &[&str] = &[
+    "always",
+    "assume",
+    "bit",
+    "bool",
+    "bounded_eventually",
+    "emit",
+    "enum",
+    "event",
+    "eventually",
+    "false",
+    "init",
+    "initial",
+    "input_is",
+    "module",
+    "next",
+    "on",
+    "on_error",
+    "output",
+    "output_has",
+    "priority",
+    "prop",
+    "set",
+    "transition",
+    "true",
+    "until",
+    "var",
+    "version",
+    "where",
+];
+
 #[derive(Debug)]
 enum ModuleItem {
     Enum(EnumDecl),
@@ -2006,5 +2041,48 @@ mod tests {
                 right: Box::new(atom("until_b")),
             },
         );
+    }
+    /// KEYWORDS is the single source of truth for the IDE grammar sanity
+    /// test (Phase 5 task 13); this pin keeps it honest in BOTH directions
+    /// against the parser's own call sites. The scan stops at the test
+    /// module so it never sees itself.
+    #[test]
+    fn keyword_list_matches_parser_sites() {
+        let full = include_str!("parser.rs");
+        let src = &full[..full.find("#[cfg(test)]").expect("test module marker")];
+
+        // (a) Every listed keyword is referenced by the parser as a quoted literal.
+        for kw in KEYWORDS {
+            assert!(
+                src.contains(&format!("\"{kw}\"")),
+                "KEYWORDS lists '{kw}' but the parser never references it"
+            );
+        }
+
+        // (b) Every keyword()/soft_keyword() call site uses a listed keyword.
+        for call in ["keyword(", "soft_keyword("] {
+            let mut rest = src;
+            while let Some(i) = rest.find(call) {
+                let tail = &rest[i + call.len()..];
+                let end = tail.find(')').expect("unbalanced keyword call");
+                let args = &tail[..end];
+                let q1 = args.find('"').expect("no quoted literal in keyword call");
+                let q2 = args[q1 + 1..].find('"').expect("unterminated literal");
+                let kw = &args[q1 + 1..q1 + 1 + q2];
+                assert!(
+                    KEYWORDS.contains(&kw),
+                    "parser uses keyword '{kw}' but KEYWORDS does not list it"
+                );
+                rest = &rest[i + call.len() + end..];
+            }
+        }
+
+        // (c) The action match arms (emit/set/priority) are listed too.
+        for kw in ["emit", "set", "priority"] {
+            assert!(
+                KEYWORDS.contains(&kw),
+                "action keyword '{kw}' missing from KEYWORDS"
+            );
+        }
     }
 }

@@ -1,6 +1,31 @@
-module ping_pong {
-  enum State { A, B }
-  initial A
-  event Go
-  transition A on Go { next B; }
+# rfs 1.0
+module tcp_handshake_like {
+  enum State { Idle, SynSent, Established }
+  initial Idle
+  event Recv(Syn)
+  event Recv(Ack(ack_seq: bit<4>))
+  event Tick
+  output Send(SynAck)
+  output Drop
+  var seq: bit<4> init 0
+  var timer: bit<3> init 7
+  transition Idle on Recv(Syn) {
+    next SynSent;
+    emit Send(SynAck);
+    set seq = 1;
+  }
+  transition SynSent on Recv(Ack(ack_seq)) where ack_seq == seq {
+    next Established;
+  }
+  transition SynSent on Tick where timer > 0 {
+    next SynSent;
+    set timer = timer - 1;
+  }
+  transition SynSent on Tick where timer == 0 {
+    next Idle;
+    emit Drop;
+  }
+  prop syn_ack : always (input_is(Recv(Syn)) -> output_has(Send(SynAck))) ;
+  prop timeout_progress : always (state == SynSent -> bounded_eventually[10] (state != SynSent)) ;
+  assume env_tick : always (bounded_eventually[5] (input_is(Tick))) ;
 }

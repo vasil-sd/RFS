@@ -1,0 +1,6 @@
+module ping_pong {
+  enum State { A, B }
+  initial A
+  event Go
+  transition A on Go { next B; }
+}

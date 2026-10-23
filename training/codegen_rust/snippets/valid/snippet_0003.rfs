@@ -1,0 +1,10 @@
+module simple_fsm {
+  enum State { Idle, Waiting }
+  initial Idle
+  event Req
+  event Ack
+  output Retry
+  var timer: bit<8> init 0
+  transition Idle on Req { next Waiting; set timer = 3; }
+  transition Waiting on Ack { next Idle; }
+}

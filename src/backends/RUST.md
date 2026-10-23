@@ -76,6 +76,20 @@ The generated file contains, in order:
    (position 0) so monitor countdowns start correctly; `commit_step` steps the
    monitors online after every successful transition.
 
+**Optional ProtocolFsm impl (Phase 5 task 11, D-P5-11):** with
+`--with-protocol-fsm` (OFF by default - every byte of default output unchanged)
+the production and test commands append one block AFTER the inherent `impl Fsm`
+(before `#[cfg(test)]` in test artifacts):
+`use rfs_adapters::ProtocolFsm;` + `impl ProtocolFsm for Fsm { type Input =
+Input; type Output = Output; type Error = StepError; fn new() -> Self {
+Fsm::new()} fn step(&mut self, input) -> Result<Vec<Output>, StepError> {
+Fsm::step(self, input)} }` - forwarding explicitly so it cannot recurse. This
+is the ONE documented opt-in that links a generated artifact to an external
+crate (the consumer must then depend on `rfs-adapters`). `mc` rejects the flag
+(pinned `PROTOCOL_FSM_MC_ERROR`, CLI + library level); the C backend accepts
+and ignores it byte-identically. Byte-pinned: flag-on output = default output
++ the block exactly once.
+
 #### 2.3 Online property/assumption monitors (Phase 3)
 
 Every in-subset `prop`/`assume` compiles (in the shared, language-agnostic
@@ -207,6 +221,19 @@ parts dispatched by the generated `main` on the runtime `--mode` flag:
 - liveness diagnostics: formulas outside the D-P4-9 scope (deeper temporal
   nesting) produce codegen WARNINGS and are skipped; any formula containing
   eventually/until is outside the monitor subset (identical skip warning).
+
+**Counterexample report format (Phase 5 task 10, D-P5-10):** the exact engine
+renders its report in `text` mode (default - the parity-pinned human-readable
+report, byte-for-byte unchanged) or `json` mode (`--counterexample-format
+json|text` at codegen time or runtime): one compact machine-readable document
+(status, metrics, reason/label/step on fail, statistics, and the counterexample
+as structured data - `trace` / lasso with prefix+cycle+cycle_length /
+deadlock-config). The JSON is rendered by an EMBEDDED copy of the hand-rolled
+writer (D-P5-2) so the generated binary stays dependency-free; key ordering is
+part of the byte-parity contract and the document is byte-identical across
+backends for the same spec/mode (pinned over all property-bearing examples + a
+golden full-document pin). Exact mode only - fuzz and smt-bounded keep their
+own output.
 
 Because the generated binary cannot depend on this crate, `rust_mc.rs`
 contains embedded copies of the plan tables and parsing helpers. **The formats

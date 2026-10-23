@@ -39,11 +39,12 @@ Read order for a new assistant:
 | Cargo project | Working | Package `rfs`, version `0.1.0`, edition `2021`. |
 | Parser | Phase 0 complete | Implemented with `nom` 8 in `src/parser.rs`. |
 | IR | Phase 0 complete | Serializable Rust structs/enums in `src/ir.rs`. |
-| JSON round-trip | Working | `serde` + `serde_json`; tested. |
-| CLI | Working | Subcommand-based: `rfs parse` (format conversion), `rfs validate` (semantic validation), `rfs codegen` (backend registry dispatch). No positional-argument legacy mode. |
+| JSON round-trip | Working | Hand-rolled reader-writer `src/json_rw.rs` (Phase 5 task 2 - serde/serde_json removed; ordered objects, byte-identical output contract); tested. |
+| CLI | Working | Subcommand-based, SIX commands: `rfs parse` (format conversion), `rfs validate` (semantic validation, text or `--json`), `rfs info` (static introspection, Phase 5 task 3), `rfs test` (generate + compile + run, tasks 7/17), `rfs diagram` (diagrams/tables, task 8), `rfs codegen` (backend registry dispatch). No positional-argument legacy mode. |
 | Phase 2 core DSL | Complete | Version headers, `on_error` fallbacks, priorities in generated code, Phase 2 validator checks (errors + warnings channel), C backend (production/test/mc) with the Rust MC wire format. See `DESIGN.md` section 20. |
 | Phase 3 properties/monitors | Implemented (phase close-out: task 22) | Property subset incl. `always[N]`; online monitors from the shared MonitorPlan in BOTH backends (R1-R4 restrictions); `--with-property-monitors` CLI; enhanced MC counterexamples; cross-backend parity suite. See `DESIGN.md` section 21. |
-| Phase 4 scalable model checking | Implemented (close-out task 14 pending) | Exact reachable-state MC engine as the default `mc` mode (seeded fuzz retained behind `--mode fuzz`); liveness `eventually`/WEAK `until` + lasso counterexamples; input abstraction; three-status taxonomy (`pass-complete`/`fail`/`unknown-state-limit`) with pinned summary line; level-parallel exact BFS (`--threads`, byte-identical for any N) + runtime `--fast`; benchmark specs 43/44/45 + suite; optional SMT bounded mode (`--mode smt-bounded`, feature-gated). See `DESIGN.md` sections 11 + 22. |
+| Phase 4 scalable model checking | Implemented (close-out complete) | Exact reachable-state MC engine as the default `mc` mode (seeded fuzz retained behind `--mode fuzz`); liveness `eventually`/WEAK `until` + lasso counterexamples; input abstraction; three-status taxonomy (`pass-complete`/`fail`/`unknown-state-limit`) with pinned summary line; level-parallel exact BFS (`--threads`, byte-identical for any N) + runtime `--fast`; benchmark specs 43/44/45 + suite; optional SMT bounded mode (`--mode smt-bounded`, feature-gated). See `DESIGN.md` sections 11 + 22. |
+| Phase 5 full toolchain | Implemented (close-out task 16 pending) | Workspace conversion + `rfs-build` build.rs helper; hand-rolled JSON everywhere (`src/json_rw.rs`, serde removed); new commands `rfs info` / `rfs test` (unit + libFuzzer fuzz suites, both backends) / `rfs diagram` (dot/puml/mmd/table/md plugins, strict `--render svg`); external-tool parameterization (`RFS_*` env vars > CLI flags > PATH, shared resolver `src/ext_tool.rs`) + `--print-script` on every tool-invoking command; `--no-std` production codegen (core+alloc, identical API); MC `--counterexample-format json` (byte-identical across backends); `ProtocolFsm` trait + 4 generic adapters (`crates/rfs-adapters`) + `--with-protocol-fsm` opt-in; extended shared test planner rendered by both backends + fuzz skeletons as extra files; example-crate matrix (sync/async handlers, C mirror, fuzz harnesses both ecosystems); IDE support (`ide/` TextMate grammar + snippets, `validate --json` structured diagnostics). See `DESIGN.md` section 23. |
 | Frontend CLI (`parse`) | Phase 1 working | `rfs parse --input <rfs\|json> --output <rfs\|json> <file-or-dir> [--target-dir DIR]`; all four RFS/JSON format combinations, structure-preserving target dirs, collision guard. |
 | Frontend CLI (`validate`) | Phase 1 working | `rfs validate [--input <rfs\|json>] [--json] <file-or-dir>`; file mode reports to stderr, directory mode writes `<name>.rfs-validation.err` next to each failing source. |
 | Valid examples | 45 files | All parse, validate, round-trip, and translate to Rust **and C**; includes TLA-inspired adaptations, Phase 1 assumption/unexpected-input demos, the Phase 2 endpoint-protocol + on_error-recovery showcases, the Phase 3 property/monitor demos (41 Fin/Ack-style, 42 bounded liveness), and the Phase 4 benchmarks (43 sliding-window ARQ with liveness + input abstraction, 44 token ring ~130k states, 45 elevator). |
@@ -51,7 +52,7 @@ Read order for a new assistant:
 | Validator | Phase 1 working | `src/validator.rs` performs name resolution, pattern/output checks, expression typing, and formula typing. |
 | Code generator | Phase 2 working (plugin system) | `src/codegen.rs` defines the Backend plugin API, the `BACKENDS` registry, and `rfs codegen` CLI parsing; shared analysis in `codegen_fsm/test/mc.rs` + `mc_plan.rs` (Phase 4 MC plan) + `monitor.rs` (Phase 3 monitors) + `smt_plan.rs`/`smt_emit.rs` (Phase 4 SMT); **Rust and C backends** under `src/backends/` each implement production/test/mc (C MC mirrors the Rust exact engine - same summary line, counterexample fields, and CLI wire format). See `CODEGEN.md`. |
 | Tests | Passing | 375 non-doc tests in the main crate (189 lib incl. the ext_tool resolver pins for all tool presets (rustc/gcc/dot/plantuml/mmdc/clang/cargo-fuzz), 10 cross-backend parity, 5 benchmark MC, 49 codegen, 3 examples, 93 frontend CLI logic incl. the Phase 5 task 7 `rfs test` suite, the task 17 `--suite fuzz` suite and the task 13 `validate --json` suite (pinned document shape, line/col cross-checked against ParseError, directory-mode array, IDE grammar keyword-coverage sanity) (suite selection with the default path proven tool-free, missing-tool diagnostics for both backends, stub-pinned fuzzer-crash exit, full-pipeline stub argv proofs incl. the fixed `fuzz` subcommand placement + env-then-CLI arg order, byte-pinned --print-script incl. the fuzz steps, real-tool gated e2e), 4 parser-library comparison, 9 liveness MC, 4 monitor integration, 4 training, 3 example projects; +2 more with `--features smt`); generated aggregate unit-test crate currently has 1453 passing tests (179 modules; since Phase 5 task 5 each module also carries the extended plan classes - per-transition, invariant, monitor-violating-trace and random-trace tests; it also compiles the valid training snippets, so the count moves with the snippet sets). |
-| LLM training set | Maintained, 11 categories | `training/<category>/rfs_training.jsonl` stores category-specific SFT examples (design, syntax_semantics, properties_temporal_logic, model_checking, model_checking_space, model_checking_properties, codegen_rust, examples_explain, frontend_cli, project_tooling, tla_adaptation); `all_rfs_training.jsonl` is the generated aggregate (231 examples; Phase 4 task 12 added eventually/until + exact-MC-status/abstraction/liveness-counterexample coverage). |
+| LLM training set | Maintained, 11 categories | `training/<category>/rfs_training.jsonl` stores category-specific SFT examples (design, syntax_semantics, properties_temporal_logic, model_checking, model_checking_space, model_checking_properties, codegen_rust, examples_explain, frontend_cli, project_tooling, tla_adaptation); `all_rfs_training.jsonl` is the generated aggregate (244 examples; Phase 4 task 12 added eventually/until + exact-MC-status/abstraction/liveness-counterexample coverage; Phase 5 task 14 added the Phase 5 user-facing surface - info/test/diagram, validate --json, tool parameterization + --print-script, rfs-build/workspace/example crates, no_std/--with-protocol-fsm/adapters, MC counterexample JSON). |
 | Training snippets | Generated | `training/<category>/snippets/valid/*.rfs` and `snippets/invalid/*.rfs` are extracted from training JSONL, validated, and tested by the parser suite. |
 | Lint/format | Clean | `cargo clippy --all-targets` and `cargo fmt` were clean at last verification. |
 
@@ -60,22 +61,35 @@ Current high-level state:
 ```text
 RFS source (.rfs)  <----+  rfs parse (format conversion, review)
       |                 v
-      v          IR JSON (serde)  <---- external tooling via JSON
+      v          IR JSON (hand-rolled json_rw)  <---- external tooling via JSON
 nom-based parser (src/parser.rs)
       |
       v
-IR v0 (src/ir.rs, serde JSON)
+IR v0 (src/ir.rs, hand-rolled JSON serialization)
       |
       +--> frontend CLI: rfs parse / rfs validate  [DONE, Phase 1]
-      |        RFS<->JSON conversion, .rfs-validation.err reports
+      |        RFS<->JSON conversion, .rfs-validation.err reports (text mode)
+      |        or structured --json diagnostics (Phase 5 task 13)
+      |
+      +--> rfs info  [DONE, Phase 5 task 3]   static introspection (text/--json)
       |
       +--> semantic validator (src/validator.rs)  [DONE, Phase 1]
       |
       +--> codegen plugin registry: rfs codegen  [DONE, Phase 1]
       |        core src/codegen.rs (Backend API, BACKENDS) + shared analysis
       |        rust backend src/backends/rust*: production / test / mc
+      |        c    backend src/backends/c*:    production / test / mc (parity)
       |        model checker = production core + runtime executable
+      |
+      +--> rfs test  [DONE, Phase 5 tasks 7/17]  generate + compile + run
+      |        unit suite (both backends) + libFuzzer fuzz suites
+      |
+      +--> rfs diagram  [DONE, Phase 5 task 8]   dot/puml/mmd/table/md plugins
 ```
+
+Workspace crates around the toolchain (Phase 5): `crates/rfs-build` (build.rs
+helper), `crates/rfs-adapters` (ProtocolFsm + generic adapters), example crates
+under `crates/examples/`; IDE support in-repo under `ide/`.
 
 ---
 
@@ -91,11 +105,13 @@ Main goal:
 
 Targets:
 
-- production Rust automata;
-- model-checking executables;
-- generated tests;
-- diagrams/docs later;
-- IDE/LSP later.
+- production Rust AND C automata (parity-pinned);
+- model-checking executables (exact engine, text or JSON report);
+- generated tests (extended suite + fuzz skeletons, both backends);
+- state diagrams / transition tables (`rfs diagram`, Phase 5 task 8);
+- IDE support: in-repo TextMate grammar + snippets (`ide/`) and structured
+  `rfs validate --json` diagnostics (Phase 5 task 13); a full LSP remains an
+  explicit non-goal.
 
 RFS is intentionally not a general-purpose language. It is designed so that the same specification can be used for:
 
@@ -167,7 +183,7 @@ The IR is the single source of truth for generators.
 Current decisions:
 
 - IR is versioned: `Ir.ir_version`.
-- IR is serializable with `serde`.
+- IR is serialized by the hand-rolled JSON reader-writer (`src/json_rw.rs`, Phase 5 task 2 - serde removed; ordered objects, byte-identical output contract).
 - JSON is the Phase 0 inspection/round-trip format.
 - The parser returns IR directly in Phase 0; there is no separate public AST yet.
 - The IR is intentionally clean: no parser spans are stored in the serializable IR.
@@ -654,14 +670,15 @@ Phase 5 task 2 - all JSON goes through the hand-rolled `src/json_rw.rs`.)
 |---|---|
 | `src/lib.rs` | Public crate API, module declarations, `collect_rfs_files`. |
 | `src/error.rs` | `Span`, `ParseError`, line/column and rich display. |
-| `src/ir.rs` | IR v0 data model and serde serialization. |
-| `src/parser.rs` | nom-based parser, comment stripping, structural validation, unit tests. |
+| `src/ir.rs` | IR v0 data model + hand-written `to_json`/`from_json` (Phase 5 task 2 - serde derives removed; fallible `to_json` for u64-range values). |
+| `src/json_rw.rs` | Hand-rolled JSON reader-writer (Phase 5 task 2): ordered-object value model, compact + pretty writer with pinned escaping/number formatting, reader with typed extraction. ALL JSON in the toolchain goes through it; an embedded copy of the writer ships inside generated MC binaries for `--counterexample-format json`. |
+| `src/parser.rs` | nom-based parser, comment stripping, structural validation, unit tests; `pub const KEYWORDS` (28 RFS v0 keywords) is the shared source of truth with the `ide/` TextMate grammar (drift-guard test, Phase 5 task 13). |
 | `src/frontend.rs` | Frontend CLI logic: RFS/JSON format conversion (`run_conversion`, `plan_conversion`), output path planning (target-dir structure, extension replacement, collision guard via normalized absolute paths), validation dispatch (`run_validate`) including `.rfs-validation.err` writing; reusable from tests and external tools. |
 | `src/training.rs` | Training-set aggregation, JSONL validation, and RFS snippet extraction. |
 | `src/validator.rs` | Semantic validation and expression/formula typing; Phase 2 adds priority/duplicate-transition errors and the non-fatal warning channel (`module_warnings`: unreachable states, dead events, unused vars, impossible guards). Used by code generation, CLI validate, and snippet classification. |
 | `src/codegen.rs` | Codegen plugin core: `Backend`/`BackendCommandInfo` API, `BACKENDS` registry, `parse_codegen_args` CLI parsing, help rendering, shared option/output types. See `CODEGEN.md`. |
 | `src/codegen_fsm.rs` | Language-agnostic production-FSM helpers: variant flattening (`build_variants`), representative values; legacy Phase 1 formula-subset helpers (`contains_liveness`, `safety_formula_inner`) kept for tests - monitor-compilability now comes from the shared compiler in `src/monitor.rs`. |
-| `src/codegen_test.rs` | Language-agnostic unit-test planning: `TestPlan`, unexpected-input/deadlock detection. |
+| `src/codegen_test.rs` | Language-agnostic unit-test planning (extended in Phase 5 task 4): `TestPlan` with module-level cases + per-transition cases (static guard taken/not-taken analysis), invariant cases, monitor-violation cases, seeded random-trace case, fuzz decode plan; unexpected-input/deadlock detection. One plan rendered by BOTH backends (parity principle). |
 | `src/codegen_mc.rs` | Language-agnostic model-checker concepts: `McConfig` wire format, `ViolationSpec`, `McPhase`, `McStatus`; exact-mode `ExactStatus`/`FailReason` + pinned summary line; Phase 5 task 10: `CounterexampleFormat` (`--counterexample-format json|text`) + the JSON report model (`McJsonReport`/`JsonCounterexample`/`JsonStep`/`JsonIo`, key-ordering contract documented next to the `JSON_KEY_*` constants). |
 | `src/monitor.rs` | Phase 3 shared monitor compiler: formula -> per-label `MonitorPlan` (per-sample boolean signals, delay registers for `next`, obligation monitors with trigger/deadline countdown for `be[N]`, countdown monitors for `always[N]`), restrictions R1-R4; language-agnostic - both backends render the same plan. Includes a reference interpreter used only by tests. |
 | `src/backends/mod.rs` | Backend plugin module root. |
@@ -674,7 +691,11 @@ Phase 5 task 2 - all JSON goes through the hand-rolled `src/json_rw.rs`.)
 | `src/bin/extract_training_snippets.rs` | Cargo bin behind `cargo extract-training-snippets`; refreshes `training/*/snippets`. |
 | `src/bin/generate_code_tests.rs` | Generates the aggregate generated-code unit-test crate. |
 | `src/bin/test_generated_code.rs` | Generates, compiles, and runs the aggregate generated-code unit tests. |
-| `src/main.rs` | CLI entry point: six subcommands - `parse` (format conversion), `validate` (file/dir validation), `codegen` (backend registry dispatch), `info`, `diagram` (plugin registry), `test` (generate + compile + run). Unknown subcommands print the usage and exit 1. Argument parsing and exit codes live here; logic lives in `src/frontend.rs` / `src/codegen.rs` / `src/test_cmd.rs`. |
+| `src/main.rs` | CLI entry point: six subcommands - `parse` (format conversion), `validate` (file/dir validation, text or `--json`), `codegen` (backend registry dispatch), `info`, `diagram` (plugin registry), `test` (generate + compile + run). Unknown subcommands print the usage and exit 1. Argument parsing and exit codes live here; logic lives in `src/frontend.rs` / `src/info.rs` / `src/test_cmd.rs` / `src/diagram.rs` / `src/codegen.rs`. |
+| `src/info.rs` | `rfs info` command (Phase 5 task 3): static per-module introspection (states, events/outputs with variants + fields, vars, transition count, properties/assumptions with monitor-subset status); text rendering + the `--json` document (stable key order, all keys present). |
+| `src/ext_tool.rs` | Shared external-tool resolver + invocation helper (Phase 5 task 3, extended task 17): presets RUSTC/GCC/DOT/PLANTUML/MERMAID/CLANG/CARGO_FUZZ with `RFS_*` env vars (+ `*_ARGS`), CLI-flag override, PATH default; fixed-subcommand extension (cargo-fuzz); renders command lines for `--print-script` and executes them otherwise; deterministic POSIX sh script emission. |
+| `src/test_cmd.rs` | `rfs test` command (Phase 5 tasks 7/17): suite selection (`unit`/`fuzz`), unit pipeline (codegen into temp dir + compile with resolved rustc/gcc + run), C/Rust libFuzzer fuzz pipelines, missing-tool diagnostics only for selected suites, `--print-script` coverage. |
+| `src/diagram.rs` + `src/diagrams/` | `rfs diagram` command (Phase 5 task 8): plugin registry mirroring the codegen backend pattern; v1 plugins in `src/diagrams/` - `dot.rs`, `plantuml.rs`, `mermaid.rs`, `tables.rs` (`table` + `md`); pure-text `generate` per plugin, optional strict `--render svg` via the resolved tool. |
 | `crates/rfs-build/` | build.rs helper crate: invokes the `rfs` toolchain at build time (`RFS_BIN` -> PATH resolution, cargo rerun directives); builder options `.backend()`, `.production()`, `.test_command()` (task 12 - the `test` codegen command, whose extra file is the libfuzzer skeleton next to the main artifact), `.with_property_monitors()`, `.no_std()`, `.with_protocol_fsm()`. Dependency-free. |
 | `crates/rfs-adapters/` | Rust-ecosystem integration layer (Phase 5 task 11): the `ProtocolFsm` trait (`Input`/`Output`/`Error` associated types + `new()` + `step(&mut self, input) -> Result<Vec<Output>, Error>`) + four generic adapters - `channel` (std mpsc, FSM on its own thread), `async_adapter` (futures Stream; steps synchronously in `poll_next`, any executor works), `callback` (`drive(fsm, decide, max_steps)` reactive loop), `minimal` (no_std step-forwarding wrapper that is itself a `ProtocolFsm`). `#![no_std]` core with `std` (default) / `async` features; never depends on generated code. |
 | `crates/examples/sync_handler/`, `crates/examples/async_handler/` | Example crates (Phase 5 task 11): spec-43 sliding-window ARQ driven end to end over the channel adapter / futures stream adapter; build.rs generates the FSM via rfs-build with `--with-protocol-fsm`; each carries its session as a test + a demo binary. See their READMEs. |
@@ -776,16 +797,31 @@ All four format combinations are supported: rfs->json, rfs->rfs (reformat), json
 - **Collision guard**: normalized absolute paths of input and output are compared; if they are identical (e.g. rfs->rfs without `--target-dir`), the conversion is refused with an error instead of overwriting the input.
 - **Exit codes**: 0 on success; 1 for any parse/planning/IO error, reported on stderr. Per-file parse errors in a directory run are collected and do not stop the remaining files.
 
-#### `validate` subcommand (Phase 1): semantic validation
+#### `validate` subcommand (Phase 1; `--json` added Phase 5 task 13): semantic validation
 
 ```sh
 cargo run -- validate <file.rfs | file.json>
 cargo run -- validate --input <rfs|json> <directory>
+cargo run -- validate --json <file.rfs | file.json>      # structured diagnostics on stdout
+cargo run -- validate --json --input rfs <directory>     # array, one doc per failing file
 ```
 
 - **File input**: the extension selects the format; `--input` is optional and must not conflict with the extension. Validation errors are printed to stderr; exit code 1 on failure, 0 on success.
 - **Directory input**: `--input` is required (the directory may contain either kind of file). All matching files are parsed and semantically validated. Each failing source file gets a `<name>.rfs-validation.err` text file written next to it (e.g. `bad.rfs.rfs-validation.err`) listing its parse/semantic errors; passing files get no err file. Exit code 1 if any file failed.
+- **`--json`** (editor integrations): structured diagnostics on stdout INSTEAD of text + err files - file mode one object, directory mode an array with one object per FAILING file: `{ "file": ..., "ok": ..., "errors": [ { "kind": "parse"|"semantic", "line": N, "col": N, "message": ... } ] }`. Parse errors carry the real 1-based line/col where parsing stopped (can read 1:1 when the first module fails wholesale); semantic errors carry no span and are pinned to `0`/`0`. JSON mode writes NO `.err` side files. Exit codes unchanged from text mode.
 - Validation runs the full `src/validator.rs` pipeline: name resolution, pattern/output checks, expression and formula typing.
+
+#### `info` subcommand (Phase 5 task 3): static spec introspection
+
+```sh
+cargo run -- info <spec.rfs | spec.json>
+cargo run -- info --json <spec.rfs | spec.json>
+cargo run -- info --log-level off|error|warn|info|debug <spec.rfs | spec.json>
+```
+
+- Parses + validates ONE spec file (file input only - a directory is an error) and prints the module structure: initial state, enums, events/outputs with variants + field types, variables with types + init values, transition count, and properties/assumptions each with its monitor-subset status (`monitored` / `skipped: <reason>`). NO model checking, NO code generation.
+- `--json` emits the machine-readable document (top level `{ "modules": [...] }`; stable key order; ALL keys always present - empty arrays and `null` instead of omitted fields) for IDE/tooling reuse; pretty-printed like the other `--json` outputs.
+- `--log-level` filters stderr progress output. Exit 0 on a valid spec, 1 on parse/validation error (same convention as the other commands).
 
 #### `codegen` subcommand (Phase 1): backend registry dispatch
 
@@ -817,6 +853,20 @@ cargo run -- test [--backend rust|c] [--steps N] [--rustc PATH] [--gcc PATH] \
 
 The CI entry point for generated tests: parse+validate the spec, codegen the `test` artifact (registry dispatch) into a temp dir (cleaned on every exit path), and run the SELECTED suites (`--suite unit|fuzz`, repeatable/comma-separated, default `unit`). The `unit` suite compiles the artifact with the resolved tool (`rustc --edition 2021 --test` for backend rust, `gcc -Wall` for backend c) and runs the executable; per-test results stream on stdout (libtest lines for rust, `PASS <name>`/`FAIL <name>` for c). The `fuzz` suite (Phase 5 task 17) builds + bounded-runs the libFuzzer target from the EMITTED skeleton extra file: C = `clang -O1 -fsanitize=fuzzer,address` over `fuzz_target.c` (the production source is written next to it under its hardcoded `#include` name and NOT compiled separately), run with `-max_total_time=<N>` (`--fuzz-max-total-time`, default 30) + extra runtime flags, `ASAN_OPTIONS=detect_leaks=0` merged in (the generated C FSM has no free API); Rust = a temp cargo-fuzz project scaffold (lib root = generated production source, adapted skeleton in `fuzz/fuzz_targets/`, `[package.metadata] cargo-fuzz = true`, `libfuzzer-sys = "=0.4.13"` pinned to the local registry cache for offline builds, `rust-toolchain.toml` pinning nightly because cargo-fuzz needs `-Zsanitizer`) run via `cargo fuzz build` + `cargo fuzz run fuzz_target -- -max_total_time=<N>`. Tool paths/args follow task 3's resolver: `RFS_RUSTC`/`RFS_GCC`/`RFS_CLANG`/`RFS_CARGO_FUZZ` (+ `*_ARGS`) env vars preferred, overridden by the matching PATH + `--*-args` flags, default bare name on PATH (cargo-fuzz is a fixed `fuzz` subcommand of the resolved cargo); `RFS_FUZZ_FLAGS` (+ `--fuzz-flags`) carries extra libFuzzer runtime flags for both backends. Missing clang/cargo-fuzz is an error ONLY when the fuzz suite is selected - the default unit path stays tool-free. `--print-script` prints a self-contained deterministic POSIX sh script (unit: heredoc source + compile + run + cleanup; fuzz steps appended when selected, with a header note naming the required tools) instead of executing - exit 0 either way. Exit codes: 0 every selected suite passes (fuzzer exits 0 within its budget); 1 unit-test failure, fuzzer found a bug (non-zero exit), compile error, missing tool for a SELECTED suite, or usage/parse/validation error (consistent with the other commands).
 
+#### `diagram` subcommand (Phase 5 task 8): state diagrams + tables as plugins
+
+```sh
+cargo run -- diagram --list <spec.rfs | spec.json>
+cargo run -- diagram [--format dot|puml|mmd|table|md] [--out FILE] <spec.rfs | spec.json>
+cargo run -- diagram --render svg --out FILE.svg [--dot PATH] [--plantuml PATH] [--mermaid PATH] \
+    [--*-args "..."] [--print-script] <spec.rfs | spec.json>
+```
+
+- Plugin registry mirroring the codegen backend pattern (`src/diagram.rs` + `src/diagrams/`): v1 formats `dot` (Graphviz DOT state diagram, default), `puml` (PlantUML state diagram - edge label `event \n guard`, emitted data via `note on link`, dashed `on_error` edges), `mmd` (Mermaid `stateDiagram-v2` - all transition info in multi-line edge labels), `table`/`md` (state x event transition matrix + variable/event summaries). Runs on the FIRST module of the spec.
+- PRIMARY behaviour is pure Rust text generation with NO external tool calls - it works without graphviz/plantuml/mermaid installed. Output goes to stdout or `--out FILE`.
+- `--render svg` REQUIRES `--out FILE.svg`; the source file (e.g. `.dot`) is written next to it, then the resolved renderer is invoked (`dot -Tsvg` / `plantuml -tsvg` / `mmdc` + auto temp puppeteer config with `--no-sandbox` for root). STRICT error semantics: a missing or failing render tool is an ERROR (exit 1 + diagnostic incl. captured tool stderr) - NO graceful degradation (CI/CD decision; users compose their own fallbacks, e.g. via `--print-script`).
+- Tool paths/args follow the same resolver as `rfs test`: `RFS_DOT`/`RFS_PLANTUML`/`RFS_MERMAID` (+ `*_ARGS`) env vars, overridden by `--dot/--plantuml/--mermaid PATH` + `--*-args` flags. `--print-script` emits a self-contained render script (heredoc writing the generated source, then the render invocation; extra puppeteer-config step for mermaid) or a no-external-tool script without `--render`. Exit 0 on success, 1 on any error.
+
 ### 4.6 Training-set organization
 
 The SFT training data is stored by category under `training/`:
@@ -836,7 +886,7 @@ training/
   tla_adaptation/rfs_training.jsonl
 ```
 
-Category coverage: `codegen_rust` covers generated-code invariants including the backend plugin architecture, the `rfs codegen` CLI, and adding new target languages; `frontend_cli` covers the Phase 1 frontend subcommands (`rfs parse`, `rfs validate`), format round-trips, error reporting, exit codes, and the frontend/code split; `project_tooling` keeps current implementation status and training-pipeline maintenance examples so future sessions start from an accurate picture.
+Category coverage: `codegen_rust` covers generated-code invariants including the backend plugin architecture, the `rfs codegen` CLI (incl. the Phase 5 flags `--no-std`, `--with-protocol-fsm`, `--counterexample-format json`), adding new target languages, and the rfs-adapters crate; `frontend_cli` covers the frontend subcommands (`rfs parse`, `rfs validate` incl. `--json`) plus the Phase 5 commands (`rfs info`, `rfs test` incl. `--print-script` + tool parameterization, `rfs diagram`), format round-trips, error reporting, and exit codes; `project_tooling` keeps current implementation status (workspace layout, rfs-build/build.rs usage, example-crate walkthroughs) and training-pipeline maintenance examples so future sessions start from an accurate picture.
 
 Each category directory also contains extracted RFS snippets:
 
@@ -1047,11 +1097,11 @@ liveness - in both backends (previously post-hoc safety-only checks; see
 
 | Area | Current limitation | Impact | Recommended next action |
 |---|---|---|---|
-| Spans in IR | IR is clean and span-free. | Validator/codegen errors lack source locations (message + transition id only). | Add a span side-table before IDE diagnostics (Phase 5). |
+| Spans in IR | IR is clean and span-free. Parse errors DO carry real 1-based line/col (from the parser's `ParseError` spans, surfaced by `rfs validate --json`, Phase 5 task 13); semantic/codegen errors still lack source locations (message + transition id only; `validate --json` pins them to `0`/`0`). | A span side-table would let validator/codegen diagnostics point at the offending declaration. | Still open - a full LSP remains an explicit non-goal. |
 | Anonymous payloads | `event E(x: bit<8>)` is not supported; the variant name must be written (`event E(E(x: bit<8>))`). | Some natural syntax is rejected. | Decide whether to add anonymous constructor variants later. |
 | Ambiguity analysis | Guard overlap is detected structurally only (identical guards, contradictory equalities); general overlapping guarded pairs yield a warning, not a proof. | Truly conflicting guarded transitions can pass with a warning. | Bounded/decision-procedure checking in Phase 4. |
 | C backend widths | Only bit<8/16/32/64> (D8). | Wider bit vectors cannot target C. | Document as a hard limit; Rust keeps u128 intermediates. |
-| Feature flags | No `no_std`/monitor/logging codegen options yet (D9, deferred). | Fine for current targets. | Phase 5 candidates. |
+| Feature flags | RESOLVED in Phase 5: `--no-std` production codegen (task 9, D-P5-9) and property monitors (Phase 3, debug-gated) both exist; no logging option (the CLI has `--log-level` instead). | Fine for current targets. | - |
 | Error recovery | Parser stops at first error per file. | Less useful IDE experience. | Acceptable; improve later. |
 
 ## 8. Updated roadmap
@@ -1097,12 +1147,12 @@ Module version headers, `on_error` fallbacks, semantic priorities, validator
 warnings, and the C backend are implemented; details in
 `docs/roadmap/PHASE_2_STATUS.md`.
 
-### Phase 3 and later — next work
+### Phase 3 and later
 
-- **Phase 3 (next):** PSL-like property subset + monitor codegen + MC integration - `docs/roadmap/PHASE_3.md`; start via the two-stage protocol in `docs/roadmap/INTRO.md` (plan first, user review, then implement).
-- Phase 4: scalable model checking (exact reachable-state engine, liveness, optional SMT) - `docs/roadmap/PHASE_4.md`.
-- Phase 5: full toolchain and production integration (CLI hardening, `build.rs`, adapters, diagrams, IDE) - `docs/roadmap/PHASE_5.md`.
-- Phase 6: production hardening and v1.0 (formal semantics, fuzzing, benchmarks, docs) - `docs/roadmap/PHASE_6.md`.
+- **Phase 3 — complete:** PSL-like property subset + monitor codegen + MC integration (`docs/roadmap/PHASE_3_STATUS.md`; decisions in `DESIGN.md` section 21).
+- **Phase 4 — complete:** scalable model checking (exact reachable-state engine, liveness, optional SMT) (`docs/roadmap/PHASE_4_STATUS.md`; decisions in `DESIGN.md` sections 11 + 22).
+- **Phase 5 — implementation complete (close-out task 16 pending):** full toolchain and production integration - six-command CLI, workspace + rfs-build/adapters crates, no_std, MC counterexample JSON, diagrams, IDE support (`docs/roadmap/PHASE_5_PLAN.md` + per-task status files; decisions in `DESIGN.md` section 23).
+- **Phase 6 (next):** production hardening and v1.0 (formal semantics, fuzzing, benchmarks, docs) - `docs/roadmap/PHASE_6.md`; start via the two-stage protocol in `docs/roadmap/INTRO.md` (plan first, user review, then implement).
 
 ---
 
@@ -1366,12 +1416,12 @@ toolchain activation, essential commands, workflow rules). Build/test details:
 
 ## 12. What to work on next
 
-Obsolete as of Phase 4 completion (exact reachable-state MC engine, liveness
-`eventually`/`until`, input abstraction, benchmarks, optional SMT mode all exist).
-Current state: Phase 4 implementation tasks 1-13 done; next is **task 14
-(close-out)** per `docs/roadmap/PHASE_4_PLAN.md`, then Phase 5 - see the phase
-state table in `docs/roadmap/INTRO.md` and the session entry workflow in
-`START.md`.
+Obsolete as of Phase 5 (the full toolchain exists: six CLI commands, workspace +
+rfs-build/adapters crates, no_std, MC counterexample JSON, diagrams, IDE support).
+Current state: Phase 5 implementation tasks 1-14 done (+ user-added task 17);
+next is **task 16 (close-out)** per `docs/roadmap/PHASE_5_PLAN.md`, then Phase 6
+(production hardening and v1.0) - see the phase state table in
+`docs/roadmap/INTRO.md` and the session entry workflow in `START.md`.
 
 ---
 

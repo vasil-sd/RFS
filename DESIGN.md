@@ -37,30 +37,42 @@ RFS is not intended to be a general-purpose programming language. It is a constr
 protocol.rfs  <----+  rfs parse (format conversion, human review)
      |             |
      v             v
-Lexer / Parser   IR JSON (serde) <---- external tooling via JSON
-     |
-     v
-AST (parser-specific)
-     |
-     v
-IR v0 (versioned, serializable)
-     |
-     +--> frontend CLI: rfs parse / rfs validate  [Phase 1]
-     |        RFS<->JSON conversion, semantic validation,
-     |        .rfs-validation.err reports for directory runs
-     |
-     +--> codegen plugin registry: rfs codegen  [Phase 1]
-     |        core (src/codegen.rs): Backend API, BACKENDS registry,
-     |        CLI parsing, help rendering
-     |        shared analysis: codegen_fsm / codegen_test / codegen_mc
-     |        rust backend (src/backends/rust*):
-     |          production -> enum State/Input/Output/Vars, Fsm::step(...)
-     |          test       -> unit tests (positive runs, negative search)
-     |          mc         -> bounded model-checker executable
-     |        future: C and other target-language plugins
-     |
-     +--> docs / diagrams / LSP later
+nom parser      IR JSON (hand-rolled json_rw) <---- external tooling via JSON
+(src/parser.rs)    |
+     |             v
+     +------> IR v0 (versioned, serializable)
+                 |
+                 +--> frontend CLI: rfs parse / rfs validate  [Phase 1]
+                 |        RFS<->JSON conversion, semantic validation,
+                 |        .rfs-validation.err reports (text mode) or
+                 |        structured --json diagnostics (Phase 5 task 13)
+                 |
+                 +--> rfs info  [Phase 5 task 3]
+                 |        static spec introspection (text or --json)
+                 |
+                 +--> codegen plugin registry: rfs codegen  [Phase 1]
+                 |        core (src/codegen.rs): Backend API, BACKENDS registry,
+                 |        CLI parsing, help rendering
+                 |        shared analysis: codegen_fsm / codegen_test / codegen_mc /
+                 |        mc_plan / monitor / smt_plan+smt_emit
+                 |        rust backend (src/backends/rust*):
+                 |          production -> enum State/Input/Output/Vars, Fsm::step(...)
+                 |                       (+ --no-std variant, + opt-in ProtocolFsm impl)
+                 |          test       -> extended unit tests + fuzz skeleton extra file
+                 |          mc         -> exact model-checker executable (text|json report)
+                 |        c backend (src/backends/c*): same three commands, parity-pinned
+                 |
+                 +--> rfs test  [Phase 5 tasks 7/17]
+                 |        generate + compile + run unit/fuzz suites in one invocation
+                 |
+                 +--> rfs diagram  [Phase 5 task 8]
+                        state diagrams / transition tables (dot/puml/mmd/table/md)
 ```
+
+Workspace crates around the toolchain (Phase 5): `crates/rfs-build` (build.rs
+helper), `crates/rfs-adapters` (ProtocolFsm trait + generic adapters), and the
+example crates under `crates/examples/`; IDE support ships in-repo under
+`ide/` (TextMate grammar + snippets, Phase 5 task 13).
 
 The IR is the single source of truth for all generators. This prevents production code and model-checking code from diverging.
 
@@ -68,7 +80,8 @@ Because both `.rfs` sources and IR JSON files normalize to the same IR, every to
 
 ### Code generation as a plugin system [Phase 1]
 
-RFS will target more than one language (Rust now, C later), so code generation is built as a plugin system:
+RFS targets two languages (Rust and C, both shipped - the C backend since
+Phase 2), so code generation is built as a plugin system:
 
 - **Core (`src/codegen.rs`)**: target-language-agnostic. Defines the `Backend` value (name, description, per-command help descriptors, and one function pointer per command kind: production FSM, unit tests, bounded model checker), the compile-time registry `BACKENDS`, CLI request parsing for `rfs codegen`, and help rendering. Adding a backend means appending one static to `BACKENDS`; listing, help, and dispatch pick it up automatically.
 - **Shared analysis (`src/codegen_fsm.rs`, `codegen_test.rs`, `codegen_mc.rs`)**: IR-level logic any backend reuses — variant flattening with collision-free names, representative input values, unit-test planning (positive runs / static unexpected-input detection), model-checker configuration and run-phase/outcome taxonomy. No target-language syntax lives here.
@@ -789,7 +802,7 @@ Token categories include:
 
 - identifiers;
 - integer literals;
-- keywords: `module`, `enum`, `initial`, `event`, `output`, `var`, `transition`, `on`, `where`, `next`, `emit`, `set`, `prop`, `assume`, `bool`, `bit`, `init`, `true`, `false`;
+- keywords: `module`, `enum`, `initial`, `event`, `output`, `var`, `transition`, `on`, `where`, `next`, `emit`, `set`, `prop`, `assume`, `bool`, `bit`, `init`, `true`, `false` (the full RFS v0 keyword set is 28 words - it is maintained as the single source of truth `parser::KEYWORDS` since Phase 5 task 13, shared with the in-repo TextMate grammar under `ide/`; a drift-guard test scans the parser's own call sites bidirectionally, so a new keyword must be added to `KEYWORDS` or the pin fails);
 - punctuation: `{ } ( ) [ ] < > : ; , == != <= >= && || -> << >> + - * & | ^ ~ ! =`;
 - comments removed before parsing.
 
@@ -896,9 +909,9 @@ The shipped exact engine reports the three-status taxonomy of section 11 (D-P4-4
 
 | Option | Pros | Cons | Fit | Decision |
 |---|---|---|---|---|
-| Generated standalone pure `step` function | Simple, testable, no runtime coupling | User must wire I/O themselves | High | Core |
-| Trait-based adapters over the pure FSM | Composable, supports sync/async runtimes | More abstraction layers | High | Recommended |
-| Runtime-specific generated code, e.g. tokio-only | Convenient for specific stack | Couples DSL toolchain to async runtime | Medium | Optional feature only |
+| Generated standalone pure `step` function | Simple, testable, no runtime coupling | User must wire I/O themselves | High | Core (shipped) |
+| Trait-based adapters over the pure FSM | Composable, supports sync/async runtimes | More abstraction layers | High | **Shipped in Phase 5** (D-P5-11: `ProtocolFsm` trait + generic adapters in `crates/rfs-adapters`, wired via the opt-in `--with-protocol-fsm` codegen flag) |
+| Runtime-specific generated code, e.g. tokio-only | Convenient for specific stack | Couples DSL toolchain to async runtime | Medium | No (the async adapter works on ANY executor - no tokio dependency) |
 
 ### 9.9 Error handling in production code
 
@@ -928,9 +941,24 @@ The shipped exact engine reports the three-status taxonomy of section 11 (D-P4-4
 
 ## 10. Production Rust code generation plan
 
-The production generator will emit idiomatic Rust.
+**As shipped (Phase 5 final state):** the production generator emits one
+self-contained `.rs` file with NO dependencies - flattened `State`/`Input`/
+`Output` enums, a `Vars` struct, a trace runtime (`Sample`/`TraceStep`/`Trace`),
+an assumption runtime (`AssumptionPolicy` + handlers, `StepError`), online
+property/assumption monitors rendered from the shared `MonitorPlan` (debug-gated
+in production output, D-P3-6), and `Fsm { state, vars, trace, ... }` with
+`new()` / `step(input) -> Result<Vec<Output>, StepError>` / `step_with_handler`.
+Two Phase 5 extensions: `--no-std` (production only - `#![no_std]` +
+`extern crate alloc`, body byte-identical, identical public API; D-P5-9) and
+`--with-protocol-fsm` (opt-in `impl ProtocolFsm for Fsm`; the one documented
+exception to the no-dependency invariant; D-P5-11). The C backend renders the
+same surface with parity-pinned behavior. Full anatomy: `src/backends/RUST.md`
+section 2 and `CODEGEN.md` section 5. The original Phase 0/1 sketch below is
+kept for history - its module-wrapper shape and `UnexpectedEvent` type were
+superseded by the shipped flat-enum + `StepError` design (Phase 1 codegen
+decisions, section 19).
 
-Example generated shape:
+Original planned shape (historical):
 
 ```rust
 pub mod handshake {
@@ -979,13 +1007,13 @@ pub mod handshake {
 }
 ```
 
-Code generation rules:
+Code generation rules (as shipped, except where noted):
 
-- generated files must include source hash and generator version;
-- variable updates must preserve simultaneous-update semantics using temporary next variables;
-- transition dispatch should map naturally to Rust `match` arms;
-- ambiguous transitions must be rejected or resolved by explicit priority before deterministic code generation;
-- optional debug property monitors may be generated behind a feature flag later.
+- ~~generated files must include source hash and generator version~~ - superseded: the header is the pinned `// Generated by RFS ...` comment line; determinism comes from codegen being a pure function of IR + options (invariant 2 in `CODEGEN.md` section 9);
+- variable updates preserve simultaneous-update semantics using temporary next variables (shipped);
+- transition dispatch maps to Rust `match` arms over `(state, input)` with priority-ordered arms and the `on_error` fallback (shipped, Phase 2);
+- ambiguous transitions are rejected or resolved by explicit priority before deterministic code generation (shipped - validator errors/warnings);
+- debug property monitors are generated behind `#[cfg(debug_assertions)]` in production output (shipped in Phase 3, D-P3-6 - the "feature flag" became a cfg gate; test/mc output always includes them).
 
 ---
 
@@ -1358,11 +1386,22 @@ rfs test protocol.rfs --generate-tests tests/generated
 rfs diagram protocol.rfs --format svg
 ```
 
-Implemented so far: the Phase 1 frontend CLI - `rfs parse` (all four RFS/JSON format
-combinations through the IR, optional `--target-dir`, collision guard) and
-`rfs validate` (file or directory input, `.rfs-validation.err` reports). The Phase 0
-positional parser mode was removed during Phase 2 preparation. Run instructions live
-in `BUILD.md`; CLI behavior rules in `KB.md` section 4.5.
+Implemented so far (Phase 5 final state): SIX subcommands - the Phase 1 frontend
+CLI (`rfs parse`, all four RFS/JSON format combinations through the IR, optional
+`--target-dir`, collision guard; `rfs validate`, file or directory input with
+`.rfs-validation.err` reports in text mode and structured `--json` diagnostics for
+editor integrations since Phase 5 task 13), plus the Phase 5 commands: `rfs info`
+(static spec introspection, text or `--json`; D-P5-4), `rfs test` (generate +
+compile + run the selected unit/fuzz suites in one invocation; D-P5-5), and
+`rfs diagram` (state diagrams / transition tables as plugins, pure-text primary
+behaviour with strict `--render svg`; D-P5-6). The Phase 0 positional parser mode
+was removed during Phase 2 preparation. Every command that invokes external tools
+is parameterizable through the shared resolver (`RFS_*` env vars preferred,
+CLI flags override, bare name on PATH as default; D-P5-7) and accepts
+`--print-script` (deterministic POSIX sh emission instead of execution; D-P5-8).
+Exit-code convention across all six: 0 success, 1 any error (MC generated
+binaries keep their own 0/1/2 status taxonomy). Run instructions live in
+`BUILD.md`; CLI behavior rules in `KB.md` section 4.5.
 
 Conversion rules implemented in `src/frontend.rs`:
 
@@ -1644,6 +1683,11 @@ needs the other two yet. Recorded so they are not silently dropped - they remain
 Phase 5 candidates. Generated code is already dependency-free single files, which
 keeps this door open.
 
+**Phase 5 resolution (D-P5-9):** `--no-std` production codegen shipped (task 9:
+`#![no_std]` + `extern crate alloc`, identical public API shape; C no-op);
+property monitors shipped in Phase 3 (debug-gated, D-P3-6); no logging hook
+(the CLI has `--log-level` instead).
+
 ### D10. IR evolution rule
 
 Additive optional fields (serde `default` + skip-when-none) do **not** bump
@@ -1883,3 +1927,235 @@ non-parity `--fast`. Rejected alternatives (shared-seed RNG switching,
 RNG-driven exploration order) recorded in `PHASE_4_TASK_10B.md`.
 - Task-level corrections: task 5 (until precedence - see D-P4-8), task 10
 (`--timeout-sec` help location - see D-P4-7).
+
+---
+
+## 23. Phase 5 toolchain decisions (as shipped)
+
+Record of D-P5-1..D-P5-14 as IMPLEMENTED (plan: `docs/roadmap/PHASE_5_PLAN.md`;
+corrections below point at the recorded deviations). Full command behavior:
+`KB.md` section 4.5; codegen surface: `CODEGEN.md`; backend internals:
+`src/backends/RUST.md` / `src/backends/C.md`.
+
+### D-P5-1. Workspace layout (task 1)
+The single `rfs` package became a cargo workspace with an EXPLICIT member list
+(no globs - `crates/examples` has no manifest): root package `rfs` +
+`crates/rfs-build` + `crates/rfs-adapters` + example crates
+(`sync_handler`, `async_handler`, `fuzz_rust`). The C example projects
+(`c_sync_handler`, `fuzz_c`) are Makefile-driven and NOT cargo members. Plain
+`cargo build/test/clippy` at the root still select only the root package;
+`--workspace` covers everything. All `.cargo/config.toml` aliases re-verified
+unchanged after the conversion.
+
+### D-P5-2. Hand-rolled JSON reader-writer, ALL sources (task 2)
+A full hand-rolled JSON READER + WRITER (`src/json_rw.rs`) replaced
+serde/serde_json EVERYWHERE: IR serialization/round-trip, all `--json` CLI
+outputs (info/validate/MC counterexample), and the generated MC JSON via an
+embedded copy of the writer. Rationale (full detail in the module doc):
+guarantee KEY ORDERING (declaration order, pinned) and ALWAYS byte-identical
+text output across platforms, Rust versions, and dependency updates - external
+crates give no such contract; it also keeps the toolchain dependency-light and
+consistent with the generated-code constraint. Correction C3: the sketch's
+infallible `to_json` became FALLIBLE `Ir::to_json(&self) -> Result<Json, String>`
+- unsigned IR fields can hold values up to `u64::MAX` (the parser accepts them),
+which the i64 value model cannot represent; failing with a clear error beats
+silent clamping. Output proved byte-identical to the pre-migration format on
+all 45 valid examples, so no test re-pinning was needed.
+
+### D-P5-3. rfs-build: build.rs helper (task 1)
+`crates/rfs-build` is a dependency-free Rust API for build scripts: locates the
+toolchain (`RFS_BIN` env var first - empty treated as unset, nonexistent path
+an error - then `rfs` on PATH with a printed note), runs `codegen <backend>
+production|test`, writes the artifact to `OUT_DIR/<stem>.rs|c`, and emits
+`cargo:rerun-if-changed=<spec>`, `cargo:rerun-if-env-changed=RFS_BIN`,
+`cargo:rerun-if-changed=<RFS_BIN file>` (when it names an existing file), and
+`cargo:include=<artifact>`. Builder options: `.backend()`, `.production()`
+(default) / `.test_command()`, `.with_property_monitors(bool)`, `.no_std(bool)`,
+`.with_protocol_fsm(bool)`. Consumer pattern (task 11 correction C11-1):
+`include!` rejects inner attributes, so build.rs strips the `#!` lines into a
+body file in OUT_DIR and lib.rs uses `include!` under a mirroring outer
+`#[allow]` - generated code stays out of the source tree (cargo fmt never sees
+it).
+
+### D-P5-4. rfs info: static spec introspection (task 3)
+New stable command: per module, states, events/outputs with variants + field
+types, variables with types + init, transition count, and properties/assumptions
+each with monitor-subset status (`monitored` / `skipped: reason`). File input
+only (`.rfs`/`.json` by extension); NO model checking. `--json` emits a
+machine-readable document (stable key order, ALL keys present - empty arrays and
+null instead of omitted fields) for IDE/tooling reuse; `--log-level` filters
+stderr progress. Exit 0 valid / 1 parse-validation error.
+
+### D-P5-5. rfs test: generate + compile + run (tasks 7/17)
+One invocation per selected suite (`--suite unit|fuzz`, repeatable or
+comma-separated, default `unit`): codegen the `test` artifact into a temp dir
+(cleaned on every exit path), compile it (`rustc --edition 2021 --test` /
+`gcc -Wall`), run it; per-test results on stdout, progress on stderr. The fuzz
+suite (task 17) builds + bounded-runs the libFuzzer target from the EMITTED
+skeleton extra file: C = `clang -O1 -fsanitize=fuzzer,address` over
+`fuzz_target.c` ONLY (C17-1: compiling the production source too is a
+multiple-definition link error - the skeleton `#include`s it under its hardcoded
+name), bounded run with `ASAN_OPTIONS=detect_leaks=0` merged (C17-2: the
+generated C FSM has no free API; ASan reads env only); Rust = a temp cargo-fuzz
+scaffold (lib root = generated production source, adapted skeleton,
+`[package.metadata] cargo-fuzz = true` (C17-4), `libfuzzer-sys = "=0.4.13"`
+pinned to the local registry cache for offline builds, `rust-toolchain.toml`
+pinning nightly because cargo-fuzz needs `-Zsanitizer=address`, with a
+non-nightly inherited `RUSTUP_TOOLCHAIN` stripped from the subprocess (C17-3))
+run via `cargo fuzz build` + `cargo fuzz run fuzz_target -- -max_total_time=N`
+(`--fuzz-max-total-time`, default 30; extra runtime flags via `RFS_FUZZ_FLAGS` /
+`--fuzz-flags`). Missing clang/cargo-fuzz is an error ONLY when the fuzz suite
+is selected - the default unit path stays tool-free. Exit 0 = every selected
+suite passes (fuzzer exits 0 within budget); 1 = test failure, fuzzer crash,
+compile error, missing tool for a selected suite, or usage/parse/validation
+error.
+
+### D-P5-6. rfs diagram: plugin registry, strict rendering (task 8)
+State diagrams + tables as plugins mirroring the codegen backend pattern (`src/
+diagram.rs` + `src/diagrams/`): v1 formats `dot` (Graphviz), `puml` (PlantUML
+state diagram - edge label `event \n guard`, emitted data via `note on link`),
+`mmd` (Mermaid stateDiagram-v2 - all info in multi-line edge labels), plus
+`table`/`md` transition tables + variable/event summaries. PRIMARY behaviour is
+pure text generation with NO tool calls. `--render svg` (requires `--out
+FILE.svg`; source written next to it) invokes the resolved renderer (`dot -Tsvg`
+/ `plantuml -tsvg` / `mmdc` + auto temp puppeteer config for root). STRICT error
+semantics (user decision 2026-10-21): missing/failing render tool = exit 1 +
+diagnostic incl. captured tool stderr, NO graceful degradation - RFS runs in
+CI/CD pipelines, a command either does what was requested or throws; users
+compose their own fallbacks (e.g. via `--print-script`). Runs on the first
+module of the spec.
+
+### D-P5-7. External-tool parameterization (task 3, extended task 17)
+Every CLI command that invokes external tools/compilers/build systems is
+parameterizable by tool PATHS and additional tool PARAMETERS. Environment
+variables are the PREFERRED mechanism - `RFS_RUSTC`/`RFS_GCC`/`RFS_DOT`/
+`RFS_PLANTUML`/`RFS_MERMAID` (task 3) + `RFS_CLANG`/`RFS_CARGO_FUZZ` (task 17)
+for paths and the matching `*_ARGS` vars (space-separated extra parameters);
+rfs-build uses `RFS_BIN`. Per-command CLI flags (`--rustc PATH`,
+`--rustc-args "..."`, ... incl. task 17's `--clang/--cargo-fuzz` pair, decision
+D17-1) override the env vars; without either, the bare tool name is looked up
+on PATH. One shared resolver + invocation helper (`src/ext_tool.rs`) implements
+the precedence (flag > env var > PATH) and renders/executes command lines
+identically for all commands; task 17 extended `ExtTool` with a fixed
+`subcommand` field (cargo-fuzz = resolved cargo path + `fuzz`, rendered before
+extra args).
+
+### D-P5-8. --print-script: script-generation mode (task 3)
+Commands that invoke external tools accept `--print-script`: instead of
+executing, they print a deterministic POSIX sh script to stdout (shebang,
+`set -e`, header comment with rfs version + spec + RESOLVED tool paths/args,
+one commented step per invocation) and exit 0. Self-contained: generated
+sources are embedded in quoted heredocs (`rfs test`: the full test artifact;
+`rfs diagram --render svg`: the diagram source, plus a temp puppeteer-config
+step for mermaid). Output is unit-test-pinned; the scripts were manually
+executed with `sh` during tasks 7/8/17 (exit 0 + self-cleanup).
+
+### D-P5-9. no_std production codegen (task 9)
+`--no-std` applies to the PRODUCTION command only (`test`/`mc` reject it with
+the pinned `NO_STD_PRODUCTION_ONLY_ERROR` at CLI and library level - they need
+std's allocation-heavy machinery). Generated Rust becomes `#![no_std]` +
+`extern crate alloc` with an IDENTICAL public API shape (Vec/String/ToString
+from alloc; body byte-identical to the std variant - pinned by a 45-example x
+2-modes compile sweep + body-parity check). The C backend accepts the flag as a
+documented no-op (plain C is already dependency-free) adding one header comment
+line.
+
+### D-P5-10. MC counterexample JSON (task 10)
+`--counterexample-format json|text` on `codegen <backend> mc` (and at runtime
+on the generated binary); default `text` - the parity-pinned human-readable
+report is byte-for-byte unchanged. `json` emits ONE machine-readable document
+mirroring the text report: status, metrics (states/transitions/max_depth),
+reason/label/step (fail only), statistics block, and the counterexample as
+structured data (`trace` / lasso with prefix+cycle+cycle_length /
+deadlock-config). Exact mode only - fuzz and smt-bounded keep their own output.
+Parity extends to byte-identical JSON across backends for the same spec/mode
+(pinned over ALL property-bearing examples + a golden full-document pin). The
+generated binary carries an EMBEDDED copy of the hand-rolled writer (D-P5-2)
+- generated code stays dependency-free, and key ordering is part of the
+byte-parity contract.
+
+### D-P5-11. ProtocolFsm trait + adapters (task 11)
+The Rust-ecosystem integration layer: `crates/rfs-adapters` provides the
+`ProtocolFsm` trait (associated `Input`/`Output`/`Error` + `new()` +
+`step(&mut self, input) -> Result<Vec<Output>, Error>` - the exact shape of
+every generated Rust FSM) plus FOUR generic adapters, none depending on
+generated code: `channel` (FSM on its own thread, std mpsc, FIFO; error
+outcomes don't stop the thread), `async_adapter` (futures Stream; steps
+synchronously in `poll_next` so ANY executor works - no tokio; Pending until
+close()), `callback::drive(fsm, decide, max_steps)` (reactive loop seeing
+previous outputs), `minimal` (core-only step-forwarding wrapper that is itself
+a ProtocolFsm - composes). Because self-contained generated code is a design
+invariant, the trait CANNOT be linked into generated code: codegen OPTIONALLY
+emits `impl ProtocolFsm for Fsm` behind `--with-protocol-fsm` (OFF by default -
+every byte of default output unchanged; the one documented exception to
+invariant 1 in `CODEGEN.md` section 9), placed after the inherent `impl Fsm`,
+before `#[cfg(test)]` in test artifacts, forwarding explicitly so it cannot
+recurse. `mc` rejects the flag (pinned `PROTOCOL_FSM_MC_ERROR`, CLI + library
+level, both backends); the C backend accepts and ignores it byte-identically.
+Rust-ecosystem-only by design per the parity principle (no C trait exists).
+The crate is `#![no_std]` with `std` (default) / `async` features; futures 0.3
+is optional behind `async` - the only external dependency of the workspace
+beyond the root package, never leaking into the toolchain or generated code.
+
+### D-P5-12. Extended test generation: one plan, both backends (tasks 4/5/6)
+The shared planner (`src/codegen_test.rs`) was extended with language-agnostic
+plans for per-transition unit tests (representative inputs + statically computed
+guard taken/not-taken cases; sibling-priority/shadowing rules), invariant tests
+(safety property atoms re-checked at every driven step), property-monitor debug
+tests (injected violating trace must fire the monitor - planner guarantee:
+no higher-firing sibling preempts, task 5 correction C5-1), seeded random-trace
+tests (deterministic LCG, fixed seed 12345, K steps via `--steps`, one
+byte-identical coverage line), and fuzz-target skeleton planning (per-variant
+decode strategy). ONE plan rendered by BOTH backends with identical coverage and
+stable test names - the parity principle made executable (the cross-backend
+suite compares per-test result lists + the random-trace line). Fuzz skeletons
+are SEPARATE extra files (`fuzz_target.rs`/`fuzz_target.c`) so the main artifact
+(and the aggregate generated-code crate) stay dependency-free; the CLI writes
+them next to `--out` and refuses stdout mode (strict - no silent file loss).
+
+### D-P5-13. IDE support + structured diagnostics (task 13)
+In-repo editor support under `ide/` (TextMate grammar for `.rfs`, scope
+`source.rfs`; snippet set; VS Code/Sublime install notes) - full LSP remains a
+non-goal. The parser's keyword list became the single source of truth
+(`parser::KEYWORDS`, 28 words) with a bidirectional drift-guard test (no
+call-site refactor of the byte-sensitive parser, correction C13-2). CLI
+diagnostics integration: `rfs validate --json` emits structured parse/semantic
+errors on stdout - parse errors carry real 1-based line/col from
+`ParseError::line_col` (which can read 1:1 when the first module fails
+wholesale - the top-level `many0` matches zero modules), semantic errors carry
+no span and are pinned to 0/0 (C13-1); file mode = one document, directory mode
+= an array per failing file; JSON mode writes NO `.err` side files (editors
+consume stdout; C13-3); pretty-printed like `info --json` (D13-1). Exit codes
+unchanged.
+
+### D-P5-14. Example-crate matrix (tasks 11/12)
+Rust: `sync_handler` (spec-43 sliding-window ARQ over std mpsc channels via the
+channel adapter) and `async_handler` (the same FSM as a futures Stream) - both
+generate via rfs-build with `--with-protocol-fsm`, carry their session as a
+test + demo binary, and observe identical pinned behavior (19 ticks, in-order
+[0..8] frames/acks, 5 dropped out-of-band acks, max window exactly 4). C mirror:
+`c_sync_handler` (Makefile-driven plain-C scripted peer; `gcc -Wall`
+zero-warning bar; scenario data lines byte-identical to the Rust side). Fuzzing
+harness examples for BOTH ecosystems wiring the emitted skeletons: `fuzz_rust`
+(cargo-fuzz layout, detached `fuzz/` workspace) and `fuzz_c` (clang + libFuzzer;
+generation works without clang, building needs it).
+
+### Plan corrections during execution (pointers)
+
+- **C1** (phase-wide): `PHASE_5.md`'s `--state-limit`/`--time-limit` were NOT
+introduced - Phase 4 shipped `--max-states`/`--timeout-sec` (parity-pinned in
+tests, docs, training data, and the generated binaries' wire format). The
+shipped names stay canonical; no aliases.
+- **C2** (phase-wide): `PHASE_5.md`'s `--features` option was dropped - its
+intent is covered by the explicit `--no-std` / `--with-property-monitors`
+flags; rfs-build exposes cargo feature passthrough separately.
+- **C3** (task 2): fallible `Ir::to_json` for u64-range values - recorded in
+D-P5-2.
+- **C4** (new task 17, user request 2026-10-22): the `rfs test --suite fuzz`
+extension with both libFuzzer pipelines + suite selection + env-var
+parameterization; see `PHASE_5_TASK_17.md` and D-P5-5.
+- Task-level corrections: C5-1 (task 5, monitor-violation planner guarantee -
+in D-P5-12), C9/C10 series (tasks 9/10, in their status files), C11-1..C11-4
+(task 11, incl. the include! consumer-pattern fix - in D-P5-3/D-P5-11),
+C12-1..C12-3 (task 12), C13-1..C13-3 + D13-1 (task 13 - in D-P5-13),
+C17-1..C17-5 + D17-1 (task 17 - in D-P5-5/D-P5-7).

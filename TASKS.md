@@ -901,3 +901,18 @@ Per PHASE_5_TASK_14.md: extend the training set with the Phase 5 surface (info/t
 - Regenerated: snippets 130->135 valid / 127 invalid (+5 valid: specs 04/01/13 in frontend_cli and codegen_rust; no drift in the other 8 categories); aggregate 231 -> 244 lines.
 - Docs: INTRO tasks 1-14 of 16, PHASE_5_TASK_14_STATUS.md (D14-1..D14-3 + counts for task 16).
 - Verification: cargo extract-training-snippets && cargo build-training && cargo test-training green (4/4); cargo test 375/375 root unchanged (training data adds no Rust tests).
+
+## 2026-10-23 07:05 — Phase 5 task 15: docs sync to FINAL Phase 5 state - DESIGN §2/8/9/10/14 + NEW §23 (D-P5-1..14), KB/BUILD/RUST/C/START updated, stale sweep clean
+
+### Interpretation & plan
+Per PHASE_5_TASK_15.md: sync all design-relevant docs to the shipped Phase 5 behavior - new CLI surface + option table, workspace layout, external-tool parameterization + --print-script, rfs-build/adapters/no_std/diagram/JSON decisions as D-P5-x in a NEW DESIGN.md section 23; stale sweep (three-command CLI, single-package, pre-Phase-5 counts, resolved "later" markers); cross-references must resolve. Ground truth = implemented behavior + this session's verification runs.
+
+### Report
+- DESIGN.md: §2 architecture diagram rewritten (json_rw, six commands, C shipped, workspace crates + ide/); §8.2 KEYWORDS source-of-truth note; §9.8 adapters row -> Shipped in Phase 5 (D-P5-11); §10 rewritten around the SHIPPED production surface (no_std D-P5-9, ProtocolFsm D-P5-11) with the original sketch kept historical + rules marked shipped/superseded; §14 "Implemented so far" -> six-command final state (D-P5-4..8); NEW §23 D-P5-1..D-P5-14 as shipped + plan-correction pointers C1/C2/C3/C4 + task-level corrections; §20 D9 gains a Phase 5 resolution pointer.
+- KB.md: §1 state table (JSON round-trip serde->json_rw, CLI three->SIX, Phase 4 close-out complete, NEW Phase 5 row, training 231->244) + ASCII diagram; §2.1 targets list; §2.4 IR serialization; §4.2 source map (+json_rw/info/ext_tool/test_cmd/diagram rows, ir.rs fixed); §4.5 CLI behavior (validate --json doc shape + line/col semantics, NEW info + diagram sections); §4.6 category coverage; §7 limitations (spans row updated, feature-flags RESOLVED); §8 roadmap Phase 3/4/5 -> complete; §12 next work -> task 16.
+- BUILD.md: training counts re-pinned 130->135 valid / 231->244 aggregate (command table + alias note). CODEGEN.md verified current - NO changes needed (D15-1).
+- RUST.md: §2.1 ProtocolFsm impl emission + §4 counterexample report format (embedded writer, byte parity). C.md: §5 JSON renderer mirror + --with-protocol-fsm accept-and-ignore.
+- START.md: §0 (C backend shipped), §1 snapshot rewritten to Phase 5 complete at implementation level (tasks 1-14 of 16 + 17) with re-pinned baseline (375/399/377, 1453, 45+12, 244/135+127), §3 source tree (+crates/, ide/, new src rows, fixed counts), §5 DESIGN map -> sections 19-23, §6 task table (IR row + phase row), §7 513->1453, IR workflow step 1.
+- Stale sweep: no three-command CLI / single-package / pre-Phase-5-count claims remain in live docs; resolved "later" markers updated; historical decision records (DESIGN §20/§21 serde parentheticals, KB §8 Phase 0) intentionally left as history per protocol. Cross-references script-checked: every section citation + all 14 D-P5-x identifiers resolve.
+- Decisions: D15-1 (CODEGEN.md already current), D15-2 ("multiple Rust targets" principle phrasing kept - Phase 6 decision), D15-3 (§15/§14 planned blocks kept historical per Phase 4 precedent).
+- Verification: cargo test 375/375 root unchanged; cargo fmt --check clean. All four exit criteria met.

@@ -103,8 +103,8 @@ report (`target/mc_benchmarks.json`, development artifact, wall-clock informatio
 | no_std production codegen (Phase 5 task 9) | `--no-std` is accepted on the `production` command only (`test`/`mc` -> exit 1 with the pinned message). Rust: `#![no_std]` + `extern crate alloc`, identical public API (body byte-identical to std output); C: documented no-op (header comment) |
 | Generate aggregate generated-code test crate (179 modules) | `cargo generate-code-tests [--test-steps N] [--assumes ...]` |
 | Generate + compile + run all generated unit tests (1453) | `cargo test-generated-code` |
-| Extract training snippets from `training/*/rfs_training.jsonl` | `cargo extract-training-snippets` -> 130 valid / 127 invalid snippets |
-| Aggregate training JSONL | `cargo build-training` -> writes `all_rfs_training.jsonl` (231 examples) |
+| Extract training snippets from `training/*/rfs_training.jsonl` | `cargo extract-training-snippets` -> 135 valid / 127 invalid snippets |
+| Aggregate training JSONL | `cargo build-training` -> writes `all_rfs_training.jsonl` (244 examples) |
 | Run training tests | `cargo test-training` (= `cargo test training`; matches 5 tests: 4 dedicated + the codegen aggregate test whose name contains "training") |
 | Train Qwen3.8-27B on RFS data (SFT then GRPO, needs GPU) | `python training.py --stage both` (`--dry-run` = CPU-only data/reward validation) |
 
@@ -113,7 +113,7 @@ repo root, all working unchanged - no alias needed a `-p rfs` qualifier): `cargo
 (default-run `rfs`), `cargo parse --help`, `cargo validate --input rfs <file>`,
 `cargo codegen --list`, `cargo generate-code-tests`, `cargo test-generated-code` (1453
 pass - required the generated-crate `[workspace]` fix, see section 1),
-`cargo extract-training-snippets` (130/127), `cargo build-training` (231 aggregate),
+`cargo extract-training-snippets` (135/127), `cargo build-training` (244 aggregate),
 `cargo test-training` (5 pass).
 
 CLI behavior rules (file/dir handling, exit codes): `KB.md` section 4.5. Codegen

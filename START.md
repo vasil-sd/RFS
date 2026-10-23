@@ -4,8 +4,8 @@
 
 You are an expert Rust and domain-specific-language research assistant continuing the
 development of the **RFS** project: a finite-state protocol specification language
-that compiles to one versioned IR and multiple targets (production Rust FSMs, unit
-tests, bounded model checkers; C backend planned).
+that compiles to one versioned IR and multiple targets (production FSMs, unit tests,
+model checkers - Rust AND C backends, parity-pinned).
 
 Project root: `/workspace/host/RFS`. Core principle: *one constrained specification
 -> one versioned IR -> multiple Rust targets.* The DSL stays finite and
@@ -45,31 +45,37 @@ model-checkable (no unbounded data, floats, or arbitrary functions in the core).
    any code is touched and executes tasks one at a time - every task starts only
    after explicit user confirmation.
 
-## 1. Project state snapshot (2026-10-19)
+## 1. Project state snapshot (2026-10-23)
 
-- Phase 0 (parser/IR baseline), Phase 1 (validator, plugin-based Rust codegen,
-  frontend CLI `parse`/`validate`/`codegen`), Phase 2 (core DSL + C backend) and
-  **Phase 3 (PSL-like properties and monitors)** are COMPLETE, and **Phase 4
-  (Scalable model checking)** is COMPLETE at implementation level: tasks 1-13
-  done; close-out task 14 records the final verification run +
-  `PHASE_4_STATUS.md`. Phase 4 added: the EXACT reachable-state MC engine as
-  the default `mc` mode (seeded fuzz retained behind `--mode fuzz`; shared
-  codegen-time plan `src/mc_plan.rs` embedded in BOTH backends), liveness
-  operators `eventually`/`until` (weak until) with lasso counterexamples, the
-  three-status taxonomy `pass-complete`/`fail`/`unknown-state-limit` with a
-  pinned summary line, input abstraction for unused payload fields, benchmark
-  specs 43/44/45 + the benchmark parity suite, level-parallel exact BFS
-  (`--threads N`, byte-identical to N=1; runtime-only non-parity `--fast`), and
-  an optional SMT bounded mode (`--mode smt-bounded`, feature-gated `smt`,
-  shared plan + emitter). Design decisions D-P4-1..D-P4-14: `DESIGN.md`
-  section 22.
-- Next work: execute Phase 4 task 14 (close-out) per
-  `docs/roadmap/PHASE_4_PLAN.md`; phase planning/implementation protocol:
+- Phases 0-4 are COMPLETE, and **Phase 5 (Full toolchain and production
+  integration)** is COMPLETE at implementation level: tasks 1-14 of 16 done
+  (+ user-added task 17); close-out task 16 records the final verification run
+  + `PHASE_5_STATUS.md`. Phase 5 added: the cargo WORKSPACE (`rfs` root package
+  + `crates/rfs-build` build.rs helper + `crates/rfs-adapters` ProtocolFsm/
+  adapters + example crates; C projects Makefile-driven non-members), hand-
+  rolled JSON reader-writer `src/json_rw.rs` replacing serde EVERYWHERE (ordered
+  objects, byte-identical output contract), three new CLI commands - `rfs info`
+  (static introspection, text/`--json`), `rfs test` (generate + compile + run
+  unit AND libFuzzer fuzz suites for both backends), `rfs diagram` (dot/puml/
+  mmd/table/md plugins; pure-text primary behaviour, strict `--render svg`) -
+  external-tool parameterization (`RFS_*` env vars preferred, CLI flags override,
+  PATH default; shared resolver `src/ext_tool.rs`) + `--print-script` on every
+  tool-invoking command, `--no-std` production codegen (core+alloc, identical
+  API), MC `--counterexample-format json` (byte-identical across backends),
+  `ProtocolFsm` trait + 4 generic adapters + `--with-protocol-fsm` opt-in,
+  extended shared test planner rendered by both backends (+ fuzz skeletons as
+  extra files), example-crate matrix (sync/async handlers on spec 43, C mirror,
+  fuzz harnesses both ecosystems), and IDE support (`ide/` TextMate grammar +
+  snippets, `rfs validate --json` structured diagnostics). Design decisions
+  D-P5-1..D-P5-14: `DESIGN.md` section 23.
+- Next work: execute Phase 5 task 16 (close-out) per
+  `docs/roadmap/PHASE_5_PLAN.md`; phase planning/implementation protocol:
   `docs/roadmap/INTRO.md`.
-- Known-good baseline: 230/230 main tests (232 with `--features smt`),
-  537/537 generated-code tests (179 modules), clippy without errors, fmt clean;
-  45 valid + 12 invalid examples; 11 training categories / 231 aggregated SFT
-  examples (130 valid + 127 invalid snippets).
+- Known-good baseline: 375/375 main tests (399 with `--workspace`, 377 with
+  `--features smt`), 1453/1453 generated-code tests (179 modules), clippy
+  without errors (13 pre-existing warnings), fmt clean; 45 valid + 12 invalid
+  examples; 11 training categories / 244 aggregated SFT examples (135 valid +
+  127 invalid snippets).
 
 ## 2. Documentation map (what each file is for)
 
@@ -90,23 +96,30 @@ model-checkable (no unbounded data, floats, or arbitrary functions in the core).
 ## 3. Source tree (one level; details in KB.md section 4.2)
 
 ```text
-src/parser.rs        nom-based RFS v0 parser          src/ir.rs         versioned serde IR
-src/frontend.rs      parse/validate CLI logic         src/main.rs       CLI arg parsing + dispatch
-src/validator.rs     semantic validation + typing     src/printer.rs    IR -> formatted RFS
-src/codegen.rs       backend plugin registry + CLI    src/backends/     rust*.rs + c*.rs backends (+ RUST.md, C.md)
-src/codegen_fsm.rs   shared production-FSM analysis   src/codegen_test.rs  unit-test planning
-src/codegen_mc.rs    shared exact-mode concepts (statuses, summary line, flag defaults)
+src/parser.rs        nom-based RFS v0 parser (+ KEYWORDS const)  src/ir.rs         versioned IR + hand-rolled JSON
+src/frontend.rs      parse/validate CLI logic (incl. --json)    src/main.rs       CLI arg parsing + dispatch (6 subcommands)
+src/validator.rs     semantic validation + typing               src/printer.rs    IR -> formatted RFS
+src/json_rw.rs       hand-rolled JSON reader-writer (all JSON)  src/info.rs       rfs info command
+src/ext_tool.rs      external-tool resolver + --print-script    src/test_cmd.rs   rfs test command (unit/fuzz suites)
+src/diagram.rs + src/diagrams/   rfs diagram plugin registry (dot/puml/mmd/table/md)
+src/codegen.rs       backend plugin registry + CLI              src/backends/     rust*.rs + c*.rs backends (+ RUST.md, C.md)
+src/codegen_fsm.rs   shared production-FSM analysis             src/codegen_test.rs  extended unit-test planning
+src/codegen_mc.rs    shared exact-mode concepts (statuses, summary line, flag defaults, JSON report model)
 src/mc_plan.rs       shared MC plan: abstraction, encoding, traversal, liveness obligations
 src/monitor.rs       shared monitor compiler (Phase 3 MonitorPlan)
 src/smt_plan.rs + src/smt_emit.rs   shared SMT spec + emitter (optional smt mode)
-src/training.rs      snippet extraction + aggregation
-src/error.rs         ParseError/Span                  src/bin/          build_training, extract_training_snippets,
-                                                           generate_code_tests, test_generated_code
-tests/               examples_test, frontend_test, codegen_test, integration_example_test,
+src/training.rs      snippet extraction + aggregation           src/error.rs      ParseError/Span
+src/bin/             build_training, extract_training_snippets, generate_code_tests, test_generated_code
+crates/rfs-build/    build.rs helper crate (RFS_BIN resolution, rerun directives)
+crates/rfs-adapters/ ProtocolFsm trait + 4 generic adapters (channel/async/callback/minimal)
+crates/examples/     sync_handler, async_handler, fuzz_rust (cargo members) + c_sync_handler, fuzz_c (Makefile-driven)
+ide/                 TextMate grammar + snippets for .rfs (VS Code/Sublime install notes)
+tests/               examples_test, frontend_test, codegen_test, backend_parity_test, benchmark_mc_test,
+                   liveness_mc_test, monitor_integration_test, example_projects_test, integration_example_test,
                    library_comparison, training_test
-examples/valid       40 .rfs files (file-driven suite)   examples/invalid  11 .rfs files (must fail)
+examples/valid       45 .rfs files (file-driven suite)   examples/invalid  12 .rfs files (must fail)
 training/<cat>/      11 categories: rfs_training.jsonl + snippets/{valid,invalid}/
-all_rfs_training.jsonl   aggregated SFT set (219 lines) at repo root
+all_rfs_training.jsonl   aggregated SFT set (244 lines) at repo root
 ```
 
 ## 4. Toolchain essentials (do not search - use this)
@@ -142,7 +155,9 @@ then `sed -n '<start>,<end>p'`. Sections:
   design / 9 major design choices / 10 production codegen plan / 11 MC plan /
   12 PSL-like property language plan / 13 diagnostics + validation plan /
   14 toolchain CLI plan / 15 testing strategy / 16 risks / 17 Phase 0 deliverables /
-  18 example spec + Phase 1 codegen decisions.
+  18 example spec / 19 Phase 1 codegen decisions / 20 Phase 2 core-DSL decisions /
+  21 Phase 3 property/monitor decisions / 22 Phase 4 model-checking decisions
+  (D-P4-1..14) / 23 Phase 5 toolchain decisions (D-P5-1..14).
 - **docs/roadmap/**: split roadmap (replaces the old `ROADMAP.md`, removed
   2026-10-16): `INTRO.md` (overview + templates + protocol), `PHASE_0..6.md`
   (phase descriptions), `PHASE_N_PLAN.md` / `PHASE_N_STATUS.md` where they exist
@@ -155,9 +170,9 @@ then `sed -n '<start>,<end>p'`. Sections:
 |---|---|---|---|
 | Add a valid/invalid example | `BUILD.md` section 3 (suite expectations) | Drop `.rfs` into `examples/valid|invalid` - no test-code change | `cargo test --test examples_test` |
 | Change RFS syntax/grammar | `DESIGN.md` sections 5-6 + `KB.md` sections 3, 6.5; add examples FIRST | Update parser/validator | Full checklist (`BUILD.md` section 5) + update DESIGN/KB |
-| Change the IR | `DESIGN.md` section 7 + serde attrs in `src/ir.rs` | Decide backward compat; bump `IR_VERSION` if needed | JSON round-trip tests + full checklist |
+| Change the IR | `DESIGN.md` section 7 + `to_json`/`from_json` in `src/ir.rs` (hand-rolled, D-P5-2) | Decide backward compat; bump `IR_VERSION` if needed | JSON round-trip tests + full checklist |
 | Add a codegen backend language | `CODEGEN.md` fully + `src/backends/RUST.md` / `src/backends/C.md` as references | Implement 3 command fns in `src/backends/<lang>*.rs`, register static in `BACKENDS` | per-command generation tests (see CODEGEN section 8) |
-| Phase implementation (next: Phase 3 properties/monitors) | `docs/roadmap/INTRO.md` fully + `docs/roadmap/PHASE_N.md`; phase-specific docs (`DESIGN.md` section 12 PSL plan, `KB.md` section 2.6 for Phase 3) | Two-stage protocol from INTRO.md: planning stage writes `PHASE_N_PLAN.md`, then stops for user review; implementation stage executes the plan, tracks corrections, writes `PHASE_N_STATUS.md` at exit criteria | Full checklist + docs sync + TASKS.md entry |
+| Phase implementation (next: Phase 5 task 16 close-out, then Phase 6) | `docs/roadmap/INTRO.md` fully + `docs/roadmap/PHASE_N.md`; phase-specific docs (`DESIGN.md` sections 22-23 for the shipped MC/toolchain decisions, `KB.md` section 2.6 for properties) | Two-stage protocol from INTRO.md: planning stage writes `PHASE_N_PLAN.md`, then stops for user review; implementation stage executes the plan, tracks corrections, writes `PHASE_N_STATUS.md` at exit criteria | Full checklist + docs sync + TASKS.md entry |
 | Improve validator/codegen checks | `DESIGN.md` sections 19-20 (decision tables D1-D10) + `KB.md` section 7 | Implement checks, add invalid examples first | Full checklist |
 | Training-set work | `KB.md` section 4.6 (format rules: 2 messages, `< think> ... < /think>` assistant, snippets auto-extracted) | Edit `training/<cat>/rfs_training.jsonl` | `cargo extract-training-snippets && cargo build-training && cargo test-training` |
 | LLM training run (GPU) | `head -60 training.py` (docstring only) + `BUILD.md` last command row | `python training.py --stage both` | `--dry-run` first for CPU-only data/reward validation |
@@ -167,7 +182,7 @@ then `sed -n '<start>,<end>p'`. Sections:
 
 ```sh
 cargo build && cargo test && cargo clippy --all-targets && cargo fmt --check   # after any change
-cargo test-generated-code        # 513 generated unit tests (after codegen changes)
+cargo test-generated-code        # 1453 generated unit tests (after codegen changes)
 cargo run -- validate --input rfs examples/valid    # quick sanity, exit 0 expected
 ```
 
@@ -199,7 +214,9 @@ Before changing language syntax:
 
 Before changing IR:
 
-1. Check serde attributes in `src/ir.rs`.
+1. Check the hand-written `to_json`/`from_json` in `src/ir.rs` (hand-rolled
+   JSON per D-P5-2 - key order is pinned; additive optional fields stay
+   non-breaking).
 2. Decide whether the change is backward compatible.
 3. If not, consider bumping `IR_VERSION` or adding a migration note.
 4. Update JSON round-trip tests.

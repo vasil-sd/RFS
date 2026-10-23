@@ -133,6 +133,15 @@ lasso reconstruction, `--nondet` strong-fairness filter, truncated-mode
 - SMT mode: links the SAME libz3 5.3.1 as the Rust backend (one solver build,
   parity); the generated C code targets the z3 5.3.1 API surface
   (`Z3_L_UNDEF`, no `Z3_del_solver`, `Z3_model_eval` bool + out-ast).
+- Counterexample report format (Phase 5 task 10, D-P5-10): mirrors the Rust
+  renderer - `--counterexample-format json|text` (default `text`, unchanged),
+  and `json` mode renders the SAME machine-readable document via an EMBEDDED
+  copy of the hand-rolled writer (D-P5-2, dependency-free constraint) -
+  byte-identical JSON across backends for the same spec/mode (pinned over all
+  property-bearing examples + a golden full-document pin). Exact mode only.
+- `--with-protocol-fsm` (Phase 5 task 11): accepted and IGNORED - C output is
+  byte-identical with or without the flag (the ProtocolFsm surface is
+  Rust-ecosystem-only per the parity principle; D-P5-11).
 - Every generated MC binary must compile with `gcc -Wall` at ZERO warnings;
   the test suites' `compile_c` helper asserts this.
 

@@ -37,6 +37,12 @@ no-op (plain C is already dependency-free; CLI symmetry with the Rust backend).
 The only effect is one comment line in the header:
 `// --no-std accepted: the C backend is already dependency-free; the flag has no effect on this output.`
 
+**Lifecycle API**: `fsm_new` / `fsm_step` / `fsm_free`. `fsm_free` (Phase 5
+task 16 close-out fix) frees the two per-fsm heap allocations (trace buffer +
+`active_assumes` array); short-lived consumers (unit-test and MC executables)
+simply exit without calling it, but long-lived ones MUST - the libFuzzer
+skeleton calls it once per input.
+
 **Test artifact (Phase 5 task 6)**: the `test` command renders the shared test
 plan with IDENTICAL coverage to the Rust renderer - module-level tests plus the
 four extended classes under the same stable names (`t<id>_<state>_on_<event>` /
@@ -45,7 +51,13 @@ four extended classes under the same stable names (`t<id>_<state>_on_<event>` /
 `main()` printing one line per test (`PASS <name>` / `FAIL <name>`); the
 random-trace test prints the same deterministic coverage line as Rust. The
 command ALSO emits `fuzz_target.c` as a separate extra file (libFuzzer
-skeleton; needs clang to BUILD, not to generate - recipe in its header).
+skeleton; needs clang to BUILD, not to generate - recipe in its header). The
+skeleton uses a SINGLE-EXIT decode (truncated field runs / unknown variants set
+a `done` flag and break) and calls `fsm_free(&fsm)` at the end of every input -
+parity with the Rust skeleton's scope-drop; without it, per-input trace buffers
+accumulate RSS until libFuzzer's out-of-memory limit trips (observed on specs
+where every input byte maps to one step; task 16 regression test pins a
+bounded run on spec 01).
 Zero-warning bar: every generated C artifact (test + fuzz skeleton) compiles
 with `gcc -Wall` at zero warnings on all valid examples - including
 transition-less modules (`rfs_commit` carries `RFS_UNUSED`; the harness emits

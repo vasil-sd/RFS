@@ -2009,6 +2009,12 @@ is selected - the default unit path stays tool-free. Exit 0 = every selected
 suite passes (fuzzer exits 0 within budget); 1 = test failure, fuzzer crash,
 compile error, missing tool for a selected suite, or usage/parse/validation
 error.
+**Task 16 close-out correction to C17-2:** the generated C core now carries an
+explicit `fsm_free` lifecycle end and the fuzz skeleton calls it once per input
+(single-exit decode) - per-input allocations no longer accumulate, so long runs
+stay within libFuzzer's RSS limit (regression: spec 01 OOM'd at ~200k runs
+before the fix; bounded runs now pass with millions of iterations). The
+`detect_leaks=0` merge stays pinned as defense in depth.
 
 ### D-P5-6. rfs diagram: plugin registry, strict rendering (task 8)
 State diagrams + tables as plugins mirroring the codegen backend pattern (`src/

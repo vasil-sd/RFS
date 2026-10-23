@@ -47,10 +47,9 @@ model-checkable (no unbounded data, floats, or arbitrary functions in the core).
 
 ## 1. Project state snapshot (2026-10-23)
 
-- Phases 0-4 are COMPLETE, and **Phase 5 (Full toolchain and production
-  integration)** is COMPLETE at implementation level: tasks 1-14 of 16 done
-  (+ user-added task 17); close-out task 16 records the final verification run
-  + `PHASE_5_STATUS.md`. Phase 5 added: the cargo WORKSPACE (`rfs` root package
+- Phases 0-5 are COMPLETE. **Phase 5 (Full toolchain and production
+  integration)** closed out 2026-10-23 (task 16: full verification +
+  `PHASE_5_STATUS.md`; tasks 1-14 of 16 + user-added task 17). Phase 5 added: the cargo WORKSPACE (`rfs` root package
   + `crates/rfs-build` build.rs helper + `crates/rfs-adapters` ProtocolFsm/
   adapters + example crates; C projects Makefile-driven non-members), hand-
   rolled JSON reader-writer `src/json_rw.rs` replacing serde EVERYWHERE (ordered
@@ -68,11 +67,11 @@ model-checkable (no unbounded data, floats, or arbitrary functions in the core).
   fuzz harnesses both ecosystems), and IDE support (`ide/` TextMate grammar +
   snippets, `rfs validate --json` structured diagnostics). Design decisions
   D-P5-1..D-P5-14: `DESIGN.md` section 23.
-- Next work: execute Phase 5 task 16 (close-out) per
-  `docs/roadmap/PHASE_5_PLAN.md`; phase planning/implementation protocol:
+- Next work: Phase 6 (production hardening and v1.0) per
+  `docs/roadmap/PHASE_6.md`; phase planning/implementation protocol:
   `docs/roadmap/INTRO.md`.
-- Known-good baseline: 375/375 main tests (399 with `--workspace`, 377 with
-  `--features smt`), 1453/1453 generated-code tests (179 modules), clippy
+- Known-good baseline: 376/376 main tests (400 with `--workspace`, 378 with
+  `--features smt`), 1501/1501 generated-code tests (184 modules), clippy
   without errors (13 pre-existing warnings), fmt clean; 45 valid + 12 invalid
   examples; 11 training categories / 244 aggregated SFT examples (135 valid +
   127 invalid snippets).
@@ -182,7 +181,7 @@ then `sed -n '<start>,<end>p'`. Sections:
 
 ```sh
 cargo build && cargo test && cargo clippy --all-targets && cargo fmt --check   # after any change
-cargo test-generated-code        # 1453 generated unit tests (after codegen changes)
+cargo test-generated-code        # 1501 generated unit tests (after codegen changes)
 cargo run -- validate --input rfs examples/valid    # quick sanity, exit 0 expected
 ```
 

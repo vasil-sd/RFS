@@ -2034,3 +2034,98 @@ fn c_test_emits_fuzz_skeleton_as_extra_file() {
     }
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+/// Phase 5 task 16 close-out fix: the generated C core carries an explicit
+/// `fsm_free` lifecycle end and the libFuzzer skeleton calls it on EVERY exit
+/// path (single-exit decode), so a long fuzz run does not accumulate RSS until
+/// libFuzzer's out-of-memory limit trips. Regression case: spec 01, where
+/// every input byte maps to one FSM step (before the fix the shipped
+/// `rfs test --backend c --suite fuzz` OOM'd at ~200k runs on this spec).
+#[test]
+fn c_fuzz_target_frees_per_input_and_bounded_run_stays_green() {
+    let backend = codegen::get_backend("c").unwrap();
+    let options = codegen::BackendOptions::default();
+    let ir = example_module("01_trivial_two_state.rfs");
+
+    // The production core exposes the lifecycle end.
+    let prod = codegen::CodegenCommandKind::Production
+        .run(backend, &ir.modules[0], &options)
+        .expect("production codegen");
+    assert!(
+        prod.code.contains("void fsm_free(fsm_t* f)"),
+        "generated C core must define fsm_free"
+    );
+
+    // The skeleton frees on every exit path (single-exit decode).
+    let out = codegen::CodegenCommandKind::UnitTests
+        .run(backend, &ir.modules[0], &options)
+        .expect("unit-test codegen");
+    let fz = &out.extra_files[0].content;
+    assert!(
+        fz.contains("int done = 0;"),
+        "skeleton must use single-exit decode"
+    );
+    assert!(
+        fz.contains("if (done) break;"),
+        "skeleton must break on truncated/unknown input"
+    );
+    assert!(
+        fz.contains("fsm_free(&fsm);"),
+        "skeleton must free the per-input fsm"
+    );
+    assert_eq!(
+        fz.matches("return 0;").count(),
+        1,
+        "skeleton must have a single return (no early-return leak paths)"
+    );
+
+    // Real-tool regression: build + bounded run on the OOM spec. Before the
+    // fix this exited non-zero with `libFuzzer: out-of-memory` after ~200k
+    // runs; with per-input frees RSS stays flat for millions of runs.
+    if !tool_on_path("clang") {
+        eprintln!("note: clang not available - C fuzz bounded-run check skipped");
+        return;
+    }
+    let dir = std::env::temp_dir().join(format!("rfs_t16_fuzz_{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    std::fs::write(dir.join("rfs_generated_fsm.c"), &prod.code).unwrap();
+    std::fs::write(dir.join("fuzz_target.c"), fz).unwrap();
+    let build = std::process::Command::new("clang")
+        .args(["-O1", "-fsanitize=fuzzer,address"])
+        .arg(dir.join("fuzz_target.c"))
+        .arg("-o")
+        .arg(dir.join("fuzz_bin"))
+        .output()
+        .expect("run clang");
+    assert!(
+        build.status.success(),
+        "clang build failed:\n{}",
+        String::from_utf8_lossy(&build.stderr)
+    );
+    let run = std::process::Command::new(dir.join("fuzz_bin"))
+        .args(["-max_total_time=5", "-rss_limit_mb=1024"])
+        .env("ASAN_OPTIONS", "detect_leaks=0")
+        .output()
+        .expect("run fuzz target");
+    let combined = format!(
+        "{}{}",
+        String::from_utf8_lossy(&run.stdout),
+        String::from_utf8_lossy(&run.stderr)
+    );
+    assert!(
+        run.status.success(),
+        "bounded C fuzz run on spec 01 must stay green (no OOM); tail:\n{}",
+        combined
+            .lines()
+            .rev()
+            .take(5)
+            .collect::<Vec<_>>()
+            .join("\n")
+    );
+    assert!(
+        !combined.contains("out-of-memory"),
+        "libFuzzer reported out-of-memory - per-input frees are not effective"
+    );
+    let _ = std::fs::remove_dir_all(&dir);
+}

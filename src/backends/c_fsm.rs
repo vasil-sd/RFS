@@ -1267,6 +1267,18 @@ impl<'a> Gen<'a> {
             init_vars
         );
 
+        // Explicit lifecycle end (Phase 5 task 16 close-out fix): frees the two
+        // per-fsm heap allocations (trace buffer + active_assumes array) so a
+        // long-lived consumer - notably the libFuzzer target, which calls
+        // fsm_new/fsm_step/fsm_free once per input - does not accumulate RSS
+        // until libFuzzer's out-of-memory limit trips. Parity with Rust, where
+        // the per-call Fsm is dropped at scope end. Short-lived consumers (the
+        // unit-test and MC executables) may simply exit without calling it.
+        let _ = writeln!(
+            self.code,
+            "void fsm_free(fsm_t* f) {{ free(f->trace.steps); f->trace.steps = 0; f->trace.len = 0; f->trace.cap = 0; free(f->active_assumes); f->active_assumes = 0; }}"
+        );
+
         // rfs_commit: push the trace step, then step the online monitors -
         // assumption enforcement via the handler path and a sticky property
         // violation record (D-P3-4: post-hoc checks removed).

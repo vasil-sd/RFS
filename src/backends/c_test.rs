@@ -649,6 +649,11 @@ pub fn emit_fuzz_target_c(module: &Module, variants: &FsmVariants) -> Result<Str
     );
     let _ = writeln!(out, "        pos += 1;");
     let _ = writeln!(out, "        input_t input = {{0}};");
+    // Single-exit decode (Phase 5 task 16 close-out fix): a truncated field
+    // run or an unknown variant sets `done` and breaks out of the loop so the
+    // trailing fsm_free always runs - mirroring the Rust skeleton's break +
+    // scope-drop, which keeps per-input allocations from accumulating.
+    let _ = writeln!(out, "        int done = 0;");
     let _ = writeln!(out, "        switch (vi) {{");
     for (vi, d) in decode.variants.iter().enumerate() {
         let info = variants
@@ -678,7 +683,10 @@ pub fn emit_fuzz_target_c(module: &Module, variants: &FsmVariants) -> Result<Str
             continue;
         }
         if budget > 0 {
-            let _ = writeln!(out, "            if (pos + {budget} > size) return 0;");
+            let _ = writeln!(
+                out,
+                "            if (pos + {budget} > size) {{ done = 1; break; }}"
+            );
         }
         for ((fname, strat), (_, fty)) in d.fields.iter().zip(info.fields.iter()) {
             let bind = c_ident(fname);
@@ -741,13 +749,15 @@ pub fn emit_fuzz_target_c(module: &Module, variants: &FsmVariants) -> Result<Str
         let _ = writeln!(out, "            break;");
         let _ = writeln!(out, "        }}");
     }
-    let _ = writeln!(out, "        default: return 0;");
+    let _ = writeln!(out, "        default: done = 1;");
     let _ = writeln!(out, "        }}");
+    let _ = writeln!(out, "        if (done) break;");
     let _ = writeln!(
         out,
         "        (void)fsm_step(&fsm, input, fuzz_stop_handler, 0);"
     );
     let _ = writeln!(out, "    }}");
+    let _ = writeln!(out, "    fsm_free(&fsm);");
     let _ = writeln!(out, "    return 0;");
     let _ = writeln!(out, "}}");
     Ok(out)

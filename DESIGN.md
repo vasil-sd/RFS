@@ -33,6 +33,8 @@ RFS is not intended to be a general-purpose programming language. It is a constr
 
 ## 2. High-level architecture
 
+> Normative semantics of the language this pipeline compiles: `docs/SEMANTICS.md` (Phase 6 task 1).
+
 ```text
 protocol.rfs  <----+  rfs parse (format conversion, human review)
      |             |
@@ -99,6 +101,9 @@ Design decisions:
 
 ## 3. Core semantics
 
+> The precise, normative form of this section (transition relation, simultaneous
+> updates, priorities, deterministic vs nondeterministic modes, sampling): `docs/SEMANTICS.md` sections 2-4.
+
 An RFS module describes a finite input/output transition system:
 
 ```text
@@ -134,6 +139,9 @@ For production code generation, the default target semantics should be determini
 ---
 
 ## 4. Model-checking constraints
+
+> The normative semantics these constraints enable (configurations, abstraction
+> rules, exact exploration, status labeling): `docs/SEMANTICS.md` section 9.
 
 To make model checking feasible and sound, the core DSL is constrained as follows.
 

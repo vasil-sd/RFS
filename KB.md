@@ -34,6 +34,7 @@ Read order for a new assistant:
 | Build/run/test how-to | Active | `BUILD.md` - build files, commands, test suites and expected results, verification checklist. |
 | Toolchain | Pinned facts | `TOOLCHAIN.md` - Rust toolchain locations/versions, activation, reinstall. |
 | Design document | Done, maintained | `DESIGN.md` contains the RFS v0 design baseline and parser decision. |
+| Formal semantics | Done (Phase 6 task 1), maintained | `docs/SEMANTICS.md` - NORMATIVE semantics: automaton model, transition relation, deterministic vs nondeterministic modes, property sampling, PSL operator semantics, strong/weak liveness + fairness, assumptions + handler policies, error/deadlock semantics, MC configuration encoding / abstraction rules / status labeling. Verified claim-by-claim against the implementation in Phase 6 task 1; the ref MC (task 3.2) and independent evaluators (tasks 4.x) are coded from it. |
 | Roadmap | Active | `docs/roadmap/` (split from the old `ROADMAP.md` on 2026-10-16): `INTRO.md` + `PHASE_0..6.md`; status reports for completed phases 0-2. |
 | Knowledge base | Maintained | This file: design decisions, syntax reference, source map, agent workflow experience. |
 | Cargo project | Working | Package `rfs`, version `0.1.0`, edition `2021`. |

@@ -1275,10 +1275,11 @@ fn no_std_header_pins_and_std_unchanged() {
         "extern crate alloc;",
         "use alloc::string::{String, ToString};",
         "use alloc::vec::Vec;",
+        "use alloc::format;",
     ];
     assert_eq!(&nl[..expected_header.len()], &expected_header);
     // No output payloads in this module: the vec! macro is NOT imported.
-    assert_eq!(nl[6], "#[derive(Debug, Clone, Copy, PartialEq, Eq)]");
+    assert_eq!(nl[7], "#[derive(Debug, Clone, Copy, PartialEq, Eq)]");
     assert!(!nostd_code.contains("use alloc::vec;"));
 }
 
@@ -1294,7 +1295,7 @@ fn no_std_header_imports_vec_macro_when_outputs_exist() {
         .unwrap()
         .code;
     let lines: Vec<&str> = code.lines().collect();
-    assert_eq!(lines[6], "use alloc::vec;");
+    assert_eq!(lines[7], "use alloc::vec;");
     assert!(code.contains("let outputs = vec!["));
 }
 

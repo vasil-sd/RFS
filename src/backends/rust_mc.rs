@@ -233,9 +233,14 @@ fn exact_codegen(
                 ));
             }
             if n.remaining_bits > 0 {
+                // ref_mc's key encoding (mon_key_node): the remaining value is
+                // irrelevant unless pending - pack it only while pending so the
+                // config identity matches ref_mc's CfgKey byte-for-byte.
                 s.push_str(&format!(
-                    "    put_bits(&mut buf, {}, {}.n{}_remaining as u64, {});\n",
+                    "    put_bits(&mut buf, {}, if {}.n{}_pending {{ {}.n{}_remaining as u64 }} else {{ 0u64 }}, {});\n",
                     nb + n.offset_bits + n.pending_bits,
+                    base,
+                    n.node_id,
                     base,
                     n.node_id,
                     n.remaining_bits
@@ -345,6 +350,20 @@ fn exact_codegen(
 fn json_renderers_rust(module: &Module) -> String {
     use crate::backends::rust::rust_ident;
     let variants = crate::codegen_fsm::build_variants(module);
+    // Same enum -> renderer map as emit_renderers (rust_fsm): JSON strings must
+    // carry ref_mc's prefixed value forms ("Enum::Variant"), identical to text.
+    let enum_fn: std::collections::HashMap<String, String> =
+        crate::backends::rust_fsm::enum_renderer_names(module)
+            .into_iter()
+            .collect();
+    let json_value = |ty: &crate::ir::Type, expr: &str| -> String {
+        use crate::ir::Type;
+        match ty {
+            Type::Bool => format!("McJson::bool({expr})"),
+            Type::Bit { .. } => format!("McJson::int({expr} as u64)"),
+            Type::Enum { name } => format!("McJson::str({}(&{}))", enum_fn[name], expr),
+        }
+    };
     let mut s = String::new();
 
     // mc_json_input / mc_json_output: match over the tagged enum (Copy, so
@@ -378,7 +397,7 @@ fn json_renderers_rust(module: &Module) -> String {
                             format!(
                                 "(\"{}\".to_string(), {})",
                                 rust_ident(fname),
-                                json_value_rust(fty, &rust_ident(fname))
+                                json_value(fty, &rust_ident(fname))
                             )
                         })
                         .collect();
@@ -407,7 +426,7 @@ fn json_renderers_rust(module: &Module) -> String {
                 format!(
                     "(\"{}\".to_string(), {})",
                     rust_ident(&v.name),
-                    json_value_rust(&v.ty, &format!("v.{}", rust_ident(&v.name)))
+                    json_value(&v.ty, &format!("v.{}", rust_ident(&v.name)))
                 )
             })
             .collect();
@@ -417,18 +436,6 @@ fn json_renderers_rust(module: &Module) -> String {
         ));
     }
     s
-}
-
-/// JSON rendering of an expression of type `ty`: bool -> Bool, bit<N> -> Int
-/// (unsigned, `as u64` - the same reduction the engine's config packing
-/// uses), enum -> Str via Debug (the variant name the text report prints).
-fn json_value_rust(ty: &crate::ir::Type, expr: &str) -> String {
-    use crate::ir::Type;
-    match ty {
-        Type::Bool => format!("McJson::bool({expr})"),
-        Type::Bit { .. } => format!("McJson::int({expr} as u64)"),
-        Type::Enum { .. } => format!("McJson::str(format!(\"{{:?}}\", {expr}))"),
-    }
 }
 
 /// Re-index the skeleton leaves in first-appearance order and render the
@@ -1082,13 +1089,17 @@ fn mc_json_step(input: McJson, outputs: Vec<McJson>, from_state: &str, to_state:
 
 /// All steps of a replayed trace, in order.
 fn trace_steps_json(fsm: &Fsm) -> Vec<McJson> {
-    fsm.trace.steps.iter().map(|s| mc_json_step(
-        mc_json_input(&s.input),
-        s.outputs.iter().map(mc_json_output).collect(),
-        &format!("{:?}", s.from_state),
-        &format!("{:?}", s.to_state),
-        mc_json_vars(&s.vars),
-    )).collect()
+    fsm.trace.steps.iter().map(|s| {
+        let from = rfs_render_state(&s.from_state);
+        let to = rfs_render_state(&s.to_state);
+        mc_json_step(
+            mc_json_input(&s.input),
+            s.outputs.iter().map(mc_json_output).collect(),
+            &from,
+            &to,
+            mc_json_vars(&s.vars),
+        )
+    }).collect()
 }
 
 /// Counterexample kind \"trace\": the full trace (property violation, incl.
@@ -1096,7 +1107,7 @@ fn trace_steps_json(fsm: &Fsm) -> Vec<McJson> {
 fn ce_trace_json(fsm: &Fsm) -> McJson {
     McJson::obj(vec![
         ("kind".to_string(), McJson::str("trace")),
-        ("initial_state".to_string(), McJson::str(format!("{:?}", fsm.trace.initial_state))),
+        ("initial_state".to_string(), McJson::str(rfs_render_state(&fsm.trace.initial_state))),
         ("initial_vars".to_string(), mc_json_vars(&fsm.trace.initial_vars)),
         ("steps".to_string(), McJson::arr(trace_steps_json(fsm))),
     ])
@@ -1108,7 +1119,7 @@ fn ce_lasso_json(fsm: &Fsm, cycle_start: usize) -> McJson {
     let (prefix, cycle) = all.split_at(cycle_start);
     McJson::obj(vec![
         ("kind".to_string(), McJson::str("lasso")),
-        ("initial_state".to_string(), McJson::str(format!("{:?}", fsm.trace.initial_state))),
+        ("initial_state".to_string(), McJson::str(rfs_render_state(&fsm.trace.initial_state))),
         ("initial_vars".to_string(), mc_json_vars(&fsm.trace.initial_vars)),
         ("prefix".to_string(), McJson::arr(prefix.to_vec())),
         ("cycle".to_string(), McJson::arr(cycle.to_vec())),
@@ -1119,10 +1130,10 @@ fn ce_lasso_json(fsm: &Fsm, cycle_start: usize) -> McJson {
 /// Counterexample kind \"deadlock-config\": the terminal configuration.
 fn ce_deadlock_json(fsm: &Fsm, depth: usize) -> McJson {
     let (state, vars) = if fsm.trace.steps.is_empty() {
-        (format!("{:?}", fsm.trace.initial_state), mc_json_vars(&fsm.trace.initial_vars))
+        (rfs_render_state(&fsm.trace.initial_state), mc_json_vars(&fsm.trace.initial_vars))
     } else {
         let last = &fsm.trace.steps[fsm.trace.steps.len() - 1];
-        (format!("{:?}", last.to_state), mc_json_vars(&last.vars))
+        (rfs_render_state(&last.to_state), mc_json_vars(&last.vars))
     };
     McJson::obj(vec![
         ("kind".to_string(), McJson::str("deadlock-config")),
@@ -1558,15 +1569,16 @@ fn parse_assume_selection(s: &str) -> Vec<String> {
 
 fn print_trace(trace: &Trace) {
     println!("counterexample trace:");
-    println!("  initial state={:?} vars={:?}", trace.initial_state, trace.initial_vars);
+    println!("  initial state={} vars={}", rfs_render_state(&trace.initial_state), rfs_render_vars(&trace.initial_vars));
     for (i, step) in trace.steps.iter().enumerate() {
-        println!("  step {} input={:?} outputs={:?} from={:?} to={:?} vars={:?}", i, step.input, step.outputs, step.from_state, step.to_state, step.vars);
+        let outs: Vec<String> = step.outputs.iter().map(|o| rfs_render_output(o)).collect();
+        println!("  step {} input={} outputs=[{}] from={} to={} vars={}", i, rfs_render_input(&step.input), outs.join(", "), rfs_render_state(&step.from_state), rfs_render_state(&step.to_state), rfs_render_vars(&step.vars));
     }
 }
 
 /// Variable values at sample `pos` (0 = initial configuration).
 fn vars_at(trace: &Trace, pos: usize) -> String {
-    if pos == 0 { format!("{:?}", trace.initial_vars) } else { format!("{:?}", trace.steps[pos - 1].vars) }
+    if pos == 0 { rfs_render_vars(&trace.initial_vars) } else { rfs_render_vars(&trace.steps[pos - 1].vars) }
 }
 
 /// Print the property-specific counterexample (which property failed, which

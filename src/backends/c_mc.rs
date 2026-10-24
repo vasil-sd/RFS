@@ -125,9 +125,10 @@ fn shared_printers(module: &Module) -> String {
             .iter()
             .map(|v| {
                 format!(
-                    "case {}_{}: return \"{}\";",
+                    "case {}_{}: return \"{}::{}\";",
                     c_ident(ename).to_uppercase(),
                     c_ident(v).to_uppercase(),
+                    ename,
                     crate::backends::rust::rust_ident(v)
                 )
             })
@@ -141,14 +142,15 @@ fn shared_printers(module: &Module) -> String {
         ));
     }
 
-    // State name lookup (Rust Debug names).
+    // State name lookup - ref_mc's prefixed form "State::Variant" (Rust Debug
+    // variant names), shared by the text trace and the JSON report.
     if let Some(se) = module.enums.iter().find(|e| e.name == "State") {
         let arms: Vec<String> = se
             .variants
             .iter()
             .map(|v| {
                 format!(
-                    "case STATE_{}: return \"{}\";",
+                    "case STATE_{}: return \"State::{}\";",
                     c_ident(v).to_uppercase(),
                     crate::backends::rust::rust_ident(v)
                 )
@@ -187,7 +189,7 @@ fn shared_printers(module: &Module) -> String {
         ));
     }
 
-    // Input Debug: unit variant name or `Name { f: v, ... }`.
+    // Input Debug: ref_mc's form `Input::Variant [payload]`.
     let iarms: Vec<String> = variants
         .inputs
         .iter()
@@ -195,7 +197,7 @@ fn shared_printers(module: &Module) -> String {
             let kind = format!("INPUT_{}", v.unique_name.to_uppercase());
             if v.fields.is_empty() {
                 format!(
-                    "case {}: printf(\"{}\"); break;",
+                    "case {}: printf(\"Input::{}\"); break;",
                     kind,
                     crate::backends::rust::rust_ident(&v.unique_name)
                 )
@@ -218,7 +220,7 @@ fn shared_printers(module: &Module) -> String {
                     })
                     .collect();
                 format!(
-                    "case {}: printf(\"{} {{ \"); {parts} printf(\" }}\"); break;",
+                    "case {}: printf(\"Input::{} {{ \"); {parts} printf(\" }}\"); break;",
                     kind,
                     crate::backends::rust::rust_ident(&v.unique_name),
                     parts = parts.join(" ")
@@ -231,7 +233,7 @@ fn shared_printers(module: &Module) -> String {
         arms = iarms.join(" ")
     ));
 
-    // Output list Debug: `[X, Y]`.
+    // Output list Debug: ref_mc's form `[Output::X, ...]`.
     let oarms: Vec<String> = variants
         .outputs
         .iter()
@@ -239,7 +241,7 @@ fn shared_printers(module: &Module) -> String {
             let kind = format!("OUTPUT_{}", v.unique_name.to_uppercase());
             if v.fields.is_empty() {
                 format!(
-                    "case {}: printf(\"{}\"); break;",
+                    "case {}: printf(\"Output::{}\"); break;",
                     kind,
                     crate::backends::rust::rust_ident(&v.unique_name)
                 )
@@ -262,7 +264,7 @@ fn shared_printers(module: &Module) -> String {
                     })
                     .collect();
                 format!(
-                    "case {}: printf(\"{} {{ \"); {parts} printf(\" }}\"); break;",
+                    "case {}: printf(\"Output::{} {{ \"); {parts} printf(\" }}\"); break;",
                     kind,
                     crate::backends::rust::rust_ident(&v.unique_name),
                     parts = parts.join(" ")
@@ -596,9 +598,14 @@ fn exact_codegen_c(
                 ));
             }
             if n.remaining_bits > 0 {
+                // ref_mc's key encoding (mon_key_node): the remaining value is
+                // irrelevant unless pending - pack it only while pending so the
+                // config identity matches ref_mc's CfgKey byte-for-byte.
                 s.push_str(&format!(
-                    "    put_bits(buf, {}, (uint64_t)({}.n{}_remaining), {});\n",
+                    "    put_bits(buf, {}, {}.n{}_pending ? (uint64_t)({}.n{}_remaining) : 0ULL, {});\n",
                     nb + n.offset_bits + n.pending_bits,
+                    base,
+                    n.node_id,
                     base,
                     n.node_id,
                     n.remaining_bits

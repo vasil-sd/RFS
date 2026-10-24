@@ -227,12 +227,12 @@ file, unknown flag).
 - Lib unit tests + frontend e2e tests for all of the above.
 
 ## Task exit criteria
-- [ ] specgen: determinism pins green; 50+ generated specs parse+validate; mutation per-step validity invariant holds for k up to 20; `k = 0` identity pinned.
-- [ ] ref_mc: all five hand-computed micro-spec outcomes correct (pass / safety FAIL label+step / liveness lasso / deadlock / truncated UnknownStateLimit); independence review done (no imports from `mc_plan`/`monitor.rs` search code - record the checked import list in "Other information").
-- [ ] Reports: text + JSON byte-pins for all five outcomes; on a pinned real spec, `rfs mc-ref` output agrees with the compiled generated MC binary (text and JSON).
-- [ ] `rfs mc-ref`: exit codes 0/1/2 pinned for the three statuses; usage text documents the non-applicable flags.
-- [ ] `rfs gen-spec`: both modes deterministic + always-valid output; error cases pinned.
-- [ ] Full suite green: `cargo build && cargo test && cargo clippy --all-targets && cargo fmt --check`.
+- [x] specgen: determinism pins green; 50+ generated specs parse+validate; mutation per-step validity invariant holds for k up to 20; `k = 0` identity pinned.
+- [x] ref_mc: all five hand-computed micro-spec outcomes correct (pass / safety FAIL label+step / liveness lasso / deadlock / truncated UnknownStateLimit); independence review done (no imports from `mc_plan`/`monitor.rs` search code - record the checked import list in "Other information").
+- [x] Reports: text + JSON byte-pins for all five outcomes; on a pinned real spec, `rfs mc-ref` output agrees with the compiled generated MC binary (text and JSON).
+- [x] `rfs mc-ref`: exit codes 0/1/2 pinned for the three statuses; usage text documents the non-applicable flags.
+- [x] `rfs gen-spec`: both modes deterministic + always-valid output; error cases pinned.
+- [x] Full suite green: `cargo build && cargo test && cargo clippy --all-targets && cargo fmt --check`.
 
 ## Non-goals
 - No SMT mode in ref_mc (feature-gated, outside the v1 guarantee); no fuzz/bounded mode in `rfs mc-ref` (exact exhaustive search only - that is its purpose); no interactive REPL (shell one-liners are the target usage); no changes to the generated engines (if a mismatch vs them is found, record it as a plan correction + fix task - do NOT fix engines here).

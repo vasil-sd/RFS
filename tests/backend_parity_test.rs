@@ -386,12 +386,16 @@ fn pinned(name: &str) -> Pinned {
             trigger_step: None,
             violation_step: Some(1),
         },
+        // Re-pinned after the config-key fix: obligation `remaining` is now
+        // packed only while pending (ref_mc's mon_key_node treats a stale
+        // remaining on a non-pending obligation as irrelevant), so these four
+        // obligation-bearing specs count exactly ref_mc's configurations.
         "14_assumptions_tick.rfs" => Pinned {
             exit_code: 0,
             status: "pass-complete",
-            states: 258,
-            transitions: 258,
-            max_depth: 257,
+            states: 257,
+            transitions: 257,
+            max_depth: 256,
             reason: None,
             label: None,
             step: None,
@@ -477,8 +481,8 @@ fn pinned(name: &str) -> Pinned {
         "43_sliding_window.rfs" => Pinned {
             exit_code: 0,
             status: "pass-complete",
-            states: 165,
-            transitions: 330,
+            states: 94,
+            transitions: 188,
             max_depth: 22,
             reason: None,
             label: None,
@@ -493,9 +497,9 @@ fn pinned(name: &str) -> Pinned {
         "44_token_ring.rfs" => Pinned {
             exit_code: 0,
             status: "pass-complete",
-            states: 129985,
-            transitions: 519940,
-            max_depth: 276,
+            states: 26113,
+            transitions: 104452,
+            max_depth: 268,
             reason: None,
             label: None,
             step: None,
@@ -505,8 +509,8 @@ fn pinned(name: &str) -> Pinned {
         "45_elevator.rfs" => Pinned {
             exit_code: 0,
             status: "pass-complete",
-            states: 11098,
-            transitions: 99882,
+            states: 8082,
+            transitions: 72738,
             max_depth: 22,
             reason: None,
             label: None,
@@ -1479,7 +1483,7 @@ module rich {
   prop p : always (state != B) ;
 }
 "#;
-const JSON_GOLDEN_DOC: &str = "{\"status\":\"fail\",\"metrics\":{\"states\":1,\"transitions\":1,\"max_depth\":0},\"reason\":\"property-violation\",\"label\":\"p\",\"step\":1,\"statistics\":{\"unexpected_terminations\":1,\"monitor_size_bits\":0,\"memory_estimate_bytes\":33},\"counterexample\":{\"kind\":\"trace\",\"initial_state\":\"A\",\"initial_vars\":{\"color\":\"Red\"},\"steps\":[{\"input\":{\"variant\":\"Go_G\",\"fields\":{\"c\":\"Green\"}},\"outputs\":[{\"variant\":\"Done_D\",\"fields\":{\"c\":\"Green\"}}],\"from_state\":\"A\",\"to_state\":\"B\",\"vars\":{\"color\":\"Green\"}}]}}";
+const JSON_GOLDEN_DOC: &str = "{\"status\":\"fail\",\"metrics\":{\"states\":1,\"transitions\":1,\"max_depth\":0},\"reason\":\"property-violation\",\"label\":\"p\",\"step\":1,\"statistics\":{\"unexpected_terminations\":1,\"monitor_size_bits\":0,\"memory_estimate_bytes\":33},\"counterexample\":{\"kind\":\"trace\",\"initial_state\":\"State::A\",\"initial_vars\":{\"color\":\"Color::Red\"},\"steps\":[{\"input\":{\"variant\":\"Go_G\",\"fields\":{\"c\":\"Color::Green\"}},\"outputs\":[{\"variant\":\"Done_D\",\"fields\":{\"c\":\"Color::Green\"}}],\"from_state\":\"State::A\",\"to_state\":\"State::B\",\"vars\":{\"color\":\"Color::Green\"}}]}}";
 
 #[test]
 fn mc_json_golden_document_pin() {

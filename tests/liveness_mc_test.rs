@@ -402,7 +402,7 @@ fn liveness_input_is_edge_labels() {
     // The witness cycle must use the Pong self-loop (the edge whose label
     // avoids Ping) - edge-based labeling, not node-based.
     assert_eq!(r.cycle_length, Some(1));
-    assert_eq!(r.step_inputs, vec!["Pong".to_string()]);
+    assert_eq!(r.step_inputs, vec!["Input::Pong".to_string()]);
     assert_lasso(&r);
 }
 

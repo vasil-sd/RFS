@@ -3224,3 +3224,446 @@ fn ide_grammar_valid_json_and_covers_all_keywords() {
     let _sdoc: rfs::json_rw::Json =
         rfs::json_rw::parse(&snip).expect("snippets must be valid JSON");
 }
+
+// ---------------------------------------------------------------------------
+// Phase 6 task 3 (action 5): `rfs mc-ref` - reference MC through the lib
+// pipeline (thin commands; the tests drive the lib directly where possible).
+// ---------------------------------------------------------------------------
+
+fn rustc_on_path() -> Option<String> {
+    if let Some(v) = std::env::var_os("RUSTC") {
+        return v.into_string().ok();
+    }
+    std::env::var_os("PATH").and_then(|paths| {
+        std::env::split_paths(&paths)
+            .map(|dir| dir.join("rustc"))
+            .find(|p| p.is_file())
+            .map(|p| p.to_string_lossy().into_owned())
+    })
+}
+
+fn mc_ref_run(
+    spec: &Path,
+    opts: &rfs::mc_ref_cmd::McRefOptions,
+) -> (std::process::ExitCode, String) {
+    rfs::mc_ref_cmd::run_mc_ref(spec, opts)
+        .unwrap_or_else(|e| panic!("mc-ref failed on {:?}: {e}", spec))
+}
+
+#[test]
+fn mc_ref_exit_codes_pinned_for_all_three_statuses() {
+    let root = tmp_root("mc_ref_status");
+    // pass-complete: both states have an outgoing transition.
+    let pass = write_file(
+        &root,
+        "pass.rfs",
+        "module m { enum State { A, B } initial A event Go          transition A on Go { next B; } transition B on Go { next A; } }",
+    );
+    // fail: B is a dead state (the file's VALID_RFS shape) - exit 1.
+    let fail = write_file(&root, "fail.rfs", VALID_RFS);
+    // unknown-state-limit: the 256-cycle counter truncated at max-states=1.
+    let mut trans = String::new();
+    for i in 0..256u32 {
+        let nxt = (i + 1) % 256;
+        trans.push_str(&format!("transition S{i} on Tick {{ next S{nxt}; }}\n"));
+    }
+    let states: Vec<String> = (0..256).map(|i| format!("S{i}")).collect();
+    let counter = write_file(
+        &root,
+        "counter.rfs",
+        &format!(
+            "module m {{ enum State {{ {} }} initial S0 event Tick {trans} }}",
+            states.join(", ")
+        ),
+    );
+
+    let (code, out) = mc_ref_run(&pass, &rfs::mc_ref_cmd::McRefOptions::default());
+    assert_eq!(code, std::process::ExitCode::SUCCESS, "{out}");
+    assert!(
+        out.starts_with("PASS (complete)\nmodel-check summary: status=pass-complete"),
+        "{out}"
+    );
+
+    let (code, out) = mc_ref_run(&fail, &rfs::mc_ref_cmd::McRefOptions::default());
+    assert_eq!(code, std::process::ExitCode::FAILURE, "{out}");
+    assert!(out.contains("status=fail"), "{out}");
+
+    let opts = rfs::mc_ref_cmd::McRefOptions {
+        max_states: Some(1),
+        ..Default::default()
+    };
+    let (code, out) = mc_ref_run(&counter, &opts);
+    assert_eq!(code, std::process::ExitCode::from(2), "{out}");
+    assert!(out.contains("status=unknown-state-limit"), "{out}");
+
+    cleanup(&root);
+}
+
+#[test]
+fn mc_ref_flag_errors_are_usage_failures() {
+    let root = tmp_root("mc_ref_flags");
+    let spec = write_file(
+        &root,
+        "pass.rfs",
+        "module m { enum State { A, B } initial A event Go          transition A on Go { next B; } transition B on Go { next A; } }",
+    );
+
+    // No spec file.
+    assert_eq!(
+        rfs::mc_ref_cmd::run_cli(&[]),
+        std::process::ExitCode::FAILURE
+    );
+    // Unknown option.
+    assert_eq!(
+        rfs::mc_ref_cmd::run_cli(&[spec.to_string_lossy().into_owned(), "--bogus".to_string()]),
+        std::process::ExitCode::FAILURE
+    );
+    // --max-states without a value / non-numeric.
+    assert_eq!(
+        rfs::mc_ref_cmd::run_cli(&[
+            spec.to_string_lossy().into_owned(),
+            "--max-states".to_string()
+        ]),
+        std::process::ExitCode::FAILURE
+    );
+    assert_eq!(
+        rfs::mc_ref_cmd::run_cli(&[
+            spec.to_string_lossy().into_owned(),
+            "--max-states".to_string(),
+            "abc".to_string()
+        ]),
+        std::process::ExitCode::FAILURE
+    );
+    // Bad --counterexample-format / --log-level.
+    assert_eq!(
+        rfs::mc_ref_cmd::run_cli(&[
+            spec.to_string_lossy().into_owned(),
+            "--counterexample-format".to_string(),
+            "xml".to_string()
+        ]),
+        std::process::ExitCode::FAILURE
+    );
+    assert_eq!(
+        rfs::mc_ref_cmd::run_cli(&[
+            spec.to_string_lossy().into_owned(),
+            "--log-level".to_string(),
+            "loud".to_string()
+        ]),
+        std::process::ExitCode::FAILURE
+    );
+    // Unparseable spec -> error (exit 1).
+    let bad = write_file(&root, "bad.rfs", UNPARSEABLE_RFS);
+    assert_eq!(
+        rfs::mc_ref_cmd::run_cli(&[bad.to_string_lossy().into_owned()]),
+        std::process::ExitCode::FAILURE
+    );
+
+    cleanup(&root);
+}
+
+#[test]
+fn mc_ref_output_agrees_with_generated_binary_text_and_json() {
+    // Bridge to task 4.1: on pinned examples, `rfs mc-ref` stdout must be
+    // BYTE-IDENTICAL to the compiled generated exact-mode binary (default
+    // flags), in both text and JSON counterexample formats. The set covers a
+    // pass-complete spec, a failing safety/deadlock spec (trace + deadlock
+    // counterexamples) and a liveness spec (lasso).
+    let Some(rustc) = rustc_on_path() else {
+        eprintln!("skip: no rustc on PATH");
+        return;
+    };
+    let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    let work = tmp_root("mc_ref_agreement");
+    for name in [
+        "01_trivial_two_state.rfs",
+        "16_next_property.rfs",
+        "43_sliding_window.rfs",
+    ] {
+        let spec = root.join("examples/valid").join(name);
+        let ir = rfs::parse_file(&spec).unwrap_or_else(|e| panic!("{name}: {e}"));
+        let module = &ir.modules[0];
+
+        // Generate + compile the exact-mode MC binary (default options).
+        let backend = rfs::codegen::get_backend("rust").expect("rust backend");
+        let opts = rfs::codegen::BackendOptions::default();
+        let out = (backend.generate_model_checker)(module, &opts)
+            .unwrap_or_else(|e| panic!("{name}: codegen: {e:?}"));
+        let src = work.join(format!("{name}.rs"));
+        std::fs::write(&src, &out.code).unwrap();
+        let crate_name: String = name
+            .chars()
+            .map(|c| {
+                if c.is_ascii_alphanumeric() || c == '_' {
+                    c
+                } else {
+                    '_'
+                }
+            })
+            .collect();
+        let bin = work.join(format!("{name}.bin"));
+        let cc = std::process::Command::new(&rustc)
+            .args(["--edition", "2021"])
+            .arg("--crate-name")
+            .arg(&crate_name)
+            .arg(&src)
+            .arg("-o")
+            .arg(&bin)
+            .output()
+            .expect("run rustc");
+        assert!(
+            cc.status.success(),
+            "{name}: rustc:\n{}",
+            String::from_utf8_lossy(&cc.stderr)
+        );
+
+        for (label, gen_args, fmt) in [
+            (
+                "text",
+                Vec::<String>::new(),
+                rfs::mc_ref_cmd::CeFormat::Text,
+            ),
+            (
+                "json",
+                vec!["--counterexample-format".to_string(), "json".to_string()],
+                rfs::mc_ref_cmd::CeFormat::Json,
+            ),
+        ] {
+            let gr = std::process::Command::new(&bin)
+                .args(&gen_args)
+                .output()
+                .expect("run mc bin");
+            let gen_out = String::from_utf8_lossy(&gr.stdout).into_owned();
+            let opts = rfs::mc_ref_cmd::McRefOptions {
+                ce_format: fmt,
+                ..Default::default()
+            };
+            let (code, ref_out) = mc_ref_run(&spec, &opts);
+            assert_eq!(
+                code,
+                std::process::ExitCode::from(gr.status.code().unwrap_or(255) as u8),
+                "{name} [{label}]: exit codes differ\ngen:\n{gen_out}\nref:\n{ref_out}"
+            );
+            assert_eq!(
+                ref_out, gen_out,
+                "{name} [{label}]: mc-ref output differs from the generated binary"
+            );
+        }
+    }
+    cleanup(&work);
+}
+
+// ---------------------------------------------------------------------------
+// rfs gen-spec (Phase 6 task 3, action 6)
+// ---------------------------------------------------------------------------
+
+fn gen_spec_run(args: &[&str]) -> std::process::ExitCode {
+    let strs: Vec<String> = args.iter().map(|s| s.to_string()).collect();
+    rfs::gen_spec_cmd::run_cli(&strs)
+}
+
+#[test]
+fn gen_spec_seed_determinism_same_args_byte_identical() {
+    let root = tmp_root("gen_spec_det");
+    let a = root.join("a.rfs");
+    let b = root.join("b.rfs");
+    let ca = gen_spec_run(&["--out", &a.to_string_lossy(), "--seed", "99"]);
+    let cb = gen_spec_run(&["--out", &b.to_string_lossy(), "--seed", "99"]);
+    assert_eq!(ca, std::process::ExitCode::SUCCESS);
+    assert_eq!(cb, std::process::ExitCode::SUCCESS);
+    assert_eq!(
+        std::fs::read(&a).unwrap(),
+        std::fs::read(&b).unwrap(),
+        "same args must produce byte-identical files"
+    );
+    // The default seed is the pinned constant: bare invocation == --seed 12345.
+    let c = root.join("c.rfs");
+    assert_eq!(
+        gen_spec_run(&["--out", &c.to_string_lossy()]),
+        std::process::ExitCode::SUCCESS
+    );
+    let d = root.join("d.rfs");
+    assert_eq!(
+        gen_spec_run(&["--out", &d.to_string_lossy(), "--seed", "12345"]),
+        std::process::ExitCode::SUCCESS
+    );
+    assert_eq!(std::fs::read(&c).unwrap(), std::fs::read(&d).unwrap());
+    cleanup(&root);
+}
+
+#[test]
+fn gen_spec_base_mutations_reproducible() {
+    let root = tmp_root("gen_spec_mut");
+    let base = write_file(
+        &root,
+        "base.rfs",
+        "module m {\n  enum State { A, B, C }\n  initial A\n  event E(U)\n  output O(V)\n  transition A on E(U) { next B; emit O(V); }\n  transition B on E(U) { next C; }\n}\n",
+    );
+    let a = root.join("a.rfs");
+    let b = root.join("b.rfs");
+    let c = root.join("c.rfs");
+    assert_eq!(
+        gen_spec_run(&[
+            "--out",
+            &a.to_string_lossy(),
+            "--base",
+            &base.to_string_lossy(),
+            "--mutations",
+            "10",
+            "--seed",
+            "5"
+        ]),
+        std::process::ExitCode::SUCCESS
+    );
+    assert_eq!(
+        gen_spec_run(&[
+            "--out",
+            &b.to_string_lossy(),
+            "--base",
+            &base.to_string_lossy(),
+            "--mutations",
+            "10",
+            "--seed",
+            "5"
+        ]),
+        std::process::ExitCode::SUCCESS
+    );
+    assert_eq!(
+        gen_spec_run(&[
+            "--out",
+            &c.to_string_lossy(),
+            "--base",
+            &base.to_string_lossy(),
+            "--mutations",
+            "10",
+            "--seed",
+            "6"
+        ]),
+        std::process::ExitCode::SUCCESS
+    );
+    let fa = std::fs::read(&a).unwrap();
+    let fb = std::fs::read(&b).unwrap();
+    let fc = std::fs::read(&c).unwrap();
+    assert_eq!(fa, fb, "same base+seed+K must be byte-identical");
+    assert_ne!(fa, fc, "different seeds should mutate differently");
+    // k=0 re-renders the base (parses back to the same IR).
+    let z = root.join("z.rfs");
+    assert_eq!(
+        gen_spec_run(&[
+            "--out",
+            &z.to_string_lossy(),
+            "--base",
+            &base.to_string_lossy(),
+            "--mutations",
+            "0"
+        ]),
+        std::process::ExitCode::SUCCESS
+    );
+    let iz = rfs::parse_source(&String::from_utf8(std::fs::read(&z).unwrap()).unwrap()).unwrap();
+    let ib = rfs::parse_source(&std::fs::read_to_string(&base).unwrap()).unwrap();
+    assert_eq!(iz, ib);
+    cleanup(&root);
+}
+
+#[test]
+fn gen_spec_output_validity_sweep_20_seeds_both_modes() {
+    let root = tmp_root("gen_spec_sweep");
+    let base = write_file(
+        &root,
+        "base.rfs",
+        "module m {\n  enum State { A, B }\n  initial A\n  event E(U)\n  output O(V)\n  transition A on E(U) { next B; emit O(V); }\n  transition B on E(U) { next A; }\n}\n",
+    );
+    for seed in 0..20u64 {
+        // Fully random mode (small preset).
+        let out = root.join(format!("rand_{seed}.rfs"));
+        assert_eq!(
+            gen_spec_run(&["--out", &out.to_string_lossy(), "--seed", &seed.to_string()]),
+            std::process::ExitCode::SUCCESS,
+            "random seed {seed}"
+        );
+        let src = std::fs::read_to_string(&out).unwrap();
+        let ir = rfs::parse_source(&src)
+            .unwrap_or_else(|e| panic!("random seed {seed} failed to parse: {e:?}"));
+        rfs::validator::validate_ir(&ir)
+            .unwrap_or_else(|e| panic!("random seed {seed} invalid: {e:?}"));
+        // Mutation mode.
+        let out = root.join(format!("mut_{seed}.rfs"));
+        assert_eq!(
+            gen_spec_run(&[
+                "--out",
+                &out.to_string_lossy(),
+                "--base",
+                &base.to_string_lossy(),
+                "--mutations",
+                "8",
+                "--seed",
+                &seed.to_string(),
+            ]),
+            std::process::ExitCode::SUCCESS,
+            "mutation seed {seed}"
+        );
+        let src = std::fs::read_to_string(&out).unwrap();
+        let ir = rfs::parse_source(&src)
+            .unwrap_or_else(|e| panic!("mutation seed {seed} failed to parse: {e:?}"));
+        rfs::validator::validate_ir(&ir)
+            .unwrap_or_else(|e| panic!("mutation seed {seed} invalid: {e:?}"));
+    }
+    cleanup(&root);
+}
+
+#[test]
+fn gen_spec_error_cases_pinned() {
+    let root = tmp_root("gen_spec_err");
+    // Missing --out.
+    assert_eq!(
+        gen_spec_run(&["--seed", "1"]),
+        std::process::ExitCode::FAILURE
+    );
+    // Unknown flag.
+    let out = root.join("x.rfs");
+    assert_eq!(
+        gen_spec_run(&["--out", &out.to_string_lossy(), "--bogus", "3"]),
+        std::process::ExitCode::FAILURE
+    );
+    // Bad base file (does not exist).
+    assert_eq!(
+        gen_spec_run(&[
+            "--out",
+            &out.to_string_lossy(),
+            "--base",
+            "/nonexistent/base.rfs",
+            "--mutations",
+            "3",
+        ]),
+        std::process::ExitCode::FAILURE
+    );
+    // Invalid base (fails validation).
+    let bad = write_file(&root, "bad.rfs", BAD_STATE_RFS);
+    assert_eq!(
+        gen_spec_run(&[
+            "--out",
+            &out.to_string_lossy(),
+            "--base",
+            &bad.to_string_lossy(),
+            "--mutations",
+            "3",
+        ]),
+        std::process::ExitCode::FAILURE
+    );
+    // --base without --mutations.
+    let good = write_file(&root, "good.rfs", VALID_RFS);
+    assert_eq!(
+        gen_spec_run(&[
+            "--out",
+            &out.to_string_lossy(),
+            "--base",
+            &good.to_string_lossy()
+        ]),
+        std::process::ExitCode::FAILURE
+    );
+    // --out without .rfs extension.
+    assert_eq!(
+        gen_spec_run(&["--out", "x.json", "--seed", "1"]),
+        std::process::ExitCode::FAILURE
+    );
+    cleanup(&root);
+}

@@ -105,6 +105,7 @@ impl<'a> Gen<'a> {
         g.emit_enums();
         g.emit_vars();
         g.emit_input_output();
+        g.emit_renderers();
         g.emit_trace_and_handlers();
         g.emit_monitors().map_err(|e| vec![e])?;
         g.emit_fsm_impl().map_err(|e| vec![e])?;
@@ -197,6 +198,8 @@ impl ProtocolFsm for Fsm {
             let _ = writeln!(self.code, "extern crate alloc;");
             let _ = writeln!(self.code, "use alloc::string::{{String, ToString}};");
             let _ = writeln!(self.code, "use alloc::vec::Vec;");
+            // The report renderers (rfs_render_*) always use format!.
+            let _ = writeln!(self.code, "use alloc::format;");
             if self.uses_vec_macro {
                 let _ = writeln!(self.code, "use alloc::vec;");
             }
@@ -259,6 +262,93 @@ impl ProtocolFsm for Fsm {
                 }
                 let _ = writeln!(self.code, "}}");
             }
+        }
+    }
+
+    /// Report value renderers - byte-identical to ref_mc's text/JSON value
+    /// forms (enum -> `Name::Variant`; Vars -> `Vars { f: v, ... }` / `Vars`;
+    /// Input/Output -> `Input::V [payload]`). Used by the exact-mode report
+    /// printers and JSON renderers of the generated Rust artifacts.
+    fn emit_renderers(&mut self) {
+        // Declaration order - deterministic artifact bytes.
+        let list = enum_renderer_names(self.module);
+        let enum_fn: std::collections::HashMap<String, String> = list.iter().cloned().collect();
+        for (e, fn_name) in &list {
+            let name = rust_ident(e);
+            self.code.push_str(&format!(
+                "fn {fn_name}(v: &{name}) -> String {{ format!(\"{name}::{{v:?}}\") }}\n"
+            ));
+        }
+        for (tname, list) in [
+            ("Input", &self.variants.inputs),
+            ("Output", &self.variants.outputs),
+        ] {
+            let fn_name = if tname == "Input" {
+                "rfs_render_input"
+            } else {
+                "rfs_render_output"
+            };
+            if list.is_empty() {
+                self.code.push_str(&format!(
+                    "fn {fn_name}(v: &{tname}) -> String {{ match *v {{}} }}\n"
+                ));
+                continue;
+            }
+            let arms: Vec<String> = list
+                .iter()
+                .map(|vi| {
+                    let ident = rust_ident(&vi.unique_name);
+                    if vi.fields.is_empty() {
+                        format!("{tname}::{ident} => \"{tname}::{ident}\".to_string(),")
+                    } else {
+                        let bindings: Vec<String> =
+                            vi.fields.iter().map(|(f, _)| rust_ident(f)).collect();
+                        let slots: Vec<String> = vi
+                            .fields
+                            .iter()
+                            .map(|(f, _)| format!("{}: {{}}", rust_ident(f)))
+                            .collect();
+                        let args: Vec<String> = vi
+                            .fields
+                            .iter()
+                            .map(|(f, ty)| renderer_arg_rust(ty, &rust_ident(f), &enum_fn))
+                            .collect();
+                        format!(
+                            "{tname}::{ident} {{ {} }} => format!(\"{tname}::{ident} {{{{ {} }}}}\", {}),",
+                            bindings.join(", "),
+                            slots.join(", "),
+                            args.join(", ")
+                        )
+                    }
+                })
+                .collect();
+            self.code.push_str(&format!(
+                "fn {fn_name}(v: &{tname}) -> String {{ match *v {{\n{}\n}} }}\n",
+                arms.join("\n")
+            ));
+        }
+        if self.module.vars.is_empty() {
+            self.code.push_str(
+                "fn rfs_render_vars(v: &Vars) -> String { let _ = v; \"Vars\".to_string() }\n",
+            );
+        } else {
+            let slots: Vec<String> = self
+                .module
+                .vars
+                .iter()
+                .map(|v| format!("{}: {{}}", rust_ident(&v.name)))
+                .collect();
+            let args: Vec<String> = self
+                .module
+                .vars
+                .iter()
+                .map(|v| renderer_arg_rust(&v.ty, &format!("v.{}", rust_ident(&v.name)), &enum_fn))
+                .collect();
+            self.code.push_str(&format!(
+                "fn rfs_render_vars(v: &Vars) -> String {{ format!(\"Vars {{{{ {} }}}}\", {}) }}\n",
+                slots.join(", "),
+                args.join(", ")
+            ));
         }
     }
 
@@ -1738,4 +1828,39 @@ pub(crate) fn render_sample_formula_evaluator(
         "pub fn {}(s: &Sample) -> bool {{ {} }}\n",
         name, expr
     ))
+}
+
+/// Map every module enum to its report-renderer function name, in declaration
+/// order. `State` is a language-reserved type name and gets the fixed name the
+/// static report template references; other enums get indexed names. Both the
+/// Rust emitter (rust_fsm) and the JSON renderer (rust_mc) must use this same
+/// map, so it lives here.
+pub(crate) fn enum_renderer_names(module: &Module) -> Vec<(String, String)> {
+    module
+        .enums
+        .iter()
+        .enumerate()
+        .map(|(i, e)| {
+            let fn_name = if e.name == "State" {
+                "rfs_render_state".to_string()
+            } else {
+                format!("rfs_render_e{i}")
+            };
+            (e.name.clone(), fn_name)
+        })
+        .collect()
+}
+
+/// Format-argument expression rendering `expr` of type `ty` in ref_mc's value
+/// form: bool/bit print directly; enums go through their renderer.
+fn renderer_arg_rust(
+    ty: &crate::ir::Type,
+    expr: &str,
+    enum_fn: &std::collections::HashMap<String, String>,
+) -> String {
+    use crate::ir::Type;
+    match ty {
+        Type::Bool | Type::Bit { .. } => expr.to_string(),
+        Type::Enum { name } => format!("{}(&{})", enum_fn[name], expr),
+    }
 }

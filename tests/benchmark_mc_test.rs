@@ -58,22 +58,25 @@ struct Pin {
 }
 
 fn pin_for(name: &str) -> Pin {
+    // Re-pinned after the config-key fix (obligation `remaining` packed only
+    // while pending - ref_mc's mon_key_node semantics): these obligation-
+    // bearing specs now count exactly ref_mc's configurations.
     match name {
         "43_sliding_window.rfs" => Pin {
-            states: 165,
-            transitions: 330,
+            states: 94,
+            transitions: 188,
             max_depth: 22,
             monitors_bits: 4,
         },
         "44_token_ring.rfs" => Pin {
-            states: 129_985,
-            transitions: 519_940,
-            max_depth: 276,
+            states: 26_113,
+            transitions: 104_452,
+            max_depth: 268,
             monitors_bits: 10,
         },
         "45_elevator.rfs" => Pin {
-            states: 11_098,
-            transitions: 99_882,
+            states: 8_082,
+            transitions: 72_738,
             max_depth: 22,
             monitors_bits: 4,
         },
@@ -677,15 +680,18 @@ fn bench_mc_fail_variants_both_backends() {
         (
             "elev_noup",
             ELEV_NO_UP_SRC,
+            // Re-pinned with the config-key fix (see pin_for).
             FailPin {
                 reason: "liveness-violation",
                 label: "up2_served",
                 step: 0,
-                states: 144,
-                transitions: 1296,
-                max_depth: 7,
+                states: 80,
+                transitions: 720,
+                max_depth: 6,
                 violation_step: Some(0),
-                cycle_length: Some(3),
+                // The canonical lasso cycle is shorter in the corrected (smaller)
+                // config space.
+                cycle_length: Some(2),
             },
         ),
     ];

@@ -156,11 +156,11 @@ multiplication uint64-wide) so the backend doc matches the rendering.
 - `C.md` + `SEMANTICS.md` footnote updated.
 
 ## Task exit criteria
-- [ ] Generated C for a variable shift renders the guarded uint64 form; no promotion-based UB remains for `*`/`<<`/`>>` (review the rendering in the generated artifact of 50_wide_ops).
-- [ ] `tests/wide_ops_parity_test.rs` green: byte-identical per-step outputs across backends on the boundary sequences (k = 8/31/32/64/255, wide multiply); gcc -Wall zero warnings.
-- [ ] `examples_test` re-pinned 47 valid / 13 invalid and green; aggregate generated-code crate regenerated and fully green.
-- [ ] Full BUILD.md section 5 checklist green (build/test/clippy/fmt + generated-code tests).
-- [ ] `C.md` and `docs/SEMANTICS.md` footnote c-ub reflect the fix.
+- [x] Generated C for a variable shift renders the guarded uint64 form; no promotion-based UB remains for `*`/`<<`/`>>` (review the rendering in the generated artifact of 50_wide_ops).
+- [x] `tests/wide_ops_parity_test.rs` green: byte-identical per-step outputs across backends on the boundary sequences (k = 8/31/32/64/255, wide multiply); gcc -Wall zero warnings.
+- [x] `examples_test` re-pinned 47 valid / 13 invalid and green; aggregate generated-code crate regenerated and fully green.
+- [x] Full BUILD.md section 5 checklist green (build/test/clippy/fmt + generated-code tests).
+- [x] `C.md` and `docs/SEMANTICS.md` footnote c-ub reflect the fix.
 
 ## Non-goals
 - No change to Rust lowering, SMT encoder, or MC engine (they already define

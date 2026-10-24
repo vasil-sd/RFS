@@ -224,12 +224,12 @@ specs accepted as v0.x).
 - `docs/user/MIGRATION.md` with the compatibility policy + migration process.
 
 ## Task exit criteria
-- [ ] `version "1.x"` is a semantic validation error (pinned message); `version "1.0"` / `"1.2.3"` accepted; absent header accepted; examples_test green at 46 valid / 13 invalid.
-- [ ] `IR_VERSION == 1`; `to_json` writes 1; v0 and v1 JSON both load; v2+ rejected with pinned message; golden pins updated.
-- [ ] SHA-256 passes the NIST vectors; every generated artifact (production/test/mc, both backends, fuzz skeletons) line 1 matches the new format with a correct hash (spot-check: modify the spec -> hash changes).
-- [ ] Crate is 1.0.0; `--print-script` headers show `rfs 1.0.0`; all previously byte-pinned outputs re-pinned and green.
-- [ ] `docs/user/MIGRATION.md` exists with policy + process + v0 -> v1 entry.
-- [ ] Full suite green: `cargo build && cargo test && cargo clippy --all-targets && cargo fmt --check`; `cargo generate-code-tests && cargo test-generated-code` (header change affects generated output - regenerate and verify the aggregate crate still compiles + passes).
+- [x] `version "1.x"` is a semantic validation error (pinned message); `version "1.0"` / `"1.2.3"` accepted; absent header accepted; examples_test green at 46 valid / 13 invalid.
+- [x] `IR_VERSION == 1`; `to_json` writes 1; v0 and v1 JSON both load; v2+ rejected with pinned message; golden pins updated.
+- [x] SHA-256 passes the NIST vectors; every generated artifact (production/test/mc, both backends, fuzz skeletons) line 1 matches the new format with a correct hash (spot-check: modify the spec -> hash changes).
+- [x] Crate is 1.0.0; `--print-script` headers show `rfs 1.0.0`; all previously byte-pinned outputs re-pinned and green.
+- [x] `docs/user/MIGRATION.md` exists with policy + process + v0 -> v1 entry.
+- [x] Full suite green: `cargo build && cargo test && cargo clippy --all-targets && cargo fmt --check`; `cargo generate-code-tests && cargo test-generated-code` (header change affects generated output - regenerate and verify the aggregate crate still compiles + passes).
 
 ## Non-goals
 - No new CLI commands in this task (those are task 3); no changes to generated code BEYOND line 1 of the header; no IR schema changes beyond the version field; no publishing/release mechanics (the git tag happens at close-out, task 10).

@@ -1,26 +1,181 @@
-# rfs 1.0
-module literal_patterns {
-  enum State { S }
-  initial S
+# Phase 6 task 6 (benchmark suite): USB-like control transfer FSM.
+#
+# Device-side abstraction of one USB control transfer (fixed length-4
+# payload). SETUP opens the transfer; DATA(n) delivers n payload bytes -
+# the packet carrying the LAST remaining byte completes the data stage and
+# enters StatusStage. NAK means "device not ready": the retry counter grows,
+# and a NAK with the counter already at its bit<2> ceiling (3) aborts into
+# Error. Data or STALL resets the counter, so under env_progress below the
+# Error state is UNREACHABLE - it only appears when assumptions are relaxed
+# (`--assumes none`), which is exactly what the FAIL variant exercises.
+#
+# Abstractions (documented simplifications):
+#   - a host overrun (n > data_left) has no arm: the path ends as an
+#     unexpected termination (SEMANTICS 8.3);
+#   - RESET is accepted only outside the data phase (a mid-transfer bus
+#     reset would make completes_after_setup unprovable);
+#   - Error is an ABSORBING state for DATA-phase bus activity: it ignores
+#     Data/Ack/Nak/Stall/Reset (host re-initialization is out of scope).
+#     The absorbing self-loops exist so model checking does not report a
+#     deadlock at this intentionally terminal configuration (SEMANTICS 8.4);
+#     under env_progress the state is unreachable anyway. SETUP is NOT
+#     absorbed: an arm there would violate no_double_setup once Error becomes
+#     reachable (`--assumes none` - exactly what the benchmark FAIL variant
+#     exercises), and a re-setup in Error is an unexpected termination just
+#     like in Stalled (the host must RESET first).
+module usb_control_transfer version "1.0" {
+  enum State { Idle, SetupSent, DataStage, StatusStage, Stalled, Error }
+  initial Idle
 
-  event Cmd(Value(op: bit<4>))
-  event Flag(Value(b: bool))
-  output Zero
-  output One
-  output TrueAction
+  event Setup
+  event Data(Data(n: bit<4>))
+  event Ack
+  event Nak
+  event Stall
+  event Reset
 
-  transition S on Cmd(Value(0)) {
-    next S;
-    emit Zero;
+  output SetupReceived
+  output DataReceived
+  output DataComplete
+  output NakSent
+  output StallSent
+  output StatusAcked
+  output TransferAborted
+  output ResetDone
+
+  var data_left: bit<4> init 4   # expected payload bytes (length-4 abstraction)
+  var retries: bit<2> init 0     # consecutive NAK count; reset when data flows
+
+  # While the transfer is in its setup/data phase, a DATA packet or STALL
+  # arrives within every 4 samples.
+  assume env_progress : always ((state == SetupSent || state == DataStage) -> bounded_eventually[4] (input_is(Data) || input_is(Stall))) ;
+
+  # Safety: SETUP is only accepted from Idle (no double setup).
+  prop no_double_setup : always (input_is(Setup) -> state == SetupSent) ;
+
+  # Safety: StatusStage is entered only when the payload is complete.
+  prop status_only_when_complete : always (state == StatusStage -> data_left == 0) ;
+
+  # Safety: Error is terminal - no transition may leave it.
+  prop error_terminal : always (state == Error -> next (state == Error)) ;
+
+  # Liveness: a started transfer reaches StatusStage or Stalled within 16
+  # samples. Tight bound: worst case under env_progress is DATA(1) x 4 with
+  # each progress event delayed to the assumption deadline (samples i+3, i+7,
+  # i+11, i+15 after SETUP at i).
+  prop completes_after_setup : always (input_is(Setup) -> bounded_eventually[16] (state == StatusStage || state == Stalled)) ;
+
+  transition Idle on Setup {
+    next SetupSent;
+    emit SetupReceived;
+    set retries = 0;
   }
 
-  transition S on Cmd(Value(1)) {
-    next S;
-    emit One;
+  # First data packet: opens the data stage, or completes it outright when it
+  # carries the whole payload.
+  transition SetupSent on Data(Data(n)) where n > 0 && n < data_left {
+    priority 1;
+    next DataStage;
+    emit DataReceived;
+    set data_left = data_left - n;
+    set retries = 0;
+  }
+  transition SetupSent on Data(Data(n)) where n == data_left {
+    priority 2;
+    next StatusStage;
+    emit DataComplete;
+    set data_left = 0;
+    set retries = 0;
   }
 
-  transition S on Flag(Value(true)) {
-    next S;
-    emit TrueAction;
+  # Subsequent packets; the one carrying the last remaining byte completes.
+  transition DataStage on Data(Data(n)) where n > 0 && n < data_left {
+    priority 1;
+    next DataStage;
+    emit DataReceived;
+    set data_left = data_left - n;
+    set retries = 0;
+  }
+  transition DataStage on Data(Data(n)) where n == data_left {
+    priority 2;
+    next StatusStage;
+    emit DataComplete;
+    set data_left = 0;
+    set retries = 0;
+  }
+
+  # NAK: device not ready. Three consecutive NAKs saturate the counter; a
+  # fourth (counter already at 3) aborts the transfer into Error.
+  transition SetupSent on Nak where retries < 3 {
+    priority 1;
+    next SetupSent;
+    emit NakSent;
+    set retries = retries + 1;
+  }
+  transition SetupSent on Nak where retries == 3 {
+    priority 2;
+    next Error;
+    emit TransferAborted;
+  }
+  transition DataStage on Nak where retries < 3 {
+    priority 1;
+    next DataStage;
+    emit NakSent;
+    set retries = retries + 1;
+  }
+  transition DataStage on Nak where retries == 3 {
+    priority 2;
+    next Error;
+    emit TransferAborted;
+  }
+
+  # The device stalls the endpoint (recovers only via RESET).
+  transition SetupSent on Stall {
+    next Stalled;
+    emit StallSent;
+  }
+  transition DataStage on Stall {
+    next Stalled;
+    emit StallSent;
+  }
+
+  # Status handshake: the host's final ACK completes the transfer.
+  transition StatusStage on Ack {
+    next Idle;
+    emit StatusAcked;
+    set data_left = 4;
+    set retries = 0;
+  }
+
+  # RESET outside the data phase (see header).
+  transition StatusStage on Reset {
+    next Idle;
+    emit ResetDone;
+    set data_left = 4;
+    set retries = 0;
+  }
+  transition Stalled on Reset {
+    next Idle;
+    emit ResetDone;
+    set data_left = 4;
+    set retries = 0;
+  }
+
+  # Error absorbs DATA-phase bus activity (see header); SETUP is unexpected
+  # here by design (no_double_setup + RESET-first recovery, like Stalled).
+  transition Error on Data(Data(_)) {
+    next Error;
+  }
+  transition Error on Ack {
+    next Error;
+  }
+  transition Error on Nak {
+    next Error;
+  }
+  transition Error on Stall {
+    next Error;
+  }
+  transition Error on Reset {
+    next Error;
   }
 }

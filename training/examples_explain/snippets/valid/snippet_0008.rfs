@@ -1,18 +1,162 @@
-# rfs 1.0
-module guard_complex {
-  enum State { S }
-  initial S
+# Phase 6 task 6 (benchmark suite): HTTP/2-like stream state machine.
+#
+# Single-endpoint abstraction of one HTTP/2 stream. send_window (bit<5>,
+# initial 16) is the peer's flow-control grant: SEND_DATA(w) consumes w;
+# WINDOW_UPDATE(w) adds w, capped at the representable maximum 31 - the cap
+# arm fires exactly when the bit<5> sum would wrap (`send_window + w <
+# send_window`, all arithmetic reduced mod 2^w per SEMANTICS 2.2). END_STREAM
+# is the PEER's end-of-stream frame arriving; ACK is the LOCAL application
+# signalling it has finished sending (our half closes); RST_STREAM aborts the
+# stream from any live state. The stream opens on the first data frame;
+# Closed is terminal - there are NO transitions out of it, so every input
+# there ends the path as an unexpected termination (SEMANTICS 8.3). Zero-
+# length frames (w = 0) are rejected by the abstraction (no matching arm).
+#
+# Payload widths: the sketch's bit<4> w is widened to bit<5> so the window
+# comparison/guards type-check (comparisons require identical vector widths,
+# SEMANTICS 2.2); recorded as a task correction.
+module http2_stream version "1.0" {
+  enum State { Idle, Open, HalfClosedRemote, HalfClosedLocal, Closed }
+  initial Idle
 
-  var a: bit<8> init 1
-  var b: bit<8> init 9
+  event SendData(SendData(w: bit<5>))
+  event WindowUpdate(WindowUpdate(w: bit<5>))
+  event EndStream
+  event RstStream
+  event Ack
 
-  event Update(Payload(x: bit<8>, y: bit<8>))
-  output Match
+  output DataSent
+  output WindowUpd
+  output StreamReset
+  output StreamClosed
 
-  transition S on Update(Payload(x, y)) where (a < 10 && b > 5) || (x == y) {
-    next S;
-    emit Match;
-    set a = x;
-    set b = y;
+  var send_window: bit<5> init 16
+
+  # While we are half-closed locally, the peer's end-of-stream frame arrives
+  # within 7 samples (the environment finishes the stream).
+  assume peer_ends : always (state == HalfClosedLocal -> bounded_eventually[7] (input_is(EndStream))) ;
+
+  # Safety: Closed is terminal - no transition may leave it.
+  prop closed_terminal : always (state == Closed -> next (state == Closed)) ;
+
+  # Safety: RST_STREAM always lands in Closed.
+  prop rst_goes_closed : always (input_is(RstStream) -> state == Closed) ;
+
+  # Safety: window grants are only accepted on a live stream.
+  prop grant_only_when_alive : always (output_has(WindowUpd) -> state != Idle && state != Closed) ;
+
+  # Liveness: after the local half closes, the stream reaches Closed within
+  # 8 samples - peer_ends delivers END_STREAM within 7 (RST also qualifies).
+  prop closes_after_local_end : always (input_is(Ack) && state == HalfClosedLocal -> bounded_eventually[8] (state == Closed)) ;
+
+  # The first data frame opens the stream.
+  transition Idle on SendData(SendData(w)) where w > 0 && send_window >= w {
+    next Open;
+    emit DataSent;
+    set send_window = send_window - w;
+  }
+
+  # Local sends consume the window (only while our half is open).
+  transition Open on SendData(SendData(w)) where w > 0 && send_window >= w {
+    next Open;
+    emit DataSent;
+    set send_window = send_window - w;
+  }
+  transition HalfClosedRemote on SendData(SendData(w)) where w > 0 && send_window >= w {
+    next HalfClosedRemote;
+    emit DataSent;
+    set send_window = send_window - w;
+  }
+
+  # Peer flow-control grants: add unless the bit<5> sum would wrap, in which
+  # case cap at the representable maximum.
+  transition Open on WindowUpdate(WindowUpdate(w)) where w > 0 && send_window + w >= send_window {
+    priority 1;
+    next Open;
+    emit WindowUpd;
+    set send_window = send_window + w;
+  }
+  transition Open on WindowUpdate(WindowUpdate(w)) where w > 0 && send_window + w < send_window {
+    priority 2;
+    next Open;
+    emit WindowUpd;
+    set send_window = 31;
+  }
+  transition HalfClosedLocal on WindowUpdate(WindowUpdate(w)) where w > 0 && send_window + w >= send_window {
+    priority 1;
+    next HalfClosedLocal;
+    emit WindowUpd;
+    set send_window = send_window + w;
+  }
+  transition HalfClosedLocal on WindowUpdate(WindowUpdate(w)) where w > 0 && send_window + w < send_window {
+    priority 2;
+    next HalfClosedLocal;
+    emit WindowUpd;
+    set send_window = 31;
+  }
+  transition HalfClosedRemote on WindowUpdate(WindowUpdate(w)) where w > 0 && send_window + w >= send_window {
+    priority 1;
+    next HalfClosedRemote;
+    emit WindowUpd;
+    set send_window = send_window + w;
+  }
+  transition HalfClosedRemote on WindowUpdate(WindowUpdate(w)) where w > 0 && send_window + w < send_window {
+    priority 2;
+    next HalfClosedRemote;
+    emit WindowUpd;
+    set send_window = 31;
+  }
+
+  # The peer finishes sending: we become half-closed remote.
+  transition Open on EndStream {
+    next HalfClosedRemote;
+  }
+  # Both halves done: the stream closes.
+  transition HalfClosedLocal on EndStream {
+    next Closed;
+    emit StreamClosed;
+  }
+
+  # The local application finishes sending: we become half-closed local.
+  transition Open on Ack {
+    next HalfClosedLocal;
+  }
+  transition HalfClosedRemote on Ack {
+    next Closed;
+    emit StreamClosed;
+  }
+
+  # Abort from any live state (Closed is terminal - no arm there).
+  transition Open on RstStream {
+    next Closed;
+    emit StreamReset;
+  }
+  transition HalfClosedLocal on RstStream {
+    next Closed;
+    emit StreamReset;
+  }
+  transition HalfClosedRemote on RstStream {
+    next Closed;
+    emit StreamReset;
+  }
+
+  # Closed is terminal for protocol purposes, but a configuration with NO
+  # successor at all is a deadlock FAILURE in model checking (SEMANTICS 8.4),
+  # so Closed absorbs every event and ignores it - the same convention as
+  # spec 43's Done state.
+  transition Closed on SendData(SendData(_)) {
+    next Closed;
+  }
+  transition Closed on WindowUpdate(WindowUpdate(_)) {
+    next Closed;
+  }
+  transition Closed on EndStream {
+    next Closed;
+  }
+  transition Closed on RstStream {
+    next Closed;
+  }
+  transition Closed on Ack {
+    next Closed;
   }
 }

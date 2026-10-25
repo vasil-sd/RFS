@@ -1,8 +1,19 @@
 # rfs 1.0
-module trivial {
-  enum State { A, B }
-  initial A
-  event Go
-  transition A on Go { next B; }
-  transition B on Go { next A; }
+module multiple_transitions_same_state {
+  enum State { S }
+  initial S
+
+  event E(Value(x: bit<4>))
+  output Low
+  output High
+
+  transition S on E(Value(x)) where x < 8 {
+    next S;
+    emit Low;
+  }
+
+  transition S on E(Value(x)) where x >= 8 {
+    next S;
+    emit High;
+  }
 }

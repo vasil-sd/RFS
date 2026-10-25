@@ -1,26 +1,19 @@
-module bit_ops {
+# rfs 1.0
+module wildcard_patterns {
   enum State { S }
   initial S
-  var flags: bit<8> init 0
-  event Set1
-  event Set2
-  event Clear2
-  event Check
-  output Ok
-  transition S on Set1 {
+
+  event Packet(Frame(len: bit<8>, kind: bit<4>))
+  output Small
+  output Large
+
+  transition S on Packet(Frame(len, _)) where len < 10 {
     next S;
-    set flags = flags | 1;
+    emit Small;
   }
-  transition S on Set2 {
+
+  transition S on Packet(Frame(len, _)) where len >= 10 {
     next S;
-    set flags = flags | 2;
-  }
-  transition S on Clear2 {
-    next S;
-    set flags = flags & ~2;
-  }
-  transition S on Check where (flags & 3) == 3 {
-    next S;
-    emit Ok;
+    emit Large;
   }
 }

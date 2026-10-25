@@ -1,16 +1,26 @@
 # rfs 1.0
-module trailing {
-  enum State { A, B, }
-  initial A
+module literal_patterns {
+  enum State { S }
+  initial S
 
-  event E(Frame(x: bit<8>, y: bool, ))
-  output O(Value(z: bit<8>, ))
+  event Cmd(Value(op: bit<4>))
+  event Flag(Value(b: bool))
+  output Zero
+  output One
+  output TrueAction
 
-  var v: bit<8> init 0;
+  transition S on Cmd(Value(0)) {
+    next S;
+    emit Zero;
+  }
 
-  transition A on E(Frame(_, _, )) where v == 0 {
-    next B;
-    emit O(Value(1, ));
-    set v = 1;
+  transition S on Cmd(Value(1)) {
+    next S;
+    emit One;
+  }
+
+  transition S on Flag(Value(true)) {
+    next S;
+    emit TrueAction;
   }
 }

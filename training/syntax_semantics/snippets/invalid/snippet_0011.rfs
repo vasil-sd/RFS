@@ -1,4 +1,3 @@
 transition A on Go {
-  next B;
   emit Done;
 }

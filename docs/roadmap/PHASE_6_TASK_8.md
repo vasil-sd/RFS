@@ -102,15 +102,19 @@ feed task 9's BUILD.md baseline update.
 - New counts recorded for task 9.
 
 ## Task exit criteria
-- [ ] Every touched category file still passes the structure tests (two messages, think block format) - `cargo test-training` green.
-- [ ] All quoted command outputs verified real (captured during action 1, not invented).
-- [ ] Snippets + aggregate regenerated; new counts recorded in "Other information" below.
-- [ ] No other category files touched (category-local rule).
+- [x] Every touched category file still passes the structure tests (two messages, think block format) - `cargo test-training` green. DONE 2026-10-25: `cargo test-training` 5/5 (4 dedicated + the codegen aggregate test), incl. `committed_all_rfs_training_file_is_fresh`.
+- [x] All quoted command outputs verified real (captured during action 1, not invented). DONE 2026-10-25: every quote in the 17 new entries was captured live during this task's execution from the v1.0.0 toolchain (mc-ref on specs 43/44/46 incl. --max-states 100, bad-version-header validate error, IR-version-2 rejection error, info on spec 46, codegen production headers rust+c on spec 46, gen-spec random seed 42 + mutation base 03 seed 7 + diff + validate, mc-ref/gen-spec missing-file errors, spec-48 --violate fuzz run) - or reused verbatim from captures made earlier in this session and re-verified (spec 13 three-engine byte-parity, spec 45 liveness lasso).
+- [x] Snippets + aggregate regenerated; new counts recorded in "Other information" below. DONE 2026-10-25: see Other information.
+- [x] No other category files touched (category-local rule). DONE 2026-10-25: git diff shows exactly the five category jsonl files changed + regenerated snippets + all_rfs_training.jsonl.
 
 ## Non-goals
 - No new training categories; no GRPO/reward changes (`training.py` untouched); no GPU training runs (that is a separate, user-triggered activity per BUILD.md);
 - no rewording of existing entries (append-only within this task's scope).
 
 ## Other information
-- Record here after action 2: old -> new counts (aggregate lines, valid/invalid
-  snippets) for the BUILD.md baseline in task 9.
+- **Counts (recorded after action 2, for the BUILD.md baseline in task 9):**
+  - aggregate `all_rfs_training.jsonl`: **244 -> 261 lines** (+17 = the new entries).
+  - snippets: **135 valid + 127 invalid -> 138 valid + 128 invalid** (+3 valid, +1 invalid; most quoted outputs are ```text/```sh blocks which snippet extraction does not collect - only RFS code blocks count).
+  - category line counts: syntax_semantics 11->14, design 12->15, model_checking 27->31, examples_explain 36->39, frontend_cli 11->15.
+  - generated-code aggregate crate (development artifact under target/, regenerated for tree consistency): **189 modules / 1601 tests -> 192 modules / 1683 tests** (`cargo generate-code-tests && cargo test-generated-code` green) - the +3 modules are the new valid training snippets, each carrying the full extended plan classes.
+- **New entry inventory (17):** syntax_semantics x3 (version header meaning/format + real pinned error; optionality/legacy v0.x; why the existing mechanism was formalized over a comment header), design x3 (stale-artifact detection via line-1 header with real rust+c headers; what the spec hash covers + hand-rolled SHA-256 rationale; IR_VERSION 0->1 read policy with the real version-2 rejection error), model_checking x4 (when a PASS is trustworthy + real spec-46 output; --violate mechanics + real spec-48 run 161/200 assumption stops; rfs mc-ref quick-check workflow + real spec-43 output; unknown-state-limit semantics + real spec-44 --max-states 100 output), examples_explain x3 (full-spec walkthroughs of 47/48/49 in the established structured format, each with its real exact-mode MC result), frontend_cli x4 (mc-ref flags/exit codes + real missing-file error; gen-spec both modes + real random/mutation outputs + validity guarantee; mutation workflow with real diff; mc-ref vs generated-binary choice).

@@ -1,11 +1,8 @@
-module assumptions_tick {
-  enum State { S }
-  initial S
-  event Tick
-  var n: bit<8> init 0
-  transition S on Tick {
-    next S;
-    set n = n + 1;
-  }
-  assume env_tick : always (bounded_eventually[5] (input_is(Tick))) ;
+# rfs 1.0
+module trivial {
+  enum State { A, B }
+  initial A
+  event Go
+  transition A on Go { next B; }
+  transition B on Go { next A; }
 }

@@ -1,21 +1,26 @@
-module comparisons {
+module bit_ops {
   enum State { S }
   initial S
-  var x: bit<8> init 5
-  event Inc
-  event Dec
+  var flags: bit<8> init 0
+  event Set1
+  event Set2
+  event Clear2
   event Check
-  output InRange
-  transition S on Inc where x < 255 {
+  output Ok
+  transition S on Set1 {
     next S;
-    set x = x + 1;
+    set flags = flags | 1;
   }
-  transition S on Dec where x > 0 {
+  transition S on Set2 {
     next S;
-    set x = x - 1;
+    set flags = flags | 2;
   }
-  transition S on Check where x >= 3 && x <= 10 {
+  transition S on Clear2 {
     next S;
-    emit InRange;
+    set flags = flags & ~2;
+  }
+  transition S on Check where (flags & 3) == 3 {
+    next S;
+    emit Ok;
   }
 }

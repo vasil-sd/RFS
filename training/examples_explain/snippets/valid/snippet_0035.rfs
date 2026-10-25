@@ -1,20 +1,24 @@
-module timer_zero {
-  enum State { Ready, Waiting }
-  initial Ready
-  var timer: bit<4> init 0
-  event Start
+module request_response {
+  enum State { Idle, Waiting }
+  initial Idle
+  event Req
+  event Resp
   event Tick
-  output Expired
-  transition Ready on Start {
+  output SendResp
+  var timer: bit<3> init 2
+  transition Idle on Req {
     next Waiting;
-    set timer = 5;
+    emit SendResp;
+    set timer = 2;
+  }
+  transition Waiting on Resp {
+    next Idle;
   }
   transition Waiting on Tick where timer > 0 {
     next Waiting;
     set timer = timer - 1;
   }
   transition Waiting on Tick where timer == 0 {
-    next Ready;
-    emit Expired;
+    next Idle;
   }
 }

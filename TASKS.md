@@ -1041,3 +1041,18 @@ Per PHASE_5_TASK_16.md: run the complete BUILD.md §5 checklist (+ Phase 5 addit
 - Protocol artifacts: `docs/roadmap/PHASE_6_TASK_7_STATUS.md` written per template 2.5.2; task file "Other information" updated with the verified-runnable sample list; exit criteria checked off 5/5 in PHASE_6_TASK_7.md.
 - Verification: `cargo test` 453/453 (root, exit 0), `cargo test --test docs_md_test` 5/5 (all 148 repo .md files pass the mdr-stack checks incl. the 24 new diagrams), fmt clean; no source/example changes (docs-only task).
 - All task 7 exit criteria met (PHASE_6_TASK_7.md checked off 5/5). Next in order: task 8 (training data update).
+
+## 2026-10-25 16:20 — Phase 6 task 8 (complete): training data update - 17 new SFT entries across the five v1.0 categories, all with real captured output
+
+### Interpretation & plan
+
+- User confirmed "Lets execute task 8" for Phase 6 task 8 per `PHASE_6_TASK_8.md`: extend the SFT training data with coverage of the new v1.0 surface (version header + versioning policy/spec hash, trustworthy MC reports + forced violations, the two new CLI commands mc-ref/gen-spec, the new benchmark specs) in the established category-local format, then regenerate snippets + aggregate.
+- Plan: study existing entries' exact format (two messages, `< think>` numbered steps, verbatim real output), capture every needed tool output live from the v1.0.0 toolchain (incl. the two pinned errors: malformed version header and IR-version-2 rejection), write 3-5 entries per category, regenerate + verify.
+
+### Report
+
+- 17 new entries appended (append-only) to exactly five category files: syntax_semantics 11->14 (version header meaning/format + real pinned error, optionality/legacy v0.x, why the existing mechanism was formalized over a comment header), design 12->15 (stale-artifact detection with real rust+c line-1 headers from spec 46, spec-hash coverage + hand-rolled SHA-256 rationale, IR_VERSION 0->1 read policy with the real version-2 rejection error), model_checking 27->31 (PASS-trustworthiness + no-false-PASS invariant with real spec-46 output, --violate mechanics with a real spec-48 run 161/200 assumption stops, rfs mc-ref workflow + real spec-43 output, unknown-state-limit with a real spec-44 --max-states 100 run), examples_explain 36->39 (full-spec walkthroughs of 47/48/49 in the established structured format, each with its real exact-mode result matching the benchmark pins), frontend_cli 11->15 (mc-ref flags/exit codes + real missing-file error, gen-spec both modes with real outputs + validity guarantee, mutation workflow with real diff, mc-ref vs generated-binary guidance).
+- Regenerated: snippets 135 valid + 127 invalid -> 138 valid + 128 invalid; aggregate all_rfs_training.jsonl 244 -> 261 lines. Also regenerated the development-artifact aggregate codegen crate for tree consistency: 189 modules / 1601 tests -> 192 modules / 1683 tests (the +3 valid snippets each carry a full extended test module - hence +82 tests).
+- Protocol artifacts: PHASE_6_TASK_8_STATUS.md per template 2.5.2; task-file exit criteria checked off 4/4 with measured evidence; counts recorded in the task file's Other information for task 9's BUILD.md baseline.
+- Verification: cargo test-training 5/5 (incl. committed_all_rfs_training_file_is_fresh), generate-code-tests + test-generated-code 1683/1683, git status confirms category-local rule (all changes under training/ + all_rfs_training.jsonl).
+- All task 8 exit criteria met (PHASE_6_TASK_8.md checked off 4/4). Next in order: task 9 (docs sync to final Phase 6 state).

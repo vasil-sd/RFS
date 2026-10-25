@@ -1,18 +1,20 @@
-module var_init_enum {
+module shifts {
   enum State { S }
   initial S
-  enum Phase { Init, Run, Done }
-  var phase: Phase init Phase::Init
-  event Begin
-  event End
-  output Running
-  transition S on Begin where phase == Phase::Init {
+  var window: bit<8> init 1
+  event Left
+  event Right
+  output Wide
+  transition S on Left where window < 128 {
     next S;
-    set phase = Phase::Run;
-    emit Running;
+    set window = window << 1;
   }
-  transition S on End where phase == Phase::Run {
+  transition S on Right where window > 1 {
     next S;
-    set phase = Phase::Done;
+    set window = window >> 1;
+  }
+  transition S on Left where window == 128 {
+    next S;
+    emit Wide;
   }
 }

@@ -1,11 +1,14 @@
-module event_no_payload_properties {
-  enum State { S }
-  initial S
-  event Ping
-  output PongOut
-  transition S on Ping {
-    next S;
-    emit PongOut;
+module dead_state {
+  enum State { Active, Dead }
+  initial Active
+  event Work
+  event Fail
+  output Done
+  transition Active on Work {
+    next Active;
+    emit Done;
   }
-  prop ping_pong : always (input_is(Ping) -> output_has(PongOut)) ;
+  transition Active on Fail {
+    next Dead;
+  }
 }

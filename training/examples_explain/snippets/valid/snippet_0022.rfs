@@ -1,14 +1,15 @@
-module dead_state {
-  enum State { Active, Dead }
-  initial Active
-  event Work
-  event Fail
-  output Done
-  transition Active on Work {
-    next Active;
-    emit Done;
+module bounded_eventually {
+  enum State { Idle, Waiting, Complete }
+  initial Idle
+  event Start
+  event Tick
+  output Finished
+  transition Idle on Start {
+    next Waiting;
   }
-  transition Active on Fail {
-    next Dead;
+  transition Waiting on Tick {
+    next Complete;
+    emit Finished;
   }
+  prop start_finish : always (input_is(Start) -> bounded_eventually[3] (output_has(Finished))) ;
 }

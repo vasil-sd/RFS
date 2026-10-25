@@ -1,21 +1,4 @@
-module mode_machine {
-  enum State { Running }
-  initial Running
-  enum Mode { Normal, Fast, Error }
-  var mode: Mode init Mode::Normal
-  event SetFast
-  event SetError
-  event Reset
-  transition Running on SetFast where mode == Mode::Normal {
-    next Running;
-    set mode = Mode::Fast;
-  }
-  transition Running on SetError where mode != Mode::Error {
-    next Running;
-    set mode = Mode::Error;
-  }
-  transition Running on Reset {
-    next Running;
-    set mode = Mode::Normal;
-  }
+module empty_module {
+  enum State { A }
+  initial A
 }

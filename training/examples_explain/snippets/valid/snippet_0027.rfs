@@ -1,22 +1,18 @@
-module multi_event_group {
+module enum_types {
   enum State { S }
   initial S
-  event Msg(A)
-  event Msg(B(x: bit<4>))
-  event Msg(C(y: bool))
-  output SawA
-  output SawB
-  output SawC
-  transition S on Msg(A) {
+  enum Color { Red, Green, Blue }
+  var color: Color init Color::Red
+  event ToGreen
+  event ToBlue
+  output IsGreen
+  transition S on ToGreen where color != Color::Green {
     next S;
-    emit SawA;
+    set color = Color::Green;
   }
-  transition S on Msg(B(x)) where x > 0 {
+  transition S on ToBlue where color == Color::Green {
     next S;
-    emit SawB;
-  }
-  transition S on Msg(C(y)) where y == true {
-    next S;
-    emit SawC;
+    set color = Color::Blue;
+    emit IsGreen;
   }
 }

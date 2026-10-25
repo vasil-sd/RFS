@@ -1,21 +1,9 @@
-module properties_safety {
-  enum State { Good, Bad }
-  initial Good
-  // Stay is a self-loop declared first so the generated positive-sequence walk
-  // (first candidate input in declaration order) stays in Good and respects
-  // `no_bad`; random MC runs can still pick ToBad and violate it.
-  event Stay
-  event ToBad
-  event ToGood
-  transition Good on Stay {
-    next Good;
+module next_property {
+  enum State { A, B }
+  initial A
+  event Go
+  transition A on Go {
+    next B;
   }
-  transition Good on ToBad {
-    next Bad;
-  }
-  transition Bad on ToGood {
-    next Good;
-  }
-  prop no_bad : always (state != Bad) ;
-  prop returns_good : always (input_is(ToGood) -> next (state == Good)) ;
+  prop goes_to_b : always (input_is(Go) -> next (state == B)) ;
 }

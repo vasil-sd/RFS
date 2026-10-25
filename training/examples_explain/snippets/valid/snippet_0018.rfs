@@ -1,24 +1,13 @@
-module boolean_var {
-  enum State { S }
-  initial S
-  var enabled: bool init false
-  event Enable
-  event Disable
-  event Toggle
-  output On
-  output Off
-  transition S on Enable where !enabled {
-    next S;
-    set enabled = true;
-    emit On;
-  }
-  transition S on Disable where enabled {
-    next S;
-    set enabled = false;
-    emit Off;
-  }
-  transition S on Toggle {
-    next S;
-    set enabled = !enabled;
+module alpha {
+  enum State { A }
+  initial A
+  event Ping
+}
+module beta {
+  enum State { X, Y }
+  initial X
+  event Pong
+  transition X on Pong {
+    next Y;
   }
 }

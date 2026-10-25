@@ -1,7 +1,2 @@
-transition A on E where cond1 {
-  next B;
-}
-
-transition A on E where cond2 {
-  next C;
-}
+set x = y + 1;
+set y = x;

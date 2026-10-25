@@ -1,5 +1,4 @@
-transition S on E {
-  next S;
-  set x = y + 1;
-  set y = x;
+transition A on Go {
+  next B;
+  emit Done;
 }

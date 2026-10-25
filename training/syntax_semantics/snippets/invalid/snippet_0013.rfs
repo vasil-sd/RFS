@@ -1,3 +1,5 @@
-transition S on Recv(Ack(ack_seq)) where ack_seq == seq {
+transition S on E {
   next S;
+  set x = y + 1;
+  set y = x;
 }

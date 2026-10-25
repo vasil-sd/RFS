@@ -1,20 +1,16 @@
-module shifts {
+module output_payloads {
   enum State { S }
   initial S
-  var window: bit<8> init 1
-  event Left
-  event Right
-  output Wide
-  transition S on Left where window < 128 {
+  event Ok
+  event Err
+  output Reply(Ok(code: bit<8>))
+  output Reply(Err(msg: bit<8>))
+  transition S on Ok {
     next S;
-    set window = window << 1;
+    emit Reply(Ok(1));
   }
-  transition S on Right where window > 1 {
+  transition S on Err {
     next S;
-    set window = window >> 1;
-  }
-  transition S on Left where window == 128 {
-    next S;
-    emit Wide;
+    emit Reply(Err(2));
   }
 }

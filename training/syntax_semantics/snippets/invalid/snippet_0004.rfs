@@ -1,1 +1,1 @@
-on Packet(Frame(len, _)) where len < 10
+on Flag(Value(true))

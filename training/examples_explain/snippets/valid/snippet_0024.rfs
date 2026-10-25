@@ -1,18 +1,21 @@
-module enum_types {
-  enum State { S }
-  initial S
-  enum Color { Red, Green, Blue }
-  var color: Color init Color::Red
-  event ToGreen
-  event ToBlue
-  output IsGreen
-  transition S on ToGreen where color != Color::Green {
-    next S;
-    set color = Color::Green;
+module counter {
+  enum State { Counting }
+  initial Counting
+  event Inc
+  event Reset
+  output Reached
+  var count: bit<8> init 0
+  transition Counting on Inc where count < 255 {
+    next Counting;
+    set count = count + 1;
   }
-  transition S on ToBlue where color == Color::Green {
-    next S;
-    set color = Color::Blue;
-    emit IsGreen;
+  transition Counting on Inc where count == 255 {
+    next Counting;
+    emit Reached;
+    set count = 0;
+  }
+  transition Counting on Reset {
+    next Counting;
+    set count = 0;
   }
 }

@@ -1,1 +1,3 @@
-on Cmd(Value(0))
+module handshake version "1.0" {
+  ...
+}

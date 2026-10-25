@@ -1,16 +1,21 @@
-module output_group_multi {
-  enum State { S }
-  initial S
-  event Go
-  event Stop
-  output Action(Go)
-  output Action(Stop(reason: bit<8>))
-  transition S on Go {
-    next S;
-    emit Action(Go);
+module mode_machine {
+  enum State { Running }
+  initial Running
+  enum Mode { Normal, Fast, Error }
+  var mode: Mode init Mode::Normal
+  event SetFast
+  event SetError
+  event Reset
+  transition Running on SetFast where mode == Mode::Normal {
+    next Running;
+    set mode = Mode::Fast;
   }
-  transition S on Stop {
-    next S;
-    emit Action(Stop(7));
+  transition Running on SetError where mode != Mode::Error {
+    next Running;
+    set mode = Mode::Error;
+  }
+  transition Running on Reset {
+    next Running;
+    set mode = Mode::Normal;
   }
 }

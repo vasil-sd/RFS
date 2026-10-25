@@ -1,9 +1,11 @@
-module next_property {
-  enum State { A, B }
-  initial A
-  event Go
-  transition A on Go {
-    next B;
+module event_no_payload_properties {
+  enum State { S }
+  initial S
+  event Ping
+  output PongOut
+  transition S on Ping {
+    next S;
+    emit PongOut;
   }
-  prop goes_to_b : always (input_is(Go) -> next (state == B)) ;
+  prop ping_pong : always (input_is(Ping) -> output_has(PongOut)) ;
 }

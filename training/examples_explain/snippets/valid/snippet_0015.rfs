@@ -1,13 +1,16 @@
-module alpha {
-  enum State { A }
+# rfs 1.0
+module trailing {
+  enum State { A, B, }
   initial A
-  event Ping
-}
-module beta {
-  enum State { X, Y }
-  initial X
-  event Pong
-  transition X on Pong {
-    next Y;
+
+  event E(Frame(x: bit<8>, y: bool, ))
+  output O(Value(z: bit<8>, ))
+
+  var v: bit<8> init 0;
+
+  transition A on E(Frame(_, _, )) where v == 0 {
+    next B;
+    emit O(Value(1, ));
+    set v = 1;
   }
 }

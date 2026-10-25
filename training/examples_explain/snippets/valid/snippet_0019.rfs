@@ -1,15 +1,11 @@
-module bounded_eventually {
-  enum State { Idle, Waiting, Complete }
-  initial Idle
-  event Start
+module assumptions_tick {
+  enum State { S }
+  initial S
   event Tick
-  output Finished
-  transition Idle on Start {
-    next Waiting;
+  var n: bit<8> init 0
+  transition S on Tick {
+    next S;
+    set n = n + 1;
   }
-  transition Waiting on Tick {
-    next Complete;
-    emit Finished;
-  }
-  prop start_finish : always (input_is(Start) -> bounded_eventually[3] (output_has(Finished))) ;
+  assume env_tick : always (bounded_eventually[5] (input_is(Tick))) ;
 }

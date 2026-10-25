@@ -1,3 +1,4 @@
-transition A on Go {
-  emit Done;
+transition A on E {
+  next B;
+  next C;
 }

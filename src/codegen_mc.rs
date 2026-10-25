@@ -294,12 +294,14 @@ pub const COUNTEREXAMPLE_FORMAT_ERROR: &str =
 //                   [counterexample]
 //   metrics:        states, transitions, max_depth
 //   statistics:     unexpected_terminations, monitor_size_bits,
-//                   memory_estimate_bytes
-//   counterexample: kind, then per kind:
-//     "trace":            initial_state, initial_vars, steps
+//                   memory_estimate_bytes, peak_rss_kb
+//   counterexample: kind, then per kind (ce_steps LAST - the trace-length
+//                   quality metric: number of steps for a trace, prefix +
+//                   cycle length for a lasso, depth for a deadlock config):
+//     "trace":            initial_state, initial_vars, steps, ce_steps
 //     "lasso":            initial_state, initial_vars, prefix, cycle,
-//                         cycle_length
-//     "deadlock-config":  depth, state, vars
+//                         cycle_length, ce_steps
+//     "deadlock-config":  depth, state, vars, ce_steps
 //   step object:    input, outputs, from_state, to_state, vars
 //   input/output:   variant, fields (fields in declaration order)
 //
@@ -309,7 +311,12 @@ pub const COUNTEREXAMPLE_FORMAT_ERROR: &str =
 // non-negative; bit<N> fields render as their unsigned value, matching the
 // text report). The toolchain-side builder below renders the canonical
 // document; the generated engines embed a minimal copy of the same writer
-// and must produce byte-identical output for the same run data.
+// and must produce byte-identical output for the same run data - EXCEPT
+// `peak_rss_kb`, which is INFORMATIONAL (the actual peak resident set in kB,
+// self-reported by the binary: VmHWM from /proc/self/status on Rust,
+// ru_maxrss from getrusage(RUSAGE_SELF) on C; 0 on read failure).
+// Cross-backend byte comparisons normalize it to 0 (tests/common/mc_json.rs),
+// exactly like wall-clock times are never asserted.
 
 /// Top-level field names (declaration order = wire order).
 pub const JSON_KEY_STATUS: &str = "status";
@@ -324,6 +331,9 @@ pub const JSON_KEY_STATISTICS: &str = "statistics";
 pub const JSON_KEY_UNEXPECTED_TERMINATIONS: &str = "unexpected_terminations";
 pub const JSON_KEY_MONITOR_SIZE_BITS: &str = "monitor_size_bits";
 pub const JSON_KEY_MEMORY_ESTIMATE_BYTES: &str = "memory_estimate_bytes";
+/// Informational (machine-dependent): actual peak RSS in kB, self-reported
+/// by the MC binary. See the module docs for the normalization contract.
+pub const JSON_KEY_PEAK_RSS_KB: &str = "peak_rss_kb";
 pub const JSON_KEY_COUNTEREXAMPLE: &str = "counterexample";
 /// Counterexample field names.
 pub const JSON_KEY_KIND: &str = "kind";
@@ -345,6 +355,10 @@ pub const JSON_KEY_FROM_STATE: &str = "from_state";
 pub const JSON_KEY_TO_STATE: &str = "to_state";
 pub const JSON_KEY_VARIANT: &str = "variant";
 pub const JSON_KEY_FIELDS: &str = "fields";
+/// Counterexample QUALITY metric (Phase 6 task 6): trace length in steps -
+/// `steps.len()` for a trace, prefix + cycle length for a lasso, the depth
+/// for a deadlock configuration. Last key of every counterexample object.
+pub const JSON_KEY_CE_STEPS: &str = "ce_steps";
 
 /// One input/output value in a JSON counterexample: the variant name plus
 /// its fields in declaration order. Field values use the shared `Json`
@@ -407,6 +421,10 @@ pub struct McJsonReport {
     pub unexpected_terminations: i64,
     pub monitor_size_bits: i64,
     pub memory_estimate_bytes: i64,
+    /// INFORMATIONAL (machine-dependent): actual peak RSS in kB, self-reported
+    /// by the MC binary (0 on read failure / for the in-process reference MC).
+    /// Cross-backend byte comparisons normalize it to 0.
+    pub peak_rss_kb: i64,
     /// Present iff `status` is [`ExactStatus::Fail`].
     pub counterexample: Option<JsonCounterexample>,
 }
@@ -434,7 +452,20 @@ fn json_step(step: &JsonStep) -> crate::json_rw::Json {
 }
 
 impl JsonCounterexample {
-    /// Render the counterexample object (key order per the module docs).
+    /// Counterexample QUALITY metric (Phase 6 task 6): trace length in steps
+    /// - `steps.len()` for a trace, prefix + cycle length for a lasso,
+    ///   the depth for a deadlock configuration. Deterministic; part of the
+    ///   byte-parity contract (unlike `peak_rss_kb`).
+    pub fn ce_steps(&self) -> i64 {
+        match self {
+            JsonCounterexample::Trace { steps, .. } => steps.len() as i64,
+            JsonCounterexample::Lasso { prefix, cycle, .. } => (prefix.len() + cycle.len()) as i64,
+            JsonCounterexample::DeadlockConfig { depth, .. } => *depth,
+        }
+    }
+
+    /// Render the counterexample object (key order per the module docs;
+    /// `ce_steps` is always last).
     pub fn to_json(&self) -> crate::json_rw::Json {
         use crate::json_rw::Json;
         match self {
@@ -453,6 +484,7 @@ impl JsonCounterexample {
                     JSON_KEY_STEPS.to_string(),
                     Json::arr(steps.iter().map(json_step).collect()),
                 ),
+                (JSON_KEY_CE_STEPS.to_string(), Json::int(self.ce_steps())),
             ]),
             JsonCounterexample::Lasso {
                 initial_state,
@@ -476,6 +508,7 @@ impl JsonCounterexample {
                     Json::arr(cycle.iter().map(json_step).collect()),
                 ),
                 (JSON_KEY_CYCLE_LENGTH.to_string(), Json::int(*cycle_length)),
+                (JSON_KEY_CE_STEPS.to_string(), Json::int(self.ce_steps())),
             ]),
             JsonCounterexample::DeadlockConfig { depth, state, vars } => Json::obj(vec![
                 (
@@ -485,6 +518,7 @@ impl JsonCounterexample {
                 (JSON_KEY_DEPTH.to_string(), Json::int(*depth)),
                 (JSON_KEY_STATE.to_string(), Json::str(state)),
                 (JSON_KEY_VARS.to_string(), Json::obj(vars.clone())),
+                (JSON_KEY_CE_STEPS.to_string(), Json::int(self.ce_steps())),
             ]),
         }
     }
@@ -527,6 +561,10 @@ impl McJsonReport {
                 (
                     JSON_KEY_MEMORY_ESTIMATE_BYTES.to_string(),
                     Json::int(self.memory_estimate_bytes),
+                ),
+                (
+                    JSON_KEY_PEAK_RSS_KB.to_string(),
+                    Json::int(self.peak_rss_kb),
                 ),
             ]),
         ));
@@ -671,11 +709,12 @@ mod tests {
             unexpected_terminations: 0,
             monitor_size_bits: 16,
             memory_estimate_bytes: 208,
+            peak_rss_kb: 1024,
             counterexample: None,
         };
         assert_eq!(
             r.to_json_string(),
-            "{\"status\":\"pass-complete\",\"metrics\":{\"states\":4,\"transitions\":3,\"max_depth\":2},\"statistics\":{\"unexpected_terminations\":0,\"monitor_size_bits\":16,\"memory_estimate_bytes\":208}}"
+            "{\"status\":\"pass-complete\",\"metrics\":{\"states\":4,\"transitions\":3,\"max_depth\":2},\"statistics\":{\"unexpected_terminations\":0,\"monitor_size_bits\":16,\"memory_estimate_bytes\":208,\"peak_rss_kb\":1024}}"
         );
     }
 
@@ -690,11 +729,12 @@ mod tests {
             unexpected_terminations: 2,
             monitor_size_bits: 8,
             memory_estimate_bytes: 4000,
+            peak_rss_kb: 2048,
             counterexample: None,
         };
         assert_eq!(
             r.to_json_string(),
-            "{\"status\":\"unknown-state-limit\",\"metrics\":{\"states\":100,\"transitions\":99,\"max_depth\":50},\"statistics\":{\"unexpected_terminations\":2,\"monitor_size_bits\":8,\"memory_estimate_bytes\":4000}}"
+            "{\"status\":\"unknown-state-limit\",\"metrics\":{\"states\":100,\"transitions\":99,\"max_depth\":50},\"statistics\":{\"unexpected_terminations\":2,\"monitor_size_bits\":8,\"memory_estimate_bytes\":4000,\"peak_rss_kb\":2048}}"
         );
     }
 
@@ -709,6 +749,7 @@ mod tests {
             unexpected_terminations: 1,
             monitor_size_bits: 24,
             memory_estimate_bytes: 504,
+            peak_rss_kb: 3072,
             counterexample: Some(JsonCounterexample::Trace {
                 initial_state: "A".to_string(),
                 initial_vars: vec![("flag".to_string(), crate::json_rw::Json::bool(true))],
@@ -717,7 +758,7 @@ mod tests {
         };
         assert_eq!(
             r.to_json_string(),
-            "{\"status\":\"fail\",\"metrics\":{\"states\":7,\"transitions\":6,\"max_depth\":3},\"reason\":\"property-violation\",\"label\":\"no_bad\",\"step\":2,\"statistics\":{\"unexpected_terminations\":1,\"monitor_size_bits\":24,\"memory_estimate_bytes\":504},\"counterexample\":{\"kind\":\"trace\",\"initial_state\":\"A\",\"initial_vars\":{\"flag\":true},\"steps\":[{\"input\":{\"variant\":\"Req\",\"fields\":{\"seq\":0}},\"outputs\":[{\"variant\":\"Ack\",\"fields\":{\"ok\":true}}],\"from_state\":\"A\",\"to_state\":\"B\",\"vars\":{\"flag\":false,\"seq\":0,\"mode\":\"Idle\"}},{\"input\":{\"variant\":\"Ack\",\"fields\":{\"seq\":1}},\"outputs\":[{\"variant\":\"Ack\",\"fields\":{\"ok\":true}}],\"from_state\":\"A\",\"to_state\":\"B\",\"vars\":{\"flag\":false,\"seq\":1,\"mode\":\"Idle\"}}]}}"
+            "{\"status\":\"fail\",\"metrics\":{\"states\":7,\"transitions\":6,\"max_depth\":3},\"reason\":\"property-violation\",\"label\":\"no_bad\",\"step\":2,\"statistics\":{\"unexpected_terminations\":1,\"monitor_size_bits\":24,\"memory_estimate_bytes\":504,\"peak_rss_kb\":3072},\"counterexample\":{\"kind\":\"trace\",\"initial_state\":\"A\",\"initial_vars\":{\"flag\":true},\"steps\":[{\"input\":{\"variant\":\"Req\",\"fields\":{\"seq\":0}},\"outputs\":[{\"variant\":\"Ack\",\"fields\":{\"ok\":true}}],\"from_state\":\"A\",\"to_state\":\"B\",\"vars\":{\"flag\":false,\"seq\":0,\"mode\":\"Idle\"}},{\"input\":{\"variant\":\"Ack\",\"fields\":{\"seq\":1}},\"outputs\":[{\"variant\":\"Ack\",\"fields\":{\"ok\":true}}],\"from_state\":\"A\",\"to_state\":\"B\",\"vars\":{\"flag\":false,\"seq\":1,\"mode\":\"Idle\"}}],\"ce_steps\":2}}"
         );
     }
 
@@ -732,6 +773,7 @@ mod tests {
             unexpected_terminations: 0,
             monitor_size_bits: 4,
             memory_estimate_bytes: 120,
+            peak_rss_kb: 512,
             counterexample: Some(JsonCounterexample::Lasso {
                 initial_state: "A".to_string(),
                 initial_vars: vec![],
@@ -742,7 +784,7 @@ mod tests {
         };
         assert_eq!(
             r.to_json_string(),
-            "{\"status\":\"fail\",\"metrics\":{\"states\":3,\"transitions\":2,\"max_depth\":1},\"reason\":\"liveness-violation\",\"label\":\"ev\",\"step\":0,\"statistics\":{\"unexpected_terminations\":0,\"monitor_size_bits\":4,\"memory_estimate_bytes\":120},\"counterexample\":{\"kind\":\"lasso\",\"initial_state\":\"A\",\"initial_vars\":{},\"prefix\":[],\"cycle\":[{\"input\":{\"variant\":\"Tick\",\"fields\":{\"seq\":0}},\"outputs\":[{\"variant\":\"Ack\",\"fields\":{\"ok\":true}}],\"from_state\":\"A\",\"to_state\":\"B\",\"vars\":{\"flag\":false,\"seq\":0,\"mode\":\"Idle\"}},{\"input\":{\"variant\":\"Tick\",\"fields\":{\"seq\":1}},\"outputs\":[{\"variant\":\"Ack\",\"fields\":{\"ok\":true}}],\"from_state\":\"A\",\"to_state\":\"B\",\"vars\":{\"flag\":false,\"seq\":1,\"mode\":\"Idle\"}}],\"cycle_length\":2}}"
+            "{\"status\":\"fail\",\"metrics\":{\"states\":3,\"transitions\":2,\"max_depth\":1},\"reason\":\"liveness-violation\",\"label\":\"ev\",\"step\":0,\"statistics\":{\"unexpected_terminations\":0,\"monitor_size_bits\":4,\"memory_estimate_bytes\":120,\"peak_rss_kb\":512},\"counterexample\":{\"kind\":\"lasso\",\"initial_state\":\"A\",\"initial_vars\":{},\"prefix\":[],\"cycle\":[{\"input\":{\"variant\":\"Tick\",\"fields\":{\"seq\":0}},\"outputs\":[{\"variant\":\"Ack\",\"fields\":{\"ok\":true}}],\"from_state\":\"A\",\"to_state\":\"B\",\"vars\":{\"flag\":false,\"seq\":0,\"mode\":\"Idle\"}},{\"input\":{\"variant\":\"Tick\",\"fields\":{\"seq\":1}},\"outputs\":[{\"variant\":\"Ack\",\"fields\":{\"ok\":true}}],\"from_state\":\"A\",\"to_state\":\"B\",\"vars\":{\"flag\":false,\"seq\":1,\"mode\":\"Idle\"}}],\"cycle_length\":2,\"ce_steps\":2}}"
         );
     }
 
@@ -757,6 +799,7 @@ mod tests {
             unexpected_terminations: 0,
             monitor_size_bits: 0,
             memory_estimate_bytes: 160,
+            peak_rss_kb: 256,
             counterexample: Some(JsonCounterexample::DeadlockConfig {
                 depth: 2,
                 state: "Term".to_string(),
@@ -765,7 +808,7 @@ mod tests {
         };
         assert_eq!(
             r.to_json_string(),
-            "{\"status\":\"fail\",\"metrics\":{\"states\":4,\"transitions\":3,\"max_depth\":2},\"reason\":\"deadlock\",\"label\":\"-\",\"step\":2,\"statistics\":{\"unexpected_terminations\":0,\"monitor_size_bits\":0,\"memory_estimate_bytes\":160},\"counterexample\":{\"kind\":\"deadlock-config\",\"depth\":2,\"state\":\"Term\",\"vars\":{\"seq\":9}}}"
+            "{\"status\":\"fail\",\"metrics\":{\"states\":4,\"transitions\":3,\"max_depth\":2},\"reason\":\"deadlock\",\"label\":\"-\",\"step\":2,\"statistics\":{\"unexpected_terminations\":0,\"monitor_size_bits\":0,\"memory_estimate_bytes\":160,\"peak_rss_kb\":256},\"counterexample\":{\"kind\":\"deadlock-config\",\"depth\":2,\"state\":\"Term\",\"vars\":{\"seq\":9},\"ce_steps\":2}}"
         );
     }
 
@@ -786,6 +829,7 @@ mod tests {
             unexpected_terminations: 0,
             monitor_size_bits: 0,
             memory_estimate_bytes: 32,
+            peak_rss_kb: 64,
             counterexample: Some(JsonCounterexample::DeadlockConfig {
                 depth: 0,
                 state: "S\t1".to_string(),
@@ -794,7 +838,7 @@ mod tests {
         };
         assert_eq!(
             r.to_json_string(),
-            "{\"status\":\"fail\",\"metrics\":{\"states\":1,\"transitions\":0,\"max_depth\":0},\"reason\":\"property-violation\",\"label\":\"a\\\"b\\\\c\\u0001d\",\"step\":0,\"statistics\":{\"unexpected_terminations\":0,\"monitor_size_bits\":0,\"memory_estimate_bytes\":32},\"counterexample\":{\"kind\":\"deadlock-config\",\"depth\":0,\"state\":\"S\\t1\",\"vars\":{}}}"
+            "{\"status\":\"fail\",\"metrics\":{\"states\":1,\"transitions\":0,\"max_depth\":0},\"reason\":\"property-violation\",\"label\":\"a\\\"b\\\\c\\u0001d\",\"step\":0,\"statistics\":{\"unexpected_terminations\":0,\"monitor_size_bits\":0,\"memory_estimate_bytes\":32,\"peak_rss_kb\":64},\"counterexample\":{\"kind\":\"deadlock-config\",\"depth\":0,\"state\":\"S\\t1\",\"vars\":{},\"ce_steps\":0}}"
         );
     }
 

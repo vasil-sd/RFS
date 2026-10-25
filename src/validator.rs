@@ -28,6 +28,12 @@ pub enum ExprType {
 pub struct Env {
     pub vars: HashMap<String, ExprType>,
     pub bindings: HashMap<String, ExprType>,
+    /// RFS binding name -> the identifier actually emitted in the target
+    /// language. Present only when codegen had to MANGLE a binding because
+    /// it collided with an identifier used unqualified by the generated
+    /// transition body (a shadowing bug class - see the backends' binding
+    /// helpers). Empty means every binding is emitted under its plain name.
+    pub binding_idents: HashMap<String, String>,
     pub state_variants: HashSet<String>,
     pub enums: HashMap<String, HashSet<String>>,
 }
@@ -50,6 +56,7 @@ impl Env {
         Self {
             vars,
             bindings: HashMap::new(),
+            binding_idents: HashMap::new(),
             state_variants,
             enums,
         }

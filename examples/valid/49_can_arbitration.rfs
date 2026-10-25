@@ -1,0 +1,147 @@
+# Phase 6 task 6 (benchmark suite): CAN-like arbitration/state machine.
+#
+# Transmitter-node abstraction of a CAN frame cycle: TX_REQ starts a frame
+# (the arbitration ID is never inspected - input abstraction collapses it,
+# D-P4-3); ARB_WIN/ARB_LOSE resolve the arbitration (a LOST arbitration is
+# not an error, per CAN semantics); ACK_OK completes the data phase and
+# enters the ACK slot; BUS_IDLE ends the frame. ACK_ERR grows the transmit
+# error counter by 4 (abstraction weight) and promotes on the very step the
+# threshold is crossed: >= 16 -> ErrorActive, 8..15 -> ErrorPassive, < 8 ->
+# back to Idle with the counter carried over to the next frame. BUS_OFF
+# escalates ErrorPassive to ErrorActive at the active threshold; RECOVER
+# (host re-initialization) is the only exit from the error states and resets
+# the counter. The counter saturates at the bit<5> maximum 31 (the cap arm
+# fires exactly when the sum would wrap).
+#
+# tx_id counts started frames: updated on every frame start but never
+# inspected - a CONCRETE wide field that multiplies the state space by 16,
+# mirroring spec 44's carried frame ID.
+module can_arbitration version "1.0" {
+  enum State { Idle, Arbitration, Data, Ack, ErrorPassive, ErrorActive }
+  initial Idle
+
+  event TxReq(TxReq(id: bit<4>))
+  event ArbWin
+  event ArbLose
+  event AckOk
+  event AckErr
+  event BusOff
+  event Recover
+  event BusIdle
+
+  output ArbWon
+  output DataSent
+  output FrameComplete
+  output BusOffEscalated
+  output ErrorCleared
+
+  var error_counter: bit<5> init 0   # transmit error counter (abstraction)
+  var tx_id: bit<4> init 0           # started-frame sequence (never inspected)
+
+  # While we are in the ACK slot, the bus returns to idle within 3 samples.
+  assume env_bus_idle : always (state == Ack -> bounded_eventually[3] (input_is(BusIdle))) ;
+
+  # Safety: Data is entered only on a won arbitration.
+  prop data_only_after_win : always (state == Data -> input_is(ArbWin)) ;
+
+  # Safety: ErrorActive holds only at/above the active threshold.
+  prop active_needs_threshold : always (state == ErrorActive -> error_counter >= 16) ;
+
+  # Safety: ErrorPassive holds exactly in the passive band [8, 16).
+  prop passive_band : always (state == ErrorPassive -> error_counter >= 8 && error_counter < 16) ;
+
+  # Safety: a frame is started only from Idle (no overlapping transmissions).
+  prop one_tx_at_a_time : always (input_is(TxReq) -> state == Arbitration) ;
+
+  # Safety: RECOVER always resets the counter to zero.
+  prop recover_resets : always (input_is(Recover) -> error_counter == 0) ;
+
+  # Liveness: once the data phase is complete (ACK slot entered), the bus
+  # returns to idle within 4 samples - env_bus_idle delivers BUS_IDLE within 3.
+  prop idle_after_ack : always (input_is(AckOk) && state == Ack -> bounded_eventually[4] (state == Idle)) ;
+
+  # Frame start: id is never inspected; tx_id counts started frames instead.
+  transition Idle on TxReq(TxReq(id)) {
+    next Arbitration;
+    set tx_id = tx_id + 1;
+  }
+
+  transition Arbitration on ArbWin {
+    next Data;
+    emit ArbWon;
+  }
+  transition Arbitration on ArbLose {
+    next Idle;
+  }
+
+  transition Data on AckOk {
+    next Ack;
+    emit DataSent;
+  }
+
+  # Protocol error: counter grows by 4; promotion happens on this step when
+  # the threshold is crossed (no wrap possible here - the counter is < 8 or
+  # in [8, 16) before the increment).
+  transition Data on AckErr where error_counter + 4 >= 16 {
+    priority 1;
+    next ErrorActive;
+    set error_counter = error_counter + 4;
+  }
+  transition Data on AckErr where error_counter + 4 >= 8 && error_counter + 4 < 16 {
+    priority 2;
+    next ErrorPassive;
+    set error_counter = error_counter + 4;
+  }
+  transition Data on AckErr where error_counter + 4 < 8 {
+    priority 3;
+    next Idle;
+    set error_counter = error_counter + 4;
+  }
+
+  # Frame done: the bus goes idle after the ACK slot.
+  transition Ack on BusIdle {
+    next Idle;
+    emit FrameComplete;
+  }
+
+  # Error-state handling (counter saturates at the bit<5> maximum 31).
+  transition ErrorPassive on AckErr where error_counter + 4 >= 16 {
+    priority 1;
+    next ErrorActive;
+    set error_counter = error_counter + 4;
+  }
+  transition ErrorPassive on AckErr where error_counter + 4 < 16 {
+    priority 2;
+    next ErrorPassive;
+    set error_counter = error_counter + 4;
+  }
+  transition ErrorActive on AckErr where error_counter + 4 < error_counter {
+    priority 1;
+    next ErrorActive;
+    set error_counter = 31;
+  }
+  transition ErrorActive on AckErr where error_counter + 4 >= error_counter {
+    priority 2;
+    next ErrorActive;
+    set error_counter = error_counter + 4;
+  }
+
+  # Bus-off condition: escalation to the active state at the threshold.
+  transition ErrorPassive on BusOff {
+    next ErrorActive;
+    emit BusOffEscalated;
+    set error_counter = 16;
+  }
+
+  # Host re-initialization: the only exit from the error states.
+  transition ErrorPassive on Recover {
+    next Idle;
+    emit ErrorCleared;
+    set error_counter = 0;
+  }
+  transition ErrorActive on Recover {
+    next Idle;
+    emit ErrorCleared;
+    set error_counter = 0;
+  }
+}

@@ -192,18 +192,55 @@ workflow).
 - BUILD.md "Benchmarks in CI" section with the GitHub Actions snippet.
 
 ## Task exit criteria
-- [ ] Specs 47/48/49 parse+validate, carry `version "1.0"`, exact MC completes on both backends within the state budget; examples_test green at 50 valid / 13 invalid; aggregate crate regenerated + green.
-- [ ] Report JSON carries `peak_rss_kb` (statistics) + `ce_steps` (counterexample) byte-identically across backends; D-P5-10 pins re-pinned; gcc -Wall clean.
-- [ ] Benchmark suite green: all Pins measured + recorded, FAIL variants pinned (label + step + ce_steps), parse/codegen time + RSS present as informational data.
-- [ ] BUILD.md section present with the single-command entry point + Actions snippet.
-- [ ] Full `cargo test` green; clippy/fmt clean.
+- [x] Specs 47/48/49 parse+validate, carry `version "1.0"`, exact MC completes on both backends within the state budget; examples_test green at 50 valid / 13 invalid; aggregate crate regenerated + green.
+- [x] Report JSON carries `peak_rss_kb` (statistics) + `ce_steps` (counterexample) byte-identically across backends; D-P5-10 pins re-pinned; gcc -Wall clean.
+- [x] Benchmark suite green: all Pins measured + recorded, FAIL variants pinned (label + step + ce_steps), parse/codegen time + RSS present as informational data.
+- [x] BUILD.md section present with the single-command entry point + Actions snippet.
+- [x] Full `cargo test` green; clippy/fmt clean.
 
 ## Non-goals
 - No wall-clock or RSS ASSERTIONS (informational only, per the Phase 4 discipline); no SMT benchmarks; no modification of existing examples 03/04/43/44/45; no committed CI workflow files (none exist in this environment - documented snippet only).
 
 ## Other information
-- Record the measured state counts for 47/48/49 here after action 1 (they become
-  the Pins and inform task 9's docs).
+- Measured state counts for 47/48/49 (action 1; identical on both backends -
+  these are the Pins in `tests/benchmark_mc_test.rs` and inform task 9's docs):
+
+  | spec | states | transitions | max_depth | monitors_bits |
+  |------|--------|-------------|-----------|---------------|
+  | 47_http2_stream | 434 | 21857 | 7 | 10 |
+  | 48_usb_control_transfer | 104 | 340 | 15 | 11 |
+  | 49_can_arbitration | 240 | 448 | 41 | 7 |
+
+  All far below the ~150k state budget; no abstraction shrinkage was needed.
 - If a spec cannot be made tractable without losing its protocol character,
   shrink its abstraction (fewer window/retry levels) rather than dropping it -
   record the choice in "Task corrections".
+
+## Task corrections
+- **6a** (action 1): pattern bindings that collide with identifiers a generated
+  body uses unqualified now get mangled (`<name>__rfsb`) in BOTH backends -
+  spec 48's binding `n` shadowed C MC's effect counter, silently dropping
+  successors through emitting transitions (out-of-bounds write for wide fields).
+  Plan correction 6a.
+- **6b** (action 1): the test planner's `expect_progress` heuristic
+  (`!transitions.is_empty()`) over-approximated - spec 47's guarded initial arm
+  (`w > 0` vs representative w = 0) generated a failing positive drive. Now
+  computed exactly as the driver runs (`expect_progress_from_initial`). Plan
+  correction 6b.
+- **6c** (action 3): `48_usb_control_transfer.rfs` - removed the `Error on Setup`
+  absorbing arm. The action-3 FAIL variant (unmodified spec run with
+  `--assumes none`) exposed that once the Error state becomes reachable, its
+  absorbing Setup arm produces samples with `input_is(Setup)` in a non-SetupSent
+  state, violating the spec's own safety invariant `no_double_setup` (reported
+  at step 6) and shadowing the intended `completes_after_setup` demonstration.
+  Removing the arm makes Error consistent with Stalled (RESET-first
+  re-initialization; SETUP there is an unexpected termination) and keeps the
+  spec self-consistent under relaxed assumptions. The pass run under
+  `env_progress` is unchanged (Error unreachable: 104/340/15 - no other pin
+  moved). Plan correction 6c.
+- **6d** (action 3, design note): RFS transition priorities fire DESCENDING
+  (SEMANTICS 3.4 - higher `priority N` first). Spec 49's AckErr arms are labeled
+  P1/P2/P3 as if lower = higher, but their guards are disjoint so behavior was
+  correct; the 49 FAIL variant design accounts for the actual firing order (a
+  guard-overlap mutation would have been silently preempted by the priority-3
+  arm). No spec change needed.

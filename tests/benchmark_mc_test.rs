@@ -1,15 +1,20 @@
-//! Phase 4 benchmark MC suite (task 9): the three protocol-like benchmark
-//! specs (43 sliding window, 44 token ring, 45 elevator) driven through BOTH
-//! backends in exact mode - pass-complete statuses, deterministic metrics
-//! identical across backends and pinned to the counts recorded in tasks 6/8,
-//! inline FAIL variants (safety + liveness) with counterexample parity, and a
-//! JSON report (`target/mc_benchmarks.json`) plus a per-backend summary table.
+//! Benchmark MC suite (Phase 4 task 9, extended by Phase 6 task 6): the six
+//! property-bearing benchmark specs (43 sliding window, 44 token ring, 45
+//! elevator, 47 HTTP/2 stream, 48 USB control transfer, 49 CAN arbitration)
+//! driven through BOTH backends in exact mode - pass-complete statuses,
+//! deterministic metrics identical across backends and pinned to the counts
+//! recorded in tasks 6/8 (Phase 4) and Phase 6 task 6, inline FAIL variants
+//! (safety, liveness, assumption relaxation) with counterexample parity and
+//! ce_steps pins, in-process parse + codegen timing (informational), and a
+//! JSON report (`target/mc_benchmarks.json`) plus per-backend summary tables.
 //!
 //! Exact mode is seedless and deterministic (D-P4-7), so the pinned values are
 //! exact engine outputs re-verified from both backends - not hand-computed.
-//! Wall-clock times appear in the report and table as INFORMATIONAL data only:
-//! they are never asserted on (the suite runs inside `cargo test` and must not
-//! become a flaky timing gate; task 10 consumes the data for tuning).
+//! Wall-clock times, parse/codegen timings and peak_rss_kb appear in the
+//! report and tables as INFORMATIONAL data only: they are never asserted on
+//! (the suite runs inside `cargo test` and must not become a flaky timing or
+//! machine-size gate; task 10 consumes the data for tuning). The single
+//! exception is an order-of-magnitude sanity bound on peak_rss_kb.
 //!
 //! The JSON report is a development artifact: written under `target/`, never
 //! checked in, and asserted on by parsed fields only (never byte-for-byte).
@@ -37,12 +42,16 @@ fn rustc() -> String {
 // Benchmark specs + pinned metrics (recorded in tasks 6 and 8)
 // ---------------------------------------------------------------------------
 
-/// The Phase 4 benchmark set: one spec per protocol family, each carrying
-/// safety + liveness properties and abstraction-stress payload fields.
+/// The benchmark set: one spec per protocol family, each carrying safety +
+/// liveness properties and abstraction-stress payload fields. 43/44/45 are
+/// the Phase 4 set; 47/48/49 were added in Phase 6 task 6 (v1.0 versioned).
 const BENCH_SPECS: &[&str] = &[
     "43_sliding_window.rfs",
     "44_token_ring.rfs",
     "45_elevator.rfs",
+    "47_http2_stream.rfs",
+    "48_usb_control_transfer.rfs",
+    "49_can_arbitration.rfs",
 ];
 
 /// Pinned exact-mode metrics per benchmark spec (deterministic; recorded in
@@ -79,6 +88,25 @@ fn pin_for(name: &str) -> Pin {
             transitions: 72_738,
             max_depth: 22,
             monitors_bits: 4,
+        },
+        // Phase 6 task 6 (action 1): measured on both backends at pinning time.
+        "47_http2_stream.rfs" => Pin {
+            states: 434,
+            transitions: 21_857,
+            max_depth: 7,
+            monitors_bits: 10,
+        },
+        "48_usb_control_transfer.rfs" => Pin {
+            states: 104,
+            transitions: 340,
+            max_depth: 15,
+            monitors_bits: 11,
+        },
+        "49_can_arbitration.rfs" => Pin {
+            states: 240,
+            transitions: 448,
+            max_depth: 41,
+            monitors_bits: 7,
         },
         other => panic!("no pin for benchmark spec {other}"),
     }
@@ -365,7 +393,54 @@ module elevator {
 "#;
 
 // ---------------------------------------------------------------------------
-// Generation + compilation (cached: the three tests share the MC binaries)
+// Phase 6 task 6 FAIL variants (action 3). Unlike the Phase 4 variants above
+// (full inline copies), these are derived from the REAL spec source at test
+// time: the delta from the pinned example is exactly one line, so a variant
+// cannot drift from the spec it documents. `mutate_spec` fails loudly if an
+// anchor ever changes. The 48 variant needs no source change at all - it runs
+// the unmodified spec with `--assumes none` (reusing the spec's own binary,
+// so its stem is the spec name).
+// ---------------------------------------------------------------------------
+
+/// Read a valid example and replace exactly one anchored block with `new`.
+fn mutate_spec(name: &str, old: &str, new: &str) -> String {
+    let src = spec_source(name);
+    assert_eq!(
+        src.matches(old).count(),
+        1,
+        "anchor for the {name} FAIL variant drifted; re-pin it"
+    );
+    src.replacen(old, new, 1)
+}
+
+/// `47_http2_stream` with the Open RstStream arm retargeted off Closed: an
+/// abort no longer lands in Closed, so `rst_goes_closed` is violated at step 2
+/// (SendData opens the stream; RstStream leaves it). Safety takes precedence -
+/// the bounded liveness property is never analyzed.
+fn http2_rst_fail_src() -> String {
+    mutate_spec(
+        "47_http2_stream.rfs",
+        "  transition Open on RstStream {\n    next Closed;\n    emit StreamReset;\n  }",
+        "  transition Open on RstStream {\n    next HalfClosedLocal;\n    emit StreamReset;\n  }",
+    )
+}
+
+/// `49_can_arbitration` with the Data AckErr band-entry arm's counter update
+/// weakened (+1 instead of +4): after one full frame the first passive-band
+/// entry lands at error_counter = 5, below the band floor 8, so
+/// `passive_band` is violated at step 6. (A guard OVERLAP would not work: RFS
+/// priorities fire DESCENDING - SEMANTICS 3.4 - so the priority-3 arm keeps
+/// winning for counters 0..3 and no sub-band ErrorPassive entry is produced.)
+fn can_passive_fail_src() -> String {
+    mutate_spec(
+        "49_can_arbitration.rfs",
+        "  transition Data on AckErr where error_counter + 4 >= 8 && error_counter + 4 < 16 {\n    priority 2;\n    next ErrorPassive;\n    set error_counter = error_counter + 4;\n  }",
+        "  transition Data on AckErr where error_counter + 4 >= 8 && error_counter + 4 < 16 {\n    priority 2;\n    next ErrorPassive;\n    set error_counter = error_counter + 1;\n  }",
+    )
+}
+
+// ---------------------------------------------------------------------------
+// Generation + compilation (cached: the suite's tests share the MC binaries)
 // ---------------------------------------------------------------------------
 
 static BIN_CACHE: LazyLock<Mutex<HashMap<String, PathBuf>>> =
@@ -596,6 +671,37 @@ fn parse_run(stdout: &str, exit_code: i32, wall_ms: u128) -> BenchRun {
     }
 }
 
+/// One `--counterexample-format json` run: stdout is the single compact JSON
+/// document (D-P5-10 shape - same data as the text report, key order is the
+/// cross-backend byte-parity contract).
+fn run_json_mode(bin: &Path, extra_args: &[&str]) -> Json {
+    let mut args: Vec<&str> = extra_args.to_vec();
+    args.push("--counterexample-format");
+    args.push("json");
+    let out = Command::new(bin)
+        .args(&args)
+        .output()
+        .unwrap_or_else(|e| panic!("run MC binary {:?}: {e}", bin));
+    let stdout = String::from_utf8_lossy(&out.stdout).to_string();
+    rfs::json_rw::parse(&stdout)
+        .unwrap_or_else(|e| panic!("MC JSON report from {:?} must parse: {e}\n{stdout}", bin))
+}
+
+/// `statistics.peak_rss_kb` (always present; 0 on read failure - informational).
+fn json_peak_rss_kb(doc: &Json) -> i64 {
+    doc.get("statistics")
+        .and_then(|s| s.get("peak_rss_kb"))
+        .and_then(Json::as_int)
+        .expect("peak_rss_kb in statistics")
+}
+
+/// `counterexample.ce_steps` (present iff the run failed).
+fn json_ce_steps(doc: &Json) -> Option<i64> {
+    doc.get("counterexample")
+        .and_then(|c| c.get("ce_steps"))
+        .and_then(Json::as_int)
+}
+
 // ---------------------------------------------------------------------------
 // Action 1: pass-complete + deterministic metric parity on the benchmark set
 // ---------------------------------------------------------------------------
@@ -656,15 +762,21 @@ struct FailPin {
     max_depth: usize,
     violation_step: Option<usize>,
     cycle_length: Option<usize>,
+    /// Counterexample length in steps (JSON report `counterexample.ce_steps`,
+    /// Phase 6 task 6): deterministic, part of the parity contract.
+    ce_steps: usize,
 }
 
 #[test]
 fn bench_mc_fail_variants_both_backends() {
-    let cases: [(&str, &str, FailPin); 2] = [
-        // Safety variant: ring grant arm removed.
+    // (stem, source, extra runtime args, pin). Phase 4: ring grant arm removed
+    // (safety), elevator Idle go-up arm removed (liveness). Phase 6 task 6:
+    // one-line-delta mutations of the new specs + assumption relaxation.
+    let cases: Vec<(&str, String, &[&str], FailPin)> = vec![
         (
             "ring_no_grant",
-            RING_NO_GRANT_SRC,
+            RING_NO_GRANT_SRC.to_string(),
+            &[],
             FailPin {
                 reason: "property-violation",
                 label: "holder_no_request",
@@ -674,12 +786,13 @@ fn bench_mc_fail_variants_both_backends() {
                 max_depth: 0,
                 violation_step: Some(1),
                 cycle_length: None,
+                ce_steps: 1,
             },
         ),
-        // Liveness variant: elevator Idle go-up arm removed.
         (
             "elev_noup",
-            ELEV_NO_UP_SRC,
+            ELEV_NO_UP_SRC.to_string(),
+            &[],
             // Re-pinned with the config-key fix (see pin_for).
             FailPin {
                 reason: "liveness-violation",
@@ -692,13 +805,72 @@ fn bench_mc_fail_variants_both_backends() {
                 // The canonical lasso cycle is shorter in the corrected (smaller)
                 // config space.
                 cycle_length: Some(2),
+                ce_steps: 2,
+            },
+        ),
+        // Safety variant: Open RstStream arm retargeted off Closed.
+        (
+            "http2_rst_fail",
+            http2_rst_fail_src(),
+            &[],
+            FailPin {
+                reason: "property-violation",
+                label: "rst_goes_closed",
+                step: 2,
+                states: 34,
+                transitions: 64,
+                max_depth: 2,
+                violation_step: Some(2),
+                cycle_length: None,
+                ce_steps: 2,
+            },
+        ),
+        // Assumption relaxation: env_progress off, so the Error state becomes
+        // reachable; the environment starves a partial transfer (Data(1) x3,
+        // then Nak x4 into Error), where it can never complete - the bounded
+        // obligation's countdown expires at step 16. Runs the UNMODIFIED spec
+        // (stem = spec name reuses the pass run's binary).
+        (
+            "48_usb_control_transfer",
+            spec_source("48_usb_control_transfer.rfs"),
+            &["--assumes", "none"],
+            FailPin {
+                reason: "property-violation",
+                label: "completes_after_setup",
+                step: 16,
+                states: 262,
+                transitions: 1464,
+                max_depth: 15,
+                violation_step: Some(16),
+                cycle_length: None,
+                ce_steps: 16,
+            },
+        ),
+        // Safety variant: passive-band entry counter update weakened (+1).
+        (
+            "can_passive_fail",
+            can_passive_fail_src(),
+            &[],
+            FailPin {
+                reason: "property-violation",
+                label: "passive_band",
+                step: 6,
+                states: 15,
+                transitions: 17,
+                max_depth: 6,
+                violation_step: Some(6),
+                cycle_length: None,
+                ce_steps: 6,
             },
         ),
     ];
 
-    for (stem, src, pin) in cases {
-        let re = run_parsed(&bench_binary(stem, "rust", src));
-        let ce = run_parsed(&bench_binary(stem, "c", src));
+    let mut table = String::from(
+        "FAIL variants (exact mode) - pinned label/step/ce_steps, field-identical across backends\n",
+    );
+    for (stem, src, args, pin) in &cases {
+        let re = run_args_full(&bench_binary(stem, "rust", src), args).0;
+        let ce = run_args_full(&bench_binary(stem, "c", src), args).0;
 
         for (be, r) in [("rust", &re), ("c", &ce)] {
             assert_eq!(r.exit_code, 1, "[{stem}] {be}: failing MC exits 1");
@@ -715,6 +887,23 @@ fn bench_mc_fail_variants_both_backends() {
             assert_eq!(r.cycle_length, pin.cycle_length, "[{stem}] {be}");
         }
 
+        // ce_steps pin from the JSON report (Phase 6 task 6): deterministic,
+        // so it is asserted - and equal on both backends via the shared pin.
+        let jr = run_json_mode(&bench_binary(stem, "rust", src), args);
+        let jc = run_json_mode(&bench_binary(stem, "c", src), args);
+        for (be, doc) in [("rust", &jr), ("c", &jc)] {
+            assert_eq!(
+                json_ce_steps(doc),
+                Some(pin.ce_steps as i64),
+                "[{stem}] {be}: ce_steps drifted from the record"
+            );
+            assert_eq!(
+                doc.get("label").and_then(Json::as_str),
+                Some(pin.label),
+                "[{stem}] {be}: JSON label mismatch"
+            );
+        }
+
         // Counterexample fields (and all other deterministic fields) identical
         // across backends - the lasso for the liveness variant included.
         assert_eq!(
@@ -722,14 +911,86 @@ fn bench_mc_fail_variants_both_backends() {
             det(&ce),
             "[{stem}] FAIL counterexample must be field-identical across backends"
         );
+
+        for (be, r) in [("rust", &re), ("c", &ce)] {
+            table.push_str(&format!(
+                "{:<24} {:<8} {:<18} {:<22} {:>5} {:>8} {:>9}\n",
+                stem,
+                be,
+                r.reason.as_deref().unwrap_or("-"),
+                r.label.as_deref().unwrap_or("-"),
+                r.step.unwrap_or(0),
+                pin.ce_steps,
+                r.states
+            ));
+        }
     }
+    eprintln!("{table}");
 }
 
 // ---------------------------------------------------------------------------
 // Action 3: JSON report (target/mc_benchmarks.json) + per-backend table
 // ---------------------------------------------------------------------------
 
-fn run_json(r: &BenchRun) -> Json {
+/// The timed set (Phase 6 task 6): the six benchmark specs plus the two
+/// classic small examples as a parse/codegen throughput reference.
+const TIMED_SPECS: &[&str] = &[
+    "03_timeout_retry.rfs",
+    "04_tcp_handshake_like.rfs",
+    "43_sliding_window.rfs",
+    "44_token_ring.rfs",
+    "45_elevator.rfs",
+    "47_http2_stream.rfs",
+    "48_usb_control_transfer.rfs",
+    "49_can_arbitration.rfs",
+];
+
+/// In-process parse + codegen wall clocks in ms. INFORMATIONAL ONLY - never
+/// asserted on (CI machines vary; the data feeds task 10's tuning).
+#[derive(Debug, Clone, Copy)]
+struct CodegenTimes {
+    parse_ms: u128,
+    codegen_ms: u128,
+}
+
+fn time_parse_codegen(backend_name: &str, name: &str) -> CodegenTimes {
+    let src = spec_source(name);
+    let t0 = Instant::now();
+    let ir =
+        rfs::parse_source(&src).unwrap_or_else(|e| panic!("timed spec {name} must parse: {e}"));
+    let parse_ms = t0.elapsed().as_millis();
+    let backend = rfs::codegen::get_backend(backend_name)
+        .unwrap_or_else(|| panic!("backend {backend_name} registered"));
+    let options = rfs::codegen::BackendOptions {
+        assumptions: rfs::codegen::AssumptionSelection::All,
+        steps: 4,
+        with_property_monitors: false,
+
+        ..rfs::codegen::BackendOptions::default()
+    };
+    let t1 = Instant::now();
+    rfs::codegen::CodegenCommandKind::ModelChecker
+        .run(backend, &ir, &options)
+        .unwrap_or_else(|e| panic!("timed codegen {backend_name} for {name}: {e:?}"));
+    let codegen_ms = t1.elapsed().as_millis();
+    CodegenTimes {
+        parse_ms,
+        codegen_ms,
+    }
+}
+
+fn codegen_times_json(t: &CodegenTimes) -> Json {
+    Json::obj(vec![
+        ("parse_ms".into(), Json::int(t.parse_ms as i64)),
+        ("codegen_ms".into(), Json::int(t.codegen_ms as i64)),
+    ])
+}
+
+/// One benchmark spec's results per backend: the text-mode run plus the
+/// JSON-report document (keeps the entries tuple below clippy's complexity bar).
+type SpecRuns = (HashMap<&'static str, BenchRun>, HashMap<&'static str, Json>);
+
+fn run_json(r: &BenchRun, peak_rss_kb: i64) -> Json {
     let opt = |v: Option<usize>| match v {
         Some(n) => Json::int(n as i64),
         None => Json::Null,
@@ -745,6 +1006,10 @@ fn run_json(r: &BenchRun) -> Json {
         ),
         ("monitors_bits".into(), opt(r.monitors_bits)),
         ("memory_estimate_bytes".into(), opt(r.memory_estimate_bytes)),
+        // Peak RSS in kB from the JSON-report run (informational; 0 on read
+        // failure - see codegen_mc.rs). The order-of-magnitude sanity bound
+        // is asserted at the call site, not here.
+        ("peak_rss_kb".into(), Json::int(peak_rss_kb)),
         // u128 wall-clock ms; i64 covers 292 million years of runtime.
         ("wall_ms".into(), Json::int(r.wall_ms as i64)),
     ])
@@ -752,27 +1017,102 @@ fn run_json(r: &BenchRun) -> Json {
 
 #[test]
 fn bench_mc_json_report_and_table() {
-    let mut entries: Vec<(String, HashMap<&'static str, BenchRun>)> = Vec::new();
+    // Per spec x backend: the text-mode run (parsed fields) plus the JSON-
+    // report-mode run (peak_rss_kb; same data as the text report).
+    let mut entries: Vec<(String, SpecRuns)> = Vec::new();
     for name in BENCH_SPECS {
         let src = spec_source(name);
         let stem = name.strip_suffix(".rfs").expect("spec name");
-        let runs: HashMap<&str, BenchRun> = [
-            ("rust", run_parsed(&bench_binary(stem, "rust", &src))),
-            ("c", run_parsed(&bench_binary(stem, "c", &src))),
+        let rb = bench_binary(stem, "rust", &src);
+        let cb = bench_binary(stem, "c", &src);
+        let runs: HashMap<&str, BenchRun> = [("rust", run_parsed(&rb)), ("c", run_parsed(&cb))]
+            .into_iter()
+            .collect();
+        let docs: HashMap<&str, Json> = [
+            ("rust", run_json_mode(&rb, &[])),
+            ("c", run_json_mode(&cb, &[])),
         ]
         .into_iter()
         .collect();
-        entries.push((name.to_string(), runs));
+
+        for be in ["rust", "c"] {
+            // peak_rss_kb: INFORMATIONAL, with the single order-of-magnitude
+            // sanity bound allowed by the Phase 4 discipline (1 GB ceiling -
+            // the largest benchmark here explores ~26k states).
+            let rss = json_peak_rss_kb(&docs[be]);
+            assert!(
+                (0..1_000_000).contains(&rss),
+                "[{name}] {be}: peak_rss_kb {rss} outside the sanity bound"
+            );
+            // Text and JSON modes carry the SAME data (D-P5-10): cross-check
+            // the deterministic fields between the two renderings.
+            let doc = &docs[be];
+            assert_eq!(
+                doc.get("status").and_then(Json::as_str),
+                Some(runs[be].status.as_str()),
+                "[{name}] {be}: JSON/text status mismatch"
+            );
+            for (key, want) in [
+                ("states", runs[be].states as i64),
+                ("transitions", runs[be].transitions as i64),
+                ("max_depth", runs[be].max_depth as i64),
+            ] {
+                assert_eq!(
+                    doc.get("metrics")
+                        .and_then(|m| m.get(key))
+                        .and_then(Json::as_int),
+                    Some(want),
+                    "[{name}] {be}: JSON/text metrics mismatch ({key})"
+                );
+            }
+        }
+
+        entries.push((name.to_string(), (runs, docs)));
     }
 
-    // Report: per spec x backend - status, deterministic metrics, wall-clock
-    // (informational). Written under target/ - a development artifact.
+    // Parse + codegen timing: in-process lib calls over the timed set.
+    // INFORMATIONAL ONLY - never asserted on.
+    let timed: Vec<(&str, CodegenTimes, CodegenTimes)> = TIMED_SPECS
+        .iter()
+        .map(|&name| {
+            (
+                name,
+                time_parse_codegen("rust", name),
+                time_parse_codegen("c", name),
+            )
+        })
+        .collect();
+    let timing_json = timed
+        .iter()
+        .map(|(name, rt, ct)| {
+            Json::obj(vec![
+                ("spec".into(), Json::Str(name.to_string())),
+                (
+                    "backends".into(),
+                    Json::obj(vec![
+                        ("rust".into(), codegen_times_json(rt)),
+                        ("c".into(), codegen_times_json(ct)),
+                    ]),
+                ),
+            ])
+        })
+        .collect::<Vec<_>>();
+
+    // Report: per spec x backend - status, deterministic metrics, peak_rss_kb
+    // (informational), wall-clock (informational) - plus the codegen timing
+    // section. Written under target/ - a development artifact.
     let specs = entries
         .iter()
-        .map(|(name, runs)| {
+        .map(|(name, (runs, docs))| {
             let backends = Json::obj(vec![
-                ("rust".into(), run_json(&runs["rust"])),
-                ("c".into(), run_json(&runs["c"])),
+                (
+                    "rust".into(),
+                    run_json(&runs["rust"], json_peak_rss_kb(&docs["rust"])),
+                ),
+                (
+                    "c".into(),
+                    run_json(&runs["c"], json_peak_rss_kb(&docs["c"])),
+                ),
             ]);
             Json::obj(vec![
                 ("spec".into(), Json::Str(name.clone())),
@@ -784,6 +1124,7 @@ fn bench_mc_json_report_and_table() {
         ("suite".into(), Json::Str("benchmark_mc".into())),
         ("mode".into(), Json::Str("exact".into())),
         ("specs".into(), Json::arr(specs)),
+        ("codegen_timing".into(), Json::arr(timing_json)),
     ]);
     let path = root().join("target").join("mc_benchmarks.json");
     std::fs::write(&path, report.to_string_pretty())
@@ -793,7 +1134,7 @@ fn bench_mc_json_report_and_table() {
     // check status + deterministic metrics match what the runs produced.
     let on_disk = rfs::json_rw::parse(&std::fs::read_to_string(&path).expect("read report"))
         .expect("report must be valid JSON");
-    for (name, runs) in &entries {
+    for (name, (runs, docs)) in &entries {
         for be in ["rust", "c"] {
             let r = &runs[be];
             let spec_entry = on_disk
@@ -828,6 +1169,11 @@ fn bench_mc_json_report_and_table() {
                 Some(r.max_depth as i64),
                 "[{name}] {be} max_depth in report"
             );
+            assert_eq!(
+                j.get("peak_rss_kb").and_then(Json::as_int),
+                Some(json_peak_rss_kb(&docs[be])),
+                "[{name}] {be} peak_rss_kb in report (info only)"
+            );
             assert!(
                 j.get("wall_ms").is_some(),
                 "[{name}] {be} wall_ms present (info only)"
@@ -835,24 +1181,91 @@ fn bench_mc_json_report_and_table() {
         }
     }
 
-    // Per-backend summary table to the test output (wall clock informational).
+    // codegen_timing section: one entry per timed spec, both backends, both
+    // fields present as non-negative ints (informational - values not pinned).
+    let timing_entries = on_disk
+        .get("codegen_timing")
+        .and_then(Json::as_arr)
+        .expect("report carries codegen_timing");
+    assert_eq!(
+        timing_entries.len(),
+        TIMED_SPECS.len(),
+        "codegen_timing entry count"
+    );
+    for e in timing_entries {
+        let spec = e
+            .get("spec")
+            .and_then(Json::as_str)
+            .expect("timing entry spec name");
+        assert!(TIMED_SPECS.contains(&spec), "unknown timed spec {spec}");
+        for be in ["rust", "c"] {
+            for key in ["parse_ms", "codegen_ms"] {
+                let v = e
+                    .get("backends")
+                    .and_then(|b| b.get(be))
+                    .and_then(|t| t.get(key))
+                    .and_then(Json::as_int);
+                assert!(
+                    v.is_some_and(|x| x >= 0),
+                    "[{spec}] {be} {key} present (info only)"
+                );
+            }
+        }
+    }
+
+    // Per-backend summary table to the test output (wall clock + peak RSS are
+    // informational).
     let mut table = String::from(
         "benchmark MC suite (exact mode) - deterministic metrics identical across backends\n",
     );
     table.push_str(&format!(
-        "{:<24} {:<8} {:<14} {:>9} {:>13} {:>9} {:>16}\n",
-        "spec", "backend", "status", "states", "transitions", "max_depth", "wall_ms (info)"
+        "{:<24} {:<8} {:<14} {:>9} {:>13} {:>9} {:>16} {:>18}\n",
+        "spec",
+        "backend",
+        "status",
+        "states",
+        "transitions",
+        "max_depth",
+        "wall_ms (info)",
+        "peak_rss_kb (info)"
     ));
-    for (name, runs) in &entries {
+    for (name, (runs, docs)) in &entries {
         for be in ["rust", "c"] {
             let r = &runs[be];
             table.push_str(&format!(
-                "{:<24} {:<8} {:<14} {:>9} {:>13} {:>9} {:>16}\n",
-                name, be, r.status, r.states, r.transitions, r.max_depth, r.wall_ms
+                "{:<24} {:<8} {:<14} {:>9} {:>13} {:>9} {:>16} {:>18}\n",
+                name,
+                be,
+                r.status,
+                r.states,
+                r.transitions,
+                r.max_depth,
+                r.wall_ms,
+                json_peak_rss_kb(&docs[be])
             ));
         }
     }
     eprintln!("{table}");
+
+    // Parse + codegen timing table (in-process; informational - never asserted).
+    let mut tt = String::from(
+        "parse + codegen timing (in-process lib calls, informational - never asserted)\n",
+    );
+    tt.push_str(&format!(
+        "{:<28} {:<8} {:>9} {:>12}\n",
+        "spec", "backend", "parse_ms", "codegen_ms"
+    ));
+    for (name, rt, ct) in &timed {
+        tt.push_str(&format!(
+            "{:<28} {:<8} {:>9} {:>12}\n",
+            name, "rust", rt.parse_ms, rt.codegen_ms
+        ));
+        tt.push_str(&format!(
+            "{:<28} {:<8} {:>9} {:>12}\n",
+            name, "c", ct.parse_ms, ct.codegen_ms
+        ));
+    }
+    eprintln!("{tt}");
 }
 
 // ---------------------------------------------------------------------------
@@ -860,20 +1273,30 @@ fn bench_mc_json_report_and_table() {
 // backends) + --fast smoke test (soundness only - non-parity mode).
 // ---------------------------------------------------------------------------
 
-/// All five workloads of the threads gate: the three benchmark specs plus
-/// both inline FAIL variants (safety + liveness counterexamples included).
-fn threads_gate_workloads() -> Vec<(&'static str, String)> {
-    let mut out: Vec<(&'static str, String)> = BENCH_SPECS
+/// All eight workloads of the threads gate: the six benchmark specs plus all
+/// five inline FAIL variants (safety + liveness counterexamples included; the
+/// 48 assumption-relaxation run reuses the spec's own binary and carries its
+/// `--assumes none` args through the gate).
+fn threads_gate_workloads() -> Vec<(&'static str, String, &'static [&'static str])> {
+    let mut out: Vec<(&'static str, String, &'static [&'static str])> = BENCH_SPECS
         .iter()
         .map(|name| {
             (
                 name.strip_suffix(".rfs").expect("spec name"),
                 spec_source(name),
+                &[] as &[&str],
             )
         })
         .collect();
-    out.push(("ring_no_grant", RING_NO_GRANT_SRC.to_string()));
-    out.push(("elev_noup", ELEV_NO_UP_SRC.to_string()));
+    out.push(("ring_no_grant", RING_NO_GRANT_SRC.to_string(), &[]));
+    out.push(("elev_noup", ELEV_NO_UP_SRC.to_string(), &[]));
+    out.push(("http2_rst_fail", http2_rst_fail_src(), &[]));
+    out.push((
+        "48_usb_control_transfer",
+        spec_source("48_usb_control_transfer.rfs"),
+        &["--assumes", "none"],
+    ));
+    out.push(("can_passive_fail", can_passive_fail_src(), &[]));
     out
 }
 
@@ -885,15 +1308,18 @@ fn bench_mc_threads_parity() {
     // stronger than the field-level parity above: counterexample traces and
     // every printed line included. No pin changes are expected; a broken pin
     // here means a bug in the parallel path, not a re-pin.
-    for (stem, src) in threads_gate_workloads() {
-        let ref_run = run_args_full(&bench_binary(stem, "rust", &src), &["--threads", "1"]);
+    for (stem, src, extra) in threads_gate_workloads() {
+        let mut ref_args: Vec<&str> = extra.to_vec();
+        ref_args.push("--threads");
+        ref_args.push("1");
+        let ref_run = run_args_full(&bench_binary(stem, "rust", &src), &ref_args);
         for be in ["rust", "c"] {
             let bin = bench_binary(stem, be, &src);
-            for (n, args) in [
-                ("2", &["--threads", "2"][..]),
-                ("4", &["--threads", "4"][..]),
-            ] {
-                let r = run_args_full(&bin, args);
+            for n in ["2", "4"] {
+                let mut args: Vec<&str> = extra.to_vec();
+                args.push("--threads");
+                args.push(n);
+                let r = run_args_full(&bin, &args);
                 assert_eq!(
                     (r.0.exit_code, r.1.as_str()),
                     (ref_run.0.exit_code, ref_run.1.as_str()),

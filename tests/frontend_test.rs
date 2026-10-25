@@ -5,6 +5,8 @@
 
 use std::path::{Path, PathBuf};
 
+mod common;
+
 use rfs::{frontend, printer, Format, Ir};
 
 const VALID_RFS: &str =
@@ -3443,8 +3445,12 @@ fn mc_ref_output_agrees_with_generated_binary_text_and_json() {
                 std::process::ExitCode::from(gr.status.code().unwrap_or(255) as u8),
                 "{name} [{label}]: exit codes differ\ngen:\n{gen_out}\nref:\n{ref_out}"
             );
+            // Byte agreement modulo the informational peak_rss_kb field in
+            // JSON mode (engine self-reports actual RSS; mc-ref emits 0 -
+            // task 6). zero_peak_rss is a no-op on the text output.
             assert_eq!(
-                ref_out, gen_out,
+                common::mc_json::zero_peak_rss(&ref_out),
+                common::mc_json::zero_peak_rss(&gen_out),
                 "{name} [{label}]: mc-ref output differs from the generated binary"
             );
         }

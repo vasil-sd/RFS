@@ -1037,15 +1037,32 @@ fn mc_json_escape(out: &mut String, s: &str) {
     out.push('"');
 }
 
+/// Peak resident set in kB, self-reported from /proc/self/status (VmHWM).
+/// INFORMATIONAL - machine-dependent; cross-backend byte comparisons
+/// normalize it to 0. On read failure emits 0 (documented), keeping both
+/// backends emitting the field unconditionally so parity holds.
+fn peak_rss_kb() -> u64 {
+    std::fs::read_to_string("/proc/self/status")
+        .ok()
+        .and_then(|s| {
+            s.lines()
+                .find_map(|l| l.strip_prefix("VmHWM:"))
+                .and_then(|rest| rest.trim().split_whitespace().next())
+                .and_then(|n| n.parse::<u64>().ok())
+        })
+        .unwrap_or(0)
+}
+
 /// The canonical report document builder - key order is the byte-parity
 /// contract (see codegen_mc.rs in the toolchain): status, metrics
 /// (states, transitions, max_depth), [reason, label, step on fail],
 /// statistics (unexpected_terminations, monitor_size_bits,
-/// memory_estimate_bytes), [counterexample on fail].
+/// memory_estimate_bytes, peak_rss_kb), [counterexample on fail].
 fn build_mc_json_doc(
     status: &str, states: u64, transitions: u64, max_depth: u64,
     fail: Option<(&str, &str, u64)>,
     unexpected_terminations: u64, monitor_size_bits: u64, memory_estimate_bytes: u64,
+    peak_rss_kb: u64,
     counterexample: Option<McJson>,
 ) -> McJson {
     let mut pairs: Vec<(String, McJson)> = vec![
@@ -1065,6 +1082,7 @@ fn build_mc_json_doc(
         ("unexpected_terminations".to_string(), McJson::int(unexpected_terminations)),
         ("monitor_size_bits".to_string(), McJson::int(monitor_size_bits)),
         ("memory_estimate_bytes".to_string(), McJson::int(memory_estimate_bytes)),
+        ("peak_rss_kb".to_string(), McJson::int(peak_rss_kb)),
     ])));
     if let Some(ce) = counterexample { pairs.push(("counterexample".to_string(), ce)); }
     McJson::obj(pairs)
@@ -1103,13 +1121,14 @@ fn trace_steps_json(fsm: &Fsm) -> Vec<McJson> {
 }
 
 /// Counterexample kind \"trace\": the full trace (property violation, incl.
-/// sample-0).
+/// sample-0). `ce_steps` (trace length) is the last key - quality metric.
 fn ce_trace_json(fsm: &Fsm) -> McJson {
     McJson::obj(vec![
         ("kind".to_string(), McJson::str("trace")),
         ("initial_state".to_string(), McJson::str(rfs_render_state(&fsm.trace.initial_state))),
         ("initial_vars".to_string(), mc_json_vars(&fsm.trace.initial_vars)),
         ("steps".to_string(), McJson::arr(trace_steps_json(fsm))),
+        ("ce_steps".to_string(), McJson::int(fsm.trace.steps.len() as u64)),
     ])
 }
 
@@ -1124,6 +1143,8 @@ fn ce_lasso_json(fsm: &Fsm, cycle_start: usize) -> McJson {
         ("prefix".to_string(), McJson::arr(prefix.to_vec())),
         ("cycle".to_string(), McJson::arr(cycle.to_vec())),
         ("cycle_length".to_string(), McJson::int(cycle.len() as u64)),
+        // ce_steps = prefix + cycle length (total trace length).
+        ("ce_steps".to_string(), McJson::int(all.len() as u64)),
     ])
 }
 
@@ -1140,6 +1161,7 @@ fn ce_deadlock_json(fsm: &Fsm, depth: usize) -> McJson {
         ("depth".to_string(), McJson::int(depth as u64)),
         ("state".to_string(), McJson::str(state)),
         ("vars".to_string(), vars),
+        ("ce_steps".to_string(), McJson::int(depth as u64)),
     ])
 }
 "#;
@@ -1230,6 +1252,7 @@ fn run_exact() -> ! {
                 "fail", 1, 0, 0,
                 Some(("property-violation", pv.label.as_str(), pv.step as u64)),
                 0, MONITORS_BITS as u64, (CONFIG_TOTAL_BYTES + 32) as u64,
+                peak_rss_kb(),
                 Some(ce_trace_json(&init_fsm)),
             );
             println!("{}", doc.to_string());
@@ -1472,7 +1495,7 @@ fn run_exact() -> ! {
         };
         let doc = build_mc_json_doc(
             st_wire, states as u64, transitions as u64, max_depth as u64, fail,
-            unexpected as u64, MONITORS_BITS as u64, mem_est as u64, ce,
+            unexpected as u64, MONITORS_BITS as u64, mem_est as u64, peak_rss_kb(), ce,
         );
         println!("{}", doc.to_string());
         std::process::exit(if status == 1 { 0 } else if status == 4 { 1 } else { 2 });

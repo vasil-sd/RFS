@@ -20,6 +20,8 @@
 //! truncated-mode soundness, safety precedence) must agree on exit code and
 //! full stdout - counterexample trace included.
 
+mod common;
+
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -620,6 +622,44 @@ fn pinned(name: &str) -> Pinned {
             trigger_step: None,
             violation_step: None,
         },
+        // Phase 6 task 6: the three new benchmark specs - pass-complete;
+        // pinned from actual exact-mode output (Rust = C = ref_mc agree).
+        "47_http2_stream.rfs" => Pinned {
+            exit_code: 0,
+            status: "pass-complete",
+            states: 434,
+            transitions: 21857,
+            max_depth: 7,
+            reason: None,
+            label: None,
+            step: None,
+            trigger_step: None,
+            violation_step: None,
+        },
+        "48_usb_control_transfer.rfs" => Pinned {
+            exit_code: 0,
+            status: "pass-complete",
+            states: 104,
+            transitions: 340,
+            max_depth: 15,
+            reason: None,
+            label: None,
+            step: None,
+            trigger_step: None,
+            violation_step: None,
+        },
+        "49_can_arbitration.rfs" => Pinned {
+            exit_code: 0,
+            status: "pass-complete",
+            states: 240,
+            transitions: 448,
+            max_depth: 41,
+            reason: None,
+            label: None,
+            step: None,
+            trigger_step: None,
+            violation_step: None,
+        },
         other => panic!(
             "no pinned exact-mode expectation for {other} - add one (re-pin from actual output)"
         ),
@@ -669,11 +709,12 @@ fn mc_exact_results_match_re_pinned_values() {
             n_fail += 1;
         }
     }
-    // Pinned current state: 9 pass-complete, 9 fail (1 property violation on
+    // Pinned current state: 14 pass-complete, 9 fail (1 property violation on
     // 13_properties_safety, 8 deadlocks at terminal states). Example 43 is the
     // first liveness-bearing spec (task 6): pass-complete in both backends;
-    // examples 44/45 are the Phase 4 benchmark specs (task 8): pass-complete.
-    assert_eq!((n_pass, n_fail), (11, 9), "pass/fail split drifted");
+    // examples 44/45 are the Phase 4 benchmark specs (task 8): pass-complete;
+    // examples 47/48/49 are the Phase 6 task 6 benchmark specs: pass-complete.
+    assert_eq!((n_pass, n_fail), (14, 9), "pass/fail split drifted");
 }
 
 // ---------------------------------------------------------------------------
@@ -1209,9 +1250,12 @@ fn mc_json_report_parity_all_property_bearing_examples() {
             "[{name}] JSON exit codes must match\n[rust]\n{}\n[c]\n{}",
             rust.1, c.1
         );
+        // Byte-identity modulo the informational peak_rss_kb field (actual
+        // RSS is machine-dependent; zeroed on both sides - task 6).
         assert_eq!(
-            rust.1, c.1,
-            "[{name}] JSON stdout must be byte-identical across backends\n[rust]\n{}\n[c]\n{}",
+            common::mc_json::zero_peak_rss(&rust.1),
+            common::mc_json::zero_peak_rss(&c.1),
+            "[{name}] JSON stdout must be byte-identical across backends (modulo peak_rss_kb)\n[rust]\n{}\n[c]\n{}",
             rust.1, c.1
         );
         let rust_out = &rust.1;
@@ -1220,6 +1264,20 @@ fn mc_json_report_parity_all_property_bearing_examples() {
         let doc_text = rust.1.strip_suffix('\n').unwrap_or(&rust.1);
         let doc = rfs::json_rw::parse(doc_text)
             .unwrap_or_else(|e| panic!("[{name}] JSON must strict-parse: {e}\n{}", rust.1));
+        // The informational peak_rss_kb field is present and non-negative in
+        // BOTH backends' documents (structural parity; value not asserted).
+        for (be, out) in [("rust", &rust.1), ("c", &c.1)] {
+            let d = rfs::json_rw::parse(out.trim_end())
+                .unwrap_or_else(|e| panic!("[{name}] {be}: {e}"));
+            let rss = d
+                .get("statistics")
+                .and_then(|s| s.get("peak_rss_kb"))
+                .and_then(|v| v.as_int());
+            assert!(
+                rss.is_some_and(|v| v >= 0),
+                "[{name}] {be}: peak_rss_kb missing or negative"
+            );
+        }
         assert_eq!(
             doc.to_string_compact(),
             doc_text,
@@ -1436,8 +1494,9 @@ fn mc_json_five_status_reason_cases() {
         let r = run_bin(&mc_json_binary(&case.spec, "rust"), case.args);
         let c = run_bin(&mc_json_binary(&case.spec, "c"), case.args);
         assert_eq!(
-            r.1, c.1,
-            "{} JSON must be byte-identical across backends",
+            common::mc_json::zero_peak_rss(&r.1),
+            common::mc_json::zero_peak_rss(&c.1),
+            "{} JSON must be byte-identical across backends (modulo peak_rss_kb)",
             case.tag
         );
     }
@@ -1463,8 +1522,9 @@ fn mc_json_five_status_reason_cases() {
     );
     let c = run_bin(&mc_json_binary_for("pin_liv", "c", LIV_FAIL_EV_SPEC), &[]);
     assert_eq!(
-        r.1, c.1,
-        "lasso JSON must be byte-identical across backends"
+        common::mc_json::zero_peak_rss(&r.1),
+        common::mc_json::zero_peak_rss(&c.1),
+        "lasso JSON must be byte-identical across backends (modulo peak_rss_kb)"
     );
 }
 
@@ -1484,7 +1544,10 @@ module rich {
   prop p : always (state != B) ;
 }
 "#;
-const JSON_GOLDEN_DOC: &str = "{\"status\":\"fail\",\"metrics\":{\"states\":1,\"transitions\":1,\"max_depth\":0},\"reason\":\"property-violation\",\"label\":\"p\",\"step\":1,\"statistics\":{\"unexpected_terminations\":1,\"monitor_size_bits\":0,\"memory_estimate_bytes\":33},\"counterexample\":{\"kind\":\"trace\",\"initial_state\":\"State::A\",\"initial_vars\":{\"color\":\"Color::Red\"},\"steps\":[{\"input\":{\"variant\":\"Go_G\",\"fields\":{\"c\":\"Color::Green\"}},\"outputs\":[{\"variant\":\"Done_D\",\"fields\":{\"c\":\"Color::Green\"}}],\"from_state\":\"State::A\",\"to_state\":\"State::B\",\"vars\":{\"color\":\"Color::Green\"}}]}}";
+// Phase 6 task 6: the golden document carries peak_rss_kb = 0 (the actual
+// run's machine-dependent value is normalized away by zero_peak_rss before
+// comparison) and ce_steps = 1 (one-step trace counterexample).
+const JSON_GOLDEN_DOC: &str = "{\"status\":\"fail\",\"metrics\":{\"states\":1,\"transitions\":1,\"max_depth\":0},\"reason\":\"property-violation\",\"label\":\"p\",\"step\":1,\"statistics\":{\"unexpected_terminations\":1,\"monitor_size_bits\":0,\"memory_estimate_bytes\":33,\"peak_rss_kb\":0},\"counterexample\":{\"kind\":\"trace\",\"initial_state\":\"State::A\",\"initial_vars\":{\"color\":\"Color::Red\"},\"steps\":[{\"input\":{\"variant\":\"Go_G\",\"fields\":{\"c\":\"Color::Green\"}},\"outputs\":[{\"variant\":\"Done_D\",\"fields\":{\"c\":\"Color::Green\"}}],\"from_state\":\"State::A\",\"to_state\":\"State::B\",\"vars\":{\"color\":\"Color::Green\"}}],\"ce_steps\":1}}";
 
 #[test]
 fn mc_json_golden_document_pin() {
@@ -1492,10 +1555,12 @@ fn mc_json_golden_document_pin() {
         let bin = mc_json_binary_for("golden", backend, JSON_GOLDEN_SPEC);
         let (code, out) = run_bin(&bin, &[]);
         assert_eq!(code, 1, "{backend}: {out}");
+        // peak_rss_kb is informational (machine-dependent): normalize it to
+        // the pinned 0 before the byte comparison.
+        let normalized = common::mc_json::zero_peak_rss(out.trim_end());
         assert_eq!(
-            out,
-            format!("{JSON_GOLDEN_DOC}\n"),
-            "{backend}: golden JSON document drifted"
+            normalized, JSON_GOLDEN_DOC,
+            "{backend}: golden JSON document drifted\n[actual]\n{out}"
         );
     }
 }

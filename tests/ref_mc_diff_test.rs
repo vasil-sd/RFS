@@ -31,6 +31,8 @@
 //! `--max-states` on a large spec must yield UnknownStateLimit in ref_mc AND
 //! both generated backends - never PassComplete.
 
+mod common;
+
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -298,6 +300,7 @@ fn json_ce(doc: &rfs::json_rw::Json) -> rfs::codegen_mc::JsonCounterexample {
     let mut depth = 0i64;
     let mut state = String::new();
     let mut vars: Vec<(String, rfs::json_rw::Json)> = Vec::new();
+    let mut ce_steps = None;
     for (k, v) in obj {
         match k.as_str() {
             "kind" => kind = v.as_str().expect("string").to_string(),
@@ -310,10 +313,11 @@ fn json_ce(doc: &rfs::json_rw::Json) -> rfs::codegen_mc::JsonCounterexample {
             "depth" => depth = v.as_int().expect("int"),
             "state" => state = v.as_str().expect("string").to_string(),
             "vars" => vars = v.as_obj().expect("object").to_vec(),
+            "ce_steps" => ce_steps = Some(v.as_int().expect("int")),
             other => panic!("counterexample: unexpected key '{other}'"),
         }
     }
-    match kind.as_str() {
+    let ce = match kind.as_str() {
         "trace" => rfs::codegen_mc::JsonCounterexample::Trace {
             initial_state,
             initial_vars,
@@ -330,7 +334,20 @@ fn json_ce(doc: &rfs::json_rw::Json) -> rfs::codegen_mc::JsonCounterexample {
             rfs::codegen_mc::JsonCounterexample::DeadlockConfig { depth, state, vars }
         }
         other => panic!("unknown CE kind '{other}'"),
-    }
+    };
+    let want = match &ce {
+        rfs::codegen_mc::JsonCounterexample::Trace { steps, .. } => steps.len() as i64,
+        rfs::codegen_mc::JsonCounterexample::Lasso { prefix, cycle, .. } => {
+            (prefix.len() + cycle.len()) as i64
+        }
+        rfs::codegen_mc::JsonCounterexample::DeadlockConfig { depth, .. } => *depth,
+    };
+    assert_eq!(
+        ce_steps,
+        Some(want),
+        "ce_steps must equal the CE trace length"
+    );
+    ce
 }
 
 // ---------------------------------------------------------------------------
@@ -601,9 +618,11 @@ fn mc_ref_cli_matches_in_process_and_generated_engine() {
                 &ir,
             );
             let (_, doc) = run_mc_json(&bin, &[]);
+            // Byte agreement modulo the informational peak_rss_kb field
+            // (engine self-reports actual RSS; ref_mc emits 0 - task 6).
             assert_eq!(
-                doc.to_string_compact(),
-                want_doc,
+                common::mc_json::zero_peak_rss(&doc.to_string_compact()),
+                common::mc_json::zero_peak_rss(&want_doc),
                 "[{rel}/{backend_name}] engine JSON diverges from ref_mc"
             );
         }

@@ -33,6 +33,32 @@ pub(crate) fn c_ident(name: &str) -> String {
     }
 }
 
+/// Mangling of a PATTERN BINDING identifier for C: in addition to keyword
+/// mangling, bindings that collide with identifiers the generated transition
+/// body uses unqualified are renamed to `<name>__rfsb` (and further suffixed
+/// until unique among `used`). Without this, e.g. a field named `n` would
+/// shadow mc_step_all's effect counter `int n`: effects were written to
+/// `out[payload value]` (an out-of-bounds stack write for wide fields) and
+/// the counter never incremented, so the C model checker silently missed
+/// every successor through such a transition - a backend-parity violation
+/// reachable from fully valid specs (Phase 6 task 6 finding).
+pub(crate) fn c_binding_ident(
+    name: &str,
+    reserved: &[&str],
+    used: &mut std::collections::HashSet<String>,
+) -> String {
+    let base = c_ident(name);
+    let mut ident = if reserved.iter().any(|r| *r == base) {
+        format!("{base}__rfsb")
+    } else {
+        base
+    };
+    while !used.insert(ident.clone()) {
+        ident = format!("{ident}__rfsb");
+    }
+    ident
+}
+
 /// Fixed-width integer type for a `bit<N>` width. The C backend supports the
 /// standard fixed widths 8/16/32/64; other widths are a codegen error (see
 /// DESIGN.md section 19, decision D8).

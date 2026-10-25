@@ -8,7 +8,7 @@
 //! `fsm_step`. Simultaneous variable updates use temporary next variables,
 //! exactly like the Rust backend (DESIGN.md section 19).
 
-use crate::backends::c::{c_ident, c_type, int_c_literal, mask_c_expr};
+use crate::backends::c::{c_binding_ident, c_ident, c_type, int_c_literal, mask_c_expr};
 use crate::codegen::{self, BackendOptions, PropertyMonitorMode};
 use crate::codegen_fsm::{self, FsmVariants, VariantInfo};
 use crate::ir::*;
@@ -1521,28 +1521,35 @@ impl<'a> Gen<'a> {
                 .input_variant(&t.pattern.group, name)
                 .ok_or("pattern variant lookup")?;
             let pl = format!("in.payload.input_{}", v.unique_name.to_lowercase());
+            // Reserved: identifiers this body uses unqualified inside the
+            // binding scope (the commit call's `f` / `in` / `handler` /
+            // `user`). A same-named binding would shadow them (see
+            // c_binding_ident).
+            let reserved: &[&str] = &["f", "in", "handler", "user"];
+            let mut used_idents: std::collections::HashSet<String> =
+                std::collections::HashSet::new();
             for (i, pf) in fields.iter().enumerate() {
                 if let PatternExpr::Bind { name } = &pf.pattern {
                     let fname = c_ident(&v.fields[i].0);
                     let ty = c_type(&v.fields[i].1).map_err(|e| e.to_string())?;
-                    let _ = writeln!(
-                        out,
-                        "            {} {} = {}.{};",
-                        ty,
-                        c_ident(name),
-                        pl,
-                        fname
-                    );
-                    bound_names.push(c_ident(name));
+                    let ident = c_binding_ident(name, reserved, &mut used_idents);
+                    let _ = writeln!(out, "            {} {} = {}.{};", ty, ident, pl, fname);
+                    bound_names.push(ident.clone());
                     env.bindings.insert(
                         name.clone(),
                         crate::validator::type_to_expr_type(&v.fields[i].1),
                     );
+                    env.binding_idents.insert(name.clone(), ident);
                 }
             }
         }
         for name in env.bindings.keys() {
-            ctx.names.insert(name.clone(), c_ident(name));
+            let ident = env
+                .binding_idents
+                .get(name)
+                .cloned()
+                .unwrap_or_else(|| c_ident(name));
+            ctx.names.insert(name.clone(), ident);
         }
 
         // Pre-render every expression that may use the bindings, so a binding
@@ -1975,27 +1982,38 @@ impl<'a> Gen<'a> {
                         .input_variant(&t.pattern.group, name)
                         .ok_or("pattern variant lookup")?;
                     let pl = format!("in.payload.input_{}", v.unique_name.to_lowercase());
+                    // Reserved: identifiers mc_step_all uses unqualified inside
+                    // the binding scope - the guard's `state` / `vars`, and the
+                    // effect body's array `out` + counter `n`. A same-named
+                    // binding would shadow them (see c_binding_ident).
+                    let reserved: &[&str] = &["state", "vars", "out", "n"];
+                    let mut used_idents: std::collections::HashSet<String> =
+                        std::collections::HashSet::new();
                     for (i, pf) in fields.iter().enumerate() {
                         if let PatternExpr::Bind { name } = &pf.pattern {
                             let fname = c_ident(&v.fields[i].0);
                             let ty = c_type(&v.fields[i].1).map_err(|e| e.to_string())?;
+                            let ident = c_binding_ident(name, reserved, &mut used_idents);
                             out.push_str(&format!(
                                 "            {} {} = {}.{};\n",
-                                ty,
-                                c_ident(name),
-                                pl,
-                                fname
+                                ty, ident, pl, fname
                             ));
-                            bound_names.push(c_ident(name));
+                            bound_names.push(ident.clone());
                             env.bindings.insert(
                                 name.clone(),
                                 crate::validator::type_to_expr_type(&v.fields[i].1),
                             );
+                            env.binding_idents.insert(name.clone(), ident);
                         }
                     }
                 }
                 for name in env.bindings.keys() {
-                    ctx.names.insert(name.clone(), c_ident(name));
+                    let ident = env
+                        .binding_idents
+                        .get(name)
+                        .cloned()
+                        .unwrap_or_else(|| c_ident(name));
+                    ctx.names.insert(name.clone(), ident);
                 }
 
                 // Pre-render every expression that may use the bindings, so a

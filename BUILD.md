@@ -56,12 +56,12 @@ SMT output compiles per section 5.3.
 | rfs-build only (build.rs helper) | `cargo test -p rfs-build` | 10 pass; the rust e2e compiles the generated artifact with `rustc --edition 2021 --crate-type lib` |
 | rfs-adapters only | `cargo test -p rfs-adapters [--all-features]` | 9 pass default (std) / 12 with `--all-features` (adds the 3 futures-stream tests) |
 | Parser unit tests only | `cargo test --lib` | part of the 273 |
-| Example suite (file-driven: drop `.rfs` into `examples/valid\|invalid`, no test-code change) | `cargo test --test examples_test` | 3 pass; all 45 valid parse+validate+round-trip, all 12 invalid are rejected (parse or validation) |
+| Example suite (file-driven: drop `.rfs` into `examples/valid\|invalid`, no test-code change) | `cargo test --test examples_test` | 3 pass; all 50 valid parse+validate+round-trip, all 13 invalid are rejected (parse or validation) |
 | Example project verification (Phase 5 task 12) | `cargo test --test example_projects_test` | 3 pass; c_sync_handler gcc -Wall clean + C/Rust scenario parity with pinned values, fuzz_rust skeleton `cargo check` in the detached workspace, fuzz_c generation without clang (build gated on clang availability) |
 | Parser-library comparison (nom vs chumsky smoke) | `cargo test --test library_comparison` | 4 pass |
 | Training-set structure/snippets/aggregation/freshness | `cargo test-training` (= `cargo test training`) | 5 pass (see command table note) |
-| Generated-code aggregate unit tests (separate crate under `target/rfs_codegen_tests`) | `cargo test-generated-code` | **1501 pass** (184 modules; since Phase 5 task 5 each module also carries the extended plan classes - per-transition, invariant, monitor-violating-trace and random-trace tests - so the count grows with spec coverage; includes valid training snippets, so it moves when snippet sets change) |
-| Benchmark MC suite (Phase 4 task 9: specs 43/44/45 x both backends in exact mode, inline FAIL variants, JSON report; task 10B adds the `--threads` parity gate + `--fast` smoke) | `cargo test --test benchmark_mc_test` | 5 pass; all three benchmarks pass-complete in BOTH backends with metrics identical to the task 6/8 record (165/330/22, 129985/519940/276, 11098/99882/22); FAIL variants pinned (safety `holder_no_request` step 1; liveness `up2_served`, cycle length 3); `--threads 1/2/4` byte-identical to each other and across backends on all five workloads; `target/mc_benchmarks.json` written + per-backend table printed (wall-clock informational only) |
+| Generated-code aggregate unit tests (separate crate under `target/rfs_codegen_tests`) | `cargo test-generated-code` | **1601 pass** (189 modules - +3 for the Phase 6 task 6 benchmark specs 47/48/49; since Phase 5 task 5 each module also carries the extended plan classes - per-transition, invariant, monitor-violating-trace and random-trace tests - so the count grows with spec coverage; includes valid training snippets, so it moves when snippet sets change) |
+| Benchmark MC suite (Phase 4 task 9, extended by Phase 6 task 6: specs 43/44/45/47/48/49 x both backends in exact mode, inline FAIL variants incl. the `--assumes none` relaxation case, JSON report + in-process parse/codegen timing; task 10B's `--threads` parity gate covers all eight workloads) | `cargo test --test benchmark_mc_test` | 5 pass; all six benchmarks pass-complete in BOTH backends with metrics identical to the pins (94/188/22, 26113/104452/268, 8082/72738/22, 434/21857/7, 104/340/15, 240/448/41); FAIL variants pinned (safety `holder_no_request` step 1 ce_steps 1; liveness `up2_served` cycle length 2 ce_steps 2; safety `rst_goes_closed` step 2 ce_steps 2; assumption relaxation `completes_after_setup` step 16 ce_steps 16; safety `passive_band` step 6 ce_steps 6); `--threads 1/2/4` byte-identical to each other and across backends on all eight workloads; `target/mc_benchmarks.json` written (peak_rss_kb + codegen_timing sections) + two per-backend tables printed (wall-clock/timings/RSS informational, RSS bound < 1 GB only - see section 7) |
 
 Other suites: `tests/frontend_test.rs` covers all four conversion combinations, strict
 extension handling, output placement, collision guard, err-file generation, and
@@ -74,10 +74,13 @@ cross-backend differential suite - same-seed MC runs over all property-bearing e
 must be field-identical, and both backends' generated test executables must agree on
 every example: identical per-test result lists (stable names + pass/fail, normalized to
 canonical order) AND a byte-identical random-trace coverage line;
-`tests/benchmark_mc_test.rs` (Phase 4 task 9) drives the three benchmark specs
-(43/44/45) through both backends in exact mode - pass-complete statuses, pinned
-deterministic metrics, inline FAIL variants with counterexample parity, and a JSON
-report (`target/mc_benchmarks.json`, development artifact, wall-clock informational).
+`tests/benchmark_mc_test.rs` (Phase 4 task 9, extended by Phase 6 task 6) drives
+the six property-bearing benchmark specs (43/44/45/47/48/49) through both backends
+in exact mode - pass-complete statuses, pinned deterministic metrics, inline FAIL
+variants with counterexample parity + ce_steps pins (incl. the unmodified 48 spec
+run with `--assumes none`), in-process parse/codegen timing (informational), and a
+JSON report (`target/mc_benchmarks.json`, development artifact; wall-clock/timings/
+RSS informational - section 7).
 
 ## 4. Common commands (cargo aliases in `.cargo/config.toml`)
 
@@ -101,8 +104,8 @@ report (`target/mc_benchmarks.json`, development artifact, wall-clock informatio
 | Generate C code (Phase 2; same commands) | `cargo run -- codegen c <production\|test\|mc> <spec.rfs\|spec.json> [--out FILE] [--assumes ...] [--with-property-monitors] [--no-std]` (compile with `gcc -Wall out.c`) |
 | Property monitors in production builds (Phase 3) | `--with-property-monitors` is accepted on the `production` command of ANY backend only; `test` and `mc` always include monitors. Rust gates monitor emission/stepping on `#[cfg(debug_assertions)]` (zero cost in release); C gates on `-DRFS_PROPERTY_MONITORS` |
 | no_std production codegen (Phase 5 task 9) | `--no-std` is accepted on the `production` command only (`test`/`mc` -> exit 1 with the pinned message). Rust: `#![no_std]` + `extern crate alloc`, identical public API (body byte-identical to std output); C: documented no-op (header comment) |
-| Generate aggregate generated-code test crate (184 modules) | `cargo generate-code-tests [--test-steps N] [--assumes ...]` |
-| Generate + compile + run all generated unit tests (1501) | `cargo test-generated-code` |
+| Generate aggregate generated-code test crate (189 modules) | `cargo generate-code-tests [--test-steps N] [--assumes ...]` |
+| Generate + compile + run all generated unit tests (1601) | `cargo test-generated-code` |
 | Extract training snippets from `training/*/rfs_training.jsonl` | `cargo extract-training-snippets` -> 135 valid / 127 invalid snippets |
 | Aggregate training JSONL | `cargo build-training` -> writes `all_rfs_training.jsonl` (244 examples) |
 | Run training tests | `cargo test-training` (= `cargo test training`; matches 5 tests: 4 dedicated + the codegen aggregate test whose name contains "training") |
@@ -111,7 +114,7 @@ report (`target/mc_benchmarks.json`, development artifact, wall-clock informatio
 Alias re-verification after the Phase 5 task 1 workspace conversion (all run from the
 repo root, all working unchanged - no alias needed a `-p rfs` qualifier): `cargo run`
 (default-run `rfs`), `cargo parse --help`, `cargo validate --input rfs <file>`,
-`cargo codegen --list`, `cargo generate-code-tests`, `cargo test-generated-code` (1501
+`cargo codegen --list`, `cargo generate-code-tests`, `cargo test-generated-code` (1601
 pass - required the generated-crate `[workspace]` fix, see section 1),
 `cargo extract-training-snippets` (135/127), `cargo build-training` (244 aggregate),
 `cargo test-training` (5 pass).
@@ -179,3 +182,67 @@ harness works OFFLINE (`libfuzzer-sys 0.4.13` + `arbitrary 1.5.0` are cached).
 Bounded smoke gate (availability-gated, never a hard failure when tools are
 absent - same pattern as the e2e fuzz tests): `cd fuzz && cargo +nightly fuzz run
 codegen -- -max_total_time=10` (the slowest target; the others are faster).
+
+## 7. Benchmarks in CI (Phase 6 task 6)
+
+The benchmark MC suite is a single command. It is also part of plain `cargo
+test`, so any full CI run already covers it; run it standalone to get just the
+benchmark signal plus its report:
+
+    cargo test --test benchmark_mc_test
+
+Requirements: the pinned toolchain (section 2 - rustc/cargo 1.99.0) + `gcc` at
+`/usr/bin/gcc` (preinstalled on GitHub's ubuntu runners). Local wall-clock ~15 s.
+
+**What it writes.** `target/mc_benchmarks.json` (development artifact - under
+`target/`, never checked in): per spec x backend the status, deterministic
+metrics (`states` / `transitions` / `max_depth` / `monitors_bits` /
+`unexpected_terminations` / `memory_estimate_bytes`), `peak_rss_kb` (from the
+binary's own JSON report; 0 on read failure) and `wall_ms` - plus a
+`codegen_timing` section with in-process `parse_ms` / `codegen_ms` for the eight
+timed specs (classic examples 03/04 + the six benchmarks).
+
+**What it prints.** Two tables to the test output: the per-backend MC table
+(spec, backend, status, states, transitions, max_depth, wall_ms, peak_rss_kb)
+and the parse + codegen timing table.
+
+**Asserted vs informational.** Asserted: pass-complete status on all six specs;
+the pinned deterministic metrics (exact-mode counts are a pure function of the
+spec - equality IS the bound); every FAIL variant's reason / label / step /
+metrics / violation_step / cycle_length and its `ce_steps` from the JSON report;
+field-identical results across backends on every run; byte-identical stdout for
+`--threads 1/2/4` (and across backends) on all eight gate workloads; generated C
+warning-free under `gcc -Wall`. Informational only - never asserted, except the
+order-of-magnitude bound `peak_rss_kb < 1_000_000`: wall-clock times, parse/
+codegen timings, and peak RSS values. CI machines vary, and these must not
+become flaky gates (Phase 4 discipline).
+
+**GitHub Actions** (documented only - no workflow file is committed in this
+environment; the suite needs nothing beyond the toolchain + gcc):
+
+```yaml
+name: benchmark-mc
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  benchmark-mc:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install the pinned toolchain (BUILD.md section 2)
+        uses: dtolnay/rust-toolchain@1.99.0
+      - name: Run the benchmark MC suite (single command)
+        run: cargo test --test benchmark_mc_test
+      - name: Upload the JSON report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: mc-benchmarks
+          path: target/mc_benchmarks.json
+```
+
+(Timing/RSS values in the artifact are per-machine; compare trends, not
+absolute numbers.)

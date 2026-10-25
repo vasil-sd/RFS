@@ -409,7 +409,7 @@ fn exact_codegen_c(
     s.push_str(
         "// ---- exact reachable-state engine (Phase 4; same wire format as the Rust MC) ----\n",
     );
-    s.push_str("#include <time.h>\n#include <pthread.h>\n#include <stdatomic.h>\n");
+    s.push_str("#include <time.h>\n#include <pthread.h>\n#include <stdatomic.h>\n#include <sys/resource.h>\n");
     // Codegen-time defaults for the runtime flags (D-P4-7).
     let mode_const = if options.mc_mode == McMode::Fuzz {
         1
@@ -1760,19 +1760,29 @@ static void mc_json_input(mc_json_buf_t* b, const input_t* in);
 static void mc_json_output(mc_json_buf_t* b, const output_t* o);
 static void mc_json_vars(mc_json_buf_t* b, const vars_t* v);
 
+/// Peak resident set in kB, self-reported via getrusage(RUSAGE_SELF)
+/// (ru_maxrss is in kB on Linux). INFORMATIONAL - machine-dependent;
+/// cross-backend byte comparisons normalize it to 0. Returns 0 on failure
+/// (documented), keeping both backends emitting the field unconditionally.
+static unsigned long long mc_peak_rss_kb(void) {
+    struct rusage ru;
+    if (getrusage(RUSAGE_SELF, &ru) != 0) return 0ULL;
+    return (unsigned long long)ru.ru_maxrss;
+}
+
 /// The canonical report document head - key order is the byte-parity
 /// contract (see codegen_mc.rs in the toolchain): status, metrics
 /// (states, transitions, max_depth), [reason, label, step on fail],
 /// statistics (unexpected_terminations, monitor_size_bits,
-/// memory_estimate_bytes). Leaves the top-level object OPEN: the caller
-/// appends `,"counterexample":{...}` (fail only) and closes with
+/// memory_estimate_bytes, peak_rss_kb). Leaves the top-level object OPEN: the
+/// caller appends `,"counterexample":{...}` (fail only) and closes with
 /// mjb_char(b, '}').
 static void mc_json_doc_head(
     mc_json_buf_t* b, const char* status,
     unsigned long long states, unsigned long long transitions, unsigned long long max_depth,
     int has_fail, const char* fail_reason, const char* fail_label, unsigned long long fail_step,
     unsigned long long unexpected_terminations, unsigned long long monitor_size_bits,
-    unsigned long long memory_estimate_bytes) {
+    unsigned long long memory_estimate_bytes, unsigned long long peak_rss_kb) {
     mjb_str(b, "{\"status\":"); mjb_escape(b, status);
     mjb_str(b, ",\"metrics\":{\"states\":"); mjb_int(b, states);
     mjb_str(b, ",\"transitions\":"); mjb_int(b, transitions);
@@ -1786,6 +1796,7 @@ static void mc_json_doc_head(
     mjb_str(b, ",\"statistics\":{\"unexpected_terminations\":"); mjb_int(b, unexpected_terminations);
     mjb_str(b, ",\"monitor_size_bits\":"); mjb_int(b, monitor_size_bits);
     mjb_str(b, ",\"memory_estimate_bytes\":"); mjb_int(b, memory_estimate_bytes);
+    mjb_str(b, ",\"peak_rss_kb\":"); mjb_int(b, peak_rss_kb);
     mjb_char(b, '}');
 }
 
@@ -1808,7 +1819,7 @@ static void mc_json_step(mc_json_buf_t* b, const trace_step_t* s) {
 }
 
 /// Counterexample kind \"trace\": the full trace (property violation, incl.
-/// sample-0).
+/// sample-0). `ce_steps` (trace length) is the last key - quality metric.
 static void ce_trace_json(mc_json_buf_t* b, const rfs_trace_t* trace) {
     mjb_str(b, "{\"kind\":\"trace\",\"initial_state\":");
     mjb_escape(b, state_name_c(trace->initial_state));
@@ -1819,7 +1830,9 @@ static void ce_trace_json(mc_json_buf_t* b, const rfs_trace_t* trace) {
         if (i > 0) mjb_char(b, ',');
         mc_json_step(b, &trace->steps[i]);
     }
-    mjb_str(b, "]}");
+    mjb_str(b, "],\"ce_steps\":");
+    mjb_int(b, (unsigned long long)trace->len);
+    mjb_char(b, '}');
 }
 
 /// Counterexample kind \"lasso\": prefix + one cycle iteration (liveness).
@@ -1840,6 +1853,9 @@ static void ce_lasso_json(mc_json_buf_t* b, const rfs_trace_t* trace, int cycle_
     }
     mjb_str(b, "],\"cycle_length\":");
     mjb_int(b, (unsigned long long)(trace->len - cycle_start));
+    // ce_steps = prefix + cycle length (total trace length).
+    mjb_str(b, ",\"ce_steps\":");
+    mjb_int(b, (unsigned long long)trace->len);
     mjb_char(b, '}');
 }
 
@@ -1853,6 +1869,8 @@ static void ce_deadlock_json(mc_json_buf_t* b, const rfs_trace_t* trace, int dep
     mjb_escape(b, state_name_c(st));
     mjb_str(b, ",\"vars\":");
     mc_json_vars(b, vv);
+    mjb_str(b, ",\"ce_steps\":");
+    mjb_int(b, (unsigned long long)depth);
     mjb_char(b, '}');
 }
 "#;
@@ -1918,7 +1936,7 @@ static int run_exact(int argc, char** argv) {
             mc_json_buf_t jb = {0};
             mc_json_doc_head(&jb, "fail", 1, 0, 0, 1, "property-violation", init_fsm.prop_label,
                              (unsigned long long)init_fsm.prop_step, 0, MONITORS_BITS,
-                             (unsigned long long)(CONFIG_TOTAL_BYTES + 32));
+                             (unsigned long long)(CONFIG_TOTAL_BYTES + 32), mc_peak_rss_kb());
             mjb_str(&jb, ",\"counterexample\":");
             ce_trace_json(&jb, &init_fsm.trace);
             mjb_char(&jb, '}');
@@ -2236,7 +2254,7 @@ done:
         mc_json_doc_head(&jb, st_wire, (unsigned long long)n_nodes, (unsigned long long)transitions,
                          (unsigned long long)max_depth, has_fail, fail_wire, fail_label,
                          (unsigned long long)fail_step, (unsigned long long)unexpected,
-                         MONITORS_BITS, (unsigned long long)mem_est);
+                         MONITORS_BITS, (unsigned long long)mem_est, mc_peak_rss_kb());
         if (has_fail) {
             fsm_t cfsm;
             mc_replay(fail_cid, fail_input, fail_trans, n_fail_steps, nondet, active, n_active, inputs, &cfsm);

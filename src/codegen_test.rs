@@ -44,8 +44,10 @@ use std::collections::HashMap;
 pub struct TestPlan {
     /// Maximum example-run length (K steps).
     pub steps: usize,
-    /// Whether the positive run is expected to make at least one step
-    /// (true when the module declares transitions).
+    /// Whether the positive run is expected to make at least one step from
+    /// the initial configuration: true iff some initial-state transition
+    /// fires under a representative candidate input with the initial variable
+    /// values (see `expect_progress_from_initial`).
     pub expect_progress: bool,
     /// Whether some input variant is statically not handled by any transition;
     /// when true, the negative test asserts that an unexpected-event failure
@@ -250,12 +252,104 @@ pub const RANDOM_TRACE_SEED: u64 = 12345;
 // Planner entry point
 // ---------------------------------------------------------------------------
 
+/// Whether the positive drive is expected to make at least one step from
+/// the initial configuration. Computed EXACTLY as the generated driver runs:
+/// its candidates are the per-variant representative inputs (every field at
+/// its representative value), and a candidate progresses iff some transition
+/// OUT OF THE INITIAL STATE matches it and its guard passes under the
+/// INITIAL variable values plus the candidate's binding values. The old
+/// heuristic (`!transitions.is_empty()`) over-approximated: a spec whose
+/// initial-state arms all reject the representative inputs (e.g. `w > 0`
+/// guards with the w = 0 representative) would generate a failing positive
+/// drive (Phase 6 task 6 finding, spec 47).
+fn expect_progress_from_initial(variants: &FsmVariants, module: &Module) -> bool {
+    if variants.inputs.is_empty() || module.transitions.is_empty() {
+        return false;
+    }
+    let Some(initial) = module.initial_state.as_deref() else {
+        return false;
+    };
+    let init_vars = init_var_values(module);
+    for t in &module.transitions {
+        if t.state != initial {
+            continue;
+        }
+        // Field patterns must accept the representative values (the drive
+        // test's candidate inputs); literals that do not match their field's
+        // representative value can never fire under it.
+        let mut bindings: Vec<(String, Type)> = Vec::new();
+        let mut binding_vals: HashMap<String, VarValue> = HashMap::new();
+        let fields_ok = match &t.pattern.variant {
+            None | Some(PatternVariant::Unit { .. }) => true,
+            Some(PatternVariant::Struct { name, fields }) => {
+                let decl_fields: Vec<FieldDecl> = module
+                    .events
+                    .iter()
+                    .find(|g| g.name == t.pattern.group)
+                    .and_then(|g| {
+                        g.variants.iter().find(|v| match v {
+                            ConstructorVariant::Unit { name: n } => n == name,
+                            ConstructorVariant::Struct { name: n, .. } => n == name,
+                        })
+                    })
+                    .map(|decl| match decl {
+                        ConstructorVariant::Unit { .. } => Vec::new(),
+                        ConstructorVariant::Struct { fields, .. } => fields.clone(),
+                    })
+                    .unwrap_or_default();
+                if decl_fields.len() != fields.len() {
+                    continue; // unknown variant - no candidate can match this arm
+                }
+                let ok = fields
+                    .iter()
+                    .zip(decl_fields.iter())
+                    .all(|(pf, _df)| match &pf.pattern {
+                        PatternExpr::Wildcard | PatternExpr::Bind { .. } => true,
+                        PatternExpr::Int { value } => *value == 0,
+                        PatternExpr::Bool { value } => !value,
+                        PatternExpr::EnumVariant { path } => module
+                            .enums
+                            .iter()
+                            .find(|e| e.name == path[0])
+                            .and_then(|e| e.variants.first())
+                            .map_or(false, |f| path.len() == 2 && path[1] == *f),
+                    });
+                if ok {
+                    for (i, pf) in fields.iter().enumerate() {
+                        if let PatternExpr::Bind { name } = &pf.pattern {
+                            bindings.push((name.clone(), decl_fields[i].ty.clone()));
+                            binding_vals.insert(
+                                name.clone(),
+                                representative_var_value(&decl_fields[i].ty, module)
+                                    .unwrap_or(VarValue::Bool(false)),
+                            );
+                        }
+                    }
+                }
+                ok
+            }
+        };
+        if !fields_ok {
+            continue;
+        }
+        let env = eval_env(module, initial, &init_vars, &bindings, &binding_vals);
+        let fires = match &t.guard {
+            Some(g) => eval_bool(g, &env) == Some(true),
+            None => true,
+        };
+        if fires {
+            return true;
+        }
+    }
+    false
+}
+
 /// Build a test plan for a module given its flattened variants.
 pub fn build_test_plan(variants: &FsmVariants, module: &Module, steps: usize) -> TestPlan {
     let mut notes: Vec<PlannerNote> = Vec::new();
     TestPlan {
         steps,
-        expect_progress: !module.transitions.is_empty(),
+        expect_progress: expect_progress_from_initial(variants, module),
         definite_unexpected: has_definite_unexpected(variants, module),
         has_on_error: module.on_error.is_some(),
         transitions: plan_transitions(variants, module, &mut notes),
@@ -1425,6 +1519,29 @@ mod tests {
     }
 
     #[test]
+    fn plan_expect_progress_respects_guarded_out_initial_arms() {
+        // Phase 6 task 6: every initial-state arm rejects the representative
+        // input (w = 0) - the positive drive cannot make a step, so
+        // expect_progress must be FALSE (the old `!transitions.is_empty()`
+        // heuristic generated a failing drive for such specs - e.g. spec 47).
+        let (m, v) = variants(
+            "module m { enum State { A, B } initial A event E(V(w: bit<4>)) \
+             transition A on E(V(w)) where w > 0 { next B; } }",
+        );
+        let plan = build_test_plan(&v, &m, 4);
+        assert!(!plan.expect_progress);
+
+        // Same shape but with an unguarded initial arm: progress expected.
+        let (m2, v2) = variants(
+            "module m { enum State { A, B } initial A event E(V(w: bit<4>)) event Go \
+             transition A on E(V(w)) where w > 0 { next B; } \
+             transition A on Go { next B; } }",
+        );
+        let plan2 = build_test_plan(&v2, &m2, 4);
+        assert!(plan2.expect_progress);
+    }
+
+    #[test]
     fn partial_coverage_is_definite_unexpected() {
         let (m, v) = variants(
             "module m { enum State { A, B } initial A event Recv(Syn) event Recv(Ack(x: bit<4>)) transition A on Recv(Syn) { next B; } }",
@@ -1963,7 +2080,7 @@ mod tests {
         let root = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
         let files: Vec<std::path::PathBuf> =
             crate::collect_rfs_files(root.join("examples/valid")).expect("examples");
-        assert_eq!(files.len(), 47, "corpus size");
+        assert_eq!(files.len(), 50, "corpus size");
         for file in &files {
             let src = std::fs::read_to_string(file).expect("read spec");
             let ir = parse_source(&src).expect("parse spec");
@@ -2105,7 +2222,7 @@ mod tests {
         let root = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
         let files: Vec<std::path::PathBuf> =
             crate::collect_rfs_files(root.join("examples/valid")).expect("examples");
-        assert_eq!(files.len(), 47, "corpus size");
+        assert_eq!(files.len(), 50, "corpus size");
         // Recursive signal evaluator for the reference monitors (VarExpr atoms
         // only - the planned traces carry no input/output samples beyond the
         // step input, which is not part of a state/vars atom).

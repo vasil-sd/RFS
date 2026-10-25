@@ -8,7 +8,8 @@
 //! for the generated-code anatomy and design decisions.
 
 use crate::backends::rust::{
-    bit_rust_type, mask_expr, representative_input_expr, rust_ident, rust_type, snake,
+    bit_rust_type, mask_expr, representative_input_expr, rust_binding_ident, rust_ident, rust_type,
+    snake,
 };
 use crate::codegen::{AssumptionSelection, BackendOptions, CodegenOutput, PropertyMonitorMode};
 use crate::codegen_fsm::{self, FsmVariants, VariantInfo};
@@ -969,7 +970,9 @@ impl Fsm {{
             "        if self.state == State::{} {{",
             rust_ident(&t.state)
         );
-        let (pattern_code, env) = self.pattern_block_open(t)?;
+        // Reserved: identifiers this body uses unqualified inside the pattern
+        // scope (the commit call's `input` / `handler`).
+        let (pattern_code, env) = self.pattern_block_open(t, &["input", "handler"])?;
         out.push_str(&pattern_code);
 
         let mut ctx = ExprCtx::new(self.module);
@@ -979,7 +982,12 @@ impl Fsm {{
                 .insert(v.name.clone(), format!("self.vars.{}", rust_ident(&v.name)));
         }
         for name in env.bindings.keys() {
-            ctx.names.insert(name.clone(), name.clone());
+            let ident = env
+                .binding_idents
+                .get(name)
+                .cloned()
+                .unwrap_or_else(|| rust_ident(name));
+            ctx.names.insert(name.clone(), ident);
         }
 
         let mut guards: Vec<String> = Vec::new();
@@ -1082,9 +1090,19 @@ impl Fsm {{
         Ok(out)
     }
 
-    fn pattern_block_open(&self, t: &Transition) -> Result<(String, Env), String> {
+    /// `reserved`: identifiers the CALLER's generated transition body uses
+    /// unqualified inside the pattern scope (they would be shadowed by a
+    /// same-named binding - see `rust_binding_ident`). The caller passes its
+    /// own set: the fsm impl uses `{input, handler}`, mc_step_all uses
+    /// `{out, state, vars}`.
+    fn pattern_block_open(
+        &self,
+        t: &Transition,
+        reserved: &[&str],
+    ) -> Result<(String, Env), String> {
         let mut code = String::new();
         let mut env = Env::for_module(self.module);
+        let mut used_idents: HashSet<String> = HashSet::new();
         match &t.pattern.variant {
             None => {
                 let group = self
@@ -1160,13 +1178,16 @@ impl Fsm {{
                 let mut binds = Vec::new();
                 for (i, pf) in fields.iter().enumerate() {
                     let b = match &pf.name {
-                        Some(n) => rust_ident(n),
+                        Some(n) => rust_binding_ident(n, reserved, &mut used_idents),
                         None => format!("_f{}", i),
                     };
                     binds.push(b.clone());
                     if let PatternExpr::Bind { name } = &pf.pattern {
                         env.bindings
                             .insert(name.clone(), validator::type_to_expr_type(&v.fields[i].1));
+                        // Record the emitted identifier so the caller can map
+                        // RFS name -> mangled ident in its expression context.
+                        env.binding_idents.insert(name.clone(), b);
                     }
                 }
                 let pat_fields: Vec<String> = v
@@ -1701,7 +1722,10 @@ pub(crate) fn render_mc_step_all(module: &Module) -> Result<String, String> {
                 "    if state == State::{} {{\n",
                 rust_ident(&t.state)
             ));
-            let (pattern_code, env) = gen.pattern_block_open(t)?;
+            // Reserved: identifiers mc_step_all uses unqualified inside the
+            // pattern scope (the effect vector `out`; the guard's `state` /
+            // `vars`).
+            let (pattern_code, env) = gen.pattern_block_open(t, &["out", "state", "vars"])?;
             let pattern_code =
                 pattern_code.replace("self.input_matches_group_", "mc_input_matches_group_");
             out.push_str(&pattern_code);
@@ -1713,7 +1737,12 @@ pub(crate) fn render_mc_step_all(module: &Module) -> Result<String, String> {
                     .insert(v.name.clone(), format!("vars.{}", rust_ident(&v.name)));
             }
             for name in env.bindings.keys() {
-                ctx.names.insert(name.clone(), name.clone());
+                let ident = env
+                    .binding_idents
+                    .get(name)
+                    .cloned()
+                    .unwrap_or_else(|| rust_ident(name));
+                ctx.names.insert(name.clone(), ident);
             }
             let guard_cond = match &t.guard {
                 Some(g) => format!("({})", gen_expr(g, &env, &ctx)?),

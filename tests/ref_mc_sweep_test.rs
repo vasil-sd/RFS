@@ -35,6 +35,8 @@
 //!   RFS_SWEEP_PAR=8 RFS_SWEEP_TIMEOUT_SECS=120 \
 //!       cargo test --test ref_mc_sweep_test -- --nocapture
 
+mod common;
+
 use std::collections::{HashMap, VecDeque};
 use std::io;
 use std::path::{Path, PathBuf};
@@ -282,7 +284,11 @@ fn run_sample(
         if stop.load(Ordering::Relaxed) {
             return Err(SampleErr::Stopped);
         }
-        let gen = String::from_utf8_lossy(&cr.stdout).into_owned();
+        // Byte agreement modulo the informational peak_rss_kb field (the
+        // generated binary self-reports actual RSS; ref_mc's rendering emits
+        // 0 - task 6). zero_peak_rss is a no-op on text output.
+        let gen = common::mc_json::zero_peak_rss(&String::from_utf8_lossy(&cr.stdout));
+        let expected = common::mc_json::zero_peak_rss(expected);
         if cr.status.code() != Some(prep.exit) {
             return Err(SampleErr::Fail(format!(
                 "[{label}] exit {:?} vs ref {}",
@@ -290,10 +296,10 @@ fn run_sample(
                 prep.exit
             )));
         }
-        if gen != *expected {
+        if gen != expected {
             return Err(SampleErr::Fail(format!(
                 "[{label}] {}",
-                diff_snippet(&gen, expected)
+                diff_snippet(&gen, &expected)
             )));
         }
     }

@@ -3387,6 +3387,10 @@ pub fn to_json_report(res: &RefResult, module: &Module) -> McJsonReport {
         unexpected_terminations: res.unexpected_terminations as i64,
         monitor_size_bits: res.monitor_size_bits as i64,
         memory_estimate_bytes: res.memory_estimate_bytes as i64,
+        // The in-process reference MC is not a standalone binary: it does not
+        // self-report RSS. 0 keeps the field present (structural unification
+        // with the generated engines) and the document deterministic.
+        peak_rss_kb: 0,
         counterexample,
     }
 }
@@ -4538,7 +4542,7 @@ mod tests {
         let doc = to_json_report(&r, &m).to_json_string();
         assert_eq!(
             doc,
-            "{\"status\":\"pass-complete\",\"metrics\":{\"states\":2,\"transitions\":2,\"max_depth\":1},\"statistics\":{\"unexpected_terminations\":0,\"monitor_size_bits\":0,\"memory_estimate_bytes\":66}}"
+            "{\"status\":\"pass-complete\",\"metrics\":{\"states\":2,\"transitions\":2,\"max_depth\":1},\"statistics\":{\"unexpected_terminations\":0,\"monitor_size_bits\":0,\"memory_estimate_bytes\":66,\"peak_rss_kb\":0}}"
         );
     }
 
@@ -4570,7 +4574,7 @@ mod tests {
         let doc = to_json_report(&r, &m).to_json_string();
         assert_eq!(
             doc,
-            "{\"status\":\"fail\",\"metrics\":{\"states\":1,\"transitions\":2,\"max_depth\":0},\"reason\":\"property-violation\",\"label\":\"no_bad\",\"step\":1,\"statistics\":{\"unexpected_terminations\":0,\"monitor_size_bits\":0,\"memory_estimate_bytes\":33},\"counterexample\":{\"kind\":\"trace\",\"initial_state\":\"State::Good\",\"initial_vars\":{},\"steps\":[{\"input\":{\"variant\":\"ToBad\",\"fields\":{}},\"outputs\":[],\"from_state\":\"State::Good\",\"to_state\":\"State::Bad\",\"vars\":{}}]}}"
+            "{\"status\":\"fail\",\"metrics\":{\"states\":1,\"transitions\":2,\"max_depth\":0},\"reason\":\"property-violation\",\"label\":\"no_bad\",\"step\":1,\"statistics\":{\"unexpected_terminations\":0,\"monitor_size_bits\":0,\"memory_estimate_bytes\":33,\"peak_rss_kb\":0},\"counterexample\":{\"kind\":\"trace\",\"initial_state\":\"State::Good\",\"initial_vars\":{},\"steps\":[{\"input\":{\"variant\":\"ToBad\",\"fields\":{}},\"outputs\":[],\"from_state\":\"State::Good\",\"to_state\":\"State::Bad\",\"vars\":{}}],\"ce_steps\":1}}"
         );
     }
 

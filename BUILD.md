@@ -144,6 +144,11 @@ Additional checks depending on what changed:
   (real-tool runs are availability-gated: clang for C, cargo-fuzz + a nightly
   toolchain for Rust - install per `TOOLCHAIN.md` section 7).
 
+- Touched parser/validator/IR/codegen/MC -> bounded toolchain-fuzz smoke (Phase 6
+  task 5, availability-gated: nightly for the Rust side, clang for C - see
+  section 6): `cd fuzz && cargo +nightly fuzz run <target> -- -max_total_time=10`
+  per target; any crash is a real bug to fix (never weaken the target).
+
 Known-good baseline (2026-10-23, after Phase 5 task 16 close-out): 376/376 main
 tests (400 with `--workspace`, 378 with `--features smt`, z3 env per
 TOOLCHAIN.md section 5.2), 1501/1501 generated tests (184 modules - the +5
@@ -156,3 +161,21 @@ with `gcc -Wall`; the Phase 2 integration tests compile the Rust output with rus
 and drive it over an mpsc channel; the parity suites (Phase 3, migrated to seedless
 exact mode in Phase 4 task 4) compile BOTH backends' MC/test output (rustc + gcc)
 and compare results field by field.
+
+## 6. Toolchain fuzzing (Phase 6 task 5, D-P6-4)
+
+Fuzzes the TOOLCHAIN itself (distinct from Phase 5's `rfs test --suite fuzz`,
+which fuzzes GENERATED code). Two layers:
+
+| Layer | Where | What | When it runs |
+|---|---|---|---|
+| Fast: in-process libFuzzer targets | root `fuzz/` cargo-fuzz workspace (detached; 4 targets: `parser`, `validator`, `ir_roundtrip`, `codegen`) | no panic on malformed-but-parseable input; JSON round-trip byte-stability; total codegen + structural invariants (task-2 header, balanced delimiters, no placeholder tokens, core symbols) | manual / nightly (`cargo +nightly fuzz run <target> -- -max_total_time=...`) |
+| Slow: seeded compile-and-run suite | `tests/toolchain_fuzz_test.rs` (part of plain `cargo test`) | 3 pinned seeds x 10 small specgen specs -> all six artifacts generated + compiled (rustc / gcc -Wall) + MC runs in exact & fuzz mode vs `ref_mc` ground truth: status agreement, NO false `PASS (complete)`, exit codes {0,1,2}, stable stderr; plus the deterministic trigger-step-0 report pin | every full test run (~30 s) |
+
+Random specs are built through `src/specgen.rs` (seed + bounds from fuzzer bytes;
+validity by construction - raw IR types are deliberately NOT `Arbitrary`).
+Requirements: nightly toolchain + clang (TOOLCHAIN.md sections 7 / 7.5); the
+harness works OFFLINE (`libfuzzer-sys 0.4.13` + `arbitrary 1.5.0` are cached).
+Bounded smoke gate (availability-gated, never a hard failure when tools are
+absent - same pattern as the e2e fuzz tests): `cd fuzz && cargo +nightly fuzz run
+codegen -- -max_total_time=10` (the slowest target; the others are faster).

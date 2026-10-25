@@ -1,0 +1,47 @@
+# Root-level cargo-fuzz harness package (Phase 6 task 5, D-P6-4). DETACHED
+# from the repository workspace (empty [workspace] table - cargo-fuzz
+# convention); it is never built by the outer `cargo test --workspace`.
+[package]
+name = "rfs-fuzz"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+# cargo-fuzz marker (required by `cargo fuzz` to recognize the harness).
+[package.metadata]
+cargo-fuzz = true
+
+[workspace]
+
+[dependencies]
+libfuzzer-sys = "0.4"
+arbitrary = "1"
+rfs = { path = ".." }
+
+[[bin]]
+name = "parser"
+path = "fuzz_targets/parser.rs"
+harness = false
+test = false
+doc = false
+
+[[bin]]
+name = "validator"
+path = "fuzz_targets/validator.rs"
+harness = false
+test = false
+doc = false
+
+[[bin]]
+name = "ir_roundtrip"
+path = "fuzz_targets/ir_roundtrip.rs"
+harness = false
+test = false
+doc = false
+
+[[bin]]
+name = "codegen"
+path = "fuzz_targets/codegen.rs"
+harness = false
+test = false
+doc = false

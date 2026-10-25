@@ -236,3 +236,31 @@ CLI overrides: `--clang PATH`, `--clang-args "..."`, `--cargo-fuzz PATH`,
 cargo-fuzz = true` (required for `cargo fuzz` to recognize it) and pins
   `libfuzzer-sys = "=0.4.13"` - the release present in the local registry cache,
   so the temp-project build works OFFLINE.
+
+### 7.5 Root-level toolchain fuzzing workspace (Phase 6 task 5)
+
+The repo root carries a SECOND, detached cargo-fuzz workspace: `fuzz/`
+(package `rfs-fuzz`) - it fuzzes the TOOLCHAIN itself (parser, validator,
+IR serialization, code generators), not generated code. It reuses the same
+toolchain as section 7 (nightly for the Rust-side runs, clang present for
+the libFuzzer runtime) and works OFFLINE (`libfuzzer-sys = "0.4"` +
+`arbitrary = "1"` resolve to the cached 0.4.13 / 1.5.0).
+
+```sh
+cd fuzz
+cargo +nightly fuzz build                              # all four targets
+cargo +nightly fuzz run parser -- -max_total_time=10   # bounded smoke per target
+# (validator, ir_roundtrip, codegen likewise; `codegen` is the slowest)
+```
+
+Conventions observed here (they bit us once - keep them when editing):
+- Targets use `#![no_main]` + a TOP-LEVEL `fuzz_target!(...)` (the pattern of
+  the RFS-generated fuzz skeletons). Wrapping the macro in your own `fn main()`
+  SHADOWS the libFuzzer runtime's main: the binary then exits silently with
+  code 0 without fuzzing.
+- libFuzzer args go AFTER `--` (`cargo fuzz run <t> -- -max_total_time=10`).
+- Random valid specs come from `src/specgen.rs` via the shared wrapper in
+  `fuzz/fuzz_targets/common.rs` (fuzzer bytes -> seed + bounds); raw IR types
+  are deliberately NOT made `Arbitrary`.
+- The CI-runnable layer is `tests/toolchain_fuzz_test.rs` (plain `cargo test`);
+  long libFuzzer sessions stay manual/nightly. See BUILD.md section 6.

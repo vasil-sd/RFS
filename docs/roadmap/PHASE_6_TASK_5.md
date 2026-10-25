@@ -147,14 +147,22 @@ the root `fuzz/` workspace and its nightly/clang requirements.
 - BUILD.md/TOOLCHAIN.md documentation + bounded smoke gate.
 
 ## Task exit criteria
-- [ ] All four targets build (cargo-fuzz build if nightly available, else `cargo check` in the detached workspace - record which path was used).
-- [ ] Bounded smoke runs (`-max_total_time 10`) pass on the available toolchain(s); any crash found is fixed via a plan-correction task before this exit criterion is claimed.
-- [ ] Slow suite green within ~5 min: all specs compile in BOTH backends (rustc + gcc -Wall), MC exit codes in {0,1,2}, no false PASS vs ref_mc, stderr stable across repeated runs.
-- [ ] BUILD.md + TOOLCHAIN.md document the workspace; smoke gate added to the verification checklist.
-- [ ] Full `cargo test` green (the new suite is part of it); clippy/fmt clean.
+- [x] All four targets build (cargo-fuzz build if nightly available, else `cargo check` in the detached workspace - record which path was used). -> nightly WAS available: full `cargo +nightly fuzz build` (recorded in PHASE_6_TASK_5_STATUS.md).
+- [x] Bounded smoke runs (`-max_total_time 10`) pass on the available toolchain(s); any crash found is fixed via a plan-correction task before this exit criterion is claimed. -> all four targets exit 0 (codegen extended to 60 s); crashes found were fixed as plan corrections 5a/5b (toolchain) + in-task harness fixes.
+- [x] Slow suite green within ~5 min: all specs compile in BOTH backends (rustc + gcc -Wall), MC exit codes in {0,1,2}, no false PASS vs ref_mc, stderr stable across repeated runs. -> 30 specs in ~28 s.
+- [x] BUILD.md + TOOLCHAIN.md document the workspace; smoke gate added to the verification checklist. -> BUILD.md section 6 + checklist line; TOOLCHAIN.md section 7.5.
+- [x] Full `cargo test` green (the new suite is part of it); clippy/fmt clean. -> 447/447 root, 471/471 workspace, 1519/1519 generated; clippy no new warnings; fmt clean.
 
 ## Non-goals
 - No coverage-guided CI enforcement (smoke runs only - long libFuzzer sessions are manual/nightly); no fuzzing of the SMT path (feature-gated, outside v1 guarantee); no changes to generated-code fuzz targets (those are Phase 5's `rfs test --suite fuzz` surface, untouched); no ASAN/LSAN beyond what libFuzzer enables by default.
+
+## Task corrections
+
+| Correction | Description + rationale |
+|------------|-------------------------|
+| Plan corrections 5a + 5b (toolchain bugs found by this task's own layers) | The `codegen` fuzz target found that `test` codegen FAILED on a fully valid spec (specgen seed 24099 / small): the shared planner keyed binding values by declared field names while `eval_env` looks them up by pattern-binding name, so binding-referencing emits evaluated to None and the not-taken renderer's strict backstop errored both backends. Fixed in `src/codegen_test.rs` (`ConcreteInput.binding_vals` keyed by binding name; both construction sites) + 2 lib regression pins; seed 24099 added to the slow-suite pinned seeds. The slow suite then found a C-only SEGV: the fuzz-mode property-violation report indexed `steps[prop_trigger_step - 1]` = `steps[-1]` when the obligation started at sample 0 (trigger step 0); fixed in `src/backends/c_mc.rs` to use the safe `trace_vars()` helper (mirroring the exact path; Rust's `vars_at` was already correct) + a deterministic micro-spec pin (`c_mc_trigger_step_zero_report_no_crash`). Both recorded in `PHASE_6_PLAN.md` "Plan corrections" per the bug-found protocol; neither weakened any target. |
+| Fuzz-harness bugs fixed within the task (not toolchain code) | (a) The first `codegen` smoke hit a FALSE POSITIVE of the task-5 structural scanner: char literals containing a double quote (`'\"'`, as in the MC JSON escape renderers) desynchronized the comment/string-skipping balance check; the scanner now skips one-char and escaped char literals correctly (lifetimes like `'a` do not match the literal shapes). The crashing input (empty bytes -> fallback spec seed 0) is pinned in `fuzz/regression_seeds/codegen_empty_input`. (b) `ir_roundtrip.rs` itself panicked on short inputs (`copy_from_slice` with a <8-byte source); fixed to pad, crashing input pinned in `fuzz/regression_seeds/ir_roundtrip_short_rest`. (c) Initial targets wrapped `fuzz_target!` in their own `fn main()`, which SHADOWS the libFuzzer runtime's main - binaries exited silently with code 0 without fuzzing; switched to the RFS-skeleton convention `#![no_main]` + top-level macro. All three conventions documented in TOOLCHAIN.md section 7.5. |
+| Slow-suite design details settled during execution | Shared exact-mode state cap (`MAX_STATES = 5000`) for BOTH ref_mc and the generated engines: with an identical cap both sides either complete or report UnknownStateLimit together (counting aligned per tasks 3/4), so status agreement holds regardless of actual space size while keeping runs fast. Scratch hygiene follows the sibling-suite pattern (`target/rfs_toolchain_fuzz/<pid>/`, cleaned by `cargo clean`) - no existing suite uses Drop-based cleanup, so "cleaned on drop" was realized as the established per-process-subdir convention. C production artifacts compile with `gcc -Wall -c` (no main in the artifact); Rust production with `--crate-type lib`; Rust test with `--test` (mirrors `rfs test`). |
 
 ## Other information
 - The codegen target is the SLOWEST per iteration (six generations) - keep its

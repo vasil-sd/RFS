@@ -2361,7 +2361,8 @@ static void report_property_violation(const fsm_t* f, int run) {{
     printf("run %d property violation: %s\n", run, f->prop_label);
     if (f->prop_trigger_step >= 0) {{
         printf("  trigger step: %d\n", f->prop_trigger_step);
-        printf("  vars at trigger step: "); print_vars_debug(&f->trace.steps[f->prop_trigger_step - 1].vars); printf("\n");
+        vars_t tv = trace_vars(&f->trace, f->prop_trigger_step);
+        printf("  vars at trigger step: "); print_vars_debug(&tv); printf("\n");
     }}
     printf("  violation step: %d\n", f->prop_step);
     const vars_t* vv = (f->prop_step == 0) ? &f->trace.initial_vars : &f->trace.steps[f->prop_step - 1].vars;

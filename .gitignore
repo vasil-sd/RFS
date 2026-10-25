@@ -1,5 +1,11 @@
 # Build artifacts
 /target
+# Fuzz workspace (Phase 6 task 5): build outputs + libFuzzer runtime state.
+# corpus/ and artifacts/ are regenerable - the intentional regression inputs
+# are tracked under fuzz/regression_seeds/ instead.
+fuzz/target
+fuzz/corpus/
+fuzz/artifacts/
 
 # Python caches (training.py and auxiliary scripts)
 __pycache__/

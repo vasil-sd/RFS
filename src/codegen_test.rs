@@ -322,6 +322,10 @@ struct ConcreteInput {
     case: InputCase,
     /// `(binding name, declared field type)` in pattern-field order.
     bindings: Vec<(String, Type)>,
+    /// The concrete value of every NAMED pattern binding, keyed by BINDING
+    /// name (guard/emit expressions reference bindings, not the declared
+    /// field names that `case.fields` is keyed by).
+    binding_vals: HashMap<String, VarValue>,
 }
 
 /// Plan one (or two) test case(s) per transition, in declaration order.
@@ -382,25 +386,14 @@ fn plan_transitions(
             }
         }
 
-        let binding_vals: HashMap<String, VarValue> = input
-            .case
-            .fields
-            .iter()
-            .map(|(f, v)| (f.clone(), v.clone()))
-            .collect();
+        let binding_vals = &input.binding_vals;
 
         let mut taken_vars: Option<Vec<(String, VarValue)>> = None;
         let mut not_taken_vars: Option<Vec<(String, VarValue)>> = None;
 
         if shadow_by.is_none() {
             for assignment in enumerate_assignments(module, &guard_vars) {
-                let env = eval_env(
-                    module,
-                    &t.state,
-                    &assignment,
-                    &input.bindings,
-                    &binding_vals,
-                );
+                let env = eval_env(module, &t.state, &assignment, &input.bindings, binding_vals);
                 let t_guard_true = match &t.guard {
                     Some(g) => eval_bool(g, &env),
                     None => Some(true),
@@ -454,7 +447,7 @@ fn plan_transitions(
                         &t.state,
                         &vars,
                         &input.bindings,
-                        &binding_vals,
+                        binding_vals,
                         module,
                     ),
                 },
@@ -476,7 +469,7 @@ fn plan_transitions(
                         &t.state,
                         &vars,
                         &input.bindings,
-                        &binding_vals,
+                        binding_vals,
                         module,
                     ),
                 })
@@ -490,7 +483,7 @@ fn plan_transitions(
                     &t.state,
                     &vars,
                     &input.bindings,
-                    &binding_vals,
+                    binding_vals,
                     module,
                 ),
             );
@@ -591,6 +584,7 @@ fn concrete_input_for_pattern(
     };
     let mut case_fields = Vec::new();
     let mut bindings = Vec::new();
+    let mut binding_vals: HashMap<String, VarValue> = HashMap::new();
     for (i, df) in decl_fields.iter().enumerate() {
         let pf = pfields.and_then(|pf| pf.get(i));
         let val = match pf {
@@ -609,10 +603,11 @@ fn concrete_input_for_pattern(
             // Wildcard / Bind / whole-group: representative value.
             _ => representative_var_value(&df.ty, module)?,
         };
-        case_fields.push((df.name.clone(), val));
         if let Some(PatternField { name: Some(b), .. }) = pf {
+            binding_vals.insert(b.clone(), val.clone());
             bindings.push((b.clone(), df.ty.clone()));
         }
+        case_fields.push((df.name.clone(), val));
     }
     Some(ConcreteInput {
         case: InputCase {
@@ -621,6 +616,7 @@ fn concrete_input_for_pattern(
             fields: case_fields,
         },
         bindings,
+        binding_vals,
     })
 }
 
@@ -796,14 +792,13 @@ fn plan_monitor_violations(
                     else {
                         continue;
                     };
-                    let step_binding_vals: HashMap<String, VarValue> = input
-                        .case
-                        .fields
-                        .iter()
-                        .map(|(f, v)| (f.clone(), v.clone()))
-                        .collect();
-                    let env_step =
-                        eval_env(module, st, &assignment, &input.bindings, &step_binding_vals);
+                    let env_step = eval_env(
+                        module,
+                        st,
+                        &assignment,
+                        &input.bindings,
+                        &input.binding_vals,
+                    );
                     // The planned drive must actually take THIS transition: a
                     // higher-firing sibling (priority desc, source order -
                     // mirroring the generated fsm_step) that matches the input
@@ -1547,6 +1542,54 @@ mod tests {
                 assert_eq!(signature.0, "B");
             }
             other => panic!("expected not-taken, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn binding_referenced_emit_evaluates_in_not_taken_signature() {
+        // Regression pin (plan correction 5a): an emit argument that
+        // references a PATTERN BINDING must evaluate against the concrete
+        // input's value - keyed by the binding name, not the declared field
+        // name. Before the fix the not-taken signature evaluated to None and
+        // both backends refused codegen ("toothless test" backstop).
+        let (m, v) = variants(
+            "module m { enum State { A, B } initial A event Go(S0(f0: bit<4>)) output Out(X(f0: bit<4>)) var x: bit<2> init 0 transition A on Go(S0(b)) where x == 0 { next B; emit Out(X(b)); } }",
+        );
+        let plan = build_test_plan(&v, &m, 4);
+        let not_taken = plan
+            .transitions
+            .iter()
+            .find(|c| matches!(&c.expectation, TransitionExpectation::NotTaken { .. }))
+            .expect("not-taken case planned");
+        match &not_taken.expectation {
+            TransitionExpectation::NotTaken { signature, .. } => {
+                assert_eq!(signature.0, "B");
+                let args = &signature.1[0].args;
+                assert!(
+                    args.iter().all(|a| a.is_some()),
+                    "binding-referenced emit arg must evaluate: {args:?}"
+                );
+            }
+            other => panic!("expected not-taken, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn fuzz_regression_seed_24099_test_codegen_succeeds_both_backends() {
+        // Regression pin (plan correction 5a): the exact spec found by the
+        // Phase 6 task 5 `codegen` fuzz target (specgen seed 24099 / small -
+        // reproducible via `rfs gen-spec --seed 24099 --size small`). Before
+        // the fix, `test` codegen failed on BOTH backends with "not-taken
+        // signature has un-evaluable output args; refusing to emit a toothless
+        // test" for this fully valid spec.
+        let ir = crate::specgen::SpecGen::new(24099, crate::specgen::Bounds::small()).generate();
+        let options = crate::codegen::BackendOptions::default();
+        for backend_name in ["rust", "c"] {
+            let backend = crate::codegen::get_backend(backend_name)
+                .unwrap_or_else(|| panic!("backend {backend_name} registered"));
+            crate::codegen::CodegenCommandKind::UnitTests
+                .run(backend, &ir, &options)
+                .unwrap_or_else(|e| panic!("{backend_name} test codegen must succeed: {e:?}"));
         }
     }
 

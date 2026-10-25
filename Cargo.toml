@@ -34,3 +34,5 @@ z3 = { version = "0.21", optional = true }
 
 [dev-dependencies]
 chumsky = "0.13"
+comrak = { version = "0.55", default-features = false }
+mermaid-rs-renderer = { version = "0.3", default-features = false }

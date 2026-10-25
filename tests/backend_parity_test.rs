@@ -10,8 +10,9 @@
 //! expected VALUES below were re-pinned from actual engine output (task 4,
 //! action 2) - they deliberately differ from the Phase 3 fuzz-era pins.
 //!
-//! Fuzz mode stays covered by the codegen flag-sensitivity tests and task 2's
-//! spot check; this suite no longer drives `--mode fuzz`.
+//! Phase 6 task 4 (4.2) adds forced-violation parity: seeded `--mode fuzz`
+//! runs with `--violate` directives over all assumption-bearing examples must
+//! be byte-identical across backends (same seed => same exit code + stdout).
 //!
 //! Task 7 adds explicit liveness coverage: example 43 in exact mode must be
 //! byte-identical across backends, and inline liveness variants (pass,
@@ -1495,6 +1496,137 @@ fn mc_json_golden_document_pin() {
             out,
             format!("{JSON_GOLDEN_DOC}\n"),
             "{backend}: golden JSON document drifted"
+        );
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Phase 6 task 4 (4.2): cross-backend MC forced-violation parity.
+// Seeded fuzz-mode runs with `--violate` directives must be byte-identical
+// across backends (PHASE_6.md explicitly lists "forced violations" for the
+// cross-backend comparison; exact mode is already covered by action 1 above).
+// ---------------------------------------------------------------------------
+
+/// Pinned seed + run shape of the forced-violation parity runs.
+const FV_SEED: &str = "777";
+const FV_RUNS: &str = "5";
+const FV_BOUND: &str = "10";
+
+/// All valid examples carrying `assume ` declarations (dynamic set, same
+/// enumeration style as the rest of this suite).
+fn assumption_bearing_examples() -> Vec<PathBuf> {
+    let files = rfs::collect_rfs_files(root().join("examples/valid")).expect("collect .rfs files");
+    let out: Vec<PathBuf> = files
+        .into_iter()
+        .filter(|p| {
+            let src = std::fs::read_to_string(p).unwrap_or_else(|e| panic!("read {:?}: {e}", p));
+            src.lines().any(|l| l.trim_start().starts_with("assume "))
+        })
+        .collect();
+    assert!(
+        !out.is_empty(),
+        "dynamic enumeration found no assumption-bearing examples"
+    );
+    // Anchor: the Phase 4/5 showcase specs must be in the set.
+    let names: Vec<String> = out
+        .iter()
+        .map(|p| p.file_name().unwrap().to_string_lossy().into_owned())
+        .collect();
+    assert!(
+        names.contains(&"43_sliding_window.rfs".to_string()),
+        "covered: {names:?}"
+    );
+    out
+}
+
+/// The assumption labels of one spec (declaration order).
+fn assume_labels(spec: &Path) -> Vec<String> {
+    let src = std::fs::read_to_string(spec).unwrap_or_else(|e| panic!("read {:?}: {e}", spec));
+    let mut out = Vec::new();
+    for line in src.lines() {
+        let t = line.trim_start();
+        let Some(rest) = t.strip_prefix("assume ") else {
+            continue;
+        };
+        // `assume label : formula ;` - the label ends at the first ':'.
+        let label = rest.split(':').next().unwrap_or("").trim().to_string();
+        assert!(!label.is_empty(), "unparseable assume line: {line:?}");
+        out.push(label);
+    }
+    out
+}
+
+fn fv_args(directive: &str) -> Vec<String> {
+    vec![
+        "--mode".to_string(),
+        "fuzz".to_string(),
+        "--runs".to_string(),
+        FV_RUNS.to_string(),
+        "--bound".to_string(),
+        FV_BOUND.to_string(),
+        "--seed".to_string(),
+        FV_SEED.to_string(),
+        "--violate".to_string(),
+        directive.to_string(),
+    ]
+}
+
+#[test]
+fn mc_forced_violation_parity_all_assumption_bearing_examples() {
+    for spec in assumption_bearing_examples() {
+        let name = example_name(&spec);
+        let labels = assume_labels(&spec);
+        assert!(!labels.is_empty(), "[{name}] no assumption labels parsed");
+
+        // One forced-violation run per assumption label: same seed + same
+        // directive => identical exit code + full stdout across backends.
+        for label in &labels {
+            let directive = format!("{label}:1.0:100%");
+            let args = fv_args(&directive);
+            let rust = run_bin(
+                &mc_binary(&spec, "rust"),
+                &args.iter().map(|s| s.as_str()).collect::<Vec<_>>(),
+            );
+            let c = run_bin(
+                &mc_binary(&spec, "c"),
+                &args.iter().map(|s| s.as_str()).collect::<Vec<_>>(),
+            );
+            assert_eq!(
+                rust.0, c.0,
+                "[{name}/{label}] forced-violation exit codes diverge\n[rust]\n{}\n[c]\n{}",
+                rust.1, c.1
+            );
+            assert_eq!(
+                rust.1, c.1,
+                "[{name}/{label}] forced-violation stdout must be byte-identical across backends\n[rust]\n{}\n[c]\n{}",
+                rust.1, c.1
+            );
+        }
+
+        // One combined run with ALL labels in a single --violate list.
+        let directive = labels
+            .iter()
+            .map(|l| format!("{l}:1.0:100%"))
+            .collect::<Vec<_>>()
+            .join(",");
+        let args = fv_args(&directive);
+        let rust = run_bin(
+            &mc_binary(&spec, "rust"),
+            &args.iter().map(|s| s.as_str()).collect::<Vec<_>>(),
+        );
+        let c = run_bin(
+            &mc_binary(&spec, "c"),
+            &args.iter().map(|s| s.as_str()).collect::<Vec<_>>(),
+        );
+        assert_eq!(
+            rust.0, c.0,
+            "[{name}/all-labels] forced-violation exit codes diverge\n[rust]\n{}\n[c]\n{}",
+            rust.1, c.1
+        );
+        assert_eq!(
+            rust.1, c.1,
+            "[{name}/all-labels] forced-violation stdout must be byte-identical across backends\n[rust]\n{}\n[c]\n{}",
+            rust.1, c.1
         );
     }
 }

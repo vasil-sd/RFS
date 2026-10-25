@@ -1415,6 +1415,13 @@ fn run_exact() -> ! {
                 break 'outer;
             }
         }
+        // SEMANTICS 9.5: the search STOPS at the first violation (or state
+        // limit) - no further level may be expanded. The check must sit AFTER
+        // the 'level loop: a Violation outcome does `break 'level`, which
+        // skips the in-loop check and would otherwise fall through to one
+        // extra level of expansion before stopping (Phase 6 task 4 finding,
+        // correction 4b - matches the C engine's `status == 0` loop guard).
+        if status == 4 || status == 2 { break 'outer; }
         frontier = next_frontier;
     }
     if status == 0 { status = 1; }

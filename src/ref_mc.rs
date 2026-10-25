@@ -1969,6 +1969,12 @@ pub struct RefResult {
     pub memory_estimate_bytes: usize,
     /// Some(elapsed seconds) when the run stopped at the timeout.
     pub timeout_secs: Option<u64>,
+    /// The persistent monitor-state projection at the deadlocked terminal
+    /// configuration (Some iff status is Fail with reason Deadlock). Lets an
+    /// external verifier re-derive the SEMANTICS 8.4 "no surviving successor"
+    /// judgment, which depends on assumption-pruning state carried by the
+    /// configuration but not printed in the report.
+    pub deadlock_mons: Option<Vec<Vec<u64>>>,
     /// Warnings for formulas outside the monitor subset / uncheckable
     /// liveness (stderr diagnostics of `rfs mc-ref`).
     pub skip_warnings: Vec<String>,
@@ -2173,6 +2179,7 @@ pub fn run(module: &Module, cfg: &RefConfig) -> Result<RefResult, String> {
                 max_depth: 0,
                 fail: Some((FailReason::PropertyViolation, label.clone(), 0)),
                 unexpected_terminations: 0,
+                deadlock_mons: None,
                 first_unexpected: None,
                 monitor_size_bits: monitors_bits as usize,
                 memory_estimate_bytes: total_bytes + 32,
@@ -2226,6 +2233,9 @@ pub fn run(module: &Module, cfg: &RefConfig) -> Result<RefResult, String> {
     let mut fail: Option<(FailReason, String, usize)> = None;
     let mut fail_path: Vec<(usize, usize, usize)> = Vec::new();
     let mut fail_trigger: Option<usize> = None;
+    // Persistent monitor projection of the deadlocked terminal configuration
+    // (SEMANTICS 8.4 deadlock depends on assumption-pruning state).
+    let mut deadlock_mons: Option<Vec<Vec<u64>>> = None;
 
     while !frontier.is_empty() && status == St::Running {
         let mut next_frontier: Vec<usize> = Vec::new();
@@ -2330,6 +2340,14 @@ pub fn run(module: &Module, cfg: &RefConfig) -> Result<RefResult, String> {
                 fail = Some((FailReason::Deadlock, "-".into(), d));
                 status = St::Fail;
                 fail_path = path_to(&parent, cid);
+                deadlock_mons = Some(
+                    nodes[cid]
+                        .mons
+                        .iter()
+                        .zip(mon_specs.iter())
+                        .map(|(st, sp)| mon_key(st, sp))
+                        .collect(),
+                );
                 break;
             }
         }
@@ -2432,6 +2450,7 @@ pub fn run(module: &Module, cfg: &RefConfig) -> Result<RefResult, String> {
         fail,
         unexpected_terminations: unexpected,
         first_unexpected,
+        deadlock_mons,
         monitor_size_bits: monitors_bits as usize,
         memory_estimate_bytes: mem_est,
         timeout_secs,
@@ -2813,9 +2832,15 @@ fn liv_analyze(
             let (iidx, tid, _t) = adj[sc][si];
             lasso.push((sc, iidx, tid));
         }
+        // DFS for the closing path back to wpid. GLOBAL visited pruning
+        // (not just the current path): every reachable node is explored once,
+        // so the search is O(V+E) - path-only pruning re-explores diamond
+        // subgraphs exponentially and spins forever on small graphs (Phase 6
+        // task 4 finding, specgen seed 900_006). Edges to wpid are checked
+        // before the visited test, so any cycle through wpid is still found.
         let mut rec: Vec<usize> = Vec::new();
-        let mut on_path = HashSet::new();
-        on_path.insert(wpid);
+        let mut visited: HashSet<usize> = HashSet::new();
+        visited.insert(wpid);
         let mut dfs: Vec<(usize, usize)> = vec![(wpid, 0)];
         let mut found = false;
         while let Some(&(at, ci)) = dfs.last() {
@@ -2827,15 +2852,14 @@ fn liv_analyze(
                     found = true;
                     break;
                 }
-                if on_path.insert(w) {
+                if visited.insert(w) {
                     rec.push(pair_pos[w]);
                     dfs.push((w, 0));
                 }
             } else {
-                let (node, _) = dfs.pop().unwrap();
+                let (_node, _) = dfs.pop().unwrap();
                 if !dfs.is_empty() {
                     rec.pop();
-                    on_path.remove(&node);
                 }
             }
         }
@@ -3478,16 +3502,25 @@ fn collect_min_labels(
         vars: init_vars.clone(),
     };
     let mut mons0: Vec<MonSt> = mon_specs.iter().copied().map(mon_init).collect();
+    let mut failed_at_0: Vec<bool> = Vec::new();
     for (i, (_, spec)) in all_mons.iter().enumerate() {
-        let _ = mon_step(&mut mons0[i], spec, 0, &sample0, module);
+        failed_at_0.push(mon_step(&mut mons0[i], spec, 0, &sample0, module)?);
     }
     let node0 = BNode {
         state: q0,
         vars: init_vars,
         mons: mons0,
     };
-    // A sample-0 violation is the minimal one; run() would have reported it.
+    // A sample-0 violation is the minimal one: collect EVERY monitorable
+    // property whose monitor fails at sample 0 (run() reports only the first
+    // in declaration order). Selected assumptions cannot be failing here -
+    // run() would have returned Err for a sample-0 assumption violation.
     if target == 0 {
+        for ((label, _), failed) in prop_mons.iter().zip(failed_at_0.iter()) {
+            if *failed {
+                out.insert(label.clone());
+            }
+        }
         return Ok(());
     }
 
@@ -3564,6 +3597,693 @@ fn collect_min_labels(
         frontier = next_frontier;
     }
     Ok(())
+}
+
+// ---------------------------------------------------------------------------
+// Counterexample replay and verification (Phase 6 task 4.1)
+//
+// Public API for the differential suite: `step_trace` replays a fixed input
+// sequence through ref_mc's OWN transition logic, and
+// `verify_counterexample` validates a counterexample parsed from a generated
+// engine's JSON report against ref_mc's independent evaluators (transition
+// relation, monitor compilers, liveness product automaton). This is the
+// cross-validation of task 4.1: the engine's CE must be a valid execution
+// that genuinely exhibits the claimed violation at the claimed step.
+// ---------------------------------------------------------------------------
+
+/// The module's initial configuration: (state index, variable values).
+fn initial_config(module: &Module) -> Result<(usize, Vec<Val>), String> {
+    let states = state_variants(module).to_vec();
+    let q0 = module
+        .initial_state
+        .as_ref()
+        .and_then(|s| states.iter().position(|x| x == s))
+        .ok_or_else(|| "module has no initial state".to_string())?;
+    let mut init_vars: Vec<Val> = Vec::new();
+    for v in &module.vars {
+        let ctx = EvalCtx {
+            module,
+            state: Val::Enum(states[q0].clone()),
+            vars: HashMap::new(),
+            binds: HashMap::new(),
+            bind_types: HashMap::new(),
+        };
+        init_vars.push(
+            eval_expr(&v.init, &ctx)
+                .map_err(|e| format!("variable '{}' initializer failed: {e}", v.name))?,
+        );
+    }
+    Ok((q0, init_vars))
+}
+
+/// One JSON scalar of a counterexample report (field/variable value) to a
+/// [`Val`]: Bool -> Bool, Int -> Bit, Str -> Enum variant name. The wire form
+/// of an enum value is `EnumType::Variant` (see `to_json_report`); [`Val`]
+/// carries the bare variant name.
+fn json_val(j: &crate::json_rw::Json, what: &str) -> Result<Val, String> {
+    match j {
+        crate::json_rw::Json::Bool(b) => Ok(Val::Bool(*b)),
+        crate::json_rw::Json::Int(n) => Ok(Val::Bit(*n as u64)),
+        crate::json_rw::Json::Str(s) => Ok(Val::Enum(
+            s.rsplit_once("::")
+                .map(|(_, v)| v.to_string())
+                .unwrap_or_else(|| s.clone()),
+        )),
+        other => Err(format!("{what}: unsupported JSON value {other:?}")),
+    }
+}
+
+/// A counterexample input/output record to a concrete [`InputVal`]: the
+/// variant must exist in the module's flattened constructors and the fields
+/// must match the declaration (names, order, count).
+fn io_to_input(module: &Module, io: &JsonIo) -> Result<InputVal, String> {
+    let variants = flatten(&module.events);
+    let vi = variants
+        .iter()
+        .position(|v| v.unique_name == io.variant)
+        .ok_or_else(|| format!("unknown input variant '{}'", io.variant))?;
+    if variants[vi].fields.len() != io.fields.len() {
+        return Err(format!(
+            "input {}: {} field(s) in CE, {} declared",
+            io.variant,
+            io.fields.len(),
+            variants[vi].fields.len()
+        ));
+    }
+    let fields = io
+        .fields
+        .iter()
+        .zip(&variants[vi].fields)
+        .map(|((name, j), (dname, _))| {
+            if name != dname {
+                return Err(format!(
+                    "input {}: field '{name}' not declared (expected '{dname}')",
+                    io.variant
+                ));
+            }
+            json_val(j, &format!("input {} field {name}", io.variant))
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    Ok(InputVal {
+        variant: vi,
+        fields,
+    })
+}
+
+fn io_to_output(module: &Module, io: &JsonIo) -> Result<OutputVal, String> {
+    let variants = flatten(&module.outputs);
+    let vi = variants
+        .iter()
+        .position(|v| v.unique_name == io.variant)
+        .ok_or_else(|| format!("unknown output variant '{}'", io.variant))?;
+    if variants[vi].fields.len() != io.fields.len() {
+        return Err(format!(
+            "output {}: {} field(s) in CE, {} declared",
+            io.variant,
+            io.fields.len(),
+            variants[vi].fields.len()
+        ));
+    }
+    let fields = io
+        .fields
+        .iter()
+        .zip(&variants[vi].fields)
+        .map(|((name, j), (dname, _))| {
+            if name != dname {
+                return Err(format!(
+                    "output {}: field '{name}' not declared (expected '{dname}')",
+                    io.variant
+                ));
+            }
+            json_val(j, &format!("output {} field {name}", io.variant))
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    Ok(OutputVal {
+        variant: vi,
+        fields,
+    })
+}
+
+/// Replay a fixed input sequence through the module using ref_mc's own
+/// transition logic (deterministic first-match firing + `on_error` fallback).
+/// Returns the sample sequence: sample 0 = initial configuration, sample k =
+/// step k. `Err` when some input has no enabled transition and no `on_error`
+/// (the generated production FSM would report UnexpectedEvent there).
+pub fn step_trace(module: &Module, inputs: &[InputVal]) -> Result<Vec<Sample>, String> {
+    let (q0, mut vars) = initial_config(module)?;
+    let mut state = q0;
+    let mut samples = vec![Sample {
+        input: None,
+        outputs: Vec::new(),
+        to_state: state,
+        vars: vars.clone(),
+    }];
+    for (k, input) in inputs.iter().enumerate() {
+        let eff = match_effect(module, state, &vars, input).ok_or_else(|| {
+            format!(
+                "CE step {} is not a valid execution (no enabled transition)",
+                k + 1
+            )
+        })?;
+        samples.push(Sample {
+            input: Some(input.clone()),
+            outputs: eff.outputs,
+            to_state: eff.next_state,
+            vars: eff.next_vars.clone(),
+        });
+        state = eff.next_state;
+        vars = eff.next_vars;
+    }
+    Ok(samples)
+}
+
+/// CE state strings on the wire carry the `State::` prefix (ref_mc's
+/// prefixed form, byte-identical across engines); strip it for comparison
+/// against bare variant names.
+fn ce_state_name(s: &str) -> &str {
+    s.strip_prefix("State::").unwrap_or(s)
+}
+
+/// The CE's claimed initial configuration must equal the module's.
+fn check_initial(
+    module: &Module,
+    initial_state: &str,
+    initial_vars: &[(String, crate::json_rw::Json)],
+) -> Result<(), String> {
+    let (q0, vars0) = initial_config(module)?;
+    if state_name(module, q0) != ce_state_name(initial_state) {
+        return Err(format!(
+            "CE initial state '{initial_state}' != module initial '{}'",
+            state_name(module, q0)
+        ));
+    }
+    if initial_vars.len() != module.vars.len() {
+        return Err(format!(
+            "CE carries {} initial var(s), module declares {}",
+            initial_vars.len(),
+            module.vars.len()
+        ));
+    }
+    for (pos, ((name, j), v)) in initial_vars.iter().zip(&vars0).enumerate() {
+        if &module.vars[pos].name != name {
+            return Err(format!(
+                "CE initial vars: position {pos} claims '{name}', module declares '{}'",
+                module.vars[pos].name
+            ));
+        }
+        let dv = json_val(j, &format!("initial var {name}"))?;
+        if &dv != v {
+            return Err(format!(
+                "CE initial var {name}: claimed {dv:?}, module has {v:?}"
+            ));
+        }
+    }
+    Ok(())
+}
+
+/// One replayed step must match the CE's claimed from/to state, variables and
+/// outputs.
+fn check_step_config(
+    module: &Module,
+    prev_state: usize,
+    k: usize,
+    step: &JsonStep,
+    sample: &Sample,
+) -> Result<(), String> {
+    if state_name(module, prev_state) != ce_state_name(&step.from_state) {
+        return Err(format!(
+            "CE step {}: claims from_state='{}', replay is at '{}'",
+            k + 1,
+            step.from_state,
+            state_name(module, prev_state)
+        ));
+    }
+    if state_name(module, sample.to_state) != ce_state_name(&step.to_state) {
+        return Err(format!(
+            "CE step {}: claims to_state='{}', replay reaches '{}'",
+            k + 1,
+            step.to_state,
+            state_name(module, sample.to_state)
+        ));
+    }
+    if step.vars.len() != module.vars.len() {
+        return Err(format!(
+            "CE step {}: {} var(s) in CE, {} declared",
+            k + 1,
+            step.vars.len(),
+            module.vars.len()
+        ));
+    }
+    for (pos, ((name, j), v)) in step.vars.iter().zip(&sample.vars).enumerate() {
+        if &module.vars[pos].name != name {
+            return Err(format!(
+                "CE step {}: position {pos} claims var '{name}', module declares '{}'",
+                k + 1,
+                module.vars[pos].name
+            ));
+        }
+        let dv = json_val(j, &format!("CE step {} var {name}", k + 1))?;
+        if &dv != v {
+            return Err(format!(
+                "CE step {}: var {name} claimed {dv:?}, replay has {v:?}",
+                k + 1
+            ));
+        }
+    }
+    if step.outputs.len() != sample.outputs.len() {
+        return Err(format!(
+            "CE step {}: {} output(s) in CE, replay emits {}",
+            k + 1,
+            step.outputs.len(),
+            sample.outputs.len()
+        ));
+    }
+    for (jio, o) in step.outputs.iter().zip(&sample.outputs) {
+        let dv = io_to_output(module, jio)?;
+        if &dv != o {
+            return Err(format!(
+                "CE step {}: outputs diverge (claimed {:?}, replay {:?})",
+                k + 1,
+                dv,
+                o
+            ));
+        }
+    }
+    Ok(())
+}
+
+/// Step the label's monitor over the replayed samples; the FIRST confirmed
+/// failure must be exactly at `at_step`.
+fn property_confirms_at(
+    module: &Module,
+    label: &str,
+    samples: &[Sample],
+    at_step: usize,
+) -> Result<(), String> {
+    let formula = module
+        .properties
+        .iter()
+        .find(|p| p.name == label)
+        .or_else(|| module.assumptions.iter().find(|a| a.name == label))
+        .ok_or_else(|| format!("unknown label '{label}'"))?
+        .formula
+        .clone();
+    if contains_liveness(&formula) {
+        return Err(format!("label '{label}' is liveness (not monitorable)"));
+    }
+    let mon = compile_formula(&formula)
+        .map_err(|e| format!("label '{label}' not in the monitor subset: {e}"))?;
+    let mut st = mon_init(&mon);
+    for (idx, s) in samples.iter().enumerate() {
+        if idx > at_step {
+            break;
+        }
+        if mon_step(&mut st, &mon, idx as u64, s, module)? {
+            return if idx == at_step {
+                Ok(())
+            } else {
+                Err(format!(
+                    "label '{label}' confirmed at sample {idx}, CE claims {at_step}"
+                ))
+            };
+        }
+    }
+    Err(format!(
+        "label '{label}' never confirmed through sample {at_step}"
+    ))
+}
+
+/// The lasso (prefix + one cycle lap) must falsify the claimed liveness
+/// obligation: configuration closure, product-automaton closure, and a
+/// falsifying limit vector (the same acceptance condition `liv_analyze`
+/// uses for end components).
+fn verify_lasso(
+    module: &Module,
+    label: &str,
+    samples: &[Sample],
+    prefix_len: usize,
+    cycle_len: usize,
+) -> Result<(), String> {
+    let (liv_props, _) = decompose_properties(module);
+    let prop = liv_props
+        .into_iter()
+        .flatten()
+        .find(|p| p.label == label)
+        .ok_or_else(|| format!("'{label}' is not a liveness property of the module"))?;
+    // Configuration-level closure.
+    if samples[prefix_len].to_state != samples[prefix_len + cycle_len].to_state
+        || samples[prefix_len].vars != samples[prefix_len + cycle_len].vars
+    {
+        return Err("lasso cycle is not closed at the configuration level".to_string());
+    }
+    let leaves = leaf_signals(&prop);
+    let n = leaves.len();
+    if n == 0 {
+        return Err(format!("'{label}' has no liveness leaves"));
+    }
+    let radices: Vec<usize> = leaves
+        .iter()
+        .map(|l| if l.kind == 2 { 3 } else { 2 })
+        .collect();
+    let mut places = vec![1usize; n];
+    for k in (0..n - 1).rev() {
+        places[k] = places[k + 1] * radices[k + 1];
+    }
+    // Position i <-> samples[i] (position 0 = initial configuration).
+    let bits_at = |i: usize| leaf_bits(&leaves, &samples[i], module);
+    let mut q = prod_delta(0, &places, &radices, &leaves, bits_at(0)?);
+    for i in 1..=prefix_len {
+        q = prod_delta(q, &places, &radices, &leaves, bits_at(i)?);
+    }
+    // One full cycle lap from the post-prefix product state; on the infinite
+    // path P.C^omega the same lap repeats, so a genuine product cycle must be
+    // a fixed point of the lap map (all leaf transitions are one-way).
+    let q_after_lap = {
+        let mut q2 = q;
+        for i in (prefix_len + 1)..=(prefix_len + cycle_len) {
+            q2 = prod_delta(q2, &places, &radices, &leaves, bits_at(i)?);
+        }
+        q2
+    };
+    let q_after_second_lap = {
+        let mut q3 = q_after_lap;
+        for i in (prefix_len + 1)..=(prefix_len + cycle_len) {
+            q3 = prod_delta(q3, &places, &radices, &leaves, bits_at(i)?);
+        }
+        q3
+    };
+    if q_after_second_lap != q_after_lap {
+        return Err(format!(
+            "lasso cycle is not closed in the obligation product automaton (lap state {} -> {})",
+            q_after_lap, q_after_second_lap
+        ));
+    }
+    let q = q_after_lap;
+    let kinds: Vec<u8> = leaves.iter().map(|l| l.kind).collect();
+    let t: Vec<bool> = (0..n)
+        .map(|k| leaf_good(kinds[k], (q / places[k]) % radices[k]))
+        .collect();
+    if skel_eval(&prop.skeleton, &t) {
+        return Err(format!(
+            "lasso does not falsify '{label}': the obligation holds on the cycle"
+        ));
+    }
+    Ok(())
+}
+
+/// The inverse of [`mon_key`] at an enqueued configuration: no monitor there
+/// can be in the failed state (a property failure ends the run; a failed
+/// assumption prunes the successor before enqueue), so the persistent
+/// projection fully determines the monitor state.
+fn mon_from_key(spec: &Mon, key: &[u64], pos: &mut usize) -> Result<MonSt, String> {
+    match spec {
+        Mon::Check { .. } => Ok(MonSt::Check { failed: false }),
+        Mon::Delayed { .. } => {
+            let v = key
+                .get(*pos)
+                .copied()
+                .ok_or("monitor projection too short")?;
+            *pos += 1;
+            Ok(MonSt::Delayed {
+                prev_ant: v != 0,
+                failed: false,
+            })
+        }
+        Mon::Obligation { bound, .. } => {
+            if *bound >= 1 {
+                let code = key
+                    .get(*pos)
+                    .copied()
+                    .ok_or("monitor projection too short")?;
+                *pos += 1;
+                // Encoding (mon_key_node): 0 = not pending, else 2 + 2*remaining.
+                let (pending, remaining) = if code == 0 {
+                    (false, 0)
+                } else {
+                    (true, (code - 2) / 2)
+                };
+                Ok(MonSt::Obligation {
+                    pending,
+                    remaining,
+                    failed: false,
+                    trigger_step: -1,
+                })
+            } else {
+                // Bound 0 is decided at its anchor sample; a surviving
+                // configuration carries no persistent state for it.
+                Ok(MonSt::Obligation {
+                    pending: false,
+                    remaining: 0,
+                    failed: false,
+                    trigger_step: -1,
+                })
+            }
+        }
+        Mon::And(children) => {
+            let mut sts = Vec::new();
+            for c in children {
+                sts.push(mon_from_key(c, key, pos)?);
+            }
+            Ok(MonSt::And {
+                children: sts,
+                failed: false,
+                trigger_step: -1,
+            })
+        }
+        Mon::Or(children) => {
+            let mut sts = Vec::new();
+            for c in children {
+                sts.push(mon_from_key(c, key, pos)?);
+            }
+            Ok(MonSt::Or {
+                children: sts,
+                failed: false,
+                trigger_step: -1,
+            })
+        }
+    }
+}
+
+/// The claimed terminal configuration must be well-formed and a deadlock in
+/// the SEMANTICS 8.4 sense: NO input has a surviving successor - unexpected
+/// inputs terminate their path, and an enabled successor survives only if no
+/// ACTIVE assumption monitor confirms a violation on it (pruning state comes
+/// from `mons_proj`, the run's terminal monitor projection).
+fn verify_deadlock(
+    module: &Module,
+    cfg: &RefConfig,
+    depth: usize,
+    state: &str,
+    vars: &[(String, crate::json_rw::Json)],
+    mons_proj: Option<&Vec<Vec<u64>>>,
+) -> Result<(), String> {
+    let states = state_variants(module).to_vec();
+    let si = states
+        .iter()
+        .position(|s| s == ce_state_name(state))
+        .ok_or_else(|| format!("deadlock CE: unknown state '{state}'"))?;
+    if vars.len() != module.vars.len() {
+        return Err(format!(
+            "deadlock CE: {} var(s) in CE, {} declared",
+            vars.len(),
+            module.vars.len()
+        ));
+    }
+    let mut vals: Vec<Val> = Vec::new();
+    for (pos, (name, j)) in vars.iter().enumerate() {
+        if &module.vars[pos].name != name {
+            return Err(format!(
+                "deadlock CE: unexpected var '{name}' at position {pos}"
+            ));
+        }
+        let v = json_val(j, &format!("deadlock CE var {name}"))?;
+        // Domain check against the declared type.
+        match (&module.vars[pos].ty, &v) {
+            (Type::Bool, Val::Bool(_)) => {}
+            (Type::Bit { width }, Val::Bit(x)) => {
+                if *width < 64 && *x >= 1u64 << width {
+                    return Err(format!(
+                        "deadlock CE: var {name} = {x} outside bit<{width}> domain"
+                    ));
+                }
+            }
+            (Type::Enum { name: en }, Val::Enum(vn)) => {
+                let ok = module
+                    .enums
+                    .iter()
+                    .find(|e| e.name == *en)
+                    .map(|e| e.variants.iter().any(|x| x == vn))
+                    .unwrap_or(false);
+                if !ok {
+                    return Err(format!(
+                        "deadlock CE: var {name} = {vn} not a variant of {en}"
+                    ));
+                }
+            }
+            (ty, v) => {
+                return Err(format!(
+                    "deadlock CE: var {name} value {v:?} does not fit type {ty:?}"
+                ))
+            }
+        }
+        vals.push(v);
+    }
+    // Monitor setup identical to run() (same aggregate order: properties,
+    // then selected assumptions).
+    let known: Vec<&str> = module.assumptions.iter().map(|a| a.name.as_str()).collect();
+    let selected = parse_assume_selection(&cfg.assume_arg, &known);
+    let mut prop_mons: Vec<(String, Mon)> = Vec::new();
+    for p in &module.properties {
+        if contains_liveness(&p.formula) {
+            continue;
+        }
+        if let Ok(mon) = compile_formula(&p.formula) {
+            prop_mons.push((p.name.clone(), mon));
+        }
+    }
+    let mut assume_mons: Vec<(String, Mon)> = Vec::new();
+    for a in &module.assumptions {
+        if !selected.iter().any(|x| x == &a.name) {
+            continue;
+        }
+        if let Ok(mon) = compile_formula(&a.formula) {
+            assume_mons.push((a.name.clone(), mon));
+        }
+    }
+    let all_mons: Vec<(String, Mon)> = prop_mons
+        .iter()
+        .cloned()
+        .chain(assume_mons.iter().cloned())
+        .collect();
+    let n_props = prop_mons.len();
+    let proj =
+        mons_proj.ok_or("deadlock CE: the run did not report a terminal monitor projection")?;
+    if proj.len() != all_mons.len() {
+        return Err(format!(
+            "deadlock CE: {} monitor projections, {} monitors",
+            proj.len(),
+            all_mons.len()
+        ));
+    }
+    let mut mons = Vec::new();
+    for (key, (_, sp)) in proj.iter().zip(all_mons.iter()) {
+        let mut pos = 0usize;
+        mons.push(mon_from_key(sp, key, &mut pos)?);
+    }
+    // SEMANTICS 8.4: every input must be unexpected or pruned.
+    for input in all_inputs(module) {
+        let Some(eff) = match_effect(module, si, &vals, &input) else {
+            continue; // unexpected: the path terminates (not a successor)
+        };
+        let sample = Sample {
+            input: Some(input.clone()),
+            outputs: eff.outputs,
+            to_state: eff.next_state,
+            vars: eff.next_vars,
+        };
+        // Assumptions first, at the successor's sample index (depth + 1) -
+        // exactly as run() does; a confirmed violation prunes the successor.
+        let mut mons_copy = mons.clone();
+        let pruned = (0..mons_copy.len()).skip(n_props).any(|mi| {
+            mon_step(
+                &mut mons_copy[mi],
+                &all_mons[mi].1,
+                (depth + 1) as u64,
+                &sample,
+                module,
+            )
+            .unwrap_or(false)
+        });
+        if !pruned {
+            return Err(format!(
+                "configuration is not a deadlock: representative input variant {} has a surviving successor",
+                input.variant
+            ));
+        }
+    }
+    Ok(())
+}
+
+/// Validate one counterexample parsed from a generated engine's JSON report
+/// against ref_mc's independent evaluators. `reason`/`label`/`step` are the
+/// summary-line fields of the same run; `ce` its counterexample document;
+/// `deadlock_mons` the run's terminal monitor projection (`RefResult`
+/// field, needed to re-derive the SEMANTICS 8.4 pruning judgment for
+/// deadlock CEs). `Ok(())` = the CE is a valid execution that genuinely
+/// exhibits the claimed violation at the claimed step (deadlock CEs:
+/// well-formed deadlocked configuration).
+pub fn verify_counterexample(
+    module: &Module,
+    cfg: &RefConfig,
+    reason: FailReason,
+    label: &str,
+    step: usize,
+    ce: &JsonCounterexample,
+    deadlock_mons: Option<&Vec<Vec<u64>>>,
+) -> Result<(), String> {
+    match (reason, ce) {
+        (
+            FailReason::PropertyViolation,
+            JsonCounterexample::Trace {
+                initial_state,
+                initial_vars,
+                steps,
+            },
+        ) => {
+            check_initial(module, initial_state, initial_vars)?;
+            let inputs: Vec<InputVal> = steps
+                .iter()
+                .map(|s| io_to_input(module, &s.input))
+                .collect::<Result<_, _>>()?;
+            let samples = step_trace(module, &inputs)?;
+            let q0 = initial_config(module)?.0;
+            let mut prev = q0;
+            for (k, s) in steps.iter().enumerate() {
+                check_step_config(module, prev, k, s, &samples[k + 1])?;
+                prev = samples[k + 1].to_state;
+            }
+            property_confirms_at(module, label, &samples, step)
+        }
+        (
+            FailReason::LivenessViolation,
+            JsonCounterexample::Lasso {
+                initial_state,
+                initial_vars,
+                prefix,
+                cycle,
+                ..
+            },
+        ) => {
+            check_initial(module, initial_state, initial_vars)?;
+            if step != prefix.len() {
+                return Err(format!(
+                    "lasso CE: summary step {} != prefix length {}",
+                    step,
+                    prefix.len()
+                ));
+            }
+            let inputs: Vec<InputVal> = prefix
+                .iter()
+                .chain(cycle.iter())
+                .map(|s| io_to_input(module, &s.input))
+                .collect::<Result<_, _>>()?;
+            let samples = step_trace(module, &inputs)?;
+            let q0 = initial_config(module)?.0;
+            let mut prev = q0;
+            for (k, s) in prefix.iter().chain(cycle.iter()).enumerate() {
+                check_step_config(module, prev, k, s, &samples[k + 1])?;
+                prev = samples[k + 1].to_state;
+            }
+            verify_lasso(module, label, &samples, prefix.len(), cycle.len())
+        }
+        (FailReason::Deadlock, JsonCounterexample::DeadlockConfig { depth, state, vars }) => {
+            verify_deadlock(module, cfg, *depth as usize, state, vars, deadlock_mons)
+        }
+        _ => Err(format!(
+            "reason {:?} does not match the counterexample kind",
+            reason
+        )),
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -3955,6 +4675,274 @@ mod tests {
             elapsed <= 5,
             "timeout should fire shortly after the 3s budget (took {elapsed}s)"
         );
+    }
+
+    // Regression (Phase 6 task 4, correction 4a): a violation confirmed at
+    // SAMPLE 0 must still yield the full minimal-label set - every
+    // monitorable property failing at sample 0, not an empty set.
+    #[test]
+    fn minimal_labels_sample_zero_violation() {
+        let m = module(
+            "module m { enum State { S } initial S \
+             event Stay \
+             transition S on Stay { next S; } \
+             prop p1 : true && false ; \
+             prop p2 : always (false) ; }",
+        );
+        // run() reports the FIRST failing property in declaration order.
+        let r = run(&m, &cfg()).expect("run");
+        assert_eq!(
+            r.fail.as_ref(),
+            Some(&(FailReason::PropertyViolation, "p1".into(), 0))
+        );
+        // The minimal set carries BOTH labels (sorted).
+        let labels = minimal_violation_labels(&m, &cfg()).expect("labels");
+        assert_eq!(labels, vec!["p1".to_string(), "p2".to_string()]);
+    }
+
+    // --- Phase 6 task 4.1: counterexample replay + verification. ---
+
+    /// Build one JSON step of a CE from bare names (the wire form prefixes
+    /// states with `State::`).
+    fn ce_step(input: &str, from: &str, to: &str, outputs: &[&str]) -> JsonStep {
+        JsonStep {
+            input: JsonIo {
+                variant: input.into(),
+                fields: vec![],
+            },
+            outputs: outputs
+                .iter()
+                .map(|o| JsonIo {
+                    variant: (*o).into(),
+                    fields: vec![],
+                })
+                .collect(),
+            from_state: format!("State::{from}"),
+            to_state: format!("State::{to}"),
+            vars: vec![],
+        }
+    }
+
+    #[test]
+    fn verify_trace_ce_valid_and_tampered() {
+        let m = module(
+            "module m { enum State { Good, Bad } initial Good \
+             event Stay event ToBad \
+             transition Good on Stay { next Good; } \
+             transition Good on ToBad { next Bad; } \
+             transition Bad on Stay { next Bad; } \
+             prop no_bad : always (state != Bad) ; }",
+        );
+        let ce = JsonCounterexample::Trace {
+            initial_state: "State::Good".into(),
+            initial_vars: vec![],
+            steps: vec![ce_step("ToBad", "Good", "Bad", &[])],
+        };
+        // The genuine CE verifies.
+        verify_counterexample(
+            &m,
+            &cfg(),
+            FailReason::PropertyViolation,
+            "no_bad",
+            1,
+            &ce,
+            None,
+        )
+        .expect("genuine trace CE must verify");
+        // Tampered: the violation is confirmed at sample 1, not 2.
+        let e = verify_counterexample(
+            &m,
+            &cfg(),
+            FailReason::PropertyViolation,
+            "no_bad",
+            2,
+            &ce,
+            None,
+        )
+        .unwrap_err();
+        assert!(e.contains("confirmed at sample 1"), "{e}");
+        // Tampered: wrong target state.
+        let mut bad = ce.clone();
+        if let JsonCounterexample::Trace { steps, .. } = &mut bad {
+            steps[0].to_state = "State::Good".into();
+        }
+        verify_counterexample(
+            &m,
+            &cfg(),
+            FailReason::PropertyViolation,
+            "no_bad",
+            1,
+            &bad,
+            None,
+        )
+        .expect_err("tampered to_state must be rejected");
+        // Tampered: input that never fires from Good.
+        let mut bad2 = ce.clone();
+        if let JsonCounterexample::Trace { steps, .. } = &mut bad2 {
+            steps[0].input.variant = "Stay".into();
+        }
+        verify_counterexample(
+            &m,
+            &cfg(),
+            FailReason::PropertyViolation,
+            "no_bad",
+            1,
+            &bad2,
+            None,
+        )
+        .expect_err("tampered input must be rejected (Bad not reached)");
+    }
+
+    #[test]
+    fn verify_lasso_ce_valid_and_non_falsifying() {
+        // C is unreachable: `eventually (state == C)` is genuinely violated
+        // on the lasso A -Go-> B -Go-> B (repeating).
+        let m = module(
+            "module m { enum State { A, B, C } initial A \
+             event Go \
+             transition A on Go { next B; } \
+             transition B on Go { next B; } \
+             prop stuck : eventually (state == C) ; }",
+        );
+        let ce = JsonCounterexample::Lasso {
+            initial_state: "State::A".into(),
+            initial_vars: vec![],
+            prefix: vec![ce_step("Go", "A", "B", &[])],
+            cycle: vec![ce_step("Go", "B", "B", &[])],
+            cycle_length: 1,
+        };
+        verify_counterexample(
+            &m,
+            &cfg(),
+            FailReason::LivenessViolation,
+            "stuck",
+            1,
+            &ce,
+            None,
+        )
+        .expect("genuine lasso must verify");
+        // The SAME path satisfies `eventually (state == B)` - a CE claiming
+        // that label on this lasso must be rejected.
+        let m2 = module(
+            "module m { enum State { A, B, C } initial A \
+             event Go \
+             transition A on Go { next B; } \
+             transition B on Go { next B; } \
+             prop ok : eventually (state == B) ; }",
+        );
+        verify_counterexample(
+            &m2,
+            &cfg(),
+            FailReason::LivenessViolation,
+            "ok",
+            1,
+            &ce,
+            None,
+        )
+        .expect_err("non-falsifying lasso must be rejected");
+    }
+
+    #[test]
+    fn verify_deadlock_ce_valid_and_non_deadlocked() {
+        let m = module(
+            "module m { enum State { S, T } initial S \
+             event Go \
+             transition S on Go { next T; } }",
+        );
+        // The run's terminal projection is the pruning-state input of the
+        // SEMANTICS 8.4 re-derivation.
+        let res = run(&m, &cfg()).expect("run");
+        assert!(matches!(
+            res.fail.as_ref(),
+            Some((FailReason::Deadlock, _, _))
+        ));
+        let ce = JsonCounterexample::DeadlockConfig {
+            depth: 1,
+            state: "State::T".into(),
+            vars: vec![],
+        };
+        verify_counterexample(
+            &m,
+            &cfg(),
+            FailReason::Deadlock,
+            "-",
+            1,
+            &ce,
+            res.deadlock_mons.as_ref(),
+        )
+        .expect("genuine deadlock CE must verify");
+        let ce2 = JsonCounterexample::DeadlockConfig {
+            depth: 0,
+            state: "State::S".into(),
+            vars: vec![],
+        };
+        let e = verify_counterexample(
+            &m,
+            &cfg(),
+            FailReason::Deadlock,
+            "-",
+            0,
+            &ce2,
+            res.deadlock_mons.as_ref(),
+        )
+        .unwrap_err();
+        assert!(e.contains("not a deadlock"), "{e}");
+    }
+
+    // Regression (Phase 6 task 4): SEMANTICS 8.4 deadlock includes assumption
+    // PRUNING - a configuration whose enabled successors are all pruned by an
+    // active assumption monitor is deadlocked even though transitions exist.
+    #[test]
+    fn verify_deadlock_ce_assumption_pruned() {
+        // S1 has an enabled transition (Go -> S2), but the Tick assumption's
+        // countdown expires on that successor, and there is no Tick transition
+        // at S1 - so every successor is pruned or unexpected: deadlocked.
+        let m = module(
+            "module m { enum State { S0, S1, S2 } initial S0 \
+             event Go event Tick \
+             transition S0 on Go { next S1; } \
+             transition S0 on Tick { next S0; } \
+             transition S1 on Go { next S2; } \
+             transition S2 on Go { next S2; } \
+             assume tick_soon : always (bounded_eventually[3] (input_is(Tick))) ; }",
+        );
+        let res = run(&m, &cfg()).expect("run");
+        assert_eq!(
+            res.fail.as_ref(),
+            Some(&(FailReason::Deadlock, "-".into(), 1))
+        );
+        let ce = JsonCounterexample::DeadlockConfig {
+            depth: 1,
+            state: "State::S1".into(),
+            vars: vec![],
+        };
+        verify_counterexample(
+            &m,
+            &cfg(),
+            FailReason::Deadlock,
+            "-",
+            1,
+            &ce,
+            res.deadlock_mons.as_ref(),
+        )
+        .expect("assumption-pruned deadlock must verify");
+        // A configuration with a genuinely surviving successor must be
+        // rejected: S0's Tick successor keeps the countdown alive.
+        let ce2 = JsonCounterexample::DeadlockConfig {
+            depth: 0,
+            state: "State::S0".into(),
+            vars: vec![],
+        };
+        verify_counterexample(
+            &m,
+            &cfg(),
+            FailReason::Deadlock,
+            "-",
+            0,
+            &ce2,
+            res.deadlock_mons.as_ref(),
+        )
+        .expect_err("S0 has a surviving successor (Tick)");
     }
 
     // Independence audit: the module must not import the shared engines'

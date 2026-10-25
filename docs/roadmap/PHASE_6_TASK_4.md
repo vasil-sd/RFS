@@ -191,12 +191,12 @@ test module docs.
   (and fixed before this task's exit criteria are claimed).
 
 ## Task exit criteria
-- [ ] 4.1: status agreement + CE-replay validity on all eligible examples + 20 random specs; label+step equality on unique-minimal specs; `states` exact; no-false-PASS negative control green.
-- [ ] 4.2: forced-violation runs byte-identical (exit code + stdout) across backends for every assumption-bearing example x label + the combined run.
-- [ ] 4.3: production drivers byte-identical on identical input scripts for EVERY valid example, incl. unexpected-event injections.
-- [ ] 4.4: generated monitor verdicts == hand-written Rust reference == hand-written C reference at every sample for specs 43/44/45 random traces.
-- [ ] 4.5: independent evaluator agrees with generated monitors on all property-bearing examples x random traces; external hook documented + skipped cleanly when unset.
-- [ ] Each suite < ~2 min; full `cargo test` green; clippy/fmt clean.
+- [x] 4.1: status agreement + CE-replay validity on all eligible examples + 20 random specs; label+step equality on unique-minimal specs; `states` exact; no-false-PASS negative control green.
+- [x] 4.2: forced-violation runs byte-identical (exit code + stdout) across backends for every assumption-bearing example x label + the combined run.
+- [x] 4.3: production drivers byte-identical on identical input scripts for EVERY valid example, incl. unexpected-event injections.
+- [x] 4.4: generated monitor verdicts == hand-written Rust reference == hand-written C reference at every sample for specs 43/44/45 random traces.
+- [x] 4.5: independent evaluator agrees with generated monitors on all property-bearing examples x random traces; external hook documented + skipped cleanly when unset.
+- [x] Each suite < ~2 min; full `cargo test` green; clippy/fmt clean.
 
 ## Non-goals
 - No SMT-mode differential coverage (feature-gated, outside the v1 guarantee); no performance claims or timing assertions; no changes to engine code in THIS task (fixes go through plan corrections + their own tasks); no new benchmark specs (task 6).

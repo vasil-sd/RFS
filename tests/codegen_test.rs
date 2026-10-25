@@ -1,5 +1,5 @@
 use rfs::{codegen, collect_rfs_files};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 fn files() -> Vec<PathBuf> {
     let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
@@ -22,7 +22,7 @@ fn files() -> Vec<PathBuf> {
     files
 }
 
-fn parse_module(path: &PathBuf) -> rfs::Ir {
+fn parse_module(path: &Path) -> rfs::Ir {
     let ir =
         rfs::parse_file(path).unwrap_or_else(|e| panic!("{} should parse: {}", path.display(), e));
     assert!(

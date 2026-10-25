@@ -67,14 +67,37 @@ model-checkable (no unbounded data, floats, or arbitrary functions in the core).
   fuzz harnesses both ecosystems), and IDE support (`ide/` TextMate grammar +
   snippets, `rfs validate --json` structured diagnostics). Design decisions
   D-P5-1..D-P5-14: `DESIGN.md` section 23.
-- Next work: Phase 6 (production hardening and v1.0) per
-  `docs/roadmap/PHASE_6.md`; phase planning/implementation protocol:
-  `docs/roadmap/INTRO.md`.
-- Known-good baseline: 376/376 main tests (400 with `--workspace`, 378 with
-  `--features smt`), 1501/1501 generated-code tests (184 modules), clippy
-  without errors (13 pre-existing warnings), fmt clean; 45 valid + 12 invalid
-  examples; 11 training categories / 244 aggregated SFT examples (135 valid +
-  127 invalid snippets).
+- Phase 6 (production hardening and v1.0): implementation tasks 1-9 COMPLETE,
+  close-out task 10 pending per `docs/roadmap/PHASE_6_PLAN.md`. Phase 6 added:
+  the NORMATIVE formal semantics document (`docs/SEMANTICS.md`), the v1.0
+  versioning surface (formalized `version "X.Y[.Z]"` header with validator
+  format check, `IR_VERSION = 1` with {0,1} read policy, spec hash +
+  toolchain version stamped into line 1 of EVERY generated artifact - hand-
+  rolled SHA-256, no new dependencies - crate bumped to 1.0.0,
+  `docs/user/MIGRATION.md`), two new CLI commands (`rfs mc-ref` in-process
+  reference MC with unified flags/exit codes 0/1/2; `rfs gen-spec` random /
+  base-mutated spec generation, always validated before write) on independent
+  infrastructure (`src/ref_mc.rs`, `src/specgen.rs`), differential soundness
+  suites (ref-MC byte-parity sweep + differential vs both backends, forced-
+  violation parity, production-FSM cross-backend parity, hand-written monitor
+  references, PSL translation via an independent evaluator +
+  `RFS_PSL_REF_TOOL` hook), two-layer toolchain fuzzing (root `fuzz/` cargo-
+  fuzz workspace: parser/validator/ir_roundtrip/codegen targets + seeded CI
+  suite `tests/toolchain_fuzz_test.rs`; found and fixed plan corrections 5a/5b),
+  benchmark specs 47/48/49 (HTTP/2-like stream, USB-like control transfer,
+  CAN-like arbitration) + MC report `peak_rss_kb`/`ce_steps`, the external
+  user documentation set (`docs/user/`, 7 files + MIGRATION.md, mermaid
+  diagrams throughout) machine-checked by the mdr-stack doc-quality gate
+  (`tests/docs_md_test.rs`, dev-deps comrak 0.55 + mermaid-rs-renderer 0.3 -
+  mdr's exact parser stack; mdr itself is binary-only), and the training-data
+  update (17 new entries). Design decisions D-P6-1..D-P6-11: `DESIGN.md`
+  section 24.
+- Known-good baseline (re-measured 2026-10-25, Phase 6 task 9): 453/453 main
+  tests (477 with `--workspace`, 455 with `--features smt`), 1683/1683
+  generated-code tests (192 modules), clippy without errors (36 pre-existing
+  warnings, all in Phase 6 tasks 4-6 files), fmt clean; 50 valid + 13 invalid
+  examples; 11 training categories / 261 aggregated SFT examples (138 valid +
+  128 invalid snippets).
 
 ## 2. Documentation map (what each file is for)
 
@@ -86,6 +109,7 @@ model-checkable (no unbounded data, floats, or arbitrary functions in the core).
 | `KB.md` | Design decisions, RFS v0 syntax reference, source-code map, CLI behavior, training-set organization, agent workflow experience | For language semantics questions, source layout, CLI rules, "how is X implemented" | **Never fully** - section map in section 5; grep + sed ranges |
 | `DESIGN.md` | RFS v0 design: architecture, core semantics, EBNF grammar, IR schema, parser/codegen/MC/PSL plans, design-choice tables | When changing language semantics, grammar, IR, or codegen/MC design | **Never fully** - section map in section 5 |
 | `docs/SEMANTICS.md` | Formal semantics (NORMATIVE): automaton model, transition relation, deterministic vs nondeterministic modes, property sampling, PSL operator semantics, strong/weak liveness + fairness, assumptions + handler policies, error/deadlock semantics, MC configurations/abstraction rules/status labeling | For precise "what does X mean" questions; the reference Phase 6's ref MC (task 3.2) and independent evaluators (tasks 4.x) implement against | Fully (medium size) or `grep -n "^## \|^### "` + sed ranges |
+| `docs/user/` | External user documentation set (Phase 6 tasks 2.4/7): README index, LANGUAGE, PROPERTIES, MODEL_CHECKING, INTEGRATION, EXAMPLES, FAQ + MIGRATION.md - self-contained for people who have never seen this repo; mermaid diagrams throughout; machine-checked by `tests/docs_md_test.rs` (mdr parser stack) | When answering user-facing how-to questions or writing external docs | Fully (each file is short) |
 | `docs/roadmap/INTRO.md` | Roadmap overview, phase-state table, formatting templates, two-stage planning/implementation protocol | When scoping, planning, or implementing any phase; checking next priorities | Fully (short) |
 | `docs/roadmap/PHASE_N.md` / `PHASE_N_PLAN.md` / `PHASE_N_TASK_M.md` / `PHASE_N_*_STATUS.md` | Phase N description (goal/scope/deliverables/exit criteria/non-goals) / implementation plan / per-task implementation details / phase or task completion status report | Description: when working on phase N. Plan: fully, before implementing. Task file: fully, before executing that task. Status: for completed phases/tasks | Fully (each is short by design) |
 | `CODEGEN.md` | Codegen backend plugin API, registry, how to add a new target language, testing conventions | When touching `src/codegen.rs`, `src/backends/*`, or adding a backend | Fully (~280 lines, safe) |
@@ -97,7 +121,7 @@ model-checkable (no unbounded data, floats, or arbitrary functions in the core).
 
 ```text
 src/parser.rs        nom-based RFS v0 parser (+ KEYWORDS const)  src/ir.rs         versioned IR + hand-rolled JSON
-src/frontend.rs      parse/validate CLI logic (incl. --json)    src/main.rs       CLI arg parsing + dispatch (6 subcommands)
+src/frontend.rs      parse/validate CLI logic (incl. --json)    src/main.rs       CLI arg parsing + dispatch (8 subcommands)
 src/validator.rs     semantic validation + typing               src/printer.rs    IR -> formatted RFS
 src/json_rw.rs       hand-rolled JSON reader-writer (all JSON)  src/info.rs       rfs info command
 src/ext_tool.rs      external-tool resolver + --print-script    src/test_cmd.rs   rfs test command (unit/fuzz suites)
@@ -108,6 +132,9 @@ src/codegen_mc.rs    shared exact-mode concepts (statuses, summary line, flag de
 src/mc_plan.rs       shared MC plan: abstraction, encoding, traversal, liveness obligations
 src/monitor.rs       shared monitor compiler (Phase 3 MonitorPlan)
 src/smt_plan.rs + src/smt_emit.rs   shared SMT spec + emitter (optional smt mode)
+src/spec_hash.rs     hand-rolled SHA-256 + spec hash (Phase 6 D-P6-3)   src/specgen.rs    seeded random spec generator + mutation API (task 3.1)
+src/ref_mc.rs        brute-force reference MC, independent data structures (task 3.2, D-P6-5)
+src/mc_ref_cmd.rs    rfs mc-ref command (task 3.3)               src/gen_spec_cmd.rs rfs gen-spec command (task 3.4)
 src/training.rs      snippet extraction + aggregation           src/error.rs      ParseError/Span
 src/bin/             build_training, extract_training_snippets, generate_code_tests, test_generated_code
 crates/rfs-build/    build.rs helper crate (RFS_BIN resolution, rerun directives)
@@ -116,10 +143,13 @@ crates/examples/     sync_handler, async_handler, fuzz_rust (cargo members) + c_
 ide/                 TextMate grammar + snippets for .rfs (VS Code/Sublime install notes)
 tests/               examples_test, frontend_test, codegen_test, backend_parity_test, benchmark_mc_test,
                    liveness_mc_test, monitor_integration_test, example_projects_test, integration_example_test,
-                   library_comparison, training_test
-examples/valid       45 .rfs files (file-driven suite)   examples/invalid  12 .rfs files (must fail)
+                   library_comparison, training_test + Phase 6: ref_mc_sweep/ref_mc_diag/ref_mc_diff,
+                   prod_parity, monitor_ref, psl_translation, toolchain_fuzz, wide_ops_parity, docs_md
+fuzz/                root-level DETACHED cargo-fuzz workspace (Phase 6 task 5): parser/validator/ir_roundtrip/
+                   codegen libFuzzer targets over the TOOLCHAIN itself (distinct from `rfs test --suite fuzz`)
+examples/valid       50 .rfs files (file-driven suite, incl. tla_adapted/)   examples/invalid  13 .rfs files (must fail)
 training/<cat>/      11 categories: rfs_training.jsonl + snippets/{valid,invalid}/
-all_rfs_training.jsonl   aggregated SFT set (244 lines) at repo root
+all_rfs_training.jsonl   aggregated SFT set (261 lines) at repo root
 ```
 
 ## 4. Toolchain essentials (do not search - use this)
@@ -182,7 +212,7 @@ then `sed -n '<start>,<end>p'`. Sections:
 
 ```sh
 cargo build && cargo test && cargo clippy --all-targets && cargo fmt --check   # after any change
-cargo test-generated-code        # 1501 generated unit tests (after codegen changes)
+cargo test-generated-code        # 1683 generated unit tests (after codegen changes)
 cargo run -- validate --input rfs examples/valid    # quick sanity, exit 0 expected
 ```
 

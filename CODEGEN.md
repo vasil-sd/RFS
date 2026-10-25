@@ -377,15 +377,19 @@ Exact mode (default):
   top level `status, metrics, [reason, label, step], statistics,
   [counterexample]`; `metrics` = `states, transitions, max_depth`;
   `statistics` = `unexpected_terminations, monitor_size_bits,
-  memory_estimate_bytes`; step objects = `input, outputs, from_state,
-  to_state, vars`; input/output objects = `variant, fields` (declaration
+  memory_estimate_bytes, peak_rss_kb`; step objects = `input, outputs,
+  from_state, to_state, vars`; the counterexample object carries
+  `ce_steps` (counterexample length in steps) on every FAIL document. input/output objects = `variant, fields` (declaration
   order). Strings use the `json_rw.rs` escaping contract; integers are
   unsigned decimal. Each backend embeds a minimal copy of the shared writer
   (Rust: value-tree writer with u64 integers - every document value is
   non-negative and bit<64> fields reach 2^64-1; C: direct-append port of the
   same contract) so generated binaries stay dependency-free. Parity extends
   to byte-identical JSON across backends (asserted over all property-bearing
-  examples + a golden full-document pin).
+  examples + a golden full-document pin), EXCEPT `statistics.peak_rss_kb` -
+  each generated binary self-reports its own peak RSS at exit (informational,
+  machine-dependent; the parity suites zero it before byte comparison, and
+  `rfs mc-ref` reports 0 since it runs in-process).
 
 Legacy fuzz mode (`--mode fuzz`) retains its types: `McConfig` (bound, runs,
 seed, assumption selection, violation specs, unexpected-event probability + CLI
@@ -508,3 +512,12 @@ checks; keep any such checks aligned with section 4.2 above.
 6. Property/assumption monitors are compiled ONCE by the shared `src/monitor.rs`
    and rendered by every backend: monitor semantics (D-P3-3) and out-of-subset
    warning text must be identical across backends (D-P3-5).
+7. Artifact provenance header (Phase 6 task 2.3, D-P6-3): EVERY generated
+   artifact of every command of every backend (incl. fuzz skeletons) starts
+   with a line-1 comment carrying three FIELDS - the toolchain version that
+   generated it (`env!("CARGO_PKG_VERSION")`), the spec hash (SHA-256 of the
+   canonical IR JSON of the whole input file, first 16 hex chars, computed in
+   `src/codegen.rs` from `Ir::to_json()` via the hand-rolled `src/spec_hash.rs`),
+   and the module name. The stable contract is that the fields are present and
+   correct; the exact line wording may change in a MINOR bump (pin the fields,
+   not the text - `docs/user/MIGRATION.md` section 2.5).

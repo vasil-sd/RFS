@@ -143,11 +143,11 @@ Single close-out commit (clean tree verified) + annotated tag `v1.0.0`.
 - Git tag `v1.0.0` on a clean close-out commit.
 
 ## Task exit criteria
-- [ ] Every suite in the verification matrix green with exact counts recorded (or failures resolved via plan corrections first).
-- [ ] All six PHASE_6.md exit criteria checked verbatim with evidence in the status file - including the explicit "realistic protocol project" satisfaction record.
-- [ ] `PHASE_6_STATUS.md` complete per template 2.3 (all sections, no placeholders).
-- [ ] INTRO.md row 6 COMPLETE; TASKS.md entry appended.
-- [ ] Tag `v1.0.0` exists on the close-out commit; working tree clean.
+- [x] Every suite in the verification matrix green with exact counts recorded (or failures resolved via plan corrections first).
+- [x] All six PHASE_6.md exit criteria checked verbatim with evidence in the status file - including the explicit "realistic protocol project" satisfaction record.
+- [x] `PHASE_6_STATUS.md` complete per template 2.3 (all sections, no placeholders).
+- [x] INTRO.md row 6 COMPLETE; TASKS.md entry appended.
+- [x] Tag `v1.0.0` exists on the close-out commit; working tree clean.
 
 ## Non-goals
 - No post-v1 work (multi-party composition, timed automata, LSP, etc. remain non-goals per PHASE_6.md); no crates.io publishing (not a phase deliverable - note it as a future candidate in the status file's findings if relevant); no rewrites of completed task files/statuses.

@@ -1025,3 +1025,19 @@ Per PHASE_5_TASK_16.md: run the complete BUILD.md §5 checklist (+ Phase 5 addit
 - Docs: BUILD.md new section 7 "Benchmarks in CI" (single command, report contents, asserted-vs-informational metric list, Actions yaml snippet - documented only, no workflow committed); section-3 benchmark row refreshed + examples row corrected to 50/13 + aggregate counts 189 modules / 1601 tests; task file exit criteria checked off 5/5 with measured counts recorded.
 - Verification: full `cargo test` 448/448 (root), `test-generated-code` 1601/1601 after regeneration, benchmark suite 5/5 (~15 s, all Pins matched on first run), clippy zero warnings in every touched file (remaining = pre-task baseline in untouched files), fmt clean.
 - All task 6 exit criteria met (PHASE_6_TASK_6.md checked off 5/5).
+
+## 2026-10-25 15:03 — Phase 6 task 7: external user documentation set docs/user/ (7 files, 2135 lines, 24 mermaid diagrams) - all exit criteria green
+
+### Interpretation & plan
+
+- User confirmed "Let's execute the task" for Phase 6 task 7 per `PHASE_6_TASK_7.md` (incl. the 2026-10-25 rule change recorded in its Task corrections: mermaid diagrams allowed + used extensively, page limit 3000 lines, docs machine-checked via mdr's parser stack).
+- Plan: gather ground truth from the shipped state (SEMANTICS.md full read; KB.md §3/§7; DESIGN.md §5-6; MIGRATION.md; all walkthrough example specs; rfs-build/adapters/example-crate sources), capture REAL tool outputs (mc-ref on 12 specs, generated rust/c MC binaries incl. fuzz + --violate + --assumes none runs, codegen headers, info, diagram table, gen-spec both modes, rfs test e2e, sync_handler + c_sync_handler sessions), then write the seven docs action-by-action with the quality gate (tests/docs_md_test.rs) run after each file.
+
+### Report
+
+- New: `docs/user/{README,LANGUAGE,PROPERTIES,MODEL_CHECKING,INTEGRATION,EXAMPLES,FAQ}.md` - 2135 lines total, largest page LANGUAGE.md at 487; 24 mermaid diagrams (flowchart/stateDiagram-v2/sequenceDiagram) all rendering in the pinned mermaid-rs-renderer 0.3.1; every quoted tool output captured live from v1.0.0; every command example copy-paste runnable and verified by actually running it (full list in PHASE_6_TASK_7_STATUS.md).
+- Key doc content: real PASS/FAIL/deadlock/liveness-lasso report anatomy (specs 46/13/16/45), byte-parity proof mc-ref == rust MC == C MC on spec 13, forced-violation mechanics with a real spec-48 run (161/200 assumption stops) + why spec 04 never triggers, spec-hash/toolchain-version artifact verification with real headers, rfs-build options table, ProtocolFsm + 4 adapters, C Makefile pattern, gen-spec random/mutation workflow.
+- Found problems (recorded in STATUS): the task outline's `state_is` atom does not exist on the shipped surface (documented the actual atom set per SEMANTICS 5.1 instead); bare `make -C crates/examples/c_sync_handler run` needs RFS_BIN in this environment (doc shows the working form); educational specs 04/15/16/42 fail exact MC with deadlock by design (documented as teaching cases, not bugs).
+- Protocol artifacts: `docs/roadmap/PHASE_6_TASK_7_STATUS.md` written per template 2.5.2; task file "Other information" updated with the verified-runnable sample list; exit criteria checked off 5/5 in PHASE_6_TASK_7.md.
+- Verification: `cargo test` 453/453 (root, exit 0), `cargo test --test docs_md_test` 5/5 (all 148 repo .md files pass the mdr-stack checks incl. the 24 new diagrams), fmt clean; no source/example changes (docs-only task).
+- All task 7 exit criteria met (PHASE_6_TASK_7.md checked off 5/5). Next in order: task 8 (training data update).

@@ -182,17 +182,56 @@ SEMANTICS.md, examples/, ide/README.md.
   linked, with runnable examples.
 
 ## Task exit criteria
-- [ ] All seven files exist with the outline coverage (every topic in Context's per-file outlines present).
-- [ ] A representative sample of command/syntax examples verified runnable (record which were run in "Other information").
-- [ ] Cross-links resolve (no dead relative links within docs/user/ + to SEMANTICS.md/examples/ide).
-- [ ] No stale claims: version header format, CLI surface (8 commands), report fields, and benchmark specs match the shipped state after tasks 2/3/6.
-- [ ] `cargo test` unaffected (docs-only) - sanity run green.
+- [x] All seven files exist with the outline coverage (every topic in Context's per-file outlines present). DONE 2026-10-25: all seven files written; topic-by-topic audit in PHASE_6_TASK_7_STATUS.md (single deviation recorded there: the outline's `state_is` atom does not exist on the shipped surface - the actual atom set per SEMANTICS 5.1 is documented instead).
+- [x] A representative sample of command/syntax examples verified runnable (record which were run in "Other information"). DONE 2026-10-25: full verified list recorded in the task file's Other information + PHASE_6_TASK_7_STATUS.md (validate file+dir, mc-ref x12 specs, codegen rust/c mc + compile + run x4 with byte-parity vs mc-ref, fuzz + --violate + --assumes-none runs, production headers, info x2, diagram table, rfs test e2e + --print-script, gen-spec both modes, sync_handler + c_sync_handler sessions).
+- [x] Cross-links resolve (no dead relative links within docs/user/ + to SEMANTICS.md/examples/ide). DONE 2026-10-25: machine-checked by tests/docs_md_test.rs (relative-link resolution over every repo .md) - green.
+- [x] No stale claims: version header format, CLI surface (8 commands), report fields, and benchmark specs match the shipped state after tasks 2/3/6. DONE 2026-10-25: all quoted outputs captured live from the v1.0.0 toolchain during execution; the eight-command surface matches `rfs` usage text; report fields match real JSON documents; benchmark spec numbers match the BUILD.md pins (94/188/22, 26113/104452/268, 8082/72738/22, 434/21857/7, 104/340/15, 240/448/41).
+- [x] `cargo test` unaffected (docs-only) - sanity run green. DONE 2026-10-25: full `cargo test` 453/453 exit 0 (448 pre-task + the 5 docs_md tests from the prep work); fmt clean.
 
 ## Non-goals
 - Not the formal semantics document (that is SEMANTICS.md, task 1); no LSP/IDE documentation beyond a pointer to `ide/README.md`; no translations; no changes to any source file or example.
 
+## Task corrections
+
+| Correction | Description + rationale |
+|------------|-------------------------|
+| Mermaid diagrams allowed; page limit raised to 3000 lines (user rule change 2026-10-25) | Markdown ```mermaid code blocks (rendered by the mdr viewer, github.com/clevercloud/mdr) are ALLOWED in `docs/user/` and must be used EXTENSIVELY: project structure / component-and-subsystem relations, source code tree, API illustrations, FSMs as state diagrams (`stateDiagram-v2`), protocols as sequence diagrams (`sequenceDiagram`). The "no images (project rule)" style rule is superseded for this doc set by text-based mermaid blocks - still NO binary image files. Page size limit raised from ~400 lines to **3000 lines** (diagram code counts toward the limit); navigability comes from per-page TOCs + cross-links, not page count. Diagram syntax references: https://github.com/1jehuang/mermaid-rs-renderer (the renderer mdr uses - node shapes / edge styles / subgraphs / styling tables) and https://mermaid.ai/open-source/intro/syntax-reference.html. Rationale: user request 2026-10-25 - diagrams make the external doc set far more usable, and they are plain text (versionable, diffable, machine-checkable). |
+| Doc quality is machine-checked via mdr's parser stack: new dev-deps + `tests/docs_md_test.rs` (user rule change 2026-10-25; prep executed 2026-10-25) | User requested installing mdr (crates.io `mdr`) as a testing dependency and using it for document quality (absence of syntax errors, e.g. "read and parse a document by mdr parser part, then exit"). FINDING: mdr 0.6.1 is a binary-only crate - `cargo add --dev mdr` writes the dep but cargo then WARNS `ignoring invalid dependency \`mdr\` which is missing a lib target` and silently drops it from every build, so it cannot be linked as a library (and it has no headless/parse-only CLI mode - all backends are interactive viewers). SOLUTION: pin mdr's parser parts directly at the exact versions mdr 0.6.1 uses - `comrak = { version = "0.55", default-features = false }` (mdr's GFM structural parser) and `mermaid-rs-renderer = { version = "0.3", default-features = false }` (the renderer mdr uses for ```mermaid blocks; SVG-only feature set, no CLI/PNG deps). New suite `tests/docs_md_test.rs` (5 tests, part of plain `cargo test`, ~0.3 s) validates EVERY repo `.md` file (walk skips `target/` and hidden dirs such as `.ref_docs/`, whose links are site-relative): (1) comrak parse under mdr's GFM extension set (strikethrough/table/tasklist/footnotes/autolink); (2) every fenced code block explicitly closed - `NodeCodeBlock.closed`, since an unterminated fence silently swallows the rest of the file; (3) every ```mermaid block survives mermaid-rs-renderer's FULL pipeline (`render_strict` = validator + parse + layout + SVG) - exactly what mdr does, so a block failing here cannot render in mdr either; (4) relative links/images resolve to existing paths - the cross-link exit criterion is now machine-checked. Negative-control tests prove each failure class is caught; a positive control pins that flowchart (+ subgraph + diamond decision node + labeled edges), `stateDiagram-v2` and `sequenceDiagram` all render in the pinned renderer (diamonds DO work in 0.3.1 - mdr's README caveat is stale for this version). Task 7 keeps this suite green while writing the docs, so every mermaid block is validated at write time. BUILD.md/START.md updates for the new dev-deps + suite row + resulting counts fold into task 9's doc sync (protocol step s); the pre-existing clippy-warning count drift from Phase 6 tasks 1-6 is also folded there. |
+
 ## Other information
-- Record here after action 5: which examples were actually executed for
-  verification.
+- **Verified-runnable sample (recorded after action 5, per this note):** all
+  command/syntax examples in the seven docs were checked against live runs of
+  the v1.0.0 toolchain during execution; the complete list with quoted outputs
+  is in `PHASE_6_TASK_7_STATUS.md` ("Other important findings/information").
+  Highlights: validate (file + directory mode), mc-ref on 12 specs, codegen
+  rust/c mc + compile + run on 4 specs (text byte-parity vs mc-ref verified),
+  generated-binary fuzz runs incl. `--violate` (spec 48) and `--assumes none`
+  liveness lasso (spec 45), codegen production headers (rust + c, spec 46),
+  info on specs 04/43, diagram --format table on 03, `rfs test` e2e on 46
+  (8 generated tests pass) + --print-script on 16, gen-spec random + mutation
+  modes, sync_handler + c_sync_handler full sessions (byte-identical lines).
+  One doc command was corrected during execution: the c_sync_handler make
+  invocation needs `RFS_BIN=$PWD/target/debug/rfs` in this environment (bare
+  `rfs` is not on PATH) - see STATUS found-problems.
 - Keep pages focused: if a doc grows past ~400 lines, split by topic rather than
-  padding - the set must stay navigable.
+  padding - the set must stay navigable. (SUPERSEDED by task correction 2026-10-25:
+  limit is now 3000 lines including diagram code; split only when a page loses
+  topical coherence.)
+- **mdr usage findings (for the execution session)**: mdr itself cannot be a
+  library dependency (binary-only; cargo warns + drops it). The doc-quality gate
+  is `tests/docs_md_test.rs` - run it with plain `cargo test` or
+  `cargo test --test docs_md_test`. If a new mermaid construct fails there, the
+  error message carries the renderer's typed diagnostic (line/col) - fix the
+  diagram, never weaken the check. Adding a new `.md` anywhere in the repo
+  (outside hidden dirs) automatically enters the checked set.
+- **Mermaid syntax notes (verified against the pinned renderer 0.3.1)**:
+  supported kinds include flowchart/graph, sequenceDiagram, classDiagram,
+  stateDiagram-v2, erDiagram, pie, gantt (+ more per the mmdr README - 23 types).
+  Node shapes: `[text]`, `(text)`, `([text])`, `{text}` (diamond - VERIFIED
+  rendering), `{{text}}`, `[(text)]`, `((text))`; edges `-->`, `---`, `-.->`,
+  `==>`, `--o`, `--x`, labeled `--|text|-->`; subgraphs with `direction` and
+  nesting; styling via `classDef`/`style`/`linkStyle`. For FSMs use
+  `stateDiagram-v2` (`[*] --> S`, `S --> T : Event : guard`); for protocols use
+  `sequenceDiagram` (`participant`, `A->>B: msg`, `B-->>A: reply`). Consult the
+  two reference URLs in the task correction before inventing syntax - and let
+  `docs_md_test` be the final arbiter.

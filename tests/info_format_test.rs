@@ -76,11 +76,20 @@ fn list_pins_all_registered_formats() {
         "unexpected row count: {text}"
     );
 
-    // Byte pin of the current registry (task 5 ships exactly spec-rfs).
-    assert_eq!(expected, vec!["spec-rfs".to_string()]);
+    // Byte pin of the current registry (tasks 5-6 ship spec-rfs + spec-json).
+    assert_eq!(
+        expected,
+        vec!["spec-rfs".to_string(), "spec-json".to_string()]
+    );
     assert!(
         text.contains(
             "| `spec-rfs` | md, plantuml, svg | RFS v0 input language - EBNF grammar (what rfs parse accepts) |"
+        ),
+        "{text}"
+    );
+    assert!(
+        text.contains(
+            "| `spec-json` | md, schema | IR v1 JSON document (rfs parse --output json; the machine-readable spec) |"
         ),
         "{text}"
     );
@@ -351,6 +360,169 @@ fn keywords_appear_as_terminals_in_model() {
             terminals.contains(kw),
             "keyword '{kw}' is not a terminal in the model"
         );
+    }
+}
+
+// ---------------------------------------------------------------------------
+// spec-json: schema output (Phase 7 task 6, D-P7-8)
+// ---------------------------------------------------------------------------
+
+#[test]
+fn spec_json_schema_document_pin() {
+    let out = run_info_format(&["spec-json", "--output", "schema"]);
+    assert!(out.status.success(), "stderr: {}", stderr_of(&out));
+    let text = stdout_of(&out);
+
+    // Pretty JSON through json_rw (project rule) - must round-trip.
+    let doc = rfs::json_rw::parse(&text).expect("schema output must be valid JSON");
+    assert_eq!(
+        doc.get("$schema").and_then(|v| v.as_str()),
+        Some("http://json-schema.org/draft-07/schema#"),
+        "draft-07 (widest CI-validator support, D-P7-8)"
+    );
+    assert_eq!(
+        doc.get("title").and_then(|v| v.as_str()),
+        Some("IR v1 JSON document (spec-json)")
+    );
+
+    // Root: plain object with the two top-level keys, strict.
+    assert_eq!(doc.get("type").and_then(|v| v.as_str()), Some("object"));
+    let required = doc
+        .get("required")
+        .and_then(|v| v.as_arr())
+        .cloned()
+        .unwrap();
+    let req_names: Vec<String> = required
+        .iter()
+        .map(|v| v.as_str().unwrap().to_string())
+        .collect();
+    assert_eq!(req_names, vec!["ir_version", "modules"]);
+    assert_eq!(
+        doc.get("additionalProperties").and_then(|v| v.as_bool()),
+        Some(false)
+    );
+
+    // All 21 named definitions present.
+    let defs = doc.get("definitions").cloned().unwrap();
+    let def_names: Vec<String> = rfs::info_format::spec_json_schema()
+        .definitions
+        .iter()
+        .map(|(n, _)| n.clone())
+        .collect();
+    assert_eq!(def_names.len(), 21);
+    for n in &def_names {
+        assert!(defs.get(n).is_some(), "missing definition {n}");
+    }
+
+    // Recursion: expr and formula $ref themselves (through their variants).
+    let expr = defs.get("expr").cloned().unwrap();
+    let expr_text = expr.to_string_compact();
+    assert!(
+        expr_text.contains("#/definitions/expr"),
+        "expr must be recursive: {expr_text}"
+    );
+    let formula = defs.get("formula").cloned().unwrap();
+    assert!(
+        formula
+            .to_string_compact()
+            .contains("#/definitions/formula"),
+        "formula must be recursive"
+    );
+
+    // Enum constraints: bin_op has all 16 operator names.
+    let bin_op = defs.get("bin_op").cloned().unwrap();
+    let vals = bin_op
+        .get("enum")
+        .and_then(|v| v.as_arr())
+        .cloned()
+        .unwrap();
+    assert_eq!(vals.len(), 16);
+    assert!(vals.iter().any(|v| v.as_str() == Some("logic_and")));
+
+    // Nullable ref (guard) uses anyOf in draft-07 ($ref cannot take siblings).
+    let transition = defs.get("transition").cloned().unwrap();
+    let guard_schema = transition
+        .get("properties")
+        .cloned()
+        .unwrap()
+        .get("guard")
+        .cloned()
+        .unwrap();
+    assert!(
+        guard_schema.get("anyOf").is_some(),
+        "guard must be anyOf: {guard_schema:?}"
+    );
+
+    // Optional keys (version/on_error) are NOT in module's required list.
+    let module = defs.get("module").cloned().unwrap();
+    let mod_req = module
+        .get("required")
+        .and_then(|v| v.as_arr())
+        .cloned()
+        .unwrap();
+    let mod_req_names: Vec<&str> = mod_req.iter().filter_map(|v| v.as_str()).collect();
+    assert!(
+        !mod_req_names.contains(&"version"),
+        "version must be optional"
+    );
+    assert!(
+        !mod_req_names.contains(&"on_error"),
+        "on_error must be optional"
+    );
+}
+
+#[test]
+fn spec_json_md_pins_all_sections() {
+    let out = run_info_format(&["spec-json"]);
+    assert!(out.status.success(), "stderr: {}", stderr_of(&out));
+    let text = stdout_of(&out);
+
+    assert!(
+        text.starts_with("# IR v1 JSON document (spec-json)\n"),
+        "{}...",
+        &text[..text.len().min(60)]
+    );
+    assert!(text.contains("## document"), "missing document section");
+    assert!(
+        text.contains("| `ir_version` | integer | yes |"),
+        "missing ir_version row"
+    );
+
+    // One section per named definition.
+    for (name, _) in rfs::info_format::spec_json_schema().definitions {
+        assert!(
+            text.contains(&format!("\n## {name}\n")),
+            "missing section for {name}"
+        );
+    }
+}
+
+// ---------------------------------------------------------------------------
+// spec-json: D-P7-9 sync walk over every valid example's parse JSON
+// ---------------------------------------------------------------------------
+
+#[test]
+fn spec_json_walk_all_valid_examples() {
+    let doc = rfs::info_format::spec_json_schema();
+    let files = rfs::collect_rfs_files(root().join("examples/valid"))
+        .expect("valid examples directory should exist");
+    assert!(!files.is_empty(), "no valid examples found");
+
+    for path in &files {
+        let ir = rfs::parse_file(path)
+            .unwrap_or_else(|e| panic!("{}: valid example failed to parse: {e}", path.display()));
+        let json = ir
+            .to_json()
+            .unwrap_or_else(|e| panic!("{}: to_json failed: {e}", path.display()));
+        // (a) every required key present, (b) no undocumented key at any
+        // object level, (c) types + enum constraints agree.
+        if let Err(errs) = rfs::json_schema::walk_check(&doc, &json) {
+            panic!(
+                "{}: spec-json model out of sync with ir.rs to_json:\n{}",
+                path.display(),
+                errs.join("\n")
+            );
+        }
     }
 }
 

@@ -43,6 +43,10 @@ plantuml-core = { git = "https://github.com/askidmobile/PlantUML_RUST", rev = "8
 # (the default renderer). A port of graphviz's dot layout; its optional `log`
 # dependency is not enabled.
 layout-rs = "0.1"
+# Phase 7 task 5: railroad-diagram SVG rendering for `rfs info format spec-rfs
+# --output svg`. The default `resvg` feature only matters for PNG output; we
+# emit SVG strings only, so it stays off.
+railroad = { version = "0.3", default-features = false }
 
 [dev-dependencies]
 chumsky = "0.13"

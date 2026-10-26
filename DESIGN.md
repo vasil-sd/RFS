@@ -490,135 +490,95 @@ Worked example (N = 3, trigger at i, body never holds): countdown 3 -> 2 at s=i,
 
 ## 6. EBNF-style grammar for RFS v0 parser
 
-The following grammar is a practical baseline for the Phase 0 parser. It is not necessarily the final published grammar, but it defines the current implementation target.
+The following grammar defines what `rfs parse` accepts. Since Phase 7 task 5 it is
+kept in sync with the in-binary model `src/ebnf_grammar.rs` (the single source of
+truth): the fence below is exactly the EBNF block that `rfs info format spec-rfs`
+prints, and a test (`tests/info_format_test.rs`) fails if the rule names in this
+fence drift from the model. The parser is at least as lenient as the grammar: it
+also tolerates missing commas between list items and missing semicolons after
+actions, which the canonical printer never emits.
 
 ```ebnf
-source        = module* ;
-module        = "module" identifier "{" module_item* "}" ;
-
-module_item   = enum_decl
-              | initial_decl
-              | event_decl
-              | output_decl
-              | var_decl
-              | transition
-              | prop_decl
-              | assume_decl
-              ;
-
-enum_decl     = "enum" identifier "{" identifier { "," identifier } ","? "}" ;
-initial_decl  = "initial" identifier ;
-event_decl    = "event" event_head ;
-output_decl   = "output" output_head ;
-
-event_head    = identifier
-              | identifier "(" event_variant_payload ")"
-              ;
-event_variant_payload = identifier
-                      | identifier "(" field_list ")"
-                      ;
-
-output_head   = identifier
-              | identifier "(" output_variant_payload ")"
-              ;
-output_variant_payload = identifier
-                       | identifier "(" field_list ")"
-                       ;
-
-field_list    = field { "," field } ","? ;
-field         = identifier ":" type ;
-
-type          = "bool"
-              | "bit" "<" unsigned_integer_literal ">"
-              | identifier
-              ;
-
-var_decl      = "var" identifier ":" type "init" expression ;
-
-transition    = "transition" identifier "on" event_pattern
-                [ "where" expression ]
-                "{" action* "}" ;
-
-event_pattern = identifier
-              | identifier "(" pattern_variant_payload ")"
-              ;
-pattern_variant_payload = identifier
-                        | identifier "(" pattern_field_list ")"
-                        ;
+source = module* ;
+module = "module" identifier [ "version" string_literal ] "{" module_item* "}" ;
+module_item = enum_decl | initial_decl | event_decl | output_decl | var_decl | transition | prop_decl | assume_decl | on_error_decl ;
+enum_decl = "enum" identifier "{" identifier { "," identifier } ","? "}" ;
+initial_decl = "initial" identifier ;
+event_decl = "event" event_head ;
+output_decl = "output" output_head ;
+event_head = identifier | identifier "(" event_variant_payload ")" ;
+event_variant_payload = identifier | identifier "(" field_list ")" ;
+output_head = identifier | identifier "(" output_variant_payload ")" ;
+output_variant_payload = identifier | identifier "(" field_list ")" ;
+field_list = field { "," field } ","? ;
+field = identifier ":" type ;
+type = "bool" | "bit" "<" unsigned_integer_literal ">" | identifier ;
+var_decl = "var" identifier ":" type "init" expression ;
+transition = "transition" identifier "on" event_pattern [ "where" expression ] "{" action* "}" ;
+event_pattern = identifier | identifier "(" pattern_variant_payload ")" ;
+pattern_variant_payload = identifier | identifier "(" pattern_field_list ")" ;
 pattern_field_list = pattern_field { "," pattern_field } ","? ;
-pattern_field    = identifier
-                 | identifier ":" pattern_expr
-                 | "_"
-                 ;
-pattern_expr     = identifier
-                 | "_"
-                 | literal
-                 ;
-
-action          = next_action
-                | emit_action
-                | set_action
-                ;
-next_action     = "next" identifier ";" ;
-emit_action     = "emit" output_expr ";" ;
-set_action      = "set" identifier "=" expression ";" ;
-
-output_expr     = identifier
-                | identifier "(" expression { "," expression } ","? ")"
-                ;
-
-prop_decl       = "prop" identifier ":" formula ";" ;
-assume_decl     = "assume" identifier ":" formula ";" ;
-
-// Formula level (properties and assumptions). Precedence, loosest to tightest:
-// ||, ->, &&, until, !. `&&`/`||` are formula-level operators; each operand is
-// parsed independently via primary_formula, whose fallthrough is the NON-BOOLEAN
-// expression level (comparisons and below) - so mixed atom kinds like
-// `state == S && output_has(O)` parse. `until` sits between `&&` and `!`
-// (Phase 4): `!a until b` = `(!a) until b`, `a && b until c` = `a && (b until c)`.
-formula         = or_formula ;
-or_formula      = impl_formula { "||" impl_formula } ;
-impl_formula    = and_formula [ "->" impl_formula ] ;
-and_formula     = unary_formula { "&&" unary_formula } ;
-unary_formula   = until_formula ;
-until_formula   = neg_operand { "until" neg_operand } ;  // left-associative
-neg_operand     = "!" neg_operand | primary_formula ;
-primary_formula = "next" "(" formula ")"
-                | "always" "[" unsigned_integer_literal "]" "(" formula ")"
-                | "always" "(" formula ")"
-                | "bounded_eventually" "[" unsigned_integer_literal "]" "(" formula ")"
-                | "eventually" "(" formula ")"
-                | "input_is" "(" event_pattern ")"
-                | "output_has" "(" output_pattern ")"
-                | "(" formula ")"
-                | non_boolean_expr
-                ;
-
+pattern_field = "_" | literal | identifier | identifier ":" pattern_expr ;
+pattern_expr = "_" | literal | identifier_path ;
+action = next_action | emit_action | set_action | priority_action ;
+next_action = "next" identifier ";" ;
+emit_action = "emit" output_expr ";" ;
+set_action = "set" identifier "=" expression ";" ;
+priority_action = "priority" unsigned_integer_literal ";" ;
+on_error_decl = "on_error" "{" emit_action* next_action emit_action* "}" ;
+output_expr = identifier | identifier "(" output_call_payload ")" ;
+output_call_payload = identifier | identifier "(" expression { "," expression } ","? ")" ;
+prop_decl = "prop" identifier ":" formula ";" ;
+assume_decl = "assume" identifier ":" formula ";" ;
+formula = or_formula ;
+or_formula = impl_formula { "||" impl_formula } ;
+impl_formula = and_formula [ "->" impl_formula ] ;
+and_formula = unary_formula { "&&" unary_formula } ;
+unary_formula = until_formula ;
+until_formula = neg_operand { "until" neg_operand } ;
+neg_operand = "!" neg_operand | primary_formula ;
+primary_formula = "next" "(" formula ")" | "always" "[" unsigned_integer_literal "]" "(" formula ")" | "always" "(" formula ")" | "bounded_eventually" "[" unsigned_integer_literal "]" "(" formula ")" | "eventually" "(" formula ")" | "input_is" "(" event_pattern ")" | "output_has" "(" output_pattern ")" | "(" formula ")" | non_boolean_expr ;
+output_pattern = identifier | identifier "(" pattern_variant_payload ")" ;
 non_boolean_expr = equality_expr ;
-
-// Expression level (var init, guards, set actions): the full ladder including
-// the logic levels. Formulas use only `equality_expr` and below.
-expression      = logic_or ;
-logic_or        = logic_and { "||" logic_and } ;
-logic_and       = equality_expr { "&&" equality_expr } ;
-equality_expr   = compare_expr { ("==" | "!=") compare_expr } ;
-compare_expr    = add_expr { ("<" | "<=" | ">" | ">=") add_expr } ;
-add_expr        = mul_expr { ("+" | "-") mul_expr } ;
-mul_expr        = shift_expr { "*" shift_expr } ;
-shift_expr      = unary_expr { ("<<" | ">>") unary_expr } ;
-unary_expr     = ("!" | "~" | "-") unary_expr | primary_expr ;
-primary_expr    = literal
-                | identifier_path
-                | "(" expression ")"
-                ;
-
-literal         = unsigned_integer_literal
-                | "true"
-                | "false"
-                ;
+expression = logic_or ;
+logic_or = logic_and { "||" logic_and } ;
+logic_and = equality_expr { "&&" equality_expr } ;
+equality_expr = compare_expr { ("==" | "!=") compare_expr } ;
+compare_expr = bitwise_or_expr { ("<" | "<=" | ">" | ">=") bitwise_or_expr } ;
+bitwise_or_expr = bitwise_xor_expr { "|" bitwise_xor_expr } ;
+bitwise_xor_expr = bitwise_and_expr { "^" bitwise_and_expr } ;
+bitwise_and_expr = shift_expr { "&" shift_expr } ;
+shift_expr = add_expr { ("<<" | ">>") add_expr } ;
+add_expr = mul_expr { ("+" | "-") mul_expr } ;
+mul_expr = unary_expr { "*" unary_expr } ;
+unary_expr = ("!" | "~" | "-") unary_expr | primary_expr ;
+primary_expr = literal | identifier_path | "(" expression ")" ;
+literal = unsigned_integer_literal | "true" | "false" ;
 identifier_path = identifier { "::" identifier } ;
-identifier      = letter { letter | digit | "_" } ;
+identifier = letter { letter | digit | "_" } ;
+letter = "a..z" | "A..Z" ;
+digit = "0..9" ;
+unsigned_integer_literal = digit digit* ;
+string_literal = "\"" { "character" } "\"" ;
 ```
+
+Formula precedence (loosest to tightest): `||`, `->`, `&&`, `until`, `!`.
+`&&`/`||` are formula-level operators; each operand is parsed independently via
+`primary_formula`, whose fallthrough is the non-boolean expression level
+(comparisons and below) - so mixed atom kinds like `state == S && output_has(O)`
+parse. `until` sits between `&&` and `!`: `!a until b` = `(!a) until b`,
+`a && b until c` = `a && (b until c)`.
+
+Expression level (var init, guards, set actions): the full ladder including the
+logic levels; formulas use only `equality_expr` and below. Ladder order: logic
+(`||`, `&&`) > equality (`==`, `!=`) > comparison (`< <= > >=`) > bitwise
+(`|`, `^`, `&`) > shift (`<<`, `>>`) > additive (`+`, `-`) > multiplicative
+(`*`) > unary (`! ~ -`) > primary.
+
+Lexical placeholders: `character` is any character except `"` and whitespace
+(version header only); `a..z` / `A..Z` / `0..9` name character classes.
+`unsigned_integer_literal` is u64-range; `priority` values are additionally
+range-checked to u32 at validation time.
 
 Notes:
 

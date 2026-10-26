@@ -5,12 +5,19 @@ use std::process::ExitCode;
 use rfs::{codegen, frontend, Format};
 
 fn usage() -> String {
-    "RFS toolchain\n\nusage:\n  rfs parse --input <rfs|json> --output <rfs|json> <file-or-dir> [--target-dir DIR]\n  rfs validate [--input <rfs|json>] [--json] <file-or-dir>\n  rfs info [--json] [--log-level off|error|warn|info|debug] <spec.rfs|spec.json>\n  rfs test [--backend rust|c] [--suite unit|fuzz ...] [--steps N] [--rustc PATH] [--gcc PATH]\n           [--rustc-args \"...\"] [--gcc-args \"...\"] [--clang PATH] [--clang-args \"...\"]\n           [--cargo-fuzz PATH] [--cargo-fuzz-args \"...\"] [--fuzz-max-total-time SEC] [--fuzz-flags \"...\"]\n           [--print-script] [--log-level off|error|warn|info|debug] <spec.rfs|spec.json>\n  rfs diagram --list | --format dot|puml|mmd|table|md [--renderer internal|external] [options] <spec.rfs|spec.json>\n  rfs codegen --list | --help | <backend> --help\n  rfs codegen <backend> <production|test|mc> <spec.rfs|spec.json> [--out FILE] [--assumes ...] [--steps N]\n  rfs mc-ref <spec.rfs|spec.json> [--max-states N] [--timeout-sec N] [--assumes all|none|labels]\n           [--counterexample-format json|text] [--log-level off|error|warn|info|debug]\n  rfs gen-spec --out FILE.rfs [--seed N] [--size small|medium] [--max-states N] [--max-events N]\n           [--max-vars N] [--max-transitions N] [--max-props N]\n      | rfs gen-spec --base SPEC.rfs|SPEC.json --mutations K [--seed N]\n\nparse: load RFS or IR-JSON files, convert through the IR, and write formatted\n       output. With a directory input, only files matching --input are scanned;\n       without --target-dir each output is written next to its input file, with\n       --target-dir the input directory structure is preserved inside it. The\n       original extension is replaced (never stacked). Conversions whose output\n       would overwrite the input file are refused.\n\nvalidate: parse + semantically validate RFS or IR-JSON files. For a file input\n         the extension selects the format and errors go to stderr; for a\n         directory input --input is required and each failing source file gets\n         a <name>.rfs-validation.err file next to it. `--json` emits structured\n         diagnostics on stdout instead (file mode: one object; directory mode:\n         an array of one object per failing file) - the shape editor\n         integrations consume (Phase 5 task 13).\n\ninfo: static spec introspection - per module: version, initial state, enums,
+    "RFS toolchain\n\nusage:\n  rfs parse --input <rfs|json> --output <rfs|json> <file-or-dir> [--target-dir DIR]\n  rfs validate [--input <rfs|json>] [--json] <file-or-dir>\n  rfs info [--json] [--log-level off|error|warn|info|debug] <spec.rfs|spec.json>\n  rfs info format --list | <name> [--output md|plantuml|svg|schema]\n  rfs test [--backend rust|c] [--suite unit|fuzz ...] [--steps N] [--rustc PATH] [--gcc PATH]\n           [--rustc-args \"...\"] [--gcc-args \"...\"] [--clang PATH] [--clang-args \"...\"]\n           [--cargo-fuzz PATH] [--cargo-fuzz-args \"...\"] [--fuzz-max-total-time SEC] [--fuzz-flags \"...\"]\n           [--print-script] [--log-level off|error|warn|info|debug] <spec.rfs|spec.json>\n  rfs diagram --list | --format dot|puml|mmd|table|md [--renderer internal|external] [options] <spec.rfs|spec.json>\n  rfs codegen --list | --help | <backend> --help\n  rfs codegen <backend> <production|test|mc> <spec.rfs|spec.json> [--out FILE] [--assumes ...] [--steps N]\n  rfs mc-ref <spec.rfs|spec.json> [--max-states N] [--timeout-sec N] [--assumes all|none|labels]\n           [--counterexample-format json|text] [--log-level off|error|warn|info|debug]\n  rfs gen-spec --out FILE.rfs [--seed N] [--size small|medium] [--max-states N] [--max-events N]\n           [--max-vars N] [--max-transitions N] [--max-props N]\n      | rfs gen-spec --base SPEC.rfs|SPEC.json --mutations K [--seed N]\n\nparse: load RFS or IR-JSON files, convert through the IR, and write formatted\n       output. With a directory input, only files matching --input are scanned;\n       without --target-dir each output is written next to its input file, with\n       --target-dir the input directory structure is preserved inside it. The\n       original extension is replaced (never stacked). Conversions whose output\n       would overwrite the input file are refused.\n\nvalidate: parse + semantically validate RFS or IR-JSON files. For a file input\n         the extension selects the format and errors go to stderr; for a\n         directory input --input is required and each failing source file gets\n         a <name>.rfs-validation.err file next to it. `--json` emits structured\n         diagnostics on stdout instead (file mode: one object; directory mode:\n         an array of one object per failing file) - the shape editor\n         integrations consume (Phase 5 task 13).\n\ninfo: static spec introspection - per module: version, initial state, enums,
       events/outputs with variants + field types, variables with types + init,
       transition count, and properties/assumptions each with monitor-subset
       status (monitored / skipped: reason). No model checking. `--json` emits
       a machine-readable document (stable key order, all keys present); 
       `--log-level` filters stderr progress output.
+
+info format: machine-readable descriptions of rfs input/output formats,
+      rendered from the in-binary models so they stay in sync with the code
+      (Phase 7). `--list` shows registered formats; `<name> [--output KIND]`
+      prints one document to stdout (default output = the format's first).
+      Currently: spec-rfs (RFS v0 EBNF grammar; outputs md, plantuml, svg).
+      JSON-schema outputs land with the JSON format entries.
 
 test: generate + compile + run the selected test suites for the spec in one
       invocation (the CI entry point for generated tests; model checking stays
@@ -438,6 +445,12 @@ fn cmd_codegen(args: &[String]) -> ExitCode {
 
 fn cmd_info(args: &[String]) -> ExitCode {
     use rfs::cli_log::{LogLevel, Logger};
+    // Phase 7 task 5: `rfs info format ...` - dispatch on the bare first
+    // token BEFORE any path handling, so a file literally named `format`
+    // cannot collide (D-P7-6).
+    if args.first().map(String::as_str) == Some("format") {
+        return run_info_format(&args[1..]);
+    }
     let mut json = false;
     let mut log_level = LogLevel::Info;
     let mut path: Option<String> = None;
@@ -505,6 +518,88 @@ fn cmd_info(args: &[String]) -> ExitCode {
                 path
             ));
             println!("{out}");
+            ExitCode::SUCCESS
+        }
+        Err(e) => {
+            eprintln!("error: {e}");
+            ExitCode::FAILURE
+        }
+    }
+}
+
+/// `rfs info format [--list] <name?> [--output KIND]` (Phase 7 task 5):
+/// machine-readable descriptions of rfs input/output formats, rendered from
+/// the in-binary models (kept in sync with the code by tests).
+fn run_info_format(args: &[String]) -> ExitCode {
+    let mut list = false;
+    let mut output: Option<String> = None;
+    let mut name: Option<String> = None;
+
+    let mut i = 0;
+    while i < args.len() {
+        let arg = args[i].clone();
+        if arg == "--help" || arg == "-h" {
+            println!("{}", usage());
+            return ExitCode::SUCCESS;
+        }
+        match arg.as_str() {
+            "--" => {}
+            "--list" => list = true,
+            "--output" => {
+                let Some(v) = args.get(i + 1).cloned() else {
+                    eprintln!(
+                        "error: --output requires a value (md|plantuml|svg|schema)\n{}",
+                        usage()
+                    );
+                    return ExitCode::FAILURE;
+                };
+                i += 1;
+                if output.is_some() {
+                    eprintln!("error: --output given more than once\n{}", usage());
+                    return ExitCode::FAILURE;
+                }
+                output = Some(v);
+            }
+            _ if arg.starts_with('-') => {
+                eprintln!("unknown option: {}\n{}", arg, usage());
+                return ExitCode::FAILURE;
+            }
+            _ => {
+                if name.is_some() {
+                    eprintln!("unexpected extra argument: {}\n{}", arg, usage());
+                    return ExitCode::FAILURE;
+                }
+                name = Some(arg);
+            }
+        }
+        i += 1;
+    }
+
+    if list {
+        println!("{}", rfs::info_format::list_markdown());
+        return ExitCode::SUCCESS;
+    }
+
+    let Some(name) = name else {
+        eprintln!(
+            "error: rfs info format requires a format name (or --list)\n{}",
+            usage()
+        );
+        return ExitCode::FAILURE;
+    };
+
+    // Unknown names get the registry's own diagnostic (it lists the remedy).
+    let output = match rfs::info_format::find(&name) {
+        Some(entry) => output.unwrap_or_else(|| entry.outputs[0].to_string()),
+        None => {
+            eprintln!("error: unknown format '{name}'; run `rfs info format --list` for registered formats");
+            return ExitCode::FAILURE;
+        }
+    };
+
+    match rfs::info_format::render(&name, &output) {
+        Ok(doc) => {
+            print!("{doc}");
             ExitCode::SUCCESS
         }
         Err(e) => {

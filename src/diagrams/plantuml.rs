@@ -8,15 +8,19 @@
 //! - Edge label = `event \n guard` (literal two-char `\n`; guard line omitted
 //!   when the transition has no guard) - the user-specified format.
 //! - Emitted data goes in a NOTE ON LINK directly after the transition:
-//!   single-line `note right on link : emits X` for one output, multi-line
-//!   block for several (both forms verified).
+//!   one line per output, `note on link : emits X`. The position word is
+//!   omitted because plantuml-core's parser rejects `note right on link`
+//!   (Phase 7 task 2); real PlantUML accepts both forms.
 //! - `on_error` fallback: dashed edge `A -[dashed]-> B : on_error` per state
 //!   (the bracketed form is valid; `-dashed->` without brackets is NOT).
 //!
-//! SVG rendering invokes the resolved `plantuml` binary (`RFS_PLANTUML` /
-//! `--plantuml` / `--plantuml-args`). plantuml derives the output name from
-//! the input file, so the source is written next to `--out *.svg` with the
-//! same stem (orchestrated by `crate::diagram`).
+//! SVG rendering is IN-PROCESS by default (Phase 7 task 2): the emitted text
+//! is parsed + laid out + rendered by plantuml-core (pure Rust; git dependency,
+//! rev-pinned in Cargo.toml). `--renderer external` invokes the resolved
+//! `plantuml` binary instead (`RFS_PLANTUML` / `--plantuml` /
+//! `--plantuml-args`). plantuml derives its output name from the input file,
+//! so the source is written next to `--out *.svg` with the same stem
+//! (orchestrated by `crate::diagram`).
 
 use std::path::Path;
 
@@ -42,16 +46,8 @@ fn push_transition(
         label.push_str(g);
     }
     out.push_str(&format!("{from} {arrow} {to} : {label}\n"));
-    match emits.len() {
-        0 => {}
-        1 => out.push_str(&format!("note right on link : emits {}\n", emits[0])),
-        _ => {
-            out.push_str("note right on link\n");
-            for e in emits {
-                out.push_str(&format!("  emits {e}\n"));
-            }
-            out.push_str("end note\n");
-        }
+    for e in emits {
+        out.push_str(&format!("note on link : emits {e}\n"));
     }
 }
 
@@ -110,13 +106,26 @@ pub fn render_svg(tool: &ResolvedTool, src: &Path, _out: &Path) -> Result<(), Ve
     crate::diagrams::render_check(tool, &render_args(src))
 }
 
+/// Pure-Rust SVG renderer (Phase 7 task 2): parses + lays out + renders the
+/// emitted PlantUML subset in-process via plantuml-core. Strict error
+/// semantics: Err carries the pipeline's diagnostics (D-P7-2).
+pub fn render_svg_internal(source: &str) -> Result<String, Vec<String>> {
+    let opts = plantuml_core::RenderOptions::default();
+    match plantuml_core::render(source, &opts) {
+        Ok(svg) => Ok(svg),
+        Err(e) => Err(vec![e.to_string()]),
+    }
+}
+
 /// The registered plugin (one line in `crate::diagram::ALL_DIAGRAMS`).
 pub const PUML_PLUGIN: DiagramPlugin = DiagramPlugin {
     name: "puml",
-    description: "PlantUML state diagram (edge label 'event \\n guard', emitted data via note on link; SVG via the plantuml binary)",
+    description: "PlantUML state diagram (edge label 'event \\n guard', emitted data via note on link; SVG rendered in-process by default, plantuml via --renderer external)",
     ext: "puml",
     generate,
     svg_tool: Some(ExtTool::PLANTUML),
     plan_render: Some(plan_render),
     render_svg: Some(render_svg),
+    internal_render_svg: Some(render_svg_internal),
+    internal_renderer_name: Some("plantuml-core 0.2 (git rev 8066f61)"),
 };

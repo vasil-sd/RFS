@@ -31,8 +31,19 @@ smt = ["dep:z3"]
 [dependencies]
 nom = "8.0.0"
 z3 = { version = "0.21", optional = true }
+# Phase 7 task 1: pure-Rust mermaid SVG rendering for `rfs diagram --render svg`
+# (the default renderer). The docs gate (tests/docs_md_test.rs) uses it too.
+mermaid-rs-renderer = { version = "0.3", default-features = false }
+# Phase 7 task 2: pure-Rust PlantUML SVG rendering for `rfs diagram --render svg`
+# (the default renderer). NOT on crates.io - pinned to a commit of the upstream
+# workspace repo; cargo caches the checkout under $CARGO_HOME/git, so rebuilds
+# work offline after the first fetch (D-P7-3).
+plantuml-core = { git = "https://github.com/askidmobile/PlantUML_RUST", rev = "8066f6124a86ed5da59c6d7d570f0568891c378e" }
+# Phase 7 task 3: pure-Rust Graphviz DOT SVG rendering for `rfs diagram --render svg`
+# (the default renderer). A port of graphviz's dot layout; its optional `log`
+# dependency is not enabled.
+layout-rs = "0.1"
 
 [dev-dependencies]
 chumsky = "0.13"
 comrak = { version = "0.55", default-features = false }
-mermaid-rs-renderer = { version = "0.3", default-features = false }

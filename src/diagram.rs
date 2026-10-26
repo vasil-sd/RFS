@@ -8,13 +8,17 @@
 //! (user requirement 2026-10-21).
 //!
 //! PRIMARY behaviour is pure-Rust text generation with NO external tool calls.
-//! `--render svg` invokes the format's renderer (`dot` / `plantuml` / `mmdc`)
-//! resolved through `crate::ext_tool`. Strict error semantics (user decision
-//! 2026-10-21): a missing/unresolvable tool or a non-zero renderer exit is an
-//! ERROR (exit 1) - no graceful degradation, because RFS runs in CI/CD
-//! pipelines where silent fallbacks hide broken environments. Users who want a
-//! fallback compose it themselves (try render, on failure generate text only,
-//! or drive the `--print-script` output from their own wrapper).
+//! `--render svg` renders IN-PROCESS by default (`--renderer internal`, Phase
+//! 7): each format's pure-Rust SVG renderer runs inside the rfs binary, so no
+//! external binaries are needed. `--renderer external` invokes the format's
+//! tool (`dot` / `plantuml` / `mmdc`) resolved through `crate::ext_tool`
+//! instead - the pre-Phase 7 behaviour. Strict error semantics (user decision
+//! 2026-10-21, extended to internal renderers in Phase 7): a missing renderer,
+//! an unresolvable tool, or a non-zero/failing render is an ERROR (exit 1) -
+//! no graceful degradation, because RFS runs in CI/CD pipelines where silent
+//! fallbacks hide broken environments. Users who want a fallback compose it
+//! themselves (try render, on failure generate text only, or drive the
+//! `--print-script` output from their own wrapper).
 
 use std::path::{Path, PathBuf};
 
@@ -28,6 +32,32 @@ pub type PlanRenderFn = fn(&ResolvedTool, &Path, &Path) -> RenderPlan;
 
 /// Execute the SVG renderer (strict error semantics; Err = diagnostic lines).
 pub type RenderSvgFn = fn(&ResolvedTool, &Path, &Path) -> Result<(), Vec<String>>;
+
+/// Pure-Rust SVG renderer (Phase 7): diagram source text -> SVG string.
+/// Strict error semantics: Err = diagnostic lines.
+pub type InternalRenderSvgFn = fn(&str) -> Result<String, Vec<String>>;
+
+/// Which SVG renderer `--render svg` uses (Phase 7 task 1, decision D-P7-1).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Renderer {
+    /// Pure-Rust in-process renderer - the default since Phase 7; no external
+    /// binaries are resolved or invoked.
+    Internal,
+    /// The format's external tool (`dot` / `plantuml` / `mmdc`) resolved
+    /// through `crate::ext_tool` (the pre-Phase 7 behaviour).
+    External,
+}
+
+/// The validated SVG renderer for a `--render svg` run (chosen per mode;
+/// availability is checked up front so execution and `--print-script`
+/// agree).
+#[derive(Clone, Copy)]
+enum SvgMode {
+    /// External tool preset (resolved at execution time, as before Phase 7).
+    External(ExtTool),
+    /// Pure-Rust renderer function.
+    Internal(InternalRenderSvgFn),
+}
 
 /// A registered diagram output format (plugin).
 pub struct DiagramPlugin {
@@ -45,6 +75,12 @@ pub struct DiagramPlugin {
     pub plan_render: Option<PlanRenderFn>,
     /// Execute the renderer (strict error semantics).
     pub render_svg: Option<RenderSvgFn>,
+    /// Pure-Rust SVG renderer for `--renderer internal` (Phase 7; None = the
+    /// format has no in-process renderer).
+    pub internal_render_svg: Option<InternalRenderSvgFn>,
+    /// Human-readable name of the in-process renderer (for `--print-script`
+    /// comments); set iff `internal_render_svg` is Some.
+    pub internal_renderer_name: Option<&'static str>,
 }
 
 /// What `--print-script` needs from a renderer: prelude file-write steps plus
@@ -91,8 +127,11 @@ pub struct DiagramOptions {
     pub format: String,
     /// Output file (text mode). None = stdout.
     pub out: Option<PathBuf>,
-    /// Render SVG via the format's external tool.
+    /// Render SVG (`internal` = in-process default since Phase 7;
+    /// `external` = the format's resolved tool).
     pub render_svg: bool,
+    /// Which renderer `--render svg` uses (default `Internal`, D-P7-1).
+    pub renderer: Renderer,
     /// Print a shell script instead of executing (task 3 semantics).
     pub print_script: bool,
     pub dot: ToolOverride,
@@ -106,6 +145,7 @@ impl Default for DiagramOptions {
             format: "dot".to_string(),
             out: None,
             render_svg: false,
+            renderer: Renderer::Internal,
             print_script: false,
             dot: ToolOverride::default(),
             plantuml: ToolOverride::default(),
@@ -178,14 +218,9 @@ pub fn run_diagram(path: &Path, opts: &DiagramOptions) -> Result<DiagramResult, 
     let source = (plugin.generate)(module);
 
     // Validate the `--render svg` preconditions up front: they apply to BOTH
-    // execution and `--print-script` modes.
+    // execution and `--print-script` modes. The `--out` checks are common to
+    // both renderer modes; renderer availability is checked per mode (Phase 7).
     let render_ctx = if opts.render_svg {
-        let preset = plugin.svg_tool.ok_or_else(|| {
-            format!(
-                "diagram format '{}' has no SVG renderer (use dot, puml or mmd)",
-                plugin.name
-            )
-        })?;
         let out = opts
             .out
             .clone()
@@ -196,7 +231,29 @@ pub fn run_diagram(path: &Path, opts: &DiagramOptions) -> Result<DiagramResult, 
                 out.display()
             ));
         }
-        Some((preset, out))
+        let mode = match opts.renderer {
+            Renderer::External => SvgMode::External(plugin.svg_tool.ok_or_else(|| {
+                format!(
+                    "diagram format '{}' has no SVG renderer (use dot, puml or mmd)",
+                    plugin.name
+                )
+            })?),
+            Renderer::Internal => {
+                SvgMode::Internal(plugin.internal_render_svg.ok_or_else(|| {
+                    let have: Vec<&str> = DIAGRAMS
+                        .iter()
+                        .filter(|d| d.internal_render_svg.is_some())
+                        .map(|d| d.name)
+                        .collect();
+                    format!(
+                        "diagram format '{}' has no internal SVG renderer (internal renderers: {})",
+                        plugin.name,
+                        have.join(", ")
+                    )
+                })?)
+            }
+        };
+        Some((mode, out))
     } else {
         None
     };
@@ -209,19 +266,30 @@ pub fn run_diagram(path: &Path, opts: &DiagramOptions) -> Result<DiagramResult, 
         });
     }
 
-    if let Some((preset, out)) = render_ctx {
+    if let Some((mode, out)) = render_ctx {
         // Source written next to the SVG with the same stem: plantuml derives
         // its output name from the input, so this keeps every format's render
         // target exactly at `out`.
         let src_path = out.with_extension(plugin.ext);
         std::fs::write(&src_path, &source)
             .map_err(|e| format!("failed to write {}: {e}", src_path.display()))?;
-        let ovr = tool_override(plugin, opts);
-        let resolved = preset.resolve(ovr.path.as_deref(), ovr.args.as_deref());
-        plugin
-            .render_svg
-            .expect("svg_tool set implies render_svg set")(&resolved, &src_path, &out)
-        .map_err(|errs| errs.join("; "))?;
+        match mode {
+            SvgMode::External(preset) => {
+                let ovr = tool_override(plugin, opts);
+                let resolved = preset.resolve(ovr.path.as_deref(), ovr.args.as_deref());
+                plugin
+                    .render_svg
+                    .expect("svg_tool set implies render_svg set")(
+                    &resolved, &src_path, &out
+                )
+                .map_err(|errs| errs.join("; "))?;
+            }
+            SvgMode::Internal(render) => {
+                let svg = render(&source).map_err(|errs| errs.join("; "))?;
+                std::fs::write(&out, &svg)
+                    .map_err(|e| format!("failed to write {}: {e}", out.display()))?;
+            }
+        }
         return Ok(DiagramResult {
             stdout: None,
             note: format!(
@@ -257,18 +325,23 @@ pub fn run_diagram(path: &Path, opts: &DiagramOptions) -> Result<DiagramResult, 
 
 /// Build the `--print-script` output: a self-contained POSIX sh script that
 /// performs exactly what the command would have done (task 3 Script builder).
-/// `render_ctx` is the validated `(preset, out svg path)` pair when
-/// `--render svg` was given (None otherwise).
+/// `render_ctx` is the validated `(renderer mode, out svg path)` pair when
+/// `--render svg` was given (None otherwise). Internal rendering has no shell
+/// command to run: the script writes the source and states that rfs renders
+/// the SVG in-process (D-P7-5).
 fn render_script<'a>(
     spec: &'a Path,
     plugin: &'a DiagramPlugin,
     source: &'a str,
-    render_ctx: Option<(&'a ExtTool, &'a PathBuf)>,
+    render_ctx: Option<(&'a SvgMode, &'a PathBuf)>,
     opts: &'a DiagramOptions,
 ) -> String {
     let mut desc = format!("rfs diagram --format {}", plugin.name);
     if opts.render_svg {
         desc.push_str(" --render svg");
+        if opts.renderer == Renderer::External {
+            desc.push_str(" --renderer external");
+        }
         if let Some(out) = &opts.out {
             desc.push_str(&format!(" --out {}", out.display()));
         }
@@ -280,11 +353,7 @@ fn render_script<'a>(
 
     let mut script = Script::new(&desc, &spec.display().to_string());
 
-    if let Some((preset, out)) = render_ctx {
-        let ovr = tool_override(plugin, opts);
-        let resolved = preset.resolve(ovr.path.as_deref(), ovr.args.as_deref());
-        script = script.with_tool(resolved.clone());
-
+    if let Some((mode, out)) = render_ctx {
         let src_path = out.with_extension(plugin.ext);
         // Heredoc with a quoted delimiter: no shell expansion of the content.
         let src_text = if source.ends_with('\n') {
@@ -299,15 +368,36 @@ fn render_script<'a>(
         );
         script = script.step("write generated diagram source", &heredoc);
 
-        let plan = plugin
-            .plan_render
-            .expect("svg_tool set implies plan_render set")(
-            &resolved, &src_path, out
-        );
-        for (comment, cmdline) in plan.prelude {
-            script = script.step(&comment, &cmdline);
+        match mode {
+            SvgMode::External(preset) => {
+                let ovr = tool_override(plugin, opts);
+                let resolved = preset.resolve(ovr.path.as_deref(), ovr.args.as_deref());
+                script = script.with_tool(resolved.clone());
+
+                let plan = plugin
+                    .plan_render
+                    .expect("svg_tool set implies plan_render set")(
+                    &resolved, &src_path, out
+                );
+                for (comment, cmdline) in plan.prelude {
+                    script = script.step(&comment, &cmdline);
+                }
+                script = script.step("render svg", &plan.cmdline);
+            }
+            SvgMode::Internal(_) => {
+                let name = plugin
+                    .internal_renderer_name
+                    .expect("internal mode implies internal_renderer_name");
+                script = script.step(
+                    "render svg (in-process, no external tool)",
+                    &format!(
+                        "echo 'rfs v{} rendered {} to SVG in-process via {name}; nothing to run'",
+                        env!("CARGO_PKG_VERSION"),
+                        sh_quote(&out.display().to_string())
+                    ),
+                );
+            }
         }
-        script = script.step("render svg", &plan.cmdline);
     } else {
         script = script.step(
             "no external tools needed (text format)",

@@ -1371,14 +1371,14 @@ title pin_fsm
 [*] --> Idle
 Idle --> Active : Tick
 Active --> Active : Cmd(Go(lvl)) \\n (lvl > 2)
-note right on link : emits Ack(Ack(counter))
+note on link : emits Ack(Ack(counter))
 Active --> Idle : Tick
 Idle -[dashed]-> Error : on_error
-note right on link : emits Ack(Ack(99))
+note on link : emits Ack(Ack(99))
 Active -[dashed]-> Error : on_error
-note right on link : emits Ack(Ack(99))
+note on link : emits Ack(Ack(99))
 Error -[dashed]-> Error : on_error
-note right on link : emits Ack(Ack(99))
+note on link : emits Ack(Ack(99))
 @enduml\n"
     );
     cleanup(&root);
@@ -1558,7 +1558,14 @@ fn e2e_diagram_render_dot_real_tool() {
     let f = write_file(&root, "a.rfs", PIN_DIAGRAM_RFS);
     let svg = root.join("out.svg");
     let out = std::process::Command::new(rfs_bin())
-        .args(["diagram", "--render", "svg", "--out"])
+        .args([
+            "diagram",
+            "--renderer",
+            "external",
+            "--render",
+            "svg",
+            "--out",
+        ])
         .arg(&svg)
         .arg(&f)
         .output()
@@ -1588,7 +1595,16 @@ fn e2e_diagram_render_puml_real_tool() {
     let f = write_file(&root, "a.rfs", PIN_DIAGRAM_RFS);
     let svg = root.join("out.svg");
     let out = std::process::Command::new(rfs_bin())
-        .args(["diagram", "--format", "puml", "--render", "svg", "--out"])
+        .args([
+            "diagram",
+            "--format",
+            "puml",
+            "--renderer",
+            "external",
+            "--render",
+            "svg",
+            "--out",
+        ])
         .arg(&svg)
         .arg(&f)
         .output()
@@ -1623,7 +1639,16 @@ fn e2e_diagram_render_mmd_real_tool() {
     let f = write_file(&root, "a.rfs", PIN_DIAGRAM_RFS);
     let svg = root.join("out.svg");
     let out = std::process::Command::new(rfs_bin())
-        .args(["diagram", "--format", "mmd", "--render", "svg", "--out"])
+        .args([
+            "diagram",
+            "--format",
+            "mmd",
+            "--renderer",
+            "external",
+            "--render",
+            "svg",
+            "--out",
+        ])
         .arg(&svg)
         .arg(&f)
         .output()
@@ -1748,6 +1773,8 @@ fn e2e_diagram_stub_plantuml_receives_env_and_cli_args() {
             "diagram",
             "--format",
             "puml",
+            "--renderer",
+            "external",
             "--render",
             "svg",
             "--out",
@@ -1798,6 +1825,8 @@ fn e2e_diagram_stub_dot_receives_env_and_cli_args() {
     let out = std::process::Command::new(rfs_bin())
         .args([
             "diagram",
+            "--renderer",
+            "external",
             "--render",
             "svg",
             "--out",
@@ -1856,6 +1885,8 @@ fn e2e_diagram_flag_path_beats_env_for_mermaid() {
             "diagram",
             "--format",
             "mmd",
+            "--renderer",
+            "external",
             "--render",
             "svg",
             "--out",
@@ -1889,7 +1920,14 @@ fn e2e_diagram_missing_dot_tool_exits_one() {
     let svg = root.join("out.svg");
     set_env(&[("RFS_DOT", Some("/nonexistent/rfs_test_dot"))]);
     let out = std::process::Command::new(rfs_bin())
-        .args(["diagram", "--render", "svg", "--out"])
+        .args([
+            "diagram",
+            "--renderer",
+            "external",
+            "--render",
+            "svg",
+            "--out",
+        ])
         .arg(&svg)
         .arg(&f)
         .output()
@@ -1918,7 +1956,16 @@ fn e2e_diagram_failing_plantuml_propagates_stderr() {
     let svg = root.join("out.svg");
     set_env(&[("RFS_PLANTUML", Some(stub.to_str().unwrap()))]);
     let out = std::process::Command::new(rfs_bin())
-        .args(["diagram", "--format", "puml", "--render", "svg", "--out"])
+        .args([
+            "diagram",
+            "--format",
+            "puml",
+            "--renderer",
+            "external",
+            "--render",
+            "svg",
+            "--out",
+        ])
         .arg(&svg)
         .arg(&f)
         .output()
@@ -1951,7 +1998,16 @@ fn e2e_diagram_failing_mmdc_exits_one() {
     let svg = root.join("out.svg");
     set_env(&[("RFS_MERMAID", Some(stub.to_str().unwrap()))]);
     let out = std::process::Command::new(rfs_bin())
-        .args(["diagram", "--format", "mmd", "--render", "svg", "--out"])
+        .args([
+            "diagram",
+            "--format",
+            "mmd",
+            "--renderer",
+            "external",
+            "--render",
+            "svg",
+            "--out",
+        ])
         .arg(&svg)
         .arg(&f)
         .output()
@@ -1992,6 +2048,8 @@ fn e2e_diagram_print_script_puml_render_pinned() {
             "diagram",
             "--format",
             "puml",
+            "--renderer",
+            "external",
             "--render",
             "svg",
             "--out",
@@ -2001,7 +2059,7 @@ fn e2e_diagram_print_script_puml_render_pinned() {
         ],
     );
     assert_eq!(script, "#!/bin/sh
-# rfs 1.0.0 - generated by `rfs diagram --format puml --render svg --out build/diagram.svg spec.rfs` on spec.rfs
+# rfs 1.0.0 - generated by `rfs diagram --format puml --render svg --renderer external --out build/diagram.svg spec.rfs` on spec.rfs
 # tools: plantuml=plantuml
 set -e
 # step 1: write generated diagram source
@@ -2011,14 +2069,14 @@ title pin_fsm
 [*] --> Idle
 Idle --> Active : Tick
 Active --> Active : Cmd(Go(lvl)) \\n (lvl > 2)
-note right on link : emits Ack(Ack(counter))
+note on link : emits Ack(Ack(counter))
 Active --> Idle : Tick
 Idle -[dashed]-> Error : on_error
-note right on link : emits Ack(Ack(99))
+note on link : emits Ack(Ack(99))
 Active -[dashed]-> Error : on_error
-note right on link : emits Ack(Ack(99))
+note on link : emits Ack(Ack(99))
 Error -[dashed]-> Error : on_error
-note right on link : emits Ack(Ack(99))
+note on link : emits Ack(Ack(99))
 @enduml
 __RFS_DIAGRAM_SOURCE__
 # step 2: render svg
@@ -2039,6 +2097,8 @@ fn e2e_diagram_print_script_mmd_render_pinned() {
             "diagram",
             "--format",
             "mmd",
+            "--renderer",
+            "external",
             "--render",
             "svg",
             "--out",
@@ -2098,9 +2158,9 @@ fn e2e_diagram_list_pinned() {
         .output()
         .expect("run rfs");
     assert!(out.status.success());
-    assert_eq!(String::from_utf8_lossy(&out.stdout), "dot    Graphviz DOT state diagram (pure Rust generation; SVG via the dot binary)
-puml   PlantUML state diagram (edge label 'event \\n guard', emitted data via note on link; SVG via the plantuml binary)
-mmd    Mermaid stateDiagram-v2 (all transition info in multi-line edge labels; SVG via the mmdc binary)
+    assert_eq!(String::from_utf8_lossy(&out.stdout), "dot    Graphviz DOT state diagram (pure Rust generation; SVG rendered in-process by default, dot via --renderer external)
+puml   PlantUML state diagram (edge label 'event \\n guard', emitted data via note on link; SVG rendered in-process by default, plantuml via --renderer external)
+mmd    Mermaid stateDiagram-v2 (all transition info in multi-line edge labels; SVG rendered in-process by default, mmdc via --renderer external)
 table  Transition table + variable/event summary (plain text)
 md     Transition table + variable/event summary (Markdown)\n");
 }
@@ -2179,8 +2239,421 @@ fn e2e_diagram_table_md_have_no_renderer() {
             .expect("run rfs");
         assert!(!out.status.success(), "{format} must reject --render");
         let stderr = String::from_utf8_lossy(&out.stderr);
-        assert!(stderr.contains("has no SVG renderer"), "stderr: {stderr}");
+        assert!(
+            stderr.contains("has no internal SVG renderer"),
+            "stderr: {stderr}"
+        );
     }
+    cleanup(&root);
+}
+
+// ---------------------------------------------------------------------------
+// Phase 7 task 1: internal (in-process) mermaid SVG rendering - the default.
+// ---------------------------------------------------------------------------
+
+/// The DEFAULT `--render svg` path renders in-process: it must succeed even
+/// when mmdc is unresolvable, and produce a real SVG with the labels intact.
+#[test]
+fn e2e_diagram_render_mmd_internal_default() {
+    let _g = diag_lock();
+    clear_tool_env();
+    // Unresolvable mmdc: external resolution would fail; internal rendering
+    // must not even look at it (zero-external-dependency proof).
+    set_env(&[("RFS_MERMAID", Some("/nonexistent/rfs_test_mmdc"))]);
+    let root = tmp_root("e2e_diag_mmd_internal");
+    let f = write_file(&root, "a.rfs", PIN_DIAGRAM_RFS);
+    let svg = root.join("out.svg");
+    let out = std::process::Command::new(rfs_bin())
+        .args(["diagram", "--format", "mmd", "--render", "svg", "--out"])
+        .arg(&svg)
+        .arg(&f)
+        .output()
+        .expect("run rfs");
+    set_env(&[("RFS_MERMAID", None)]);
+    assert!(
+        out.status.success(),
+        "internal rendering needs no external tool; stderr: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let src = root.join("out.mmd");
+    assert!(src.is_file(), "source written next to the SVG");
+    let text = std::fs::read_to_string(&svg).expect("svg exists");
+    assert!(text.starts_with("<svg"), "svg starts with <svg: {text}");
+    // The real mmdc accepted our syntax (exit 0) AND rendered the content;
+    // the in-process renderer must do the same.
+    assert!(text.contains("Cmd(Go(lvl))"), "event label must render");
+    assert!(text.contains("(lvl &gt; 2)"), "guard must render");
+    assert!(
+        text.contains("emits Ack(Ack(counter))"),
+        "note-on-link must render"
+    );
+    assert!(text.contains("[on_error]"), "on_error prefix must render");
+    cleanup(&root);
+}
+
+/// All valid examples must render in-process (fast, pure Rust - no tools).
+#[test]
+fn diagram_internal_mmd_sweep_valid_examples() {
+    let files = rfs::collect_rfs_files("examples/valid").expect("collect examples");
+    assert!(
+        files.len() >= 45,
+        "expected the full example set, got {}",
+        files.len()
+    );
+    let root = tmp_root("diag_mmd_internal_sweep");
+    for f in &files {
+        let opts = rfs::diagram::DiagramOptions {
+            format: "mmd".to_string(),
+            out: Some(root.join(format!(
+                "{}.svg",
+                f.file_stem().and_then(|s| s.to_str()).unwrap_or("spec")
+            ))),
+            render_svg: true,
+            renderer: rfs::diagram::Renderer::Internal,
+            ..Default::default()
+        };
+        rfs::diagram::run_diagram(f, &opts)
+            .unwrap_or_else(|e| panic!("internal mmd render on {}: {e}", f.display()));
+    }
+    cleanup(&root);
+}
+
+/// Negative control: the in-process renderer MUST reject invalid mermaid text
+/// with diagnostics (strict error semantics), not emit a best-effort image.
+/// Note: mermaid's grammar is loose about malformed stateDiagram BODIES
+/// (dangling arrows, unclosed composites are accepted - same as mmdc);
+/// the hard failure is a missing/unknown diagram header.
+#[test]
+fn diagram_mmd_internal_negative_control_rejects_garbage() {
+    let err = rfs::diagrams::mermaid::render_svg_internal("this is not mermaid at all")
+        .expect_err("parse error must be detected");
+    assert!(!err.is_empty(), "garbage must produce diagnostics");
+    let joined = err.join("; ");
+    assert!(
+        joined.contains("diagram header"),
+        "header diagnostic: {joined}"
+    );
+}
+
+/// `--print-script` in internal mode: writes the source via heredoc, then a
+/// comment step stating rfs renders in-process - no mmdc anywhere.
+#[test]
+fn e2e_diagram_print_script_mmd_internal_pinned() {
+    let root = tmp_root("diag_script_mmd_internal");
+    let _g = diag_lock();
+    clear_tool_env();
+    write_file(&root, "spec.rfs", PIN_DIAGRAM_RFS);
+    let script = print_script_of(
+        &root,
+        &[
+            "diagram",
+            "--format",
+            "mmd",
+            "--render",
+            "svg",
+            "--out",
+            "build/diagram.svg",
+            "--print-script",
+            "spec.rfs",
+        ],
+    );
+    assert!(
+        script.contains("cat > build/diagram.mmd <<'__RFS_DIAGRAM_SOURCE__'"),
+        "heredoc step: {script}"
+    );
+    assert!(
+        script.contains("# step 2: render svg (in-process, no external tool)"),
+        "in-process comment: {script}"
+    );
+    assert!(
+        script.contains("to SVG in-process via mermaid-rs-renderer 0.3; nothing to run"),
+        "renderer named in the comment: {script}"
+    );
+    assert!(
+        !script.contains("mmdc"),
+        "no external tool may appear: {script}"
+    );
+    cleanup(&root);
+}
+
+/// `--renderer` rejects unknown values with a usage hint (exit 1).
+#[test]
+fn e2e_diagram_renderer_flag_rejects_unknown_value() {
+    let root = tmp_root("diag_bad_renderer");
+    let f = write_file(&root, "a.rfs", PIN_DIAGRAM_RFS);
+    let out = std::process::Command::new(rfs_bin())
+        .args(["diagram", "--format", "mmd", "--renderer", "bogus"])
+        .arg(&f)
+        .output()
+        .expect("run rfs");
+    assert!(!out.status.success());
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(
+        stderr.contains("--renderer expects internal|external"),
+        "stderr: {stderr}"
+    );
+    cleanup(&root);
+}
+
+// ---------------------------------------------------------------------------
+// Phase 7 task 2: internal (in-process) PlantUML SVG rendering - the default.
+// ---------------------------------------------------------------------------
+
+/// The DEFAULT `--render svg` path for puml renders in-process via
+/// plantuml-core: it must succeed even when plantuml is unresolvable.
+#[test]
+fn e2e_diagram_render_puml_internal_default() {
+    let _g = diag_lock();
+    clear_tool_env();
+    set_env(&[("RFS_PLANTUML", Some("/nonexistent/rfs_test_plantuml"))]);
+    let root = tmp_root("e2e_diag_puml_internal");
+    let f = write_file(&root, "a.rfs", PIN_DIAGRAM_RFS);
+    let svg = root.join("out.svg");
+    let out = std::process::Command::new(rfs_bin())
+        .args(["diagram", "--format", "puml", "--render", "svg", "--out"])
+        .arg(&svg)
+        .arg(&f)
+        .output()
+        .expect("run rfs");
+    set_env(&[("RFS_PLANTUML", None)]);
+    assert!(
+        out.status.success(),
+        "internal rendering needs no external tool; stderr: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let src = root.join("out.puml");
+    assert!(src.is_file(), "source written next to the SVG");
+    let text = std::fs::read_to_string(&svg).expect("svg exists");
+    assert!(text.contains("<svg"), "svg: {text}");
+    // plantuml-core renders states + edge labels; its state layout does not
+    // yet draw note-on-link text (crate gap - the syntax is accepted, which
+    // is what this test checks).
+    assert!(text.contains("Cmd(Go(lvl))"), "event label must render");
+    assert!(text.contains("(lvl &gt; 2)"), "guard must render");
+    assert!(text.contains("on_error"), "on_error edges must render");
+    cleanup(&root);
+}
+
+/// All valid examples must render in-process via plantuml-core.
+#[test]
+fn diagram_internal_puml_sweep_valid_examples() {
+    let files = rfs::collect_rfs_files("examples/valid").expect("collect examples");
+    assert!(
+        files.len() >= 45,
+        "expected the full example set, got {}",
+        files.len()
+    );
+    let root = tmp_root("diag_puml_internal_sweep");
+    for f in &files {
+        let opts = rfs::diagram::DiagramOptions {
+            format: "puml".to_string(),
+            out: Some(root.join(format!(
+                "{}.svg",
+                f.file_stem().and_then(|s| s.to_str()).unwrap_or("spec")
+            ))),
+            render_svg: true,
+            renderer: rfs::diagram::Renderer::Internal,
+            ..Default::default()
+        };
+        rfs::diagram::run_diagram(f, &opts)
+            .unwrap_or_else(|e| panic!("internal puml render on {}: {e}", f.display()));
+    }
+    cleanup(&root);
+}
+
+/// Negative control: the in-process renderer MUST reject invalid PlantUML
+/// text with diagnostics (strict error semantics).
+#[test]
+fn diagram_puml_internal_negative_control_rejects_garbage() {
+    let err = rfs::diagrams::plantuml::render_svg_internal("this is not plantuml at all\n")
+        .expect_err("parse error must be detected");
+    assert!(!err.is_empty(), "garbage must produce diagnostics");
+}
+
+/// `--print-script` in internal mode for puml: writes the source via heredoc,
+/// then a comment step naming the in-process crate - no plantuml anywhere.
+#[test]
+fn e2e_diagram_print_script_puml_internal_pinned() {
+    let root = tmp_root("diag_script_puml_internal");
+    let _g = diag_lock();
+    clear_tool_env();
+    write_file(&root, "spec.rfs", PIN_DIAGRAM_RFS);
+    let script = print_script_of(
+        &root,
+        &[
+            "diagram",
+            "--format",
+            "puml",
+            "--render",
+            "svg",
+            "--out",
+            "build/diagram.svg",
+            "--print-script",
+            "spec.rfs",
+        ],
+    );
+    assert_eq!(script, "#!/bin/sh
+# rfs 1.0.0 - generated by `rfs diagram --format puml --render svg --out build/diagram.svg spec.rfs` on spec.rfs
+set -e
+# step 1: write generated diagram source
+cat > build/diagram.puml <<'__RFS_DIAGRAM_SOURCE__'
+@startuml
+title pin_fsm
+[*] --> Idle
+Idle --> Active : Tick
+Active --> Active : Cmd(Go(lvl)) \\n (lvl > 2)
+note on link : emits Ack(Ack(counter))
+Active --> Idle : Tick
+Idle -[dashed]-> Error : on_error
+note on link : emits Ack(Ack(99))
+Active -[dashed]-> Error : on_error
+note on link : emits Ack(Ack(99))
+Error -[dashed]-> Error : on_error
+note on link : emits Ack(Ack(99))
+@enduml
+__RFS_DIAGRAM_SOURCE__
+# step 2: render svg (in-process, no external tool)
+echo 'rfs v1.0.0 rendered build/diagram.svg to SVG in-process via plantuml-core 0.2 (git rev 8066f61); nothing to run'
+");
+    assert!(
+        !script.contains("plantuml -tsvg"),
+        "no external tool may appear: {script}"
+    );
+    cleanup(&root);
+}
+
+// ---------------------------------------------------------------------------
+// Phase 7 task 3: internal (in-process) Graphviz DOT SVG rendering - the
+// default (layout-rs, a port of graphviz's `dot` layout).
+// ---------------------------------------------------------------------------
+
+/// The DEFAULT `--render svg` path renders in-process via layout-rs: it must
+/// succeed even when the dot binary is unresolvable, and produce a real SVG
+/// with node names, event/guard edge labels, and on_error edges intact.
+#[test]
+fn e2e_diagram_render_dot_internal_default() {
+    let _g = diag_lock();
+    clear_tool_env();
+    set_env(&[("RFS_DOT", Some("/nonexistent/rfs_test_dot"))]);
+    let root = tmp_root("e2e_diag_dot_internal");
+    let f = write_file(&root, "a.rfs", PIN_DIAGRAM_RFS);
+    let svg = root.join("out.svg");
+    let out = std::process::Command::new(rfs_bin())
+        .args(["diagram", "--format", "dot", "--render", "svg", "--out"])
+        .arg(&svg)
+        .arg(&f)
+        .output()
+        .expect("run rfs");
+    set_env(&[("RFS_DOT", None)]);
+    assert!(
+        out.status.success(),
+        "internal rendering needs no external tool; stderr: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let src = root.join("out.dot");
+    assert!(src.is_file(), "source written next to the SVG");
+    let text = std::fs::read_to_string(&svg).expect("svg exists");
+    assert!(text.contains("<svg"), "svg: {text}");
+    // layout-rs renders node names and edge labels into <tspan> elements,
+    // HTML-escaping '>' to '&gt;' (the emitted DOT subset is fully covered:
+    // rankdir=LR, box nodes, filled initial state, labeled + dashed edges).
+    for probe in [
+        ">Idle<",
+        ">Active<",
+        ">Error<",
+        "Tick -&gt; Active",
+        "Cmd(Go(lvl)) [(lvl &gt; 2)] -&gt; Active",
+        "on_error -&gt; Error",
+    ] {
+        assert!(text.contains(probe), "missing in svg: {probe}");
+    }
+    cleanup(&root);
+}
+
+/// All valid examples must render in-process via layout-rs.
+#[test]
+fn diagram_internal_dot_sweep_valid_examples() {
+    let files = rfs::collect_rfs_files("examples/valid").expect("collect examples");
+    assert!(
+        files.len() >= 45,
+        "expected the full example set, got {}",
+        files.len()
+    );
+    let root = tmp_root("diag_dot_internal_sweep");
+    for f in &files {
+        let opts = rfs::diagram::DiagramOptions {
+            format: "dot".to_string(),
+            out: Some(root.join(format!(
+                "{}.svg",
+                f.file_stem().and_then(|s| s.to_str()).unwrap_or("spec")
+            ))),
+            render_svg: true,
+            renderer: rfs::diagram::Renderer::Internal,
+            ..Default::default()
+        };
+        rfs::diagram::run_diagram(f, &opts)
+            .unwrap_or_else(|e| panic!("internal dot render on {}: {e}", f.display()));
+    }
+    cleanup(&root);
+}
+
+/// Negative control: the in-process renderer MUST reject invalid DOT text
+/// with diagnostics (strict error semantics).
+#[test]
+fn diagram_dot_internal_negative_control_rejects_garbage() {
+    let err = rfs::diagrams::dot::render_svg_internal("this is not dot at all\n")
+        .expect_err("parse error must be detected");
+    assert!(!err.is_empty(), "garbage must produce diagnostics");
+}
+
+/// `--print-script` in internal mode for dot: writes the source via heredoc,
+/// then a comment step naming the in-process crate - no dot anywhere.
+#[test]
+fn e2e_diagram_print_script_dot_internal_pinned() {
+    let root = tmp_root("diag_script_dot_internal");
+    let _g = diag_lock();
+    clear_tool_env();
+    write_file(&root, "spec.rfs", PIN_DIAGRAM_RFS);
+    let script = print_script_of(
+        &root,
+        &[
+            "diagram",
+            "--format",
+            "dot",
+            "--render",
+            "svg",
+            "--out",
+            "build/diagram.svg",
+            "--print-script",
+            "spec.rfs",
+        ],
+    );
+    assert_eq!(script, "#!/bin/sh
+# rfs 1.0.0 - generated by `rfs diagram --format dot --render svg --out build/diagram.svg spec.rfs` on spec.rfs
+set -e
+# step 1: write generated diagram source
+cat > build/diagram.dot <<'__RFS_DIAGRAM_SOURCE__'
+digraph pin_fsm {
+  rankdir=LR;
+  node [shape=box];
+  \"Idle\" [style=filled, fillcolor=\"#e0e0e0\"];
+  \"Active\";
+  \"Error\";
+  \"Idle\" -> \"Active\" [label=\"Tick -> Active\"];
+  \"Active\" -> \"Active\" [label=\"Cmd(Go(lvl)) [(lvl > 2)] -> Active\"];
+  \"Active\" -> \"Idle\" [label=\"Tick -> Idle\"];
+  \"Idle\" -> \"Error\" [label=\"on_error -> Error\", style=dashed];
+  \"Active\" -> \"Error\" [label=\"on_error -> Error\", style=dashed];
+  \"Error\" -> \"Error\" [label=\"on_error -> Error\", style=dashed];
+}
+__RFS_DIAGRAM_SOURCE__
+# step 2: render svg (in-process, no external tool)
+echo 'rfs v1.0.0 rendered build/diagram.svg to SVG in-process via layout-rs 0.1.3; nothing to run'
+");
+    assert!(
+        !script.contains("dot -Tsvg"),
+        "no external tool may appear: {script}"
+    );
     cleanup(&root);
 }
 

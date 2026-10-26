@@ -124,13 +124,21 @@ gcc -Wall out.c -I/workspace/host/z3/include -L/workspace/host/z3/bin -lz3 \
 `-Wl,-rpath` keeps the binary runnable without `LD_LIBRARY_PATH`; drop it and
 export `LD_LIBRARY_PATH=/workspace/host/z3/bin` instead if rpath is unwanted.
 
-## 6. Diagram rendering tools (dot / plantuml / mermaid) — Phase 5 task 8
+## 6. Diagram rendering tools (dot / plantuml / mermaid) — Phase 5 task 8, Phase 7 in-process rendering
 
-`rfs diagram` generates diagram SOURCE in pure Rust with no external tools.
-Only `--render svg` invokes an external renderer, and it is STRICT: a missing
-or failing tool makes rfs exit 1 (no graceful degradation - CI/CD requirement).
-All three renderers are OPTIONAL system dependencies; text generation works
-without any of them.
+`rfs diagram` generates diagram SOURCE in pure Rust with no external tools,
+and since Phase 7 it also renders SVG IN-PROCESS by default
+(`--renderer internal`): `mmd` via the mermaid-rs-renderer crate, `puml` via
+the plantuml-core crate, and `dot` via the layout-rs crate (all linked into
+the rfs binary; see 6.5). So the zero-dependency command is simply
+`rfs diagram --format dot|puml|mmd --render svg -o d.svg spec.rfs` - no tool
+needed.
+`--renderer external` invokes an external renderer instead, and it is STRICT:
+a missing or failing tool makes rfs exit 1 (no graceful degradation - CI/CD
+requirement). The three tools below are therefore OPTIONAL system
+dependencies, needed only for `--renderer external` and the cross-renderer
+parity tests; text generation and default SVG rendering work without any of
+them.
 
 ### 6.1 Install (verified in this environment, Ubuntu 24.04)
 
@@ -152,7 +160,10 @@ Precedence: CLI flag > env var > bare name on PATH. Env args come first, CLI
 args appended (same as rustc/gcc). `--print-script` prints the exact invocation
 as a self-contained POSIX sh script instead of executing it.
 
-### 6.3 Running the tools by hand
+### 6.3 Running the tools by hand (`--renderer external`)
+
+These are the manual equivalents of `rfs diagram ... --render svg
+--renderer external`; the default (internal) rendering needs none of them.
 
 ```sh
 rfs diagram --format dot  --out d.dot spec.rfs && dot -Tsvg d.dot -o d.svg
@@ -168,6 +179,42 @@ rfs diagram --format mmd  --out d.mmd  spec.rfs && mmdc -i d.mmd -o d.svg -q
   md/svg/png/pdf extensions (not `/dev/null`).
 - **plantuml** exits **200** on a syntax error (and still writes an error SVG),
   so rfs gates on the exit status, not file presence.
+
+### 6.5 In-process renderers (Phase 7) - crate dependencies, not system tools
+
+The default (`--renderer internal`) SVG path links these crates into the rfs
+binary; none of them is a system tool:
+
+- `mmd`: **mermaid-rs-renderer** 0.3.x from crates.io (`default-features =
+  false`, SVG only). Regular dependency since Phase 7 task 1 (was a
+  dev-dependency for the docs gate, which keeps compiling against it).
+- `puml`: **plantuml-core** 0.2.0 from
+  https://github.com/askidmobile/PlantUML_RUST - **NOT published on
+  crates.io**, so Cargo.toml declares it as a rev-pinned git dependency:
+  `rev = "8066f6124a86ed5da59c6d7d570f0568891c378e"` (the repo's latest
+  commit at Phase 7 task 2 implementation time, 2026-10-26). Consequences:
+  - the FIRST build on a fresh machine needs network access to fetch the
+    repo; afterwards cargo serves it from its git cache
+    (`$CARGO_HOME/git/db/plantuml_rust-*`), so offline rebuilds work;
+  - if the upstream repo ever disappears, repoint the one `git = "..."`
+    line in Cargo.toml at a fork/mirror and bump the rev (D-P7-3).
+
+Known plantuml-core gaps vs real PlantUML (syntax accepted, rendering
+incomplete): note-on-link TEXT is not yet drawn into the SVG (the notes parse
+fine - which is what `rfs` requires), and the parser rejects the position
+word in `note right on link`, so rfs emits bare `note on link` (real
+PlantUML accepts both forms).
+- `dot`: **layout-rs** 0.1.x from crates.io (locked at 0.1.3; its optional
+  `log` dependency is not enabled). A port of graphviz's `dot` layout engine;
+  no documented one-shot dot->SVG function, so rfs follows the code path of
+  the upstream binary: `gv::DotParser` -> `gv::GraphBuilder` ->
+  `VisualGraph::do_it` -> `backends::svg::SVGWriter` (see
+  `src/diagrams/dot.rs::render_svg_internal`). The emitted DOT subset is fully
+  covered by the builder (`rankdir=LR`, `shape=box`, `style=filled` +
+  `fillcolor`, edge `label`s, `style=dashed`) - verified by the 45-example
+  internal sweep and the e2e pin in `tests/frontend_test.rs`. Parser errors
+  come back as a diagnostic string (`process()`'s `Err`), which rfs surfaces
+  with strict error semantics.
 - **Two `mmdc` processes must not run concurrently** in this container: under
   parallel Chrome launches one of them fails nondeterministically. The test
   suite serializes real-tool invocations for this reason; do the same in CI.

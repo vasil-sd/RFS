@@ -1074,3 +1074,92 @@ Per PHASE_5_TASK_16.md: run the complete BUILD.md §5 checklist (+ Phase 5 addit
 - Artifacts: `docs/roadmap/PHASE_6_STATUS.md` (template 2.3 + exit-criteria section; counts lineage recorded for future phases); INTRO.md row 6 -> COMPLETE (close-out 2026-10-25, tag v1.0.0).
 - Verification of the close-out itself: working tree clean except the three intended doc changes; single close-out commit + annotated tag `v1.0.0` ("RFS v1.0.0 - production hardening and stable syntax/IR/codegen contract"); no untracked files (target/, fuzz/target gitignored).
 - Phase 6 COMPLETE: tasks 1-10 all shipped; post-v1.0 candidates noted in the status file (36 clippy warnings cleanup, crates.io publishing).
+
+---
+
+## 2026-10-26 13:21 — Phase 7 defined: documentation and self-describing formats (`PHASE_7.md`)
+
+### Interpretation & plan
+
+- Requested: define a new PHASE 7 (structure per previous `PHASE_N.md` files), devoted ENTIRELY to documentation - no algorithm/core-functionality changes: (1) switch `rfs diagram` SVG rendering to pure-Rust crates (`mermaid-rs-renderer` for mmd, `plantuml-core` from askidmobile/PlantUML_RUST for puml, `layout-rs` for dot), add tests against external tools `mmdc`/`plantuml`/`dot` (install if needed; document newly installed tools in BUILD.md + TOOLCHAIN.md) comparing SYNTAX correctness only - diagram texts must parse without syntax errors in both external tools and internal renderers; (2) new `rfs info format` command family for actual format information from the binary itself: `spec-rfs` EBNF as md (default)/plantuml/svg (railroad crate), `spec-json` + `ce-trace` as md/JSON schema, plus an enumeration of ALL other input/output formats with suggested commands.
+- Plan: read structure references (`PHASE_5.md`, `PHASE_6.md`) and verify all four named crates against docs.rs/crates.io/GitHub BEFORE freezing them into the phase file; inspect local code (diagram plugin dialects, `rfs info` structure, `Cargo.toml`, DESIGN.md §6 EBNF); write `docs/roadmap/PHASE_7.md` per template 2.1; add the INTRO.md phase-state row; append this entry.
+
+### Report
+
+- `docs/roadmap/PHASE_7.md` (new, 175 lines, template 2.1): Goal + Scope + phase-specific sections - "Internal SVG rendering" (crate/API table with verified facts), "rfs info format" (CLI shape, embedded single-source-of-truth models, output renderers md/plantuml/svg/schema) with the full 12-item FORMAT INVENTORY table (spec-rfs, spec-json, ce-trace, mc-report, validate-json, info-json, diagram-dot/puml/mmd, diagram-table/md, artifact-header candidate, .rfs-validation.err) each with proposed command + outputs, "Format sync" (machine-checked: KEYWORDS coverage, DESIGN.md §6 equivalence, key-model vs emitted documents), "Cross-renderer syntax tests" - plus Deliverables / Exit criteria / Non-goals.
+- Crate verification (2026-10-26, before freezing): `mermaid-rs-renderer` 0.3.1 (pure Rust, `render(&str)->Result<String>` SVG, `stateDiagram-v2` supported; ALREADY a dev-dep pinned in the local registry cache); `plantuml-core` 0.2.x - **NOT on crates.io** (its roadmap lists publication as an open item) => must be a git dependency on askidmobile/PlantUML_RUST, rev-pinned, MSRV 1.83, `render(source,&RenderOptions)->Result<String>` SVG, state diagrams among 16 supported types; `layout-rs` 0.1.3 (crates.io, pure-Rust DOT parser `gv::DotParser` + `topo`/`VisualGraph` + `backends::svg::SVGWriter`); `railroad` 0.3.11 (crates.io, railroad/syntax-diagram SVG builder; its resvg re-export is already in the dependency tree via mermaid-rs-renderer).
+- PlantUML EBNF "All EBNF Elements" syntax confirmed (= definitions, quoted terminals, `|`, `[ ]`, `{ }`, `( )` grouping, `(* notes *)`, `? special ?` nodes) - maps mechanically onto the DESIGN.md §6 grammar (`X*`->`{X}`, `X?`->`[X]`).
+- External renderers already installed in this environment (TOOLCHAIN.md §6): dot 2.43.0, plantuml 1.2020.02, mmdc (mermaid 12.2.0) - no new installation expected ("if needed" not triggered); cross-renderer tests stay availability-gated with the known gotchas (mmdc serialized - concurrent Chrome launches fail; plantuml exit 200 = syntax error, gate on exit status).
+- `docs/roadmap/INTRO.md`: phase-state table + Phase 7 row ("description written (2026-10-26); planning not started", files: `PHASE_7.md`).
+- No source code/tests/examples/training touched (phase-definition only); no build/test run required. Uncommitted on purpose (planning-stage convention). Next protocol step: user reviews `PHASE_7.md`; then "let's make a plan for Phase 7" triggers the planning stage (`PHASE_7_PLAN.md` per template 2.2, stop for review, then per-task files).
+- Open decisions deferred to the plan (marked in PHASE_7.md): keep external renderers as explicit CLI opt-in vs test-only; full 50-example corpus vs pinned subset for cross-renderer tests; `diagram-table`/`diagram-md` and `artifact-header` entries yes/no; JSON Schema validation strategy for the emitted schemas (structural key checks vs a schema-validator dev-dep).
+
+---
+
+## 2026-10-26 15:40 — Phase 7 task 1 complete: internal SVG rendering infrastructure + mermaid renderer (`mmd`) [entry recorded retroactively at task 2 closeout]
+
+### Interpretation & plan
+
+- Per `PHASE_7_PLAN.md` tasks 1.1-1.5: promote `mermaid-rs-renderer` to a regular dependency (D-P7-4); add `internal_render_svg` hook + `--renderer internal|external` flag with internal default (D-P7-1/D-P7-2); wire the mmd in-process renderer; switch ALL existing external-renderer tests to explicit `--renderer external` (pulled forward from tasks 2-3 - plan correction); BUILD.md/TOOLCHAIN.md updates.
+
+### Report
+
+- `Cargo.toml`: mermaid-rs-renderer 0.3 dev-dep -> regular dep, `default-features = false`; docs gate keeps compiling (`render_strict` is core API).
+- `src/diagram.rs`: `DiagramPlugin.internal_render_svg: Option<fn(&str)->Result<String,Vec<String>>>` + `internal_renderer_name`; private `SvgMode` dispatch; internal path writes source next to `--out`, renders in-process, strict errors; `--print-script` internal variant = heredoc + comment naming the crate (D-P7-5). `src/main.rs`: `--renderer` parsing + usage text.
+- `src/diagrams/mermaid.rs`: `render_svg_internal` via `render_strict`; emitted stateDiagram-v2 subset verified (multi-line edge labels with literal `\n`, `[on_error]` prefix, guards, emits).
+- `tests/frontend_test.rs`: 3 real-tool + stub + flag/env + strict-error + print-script tests switched to `--renderer external`; new: internal-default e2e (unresolvable RFS_MERMAID -> exit 0 + SVG), 50-example in-process sweep, header-level negative control (mermaid-rs-renderer accepts malformed stateDiagram BODIES like mmdc - strict rejection is at diagram-header level; plan correction 1.3/1.4), internal print-script pin, `--renderer bogus` rejection.
+- Docs: BUILD.md §3 diagram row (`--renderer`, internal default) + test counts; TOOLCHAIN.md §6 (in-process default, tools optional).
+- Verification: root **458 pass / 0 fail**, workspace **482 pass / 0 fail**, clippy zero warnings in touched files, fmt clean. Status: `docs/roadmap/tasks/task_1.md` COMPLETE.
+
+---
+
+## 2026-10-26 16:27 — Phase 7 task 2 complete: PlantUML internal renderer via plantuml-core git dependency (`puml`)
+
+### Interpretation & plan
+
+- Per `PHASE_7_PLAN.md` tasks 2.1-2.4: add the rev-pinned git dependency (plantuml-core is NOT on crates.io - D-P7-3); implement + wire `render_svg_internal` in `src/diagrams/plantuml.rs`; verify the emitted subset parses, adjusting emission minimally where plantuml-core rejects it; tests (internal-default e2e, 50-example sweep, negative control, print-script pin, list pin); BUILD.md/TOOLCHAIN.md updates. A prior session had already landed 2.1-2.3(partial) uncommitted; this session verified the tree green, added the missing print-script pin, fixed a fmt violation, finished docs, and re-ran the full matrix.
+
+### Report
+
+- `Cargo.toml`/`Cargo.lock`: `plantuml-core = { git = "https://github.com/askidmobile/PlantUML_RUST", rev = "8066f6124a86ed5da59c6d7d570f0568891c378e" }` (0.2.0; latest upstream commit 2026-10-26). Cargo git cache present -> offline rebuilds work.
+- `src/diagrams/plantuml.rs`: `render_svg_internal(source) -> Result<String, Vec<String>>` via `plantuml_core::render(source, &RenderOptions::default())`; wired into `PUML_PLUGIN` (renderer name "plantuml-core 0.2 (git rev 8066f61)").
+- **Emission change (plan correction 2026-10-26, 2.2/2.3)**: plantuml-core's parser REJECTS the position word in `note right on link` -> rfs now emits bare `note on link`, one line per output (was: single-line for 1 emit / multi-line block for many). Real PlantUML accepts both forms, so the external path is unaffected (real-tool test + byte-pinned print-script pins re-verified).
+- Known plantuml-core gap (documented in TOOLCHAIN.md §6.5 + in-test): note-on-link TEXT is not drawn into the SVG (syntax accepted) - e2e pin asserts states/edge labels only.
+- `tests/frontend_test.rs`: new `e2e_diagram_print_script_puml_internal_pinned` (byte-pinned heredoc + in-process comment, no plantuml line); existing from prior session: internal-default e2e, 50-example sweep, negative control; list pin updated. fmt fix on the sweep test.
+- Docs: BUILD.md counts re-pinned (**462** root / **486** workspace, frontend 110) + diagram row names both in-process renderers; TOOLCHAIN.md §6 intro (mmd+puml in-process) + new §6.5 (crate deps incl. the git-dependency rev, offline-rebuild behaviour, repoint procedure, note-rendering gap).
+- Verification: `cargo build --release` green; root **462 pass / 0 fail**; workspace **486 pass / 0 fail**; clippy zero warnings in touched files (remaining = pre-existing baseline in untouched src/backends/c_fsm.rs, src/codegen.rs, src/codegen_test.rs, src/validator.rs, tests/common/*, src/test_cmd.rs); `cargo fmt --check` clean. Smoke: `rfs diagram --format puml|mmd --render svg --out d.svg spec.rfs` exit 0 + valid SVG with NO external tools installed in this environment (dot/plantuml/mmdc absent here - real-tool tests skip via availability gating).
+- Status: `docs/roadmap/tasks/task_2.md` COMPLETE; plan corrections table updated; INTRO.md row -> tasks 1-2 of 16 complete.
+## 2026-10-26 17:24 — Phase 7 task 3 complete: Graphviz DOT internal renderer via layout-rs (`dot`)
+
+### Interpretation & plan
+
+- Per `PHASE_7_PLAN.md` tasks 3.1-3.4: add the `layout-rs` dependency; implement + wire `render_svg_internal` in `src/diagrams/dot.rs` following the upstream binary's code path (no documented one-shot dot->SVG function); tests (internal-default e2e with unresolvable-tool proof, 45-example sweep, negative control, print-script pin, list pin); BUILD.md/TOOLCHAIN.md updates. The user also asked to install the external tools per TOOLCHAIN.md §6.1 first - done this session (dot/plantuml/node/npm via apt, mmdc via npm), which additionally un-skips the availability-gated real-tool tests (they now run against the real binaries).
+
+### Report
+
+- `Cargo.toml`/`Cargo.lock`: `layout-rs = "0.1"` -> locked **0.1.3** (crates.io; registry cache under `$CARGO_HOME/registry/src/*/layout-rs-0.1.3`; offline rebuilds work). No features enabled - the optional `log` dep stays out.
+- `src/diagrams/dot.rs`: `render_svg_internal(source) -> Result<String, Vec<String>>` via `gv::DotParser::new(src).process()` (strict parse; diagnostic string on Err) -> `gv::GraphBuilder` (`visit_graph` + `get()`) -> `VisualGraph::do_it(false,false,false,&mut svg)` -> `backends::svg::SVGWriter::finalize()`; wired into `DOT_PLUGIN` (renderer name "layout-rs 0.1.3"); description line updated to the tasks 1-2 style.
+- **No emission change needed** (contrast with task 2): layout-rs's builder covers the entire emitted DOT subset - `rankdir=LR` (mapped to LeftToRight), `node [shape=box]`, `style=filled` + `fillcolor="#e0e0e0"`, edge labels with `[guard]` / `-> next`, `style=dashed` on_error edges (rendered as `stroke-dasharray="5,5"`, 3/3 on the pin spec), self-loops. Quoted node ids lex as identifiers.
+- `tests/frontend_test.rs`: new `e2e_diagram_render_dot_internal_default` (unresolvable `RFS_DOT` + default renderer -> exit 0, source next to SVG, node names + event/guard/on_error labels present - layout-rs HTML-escapes `>` as `&gt;` in tspan text), `diagram_internal_dot_sweep_valid_examples` (all 45 valid examples), `diagram_dot_internal_negative_control_rejects_garbage` (library-level; "this is not dot at all" -> `Expected (graph|digraph)`), `e2e_diagram_print_script_dot_internal_pinned` (byte-pinned heredoc + in-process comment naming layout-rs 0.1.3, no `dot -Tsvg` line); `e2e_diagram_list_pinned` dot line updated.
+- Docs: BUILD.md counts re-pinned (**466** root / **490** workspace, frontend 114) + diagram row names all three in-process renderers (tasks 1-3); TOOLCHAIN.md §6 intro (dot|puml|mmd all in-process; zero-dependency command covers the three formats) + new §6.5 bullet (layout-rs version, code path, subset coverage, parser-error handling).
+- External tools installed this session per TOOLCHAIN.md §6.1: `sudo apt install graphviz plantuml nodejs npm` (dot 2.43.0, plantuml 1.2020.02/OpenJDK 21, node v18.19.1, npm 9.2.0) + `npm install -g @mermaid-js/mermaid-cli` (mmdc). The availability-gated real-tool tests (`e2e_diagram_render_{dot,puml,mmd}_real_tool`) now RUN against the real binaries and pass; `--renderer external` verified end-to-end.
+- Verification: `cargo build` green; root **466 pass / 0 fail**; workspace **490 pass / 0 fail**; clippy zero warnings in touched files (remaining = pre-existing baseline in untouched files); `cargo fmt --check` clean. Smoke: all three formats render SVG in-process with exit 0 + well-formed XML (45/45 examples swept, node/edge/guard/on_error labels verified in the SVG text).
+- Status: `docs/roadmap/tasks/task_3.md` COMPLETE; no plan corrections (the emitted subset needed no adjustment and `"0.1"` resolving to 0.1.3 is within the plan); INTRO.md row -> tasks 1-3 of 16 complete. All three in-process renderers are now in place - task 4 (cross-renderer parity suite) is next.
+## 2026-10-26 18:52 — Phase 7 task 4 complete: cross-renderer syntax parity suite (internal vs external tools)
+
+### Interpretation & plan
+
+- Per `PHASE_7_PLAN.md` tasks 4.1-4.2 + D-P7-10: new dedicated `tests/diagram_render_parity_test.rs` mirroring the `backend_parity_test.rs` naming pattern - the user-required tests against external tools, consolidated in one place. Matrix: internal half = ALL valid examples x 3 formats (fast, pure Rust); external half = pinned ~4-spec subset exercising guards/emits/on_error/payloads x 3 tools via `--renderer external`, availability-gated + serialized under a static mutex. Comparison is syntax correctness ONLY - never visual output (user requirement). Plus: unresolvable-tools e2e for all three formats in one place, `--print-script` internal-mode structural pins, and the three library-level negative controls consolidated.
+
+### Report
+
+- `tests/diagram_render_parity_test.rs` (new, 13 tests):
+  - Internal half: `parity_internal_{dot,puml,mmd}_all_valid_examples` - dynamic enumeration of all 50 valid examples (incl. `tla_adapted/`), generated text fed directly to each in-process renderer, assert render success + `<svg`.
+  - External half: `parity_external_{dot,puml,mmd}_pinned_subset` - pinned subset x real tools via `rfs diagram --renderer external`, availability-gated (skip with eprintln when the tool is absent) + serialized under a static `TOOL_LOCK` (mmdc/Chrome concurrency limit, TOOLCHAIN.md 6.4). **Same-text guarantee**: the source file rfs writes next to the SVG is asserted byte-identical to the in-process generated text, so both renderers provably parsed the SAME text.
+  - Pinned subset (guards/emits/on_error/payloads): `04_tcp_handshake_like` (guards + event payloads), `19_guard_complex` (compound guard over payload fields + emit + set), `40_on_error_recovery` (on_error fallback with emits), `48_usb_control_transfer` (rich payloads + many outputs).
+  - `parity_unresolvable_tools_internal_all_formats_exit_zero` - RFS_DOT/RFS_PLANTUML/RFS_MERMAID all bogus -> default internal render still exit 0 + SVG for dot, puml AND mmd (zero-external-dependency proof in one place).
+  - `parity_print_script_internal_{dot,puml,mmd}_pinned` - structural pins: heredoc marker + "in-process, no external tool" comment naming the crate + absence of the tool invocation line.
+  - `parity_negative_control_{dot,puml,mmd}_rejects_garbage` - corrupted text rejected by each in-process renderer with non-empty diagnostics (mmd targets a missing header per plan correction 1.3/1.4).
+- Docs: BUILD.md section 3 new row for `cargo test --test diagram_render_parity_test` (13 pass + matrix description) + root re-pinned **479** (+13, parity suite added to the breakdown) + workspace re-pinned **503**; section 5 checklist new bullet (touched diagram generation/rendering -> run the parity suite; external half is an availability-gated opt-in check per TOOLCHAIN.md section 6).
+- Verification: new suite **13 pass / 0 fail** with all three external tools installed (dot 2.43.0, plantuml 1.2020.02, mmdc 12.0.0/mermaid 12.2.0 - the external half RAN against the real binaries, not skipped); full root **479 pass / 0 fail**; workspace **503 pass / 0 fail**; clippy zero warnings in the new file; `cargo fmt --check` clean (fmt applied to the new file only).
+- Status: `docs/roadmap/tasks/task_4.md` COMPLETE; no plan corrections. INTRO.md row -> tasks 1-4 of 16 complete. Phase 7 item 1 (diagram rendering + external-tool tests) is now fully done - next is task 5 (`rfs info format` infrastructure + spec-rfs EBNF).

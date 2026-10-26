@@ -5,7 +5,7 @@ use std::process::ExitCode;
 use rfs::{codegen, frontend, Format};
 
 fn usage() -> String {
-    "RFS toolchain\n\nusage:\n  rfs parse --input <rfs|json> --output <rfs|json> <file-or-dir> [--target-dir DIR]\n  rfs validate [--input <rfs|json>] [--json] <file-or-dir>\n  rfs info [--json] [--log-level off|error|warn|info|debug] <spec.rfs|spec.json>\n  rfs test [--backend rust|c] [--suite unit|fuzz ...] [--steps N] [--rustc PATH] [--gcc PATH]\n           [--rustc-args \"...\"] [--gcc-args \"...\"] [--clang PATH] [--clang-args \"...\"]\n           [--cargo-fuzz PATH] [--cargo-fuzz-args \"...\"] [--fuzz-max-total-time SEC] [--fuzz-flags \"...\"]\n           [--print-script] [--log-level off|error|warn|info|debug] <spec.rfs|spec.json>\n  rfs diagram --list | --format dot|puml|mmd|table|md [options] <spec.rfs|spec.json>\n  rfs codegen --list | --help | <backend> --help\n  rfs codegen <backend> <production|test|mc> <spec.rfs|spec.json> [--out FILE] [--assumes ...] [--steps N]\n  rfs mc-ref <spec.rfs|spec.json> [--max-states N] [--timeout-sec N] [--assumes all|none|labels]\n           [--counterexample-format json|text] [--log-level off|error|warn|info|debug]\n  rfs gen-spec --out FILE.rfs [--seed N] [--size small|medium] [--max-states N] [--max-events N]\n           [--max-vars N] [--max-transitions N] [--max-props N]\n      | rfs gen-spec --base SPEC.rfs|SPEC.json --mutations K [--seed N]\n\nparse: load RFS or IR-JSON files, convert through the IR, and write formatted\n       output. With a directory input, only files matching --input are scanned;\n       without --target-dir each output is written next to its input file, with\n       --target-dir the input directory structure is preserved inside it. The\n       original extension is replaced (never stacked). Conversions whose output\n       would overwrite the input file are refused.\n\nvalidate: parse + semantically validate RFS or IR-JSON files. For a file input\n         the extension selects the format and errors go to stderr; for a\n         directory input --input is required and each failing source file gets\n         a <name>.rfs-validation.err file next to it. `--json` emits structured\n         diagnostics on stdout instead (file mode: one object; directory mode:\n         an array of one object per failing file) - the shape editor\n         integrations consume (Phase 5 task 13).\n\ninfo: static spec introspection - per module: version, initial state, enums,
+    "RFS toolchain\n\nusage:\n  rfs parse --input <rfs|json> --output <rfs|json> <file-or-dir> [--target-dir DIR]\n  rfs validate [--input <rfs|json>] [--json] <file-or-dir>\n  rfs info [--json] [--log-level off|error|warn|info|debug] <spec.rfs|spec.json>\n  rfs test [--backend rust|c] [--suite unit|fuzz ...] [--steps N] [--rustc PATH] [--gcc PATH]\n           [--rustc-args \"...\"] [--gcc-args \"...\"] [--clang PATH] [--clang-args \"...\"]\n           [--cargo-fuzz PATH] [--cargo-fuzz-args \"...\"] [--fuzz-max-total-time SEC] [--fuzz-flags \"...\"]\n           [--print-script] [--log-level off|error|warn|info|debug] <spec.rfs|spec.json>\n  rfs diagram --list | --format dot|puml|mmd|table|md [--renderer internal|external] [options] <spec.rfs|spec.json>\n  rfs codegen --list | --help | <backend> --help\n  rfs codegen <backend> <production|test|mc> <spec.rfs|spec.json> [--out FILE] [--assumes ...] [--steps N]\n  rfs mc-ref <spec.rfs|spec.json> [--max-states N] [--timeout-sec N] [--assumes all|none|labels]\n           [--counterexample-format json|text] [--log-level off|error|warn|info|debug]\n  rfs gen-spec --out FILE.rfs [--seed N] [--size small|medium] [--max-states N] [--max-events N]\n           [--max-vars N] [--max-transitions N] [--max-props N]\n      | rfs gen-spec --base SPEC.rfs|SPEC.json --mutations K [--seed N]\n\nparse: load RFS or IR-JSON files, convert through the IR, and write formatted\n       output. With a directory input, only files matching --input are scanned;\n       without --target-dir each output is written next to its input file, with\n       --target-dir the input directory structure is preserved inside it. The\n       original extension is replaced (never stacked). Conversions whose output\n       would overwrite the input file are refused.\n\nvalidate: parse + semantically validate RFS or IR-JSON files. For a file input\n         the extension selects the format and errors go to stderr; for a\n         directory input --input is required and each failing source file gets\n         a <name>.rfs-validation.err file next to it. `--json` emits structured\n         diagnostics on stdout instead (file mode: one object; directory mode:\n         an array of one object per failing file) - the shape editor\n         integrations consume (Phase 5 task 13).\n\ninfo: static spec introspection - per module: version, initial state, enums,
       events/outputs with variants + field types, variables with types + init,
       transition count, and properties/assumptions each with monitor-subset
       status (monitored / skipped: reason). No model checking. `--json` emits
@@ -32,14 +32,17 @@ test: generate + compile + run the selected test suites for the spec in one
 
 diagram: state-diagram + table formats as plugins (one module per format).
          PRIMARY behaviour is pure text generation with NO external tool calls;
-         `--render svg` invokes the format's renderer (dot/plantuml/mmdc) and
-         REQUIRES --out FILE.svg (the source file is written next to it). A
-         missing or failing render tool is an ERROR (exit 1) - no graceful
-         degradation. Tool paths/args: RFS_DOT/RFS_PLANTUML/RFS_MERMAID
-         (+ *_ARGS) env vars, overridden by --dot/--plantuml/--mermaid PATH +
-         --*-args flags; `--print-script` prints a self-contained POSIX sh
-         script instead of executing. Runs on the first module of the spec.
-         See BUILD.md/TOOLCHAIN.md for installing dot/plantuml/mermaid.
+         `--render svg` REQUIRES --out FILE.svg (the source file is written
+         next to it) and renders IN-PROCESS by default (--renderer internal,
+         the default since Phase 7): no external binaries are needed.
+         --renderer external invokes the format's tool (dot/plantuml/mmdc)
+         instead; a missing or failing render tool is an ERROR (exit 1) - no
+         graceful degradation. Tool paths/args: RFS_DOT/RFS_PLANTUML/
+         RFS_MERMAID (+ *_ARGS) env vars, overridden by --dot/--plantuml/
+         --mermaid PATH + --*-args flags; `--print-script` prints a
+         self-contained POSIX sh script instead of executing. Runs on the
+         first module of the spec. See BUILD.md/TOOLCHAIN.md for installing
+         dot/plantuml/mermaid (only needed for --renderer external).
 
 mc-ref: run the reference model checker in-process (no compilation) - rapid\n         prototyping in shell/REPL. Exhaustive exact search per SEMANTICS.md\n         section 9 with unified reports: the SAME text format and JSON document\n         as the generated exact-mode binaries, byte-comparable where\n         deterministic. Exit codes mirror the generated binaries: 0\n         pass-complete, 1 fail, 2 unknown-state-limit. Flags mirror the\n         generated exact mode where applicable; NOT applicable (documented in\n         `rfs mc-ref --help`): --seed/--steps/--violate (fuzz-mode concepts),\n         --threads/--fast (ref_mc is single-threaded), --nondet (ref_mc explores\n         all enabled transitions by construction).\n\ngen-spec: write a random spec (fully random from a seed, or a base spec mutated\n         K times) to FILE.rfs. Output is always parsed + validated before\n         writing; on any failure exit 1 with a diagnostic. Fully random mode:\n         --seed N (default: the pinned constant 12345) + --size small|medium\n         (or explicit caps --max-states/--max-events/--max-vars/\n         --max-transitions/--max-props). Mutation mode: --base SPEC +\n         --mutations K. Deterministic from the seed (same args => byte-identical\n         file).\n\ncodegen: target-language plugin registry. `--list` shows registered backends;\n         `<backend> --help` lists that backend's commands. Each command runs on\n         the first module of the spec and writes generated source to --out or\n         stdout. The rust `test` command additionally emits fuzz_target.rs\n         (a libfuzzer_sys skeleton) next to --out, so it requires --out.\n         See CODEGEN.md for the backend plugin API.\n\nexamples:\n  cargo run -- parse --input rfs --output json specs/handshake.rfs\n  cargo run -- parse --input rfs --output rfs specs/ --target-dir out/\n  cargo run -- validate specs/handshake.rfs\n  cargo run -- validate --input rfs specs/\n".to_string()
 }
@@ -720,6 +723,28 @@ fn cmd_diagram(args: &[String]) -> ExitCode {
                     return ExitCode::FAILURE;
                 }
                 opts.render_svg = true;
+            }
+            "--renderer" => {
+                let Some(v) = args.get(i + 1).cloned() else {
+                    eprintln!(
+                        "error: --renderer requires a value (internal|external)\n{}",
+                        usage()
+                    );
+                    return ExitCode::FAILURE;
+                };
+                i += 1;
+                opts.renderer = match v.as_str() {
+                    "internal" => rfs::diagram::Renderer::Internal,
+                    "external" => rfs::diagram::Renderer::External,
+                    _ => {
+                        eprintln!(
+                            "error: --renderer expects internal|external (got '{}')\n{}",
+                            v,
+                            usage()
+                        );
+                        return ExitCode::FAILURE;
+                    }
+                };
             }
             "--print-script" => opts.print_script = true,
             "--log-level" => {

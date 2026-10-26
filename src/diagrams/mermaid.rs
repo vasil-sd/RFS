@@ -175,13 +175,27 @@ pub fn render_svg(tool: &ResolvedTool, src: &Path, out: &Path) -> Result<(), Vec
     res
 }
 
+/// Pure-Rust SVG renderer (Phase 7 task 1): strict parse + layout of the
+/// emitted stateDiagram-v2 subset via mermaid-rs-renderer. `render_strict`
+/// returns diagnostics instead of a best-effort image, which doubles as our
+/// negative-control material (strict error semantics, D-P7-2).
+pub fn render_svg_internal(source: &str) -> Result<String, Vec<String>> {
+    let opts = mermaid_rs_renderer::RenderOptions::default();
+    match mermaid_rs_renderer::render_strict(source, opts) {
+        Ok(svg) => Ok(svg),
+        Err(e) => Err(vec![e.to_string()]),
+    }
+}
+
 /// The registered plugin (one line in `crate::diagram::ALL_DIAGRAMS`).
 pub const MMD_PLUGIN: DiagramPlugin = DiagramPlugin {
     name: "mmd",
-    description: "Mermaid stateDiagram-v2 (all transition info in multi-line edge labels; SVG via the mmdc binary)",
+    description: "Mermaid stateDiagram-v2 (all transition info in multi-line edge labels; SVG rendered in-process by default, mmdc via --renderer external)",
     ext: "mmd",
     generate,
     svg_tool: Some(crate::ext_tool::ExtTool::MERMAID),
     plan_render: Some(plan_render),
     render_svg: Some(render_svg),
+    internal_render_svg: Some(render_svg_internal),
+    internal_renderer_name: Some("mermaid-rs-renderer 0.3"),
 };

@@ -365,6 +365,8 @@ pub const TABLE_PLUGIN: DiagramPlugin = DiagramPlugin {
     svg_tool: None,
     plan_render: None,
     render_svg: None,
+    internal_render_svg: None,
+    internal_renderer_name: None,
 };
 
 pub const MD_PLUGIN: DiagramPlugin = DiagramPlugin {
@@ -375,4 +377,6 @@ pub const MD_PLUGIN: DiagramPlugin = DiagramPlugin {
     svg_tool: None,
     plan_render: None,
     render_svg: None,
+    internal_render_svg: None,
+    internal_renderer_name: None,
 };

@@ -1,7 +1,10 @@
 //! Graphviz DOT state diagrams (plugin for `rfs diagram --format dot`).
 //!
-//! Generation is pure Rust (no system dependency). SVG rendering invokes the
-//! resolved `dot` binary (`RFS_DOT` / `--dot` / `--dot-args`, task 3 resolver).
+//! Generation is pure Rust (no system dependency). SVG rendering is IN-PROCESS
+//! by default (Phase 7 task 3): the emitted text is parsed + laid out +
+//! rendered by layout-rs (a port of graphviz's `dot` layout; pure Rust).
+//! `--renderer external` invokes the resolved `dot` binary instead
+//! (`RFS_DOT` / `--dot` / `--dot-args`, task 3 resolver).
 //!
 //! Layout: one node per State-enum variant (declaration order; the initial
 //! state is marked filled), one edge per transition in IR order labeled
@@ -92,13 +95,35 @@ pub fn render_svg(tool: &ResolvedTool, src: &Path, out: &Path) -> Result<(), Vec
     crate::diagrams::render_check(tool, &render_args(src, out))
 }
 
+/// Pure-Rust SVG renderer (Phase 7 task 3): parses + lays out + renders the
+/// emitted DOT subset in-process via layout-rs (code path of the upstream
+/// binary: `gv::DotParser` -> `GraphBuilder` -> `VisualGraph::do_it` ->
+/// `SVGWriter`). Strict error semantics: Err carries the parser's diagnostic
+/// (D-P7-2). The builder maps everything we emit: `rankdir=LR`, `shape=box`,
+/// `style=filled` + `fillcolor`, edge `label`s, and `style=dashed` on_error
+/// edges.
+pub fn render_svg_internal(source: &str) -> Result<String, Vec<String>> {
+    let mut parser = layout::gv::DotParser::new(source);
+    let ast_graph = parser
+        .process()
+        .map_err(|e| vec![format!("internal dot renderer (layout-rs): {e}")])?;
+    let mut builder = layout::gv::GraphBuilder::new();
+    builder.visit_graph(&ast_graph);
+    let mut vg = builder.get();
+    let mut svg = layout::backends::svg::SVGWriter::new();
+    vg.do_it(false, false, false, &mut svg);
+    Ok(svg.finalize())
+}
+
 /// The registered plugin (one line in `crate::diagram::ALL_DIAGRAMS`).
 pub const DOT_PLUGIN: DiagramPlugin = DiagramPlugin {
     name: "dot",
-    description: "Graphviz DOT state diagram (pure Rust generation; SVG via the dot binary)",
+    description: "Graphviz DOT state diagram (pure Rust generation; SVG rendered in-process by default, dot via --renderer external)",
     ext: "dot",
     generate,
     svg_tool: Some(ExtTool::DOT),
     plan_render: Some(plan_render),
     render_svg: Some(render_svg),
+    internal_render_svg: Some(render_svg_internal),
+    internal_renderer_name: Some("layout-rs 0.1.3"),
 };

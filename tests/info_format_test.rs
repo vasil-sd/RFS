@@ -86,8 +86,8 @@ fn list_pins_all_registered_formats() {
         "unexpected row count: {text}"
     );
 
-    // Byte pin of the current registry (tasks 5-10 ship spec-rfs + spec-json
-    // + ce-trace + mc-report + validate-json + info-json).
+    // Byte pin of the current registry (tasks 5-11 ship spec-rfs + spec-json
+    // + ce-trace + mc-report + validate-json + info-json + diagram-dot).
     assert_eq!(
         expected,
         vec![
@@ -96,7 +96,8 @@ fn list_pins_all_registered_formats() {
             "ce-trace".to_string(),
             "mc-report".to_string(),
             "validate-json".to_string(),
-            "info-json".to_string()
+            "info-json".to_string(),
+            "diagram-dot".to_string()
         ]
     );
     assert!(
@@ -132,6 +133,12 @@ fn list_pins_all_registered_formats() {
     assert!(
         text.contains(
             "| `info-json` | md, schema | rfs info --json introspection document (per-module static view; transitions is a count, monitor_status per property) |"
+        ),
+        "{text}"
+    );
+    assert!(
+        text.contains(
+            "| `diagram-dot` | md | the Graphviz DOT subset rfs diagram --format dot generates (header, node/edge line grammar, escaping) |"
         ),
         "{text}"
     );
@@ -1976,6 +1983,194 @@ fn info_json_walk_all_valid_examples() {
     assert!(
         saw_skipped_monitor,
         "corpus lost its skipped-monitor coverage"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// diagram-dot: md document + generated-output sync (Phase 7 task 11)
+// ---------------------------------------------------------------------------
+
+#[test]
+fn diagram_dot_md_pins_sections() {
+    let out = run_info_format(&["diagram-dot"]);
+    assert!(out.status.success(), "stderr: {}", stderr_of(&out));
+    let text = stdout_of(&out);
+
+    assert!(
+        text.starts_with("# DOT state diagram subset (diagram-dot)\n"),
+        "{}...",
+        &text[..text.len().min(60)]
+    );
+
+    // All documented sections.
+    for s in [
+        "## Graph header",
+        "## Node lines",
+        "## Edge lines",
+        "## on_error edges",
+        "## String escaping",
+    ] {
+        assert!(text.contains(s), "missing section {s}");
+    }
+
+    // The exact documented line forms.
+    for l in [
+        "digraph <module_name> {",
+        "  rankdir=LR;",
+        "  node [shape=box];",
+        "  \"<state>\";",
+        "  \"<state>\" [style=filled, fillcolor=\"#e0e0e0\"];",
+        "[label=\"<EventLabel> [guard] -> <next>\"]",
+        "[label=\"on_error -> <fallback>\", style=dashed]",
+    ] {
+        assert!(text.contains(l), "missing documented line form: {l}");
+    }
+
+    // md-only entry: schema output is rejected with the supported list.
+    let out = run_info_format(&["diagram-dot", "--output", "schema"]);
+    assert!(!out.status.success());
+    let err = stderr_of(&out);
+    assert!(err.contains("does not support output 'schema'"), "{err}");
+    assert!(err.contains("supported: md"), "{err}");
+}
+
+/// The coverage check for the diagram-dot format (D-P7-9 style): every line
+/// of the DOT text `generate()` emits for a module must be one of the
+/// documented line shapes filled with that module's IR data - no undocumented
+/// token. The expected lines are rebuilt from the IR with the documented
+/// templates (event/guard label text via the pub label helpers, which implement
+/// the documented `<EventLabel>` / `[guard]` renderings).
+fn check_dot_documented_subset(text: &str, m: &rfs::ir::Module, what: &str) {
+    let lines: Vec<&str> = text.lines().collect();
+
+    // Header: exactly the three documented lines.
+    assert_eq!(
+        lines.first().copied(),
+        Some(format!("digraph {} {{", m.name).as_str()),
+        "{what}: undocumented header line"
+    );
+    assert_eq!(
+        lines.get(1),
+        Some(&"  rankdir=LR;"),
+        "{what}: undocumented rankdir line"
+    );
+    assert_eq!(
+        lines.get(2),
+        Some(&"  node [shape=box];"),
+        "{what}: undocumented node-default line"
+    );
+
+    // Footer.
+    assert_eq!(lines.last(), Some(&"}"), "{what}: undocumented footer line");
+
+    let states: Vec<&str> = m
+        .enums
+        .iter()
+        .find(|e| e.name == "State")
+        .map(|e| e.variants.iter().map(String::as_str).collect())
+        .unwrap_or_default();
+
+    let mut idx = 3;
+    // Node lines: one per state, declaration order; filled IFF the initial.
+    for s in states.iter().copied() {
+        let line = *lines.get(idx).unwrap_or(&"<missing line>");
+        if Some(s) == m.initial_state.as_deref() {
+            assert_eq!(
+                line,
+                format!("  \"{s}\" [style=filled, fillcolor=\"#e0e0e0\"];"),
+                "{what}: initial-state node line not in the documented shape"
+            );
+        } else {
+            assert_eq!(
+                line,
+                format!("  \"{s}\";"),
+                "{what}: node line not in the documented shape"
+            );
+        }
+        idx += 1;
+    }
+
+    // Edge lines: one per transition, IR order; label = <EventLabel> [guard] -> <next>.
+    for t in &m.transitions {
+        let line = *lines.get(idx).unwrap_or(&"<missing line>");
+        let ev = rfs::diagrams::event_label(&t.pattern);
+        let label = match rfs::diagrams::guard_label(&t.guard) {
+            None => format!("{ev} -> {}", t.next_state),
+            Some(g) => format!("{ev} [{g}] -> {}", t.next_state),
+        };
+        assert_eq!(
+            line,
+            format!(
+                "  \"{}\" -> \"{}\" [label=\"{}\"];",
+                t.state, t.next_state, label
+            ),
+            "{what}: edge line not in the documented shape"
+        );
+        idx += 1;
+    }
+
+    // on_error edges: IFF declared, one per state to the fallback target.
+    if let Some(on) = &m.on_error {
+        for s in &states {
+            let line = *lines.get(idx).unwrap_or(&"<missing line>");
+            assert_eq!(
+                line,
+                format!(
+                    "  \"{s}\" -> \"{}\" [label=\"on_error -> {}\", style=dashed];",
+                    on.next_state, on.next_state
+                ),
+                "{what}: on_error edge line not in the documented shape"
+            );
+            idx += 1;
+        }
+    }
+
+    // No extra lines beyond the documented structure (the footer is the
+    // last line; idx points at it after the content lines).
+    assert_eq!(idx, lines.len() - 1, "{what}: undocumented trailing lines");
+}
+
+#[test]
+fn diagram_dot_generated_output_matches_documented_subset() {
+    let files = rfs::collect_rfs_files(root().join("examples/valid"))
+        .expect("valid examples directory should exist");
+    assert!(!files.is_empty(), "no valid examples found");
+
+    // Corpus coverage: the walk must exercise every documented construct,
+    // not just the plain fast path.
+    let mut saw_guard = false;
+    let mut saw_on_error = false;
+    let mut saw_struct_event = false;
+
+    for path in &files {
+        let ir = rfs::parse_file(path)
+            .unwrap_or_else(|e| panic!("{}: valid example failed to parse: {e}", path.display()));
+        for m in &ir.modules {
+            let text = rfs::diagrams::dot::generate(m);
+            check_dot_documented_subset(&text, m, &path.display().to_string());
+
+            for t in &m.transitions {
+                if t.guard.is_some() {
+                    saw_guard = true;
+                }
+                if matches!(
+                    &t.pattern.variant,
+                    Some(rfs::ir::PatternVariant::Struct { .. })
+                ) {
+                    saw_struct_event = true;
+                }
+            }
+            if m.on_error.is_some() {
+                saw_on_error = true;
+            }
+        }
+    }
+
+    assert!(saw_guard, "corpus lost its guard-label coverage");
+    assert!(saw_on_error, "corpus lost its on_error-edge coverage");
+    assert!(
+        saw_struct_event,
+        "corpus lost its struct-event-label coverage"
     );
 }
 

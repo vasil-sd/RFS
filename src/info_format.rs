@@ -1162,6 +1162,87 @@ fn info_json_render(output: &str) -> Result<String, Vec<String>> {
     }
 }
 
+// ---------------------------------------------------------------------------
+// diagram-dot - the DOT subset `rfs diagram --format dot` generates
+// (Phase 7 task 11)
+// ---------------------------------------------------------------------------
+
+/// The documented DOT subset, derived from `diagrams/dot.rs` `generate`
+/// (the single source of truth). The sync test over all 50 valid examples
+/// asserts that every generated line is one of the documented shapes filled
+/// with the module's IR data - no undocumented token (D-P7-9).
+const DOT_SUBSET_MD: &str = r##"# DOT state diagram subset (diagram-dot)
+
+The Graphviz DOT text that `rfs diagram --format dot` generates for one module.
+Generation is pure Rust and deterministic: states in State-enum declaration
+order, transitions in IR order, on_error edges last. The output is EXACTLY the
+following structure - nothing else is ever emitted (the sync test over all 50
+valid examples enforces it):
+
+```text
+digraph <module_name> {
+  rankdir=LR;
+  node [shape=box];
+  <one line per state, declaration order>
+  <one line per transition, IR order>
+  <one dashed line per state - only when the module declares on_error>
+}
+```
+
+## Graph header (always exactly these three lines)
+
+| Line | Meaning |
+|---|---|
+| `digraph <module_name> {` | graph name = the module name (the only unquoted string in the file) |
+| `  rankdir=LR;` | left-to-right layout (fixed) |
+| `  node [shape=box];` | default node shape for every state (fixed) |
+
+## Node lines (one per State-enum variant, declaration order)
+
+| Line | When |
+|---|---|
+| `  "<state>";` | a non-initial state |
+| `  "<state>" [style=filled, fillcolor="#e0e0e0"];` | the initial state - the only node that carries attributes |
+
+## Edge lines (one per transition, IR order)
+
+```text
+  "<from>" -> "<to>" [label="<EventLabel> [guard] -> <next>"];
+```
+
+- `<EventLabel>`: the event pattern rendered as `Group`, `Group(Variant)` or
+  `Group(Variant(args))`; args are pattern expressions - `_` wildcard, a bound
+  name, an integer/boolean literal, or a `Type.Variant` path.
+- `[guard]`: present IFF the transition has a guard; the rendered expression
+  (literals, dot-separated paths, unary `!`/`~`/`-`, binary operators with
+  parentheses).
+- The label always ends with ` -> <next>` where `<next>` is the edge target.
+
+## on_error edges (only when the module declares on_error)
+
+One dashed edge per state to the fallback target (it fires from ANY state):
+
+```text
+  "<state>" -> "<fallback>" [label="on_error -> <fallback>", style=dashed];
+```
+
+## String escaping
+
+Every node name and label is wrapped in double quotes; inside, backslash and
+double quote are escaped (backslash -> double backslash, double quote ->
+backslash + double quote). The module name in the `digraph` line is the only
+unquoted string.
+"##;
+
+fn diagram_dot_render(output: &str) -> Result<String, Vec<String>> {
+    match output {
+        "md" => Ok(DOT_SUBSET_MD.to_string()),
+        other => Err(vec![format!(
+            "diagram-dot: unsupported output '{other}' (expected md)"
+        )]),
+    }
+}
+
 /// The format registry. Order = `--list` order.
 pub static FORMATS: &[FormatInfo] = &[
     FormatInfo {
@@ -1200,6 +1281,12 @@ pub static FORMATS: &[FormatInfo] = &[
         summary: "rfs info --json introspection document (per-module static view; transitions is a count, monitor_status per property)",
         outputs: &["md", "schema"],
         render: info_json_render,
+    },
+    FormatInfo {
+        name: "diagram-dot",
+        summary: "the Graphviz DOT subset rfs diagram --format dot generates (header, node/edge line grammar, escaping)",
+        outputs: &["md"],
+        render: diagram_dot_render,
     },
 ];
 

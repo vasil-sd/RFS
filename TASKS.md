@@ -1198,3 +1198,18 @@ Per PHASE_5_TASK_16.md: run the complete BUILD.md §5 checklist (+ Phase 5 addit
 - Docs: BUILD.md section 3 dedicated row updated (13 pass + spec-json coverage) + root re-pinned **499** (+6) / workspace **523**; section 5 baseline re-measured (499/523/501-smt).
 - Verification: info_format_test **13 pass / 0 fail**; full root **499 pass / 0 fail** (was 493); workspace **523 pass / 0 fail** (was 517); `--features smt` **501 pass / 0 fail** (was 495); clippy zero warnings in new/changed files (36 pre-existing elsewhere, unchanged); fmt clean; docs gate green.
 - Status: `docs/roadmap/tasks/task_6.md` COMPLETE; one plan correction recorded (D-P7-8 model extension). INTRO.md row -> tasks 1-6 of 16 complete. Next is task 7 (ce-trace format entry, md + schema - model against `mc_report_json.rs` `JSON_KEY_*`, walk over pinned FAIL-variant benchmark reports).
+
+## 2026-10-27 21:01 — Phase 7 task 13 complete: diagram-mmd format entry (generated Mermaid subset documented in md)
+
+### Interpretation & plan
+
+- Per `PHASE_7_TASK_13.md` (plan row 13, D-P7-9): document the Mermaid stateDiagram-v2 subset that `rfs diagram --format mmd` generates (source of truth: `diagrams/mermaid.rs`), register the entry in `src/info_format.rs` (outputs: md only, no schema), add the coverage sync test over all 50 valid examples x every module, re-pin BUILD.md.
+
+### Report
+
+- `src/info_format.rs`: `MMD_SUBSET_MD` (stateDiagram-v2 header; IFF-initial `[*] -->` line; transition label grammar `<EventLabel>` + optional ` \n <guard>` + one ` \n emits <X>` per emitted output, where `\n` is the literal two-character sequence; `[on_error]` first-label-line prefix on fallback edges with no guard part; verbatim names without escaping - safe by RFS identifier grammar) + `diagram_mmd_render` (md only) + FORMATS entry (9th, after diagram-puml).
+- Tests (`tests/info_format_test.rs`, 34 -> 36): `diagram_mmd_md_pins_sections` (title + 4 sections + 7 exact line forms + schema rejection with supported list), `diagram_mmd_generated_output_matches_documented_subset` (line-by-line coverage sync over all 50 valid examples x every module via the `check_mmd_documented_subset` helper - expected lines rebuilt from the IR with the pub label helpers; corpus pins guard / struct-event / on_error / emits), and `list_pins_all_registered_formats` extended to the 9-entry registry.
+- Docs: BUILD.md section 3 info-format row (34 -> 36 tests, tasks 5-12 -> 5-13, task 13 description appended) + root re-pinned **524** (+2) / workspace **548**; section 5 baseline re-measured (524/548/526-smt).
+- Verification: info_format_test **36 pass / 0 fail**; full root **524 pass / 0 fail** (was 522); workspace **548 pass / 0 fail** (was 546); `--features smt` **526 pass / 0 fail** (was 524); test-generated-code **1683 pass / 0 fail** (unchanged; codegen untouched); clippy zero warnings in touched files; fmt clean; docs gate **5 pass / 0 fail**.
+- Environment fix (not code): restored mmdc's missing puppeteer browser cache (`chrome-headless-shell` 156.0.8078.47) from a previous session's sandbox - the external half of `diagram_render_parity_test` (13 tests) passes again.
+- Status: `docs/roadmap/PHASE_7_TASK_13_STATUS.md` written. INTRO.md row -> tasks 1-13 of 16 complete. Next is task 14 (artifact-header format entry, md).

@@ -1337,6 +1337,92 @@ fn diagram_puml_render(output: &str) -> Result<String, Vec<String>> {
     }
 }
 
+// ---------------------------------------------------------------------------
+// diagram-mmd - the Mermaid subset `rfs diagram --format mmd` generates
+// (Phase 7 task 13)
+// ---------------------------------------------------------------------------
+
+/// The documented Mermaid subset, derived from `diagrams/mermaid.rs`
+/// `generate` (the single source of truth). The sync test over all 50 valid
+/// examples asserts that every generated line is one of the documented shapes
+/// filled with the module's IR data - no undocumented token (D-P7-9).
+const MMD_SUBSET_MD: &str = r##"# Mermaid state diagram subset (diagram-mmd)
+
+The Mermaid text that `rfs diagram --format mmd` generates for one module.
+Generation is pure Rust and deterministic: transitions in IR order, on_error
+edges last. The output is EXACTLY the following structure - nothing else is
+ever emitted (the sync test over all 50 valid examples enforces it):
+
+```text
+stateDiagram-v2
+  [*] --> <initial>            <- only when the module has an initial state
+  <transition lines, IR order>
+  <on_error lines - only when the module declares on_error>
+```
+
+## Frame lines (always exactly these)
+
+| Line | When |
+|---|---|
+| `stateDiagram-v2` | first line, always (the only unindented line) |
+| `  [*] --> <initial>` | only when the module has an initial state |
+
+There is no closing frame line - the file ends with the last edge line.
+
+## Transition lines (one per transition, IR order)
+
+```text
+  <from> --> <to>: <EventLabel>
+  <from> --> <to>: <EventLabel> \n <guard>
+  <from> --> <to>: <EventLabel> \n emits <OutputLabel>
+```
+
+- `<EventLabel>`: the event pattern rendered as `Group`, `Group(Variant)` or
+  `Group(Variant(args))`; args are pattern expressions - `_` wildcard, a bound
+  name, an integer/boolean literal, or a `Type.Variant` path.
+- With a guard the label gains a second line: `<EventLabel> \n <guard>` where
+  `\n` is the LITERAL two-character sequence (backslash + n) followed by a
+  space - not a newline. The guard is the rendered expression (literals,
+  dot-separated paths, unary `!`/`~`/`-`, binary operators with parentheses).
+- Each emitted output appends one more label line: ` \n emits <OutputLabel>`
+  where `<OutputLabel>` is the output rendered as `Group`, `Group(Variant)` or
+  `Group(Variant(args))` (args are rendered expressions).
+- Mermaid state diagrams have NO notes-on-links and NO dotted/dashed edges
+  (both verified unsupported), so ALL transition information - event, guard,
+  emitted outputs - lives in this one multi-line edge label.
+
+## on_error edges (only when the module declares on_error)
+
+One edge per state to the fallback target (it fires from ANY state):
+
+```text
+  <state> --> <fallback>: [on_error]
+  <state> --> <fallback>: [on_error] \n emits <OutputLabel>
+```
+
+- The first label line is exactly `[on_error]` (the event name in brackets);
+  there is no guard part on on_error edges.
+- One ` \n emits <OutputLabel>` label line per output the on_error declaration
+  emits, same form as on transition lines.
+
+## State names and escaping
+
+States have no explicit declarations - they appear implicitly as edge
+endpoints (and as the `[*] -->` target). Names are inserted VERBATIM: no
+quoting or escaping is performed, which is safe because RFS identifier grammar
+guarantees none of the characters that would break Mermaid line structure
+(newlines, `-->`, `:`) occur in emitted data.
+"##;
+
+fn diagram_mmd_render(output: &str) -> Result<String, Vec<String>> {
+    match output {
+        "md" => Ok(MMD_SUBSET_MD.to_string()),
+        other => Err(vec![format!(
+            "diagram-mmd: unsupported output '{other}' (expected md)"
+        )]),
+    }
+}
+
 /// The format registry. Order = `--list` order.
 pub static FORMATS: &[FormatInfo] = &[
     FormatInfo {
@@ -1387,6 +1473,12 @@ pub static FORMATS: &[FormatInfo] = &[
         summary: "the PlantUML subset rfs diagram --format puml generates (frame lines, event \\n guard labels, note on link, dashed on_error)",
         outputs: &["md"],
         render: diagram_puml_render,
+    },
+    FormatInfo {
+        name: "diagram-mmd",
+        summary: "the Mermaid stateDiagram-v2 subset rfs diagram --format mmd generates (multi-line edge labels carry event/guard/emits; [on_error] prefix)",
+        outputs: &["md"],
+        render: diagram_mmd_render,
     },
 ];
 

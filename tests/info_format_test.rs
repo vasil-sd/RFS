@@ -86,9 +86,9 @@ fn list_pins_all_registered_formats() {
         "unexpected row count: {text}"
     );
 
-    // Byte pin of the current registry (tasks 5-12 ship spec-rfs + spec-json
+    // Byte pin of the current registry (tasks 5-13 ship spec-rfs + spec-json
     // + ce-trace + mc-report + validate-json + info-json + diagram-dot
-    // + diagram-puml).
+    // + diagram-puml + diagram-mmd).
     assert_eq!(
         expected,
         vec![
@@ -99,7 +99,8 @@ fn list_pins_all_registered_formats() {
             "validate-json".to_string(),
             "info-json".to_string(),
             "diagram-dot".to_string(),
-            "diagram-puml".to_string()
+            "diagram-puml".to_string(),
+            "diagram-mmd".to_string()
         ]
     );
     assert!(
@@ -147,6 +148,12 @@ fn list_pins_all_registered_formats() {
     assert!(
         text.contains(
             "| `diagram-puml` | md | the PlantUML subset rfs diagram --format puml generates (frame lines, event \\n guard labels, note on link, dashed on_error) |"
+        ),
+        "{text}"
+    );
+    assert!(
+        text.contains(
+            "| `diagram-mmd` | md | the Mermaid stateDiagram-v2 subset rfs diagram --format mmd generates (multi-line edge labels carry event/guard/emits; [on_error] prefix) |"
         ),
         "{text}"
     );
@@ -2365,6 +2372,173 @@ fn diagram_puml_generated_output_matches_documented_subset() {
         "corpus lost its struct-event-label coverage"
     );
     assert!(saw_emit_note, "corpus lost its note-on-link coverage");
+}
+
+// ---------------------------------------------------------------------------
+// diagram-mmd: md document + generated-output sync (Phase 7 task 13)
+// ---------------------------------------------------------------------------
+
+#[test]
+fn diagram_mmd_md_pins_sections() {
+    let out = run_info_format(&["diagram-mmd"]);
+    assert!(out.status.success(), "stderr: {}", stderr_of(&out));
+    let text = stdout_of(&out);
+
+    assert!(
+        text.starts_with("# Mermaid state diagram subset (diagram-mmd)\n"),
+        "{}...",
+        &text[..text.len().min(60)]
+    );
+
+    // All documented sections.
+    for s in [
+        "## Frame lines",
+        "## Transition lines",
+        "## on_error edges",
+        "## State names and escaping",
+    ] {
+        assert!(text.contains(s), "missing section {s}");
+    }
+
+    // The exact documented line forms.
+    for l in [
+        "stateDiagram-v2",
+        "  [*] --> <initial>",
+        "  <from> --> <to>: <EventLabel>",
+        "  <from> --> <to>: <EventLabel> \\n <guard>",
+        "  <from> --> <to>: <EventLabel> \\n emits <OutputLabel>",
+        "  <state> --> <fallback>: [on_error]",
+        "  <state> --> <fallback>: [on_error] \\n emits <OutputLabel>",
+    ] {
+        assert!(text.contains(l), "missing documented line form: {l}");
+    }
+
+    // md-only entry: schema output is rejected with the supported list.
+    let out = run_info_format(&["diagram-mmd", "--output", "schema"]);
+    assert!(!out.status.success());
+    let err = stderr_of(&out);
+    assert!(err.contains("does not support output 'schema'"), "{err}");
+    assert!(err.contains("supported: md"), "{err}");
+}
+
+/// The coverage check for the diagram-mmd format (D-P7-9 style): every line
+/// of the Mermaid text `generate()` emits for a module must be one of the
+/// documented line shapes filled with that module's IR data - no undocumented
+/// token. The expected lines are rebuilt from the IR with the documented
+/// templates (event/guard/emit label text via the pub label helpers, which
+/// implement the documented renderings; the multi-line label is assembled
+/// exactly as `push_transition` does: ` \n <guard>` then one
+/// ` \n emits <O>` per output).
+fn check_mmd_documented_subset(text: &str, m: &rfs::ir::Module, what: &str) {
+    let lines: Vec<&str> = text.lines().collect();
+
+    // Header: always exactly `stateDiagram-v2` (the only unindented line).
+    assert_eq!(
+        lines.first().copied(),
+        Some("stateDiagram-v2"),
+        "{what}: undocumented header line"
+    );
+
+    let mut idx = 1;
+    // [*] --> initial IFF the module has an initial state.
+    if let Some(init) = &m.initial_state {
+        assert_eq!(
+            lines.get(idx).copied(),
+            Some(format!("  [*] --> {init}").as_str()),
+            "{what}: undocumented initial-state line"
+        );
+        idx += 1;
+    }
+
+    // Transition lines, IR order: label = <EventLabel> [ \n <guard>] [ \n emits <O>]*.
+    for t in &m.transitions {
+        let ev = rfs::diagrams::event_label(&t.pattern);
+        let mut label = ev;
+        if let Some(g) = rfs::diagrams::guard_label(&t.guard) {
+            label.push_str(" \\n ");
+            label.push_str(&g);
+        }
+        for e in rfs::diagrams::emit_labels(&t.emits) {
+            label.push_str(&format!(" \\n emits {e}"));
+        }
+        assert_eq!(
+            lines.get(idx).copied(),
+            Some(format!("  {} --> {}: {}", t.state, t.next_state, label).as_str()),
+            "{what}: transition line not in the documented shape"
+        );
+        idx += 1;
+    }
+
+    // on_error edges: IFF declared, one per state to the fallback target.
+    if let Some(on) = &m.on_error {
+        for s in rfs::diagrams::states(m) {
+            let mut label = String::from("[on_error]");
+            for e in rfs::diagrams::emit_labels(&on.emits) {
+                label.push_str(&format!(" \\n emits {e}"));
+            }
+            assert_eq!(
+                lines.get(idx).copied(),
+                Some(format!("  {s} --> {}: {}", on.next_state, label).as_str()),
+                "{what}: on_error edge line not in the documented shape"
+            );
+            idx += 1;
+        }
+    }
+
+    // No extra lines beyond the documented structure (mmd has no footer).
+    assert_eq!(idx, lines.len(), "{what}: undocumented trailing lines");
+}
+
+#[test]
+fn diagram_mmd_generated_output_matches_documented_subset() {
+    let files = rfs::collect_rfs_files(root().join("examples/valid"))
+        .expect("valid examples directory should exist");
+    assert!(!files.is_empty(), "no valid examples found");
+
+    // Corpus coverage: the walk must exercise every documented construct,
+    // not just the plain fast path.
+    let mut saw_guard = false;
+    let mut saw_on_error = false;
+    let mut saw_struct_event = false;
+    let mut saw_emit_label = false;
+
+    for path in &files {
+        let ir = rfs::parse_file(path)
+            .unwrap_or_else(|e| panic!("{}: valid example failed to parse: {e}", path.display()));
+        for m in &ir.modules {
+            let text = rfs::diagrams::mermaid::generate(m);
+            check_mmd_documented_subset(&text, m, &path.display().to_string());
+
+            for t in &m.transitions {
+                if t.guard.is_some() {
+                    saw_guard = true;
+                }
+                if !t.emits.is_empty() {
+                    saw_emit_label = true;
+                }
+                if matches!(
+                    &t.pattern.variant,
+                    Some(rfs::ir::PatternVariant::Struct { .. })
+                ) {
+                    saw_struct_event = true;
+                }
+            }
+            if let Some(on) = &m.on_error {
+                saw_on_error = true;
+                if !on.emits.is_empty() {
+                    saw_emit_label = true;
+                }
+            }
+        }
+    }
+
+    assert!(saw_guard, "corpus lost its guard-label coverage");
+    assert!(saw_on_error, "corpus lost its on_error-edge coverage");
+    assert!(
+        saw_struct_event,
+        "corpus lost its struct-event-label coverage"
+    );
+    assert!(saw_emit_label, "corpus lost its emits-label coverage");
 }
 
 // ---------------------------------------------------------------------------

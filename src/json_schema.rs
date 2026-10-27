@@ -154,7 +154,10 @@ pub struct SchemaDoc {
 // JSON-Schema emission (draft-07)
 // ---------------------------------------------------------------------------
 
-fn emit_type(ty: &FieldType) -> Json {
+/// Emit one value model as its JSON-Schema fragment. Public so format
+/// entries can cross-check shared sub-models (e.g. mc-report's
+/// `counterexample` definition against the ce-trace root - task 8).
+pub fn emit_type(ty: &FieldType) -> Json {
     match ty {
         FieldType::Str => Json::obj(vec![("type".into(), Json::str("string"))]),
         FieldType::Int => Json::obj(vec![("type".into(), Json::str("integer"))]),

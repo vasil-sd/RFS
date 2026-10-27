@@ -86,14 +86,15 @@ fn list_pins_all_registered_formats() {
         "unexpected row count: {text}"
     );
 
-    // Byte pin of the current registry (tasks 5-7 ship spec-rfs + spec-json
-    // + ce-trace).
+    // Byte pin of the current registry (tasks 5-8 ship spec-rfs + spec-json
+    // + ce-trace + mc-report).
     assert_eq!(
         expected,
         vec![
             "spec-rfs".to_string(),
             "spec-json".to_string(),
-            "ce-trace".to_string()
+            "ce-trace".to_string(),
+            "mc-report".to_string()
         ]
     );
     assert!(
@@ -111,6 +112,12 @@ fn list_pins_all_registered_formats() {
     assert!(
         text.contains(
             "| `ce-trace` | md, schema | MC counterexample trace (the report's `counterexample` object + the text trace format) |"
+        ),
+        "{text}"
+    );
+    assert!(
+        text.contains(
+            "| `mc-report` | md, schema | Full exact-mode MC report (--counterexample-format json; status, metrics, statistics + counterexample) |"
         ),
         "{text}"
     );
@@ -807,21 +814,38 @@ fn ce_mc_binary(key: &str, backend: &str, src: &str) -> PathBuf {
     bin
 }
 
-/// One `--counterexample-format json` run of a FAILING binary: returns the
-/// report's `counterexample` object (present iff status is fail).
-fn ce_object(bin: &Path, key: &str) -> rfs::json_rw::Json {
+/// One `--counterexample-format json` run: returns the full report document.
+/// The exit code must match the reported status (0 = pass-complete,
+/// 1 = fail, 2 = unknown-state-limit).
+fn mc_report_of(bin: &Path, key: &str, extra_args: &[&str]) -> rfs::json_rw::Json {
+    let mut args: Vec<&str> = extra_args.to_vec();
+    args.push("--counterexample-format");
+    args.push("json");
     let out = Command::new(bin)
-        .args(["--counterexample-format", "json"])
+        .args(&args)
         .output()
         .unwrap_or_else(|e| panic!("run MC binary for {key}: {e}"));
     let stdout = String::from_utf8_lossy(&out.stdout).to_string();
-    assert_eq!(
-        out.status.code(),
-        Some(1),
-        "{key}: failing MC exits 1; {stdout}"
-    );
     let doc = rfs::json_rw::parse(&stdout)
         .unwrap_or_else(|e| panic!("{key}: JSON report must parse: {e}\n{stdout}"));
+    let want_code = match doc.get("status").and_then(rfs::json_rw::Json::as_str) {
+        Some("pass-complete") => 0,
+        Some("fail") => 1,
+        Some("unknown-state-limit") => 2,
+        other => panic!("{key}: unexpected status {other:?} in: {stdout}"),
+    };
+    assert_eq!(
+        out.status.code(),
+        Some(want_code),
+        "{key}: exit code must match the reported status; {stdout}"
+    );
+    doc
+}
+
+/// One `--counterexample-format json` run of a FAILING binary: returns the
+/// report's `counterexample` object (present iff status is fail).
+fn ce_object(bin: &Path, key: &str) -> rfs::json_rw::Json {
+    let doc = mc_report_of(bin, key, &[]);
     assert_eq!(
         doc.get("status").and_then(rfs::json_rw::Json::as_str),
         Some("fail"),
@@ -829,7 +853,7 @@ fn ce_object(bin: &Path, key: &str) -> rfs::json_rw::Json {
     );
     doc.get("counterexample")
         .cloned()
-        .unwrap_or_else(|| panic!("{key}: fail carries a counterexample: {stdout}"))
+        .unwrap_or_else(|| panic!("{key}: fail carries a counterexample"))
 }
 
 /// The D-P7-9 walk against the ce-trace model (required keys present, no
@@ -1004,6 +1028,399 @@ fn ce_trace_walk_ref_mc_in_process() {
         );
         walk_ce(&ce, key);
     }
+}
+
+// ---------------------------------------------------------------------------
+// mc-report: schema + md document pins (Phase 7 task 8)
+// ---------------------------------------------------------------------------
+
+fn prop_names(j: &rfs::json_rw::Json) -> Vec<String> {
+    j.get("properties")
+        .and_then(rfs::json_rw::Json::as_obj)
+        .cloned()
+        .unwrap()
+        .into_iter()
+        .map(|(k, _)| k)
+        .collect()
+}
+
+fn enum_vals(j: &rfs::json_rw::Json) -> Vec<String> {
+    j.get("enum")
+        .and_then(rfs::json_rw::Json::as_arr)
+        .cloned()
+        .unwrap()
+        .into_iter()
+        .map(|v| v.as_str().unwrap().to_string())
+        .collect()
+}
+
+/// The D-P7-9 walk against the mc-report model (required keys present, no
+/// undocumented key at any object level, types + enum constraints agree).
+fn walk_mc_report(rep: &rfs::json_rw::Json, what: &str) {
+    let doc = rfs::info_format::mc_report_schema();
+    if let Err(errs) = rfs::json_schema::walk_check(&doc, rep) {
+        panic!(
+            "{what}: mc-report model out of sync with the generated report:\n{}",
+            errs.join("\n")
+        );
+    }
+}
+
+#[test]
+fn mc_report_schema_document_pin() {
+    let out = run_info_format(&["mc-report", "--output", "schema"]);
+    assert!(out.status.success(), "stderr: {}", stderr_of(&out));
+    let text = stdout_of(&out);
+
+    let doc = rfs::json_rw::parse(&text).expect("schema output must be valid JSON");
+    assert_eq!(
+        doc.get("$schema").and_then(|v| v.as_str()),
+        Some("http://json-schema.org/draft-07/schema#")
+    );
+    assert_eq!(
+        doc.get("title").and_then(|v| v.as_str()),
+        Some("MC report document (mc-report)")
+    );
+
+    // Root: plain object, strict; required = status/metrics/statistics in
+    // wire order. The fail fields are optional (present IFF status is fail).
+    assert_eq!(doc.get("type").and_then(|v| v.as_str()), Some("object"));
+    let req = doc
+        .get("required")
+        .and_then(|v| v.as_arr())
+        .cloned()
+        .unwrap();
+    let req_names: Vec<&str> = req.iter().filter_map(|v| v.as_str()).collect();
+    assert_eq!(req_names, vec!["status", "metrics", "statistics"]);
+    assert_eq!(
+        doc.get("additionalProperties").and_then(|v| v.as_bool()),
+        Some(false)
+    );
+    for k in ["reason", "label", "step", "counterexample"] {
+        assert!(!req_names.contains(&k), "{k} must be optional");
+    }
+
+    // status enum = ExactStatus wire names; reason enum = FailReason wire
+    // names (derived from the methods - no string literals in the model).
+    let props = doc.get("properties").cloned().unwrap();
+    let status_enum = props
+        .as_obj()
+        .cloned()
+        .unwrap()
+        .into_iter()
+        .find(|(k, _)| k == "status")
+        .unwrap()
+        .1;
+    assert_eq!(
+        enum_vals(&status_enum),
+        vec![
+            rfs::codegen_mc::ExactStatus::PassComplete.wire(),
+            rfs::codegen_mc::ExactStatus::Fail.wire(),
+            rfs::codegen_mc::ExactStatus::UnknownStateLimit.wire()
+        ]
+    );
+    let reason_enum = props
+        .as_obj()
+        .cloned()
+        .unwrap()
+        .into_iter()
+        .find(|(k, _)| k == "reason")
+        .unwrap()
+        .1;
+    assert_eq!(
+        enum_vals(&reason_enum),
+        vec![
+            rfs::codegen_mc::FailReason::PropertyViolation.wire(),
+            rfs::codegen_mc::FailReason::LivenessViolation.wire(),
+            rfs::codegen_mc::FailReason::Deadlock.wire()
+        ]
+    );
+
+    // All seven definitions present.
+    let defs = doc.get("definitions").cloned().unwrap();
+    for n in [
+        "mc_metrics",
+        "mc_statistics",
+        "counterexample",
+        "ce_step",
+        "ce_io",
+        "ce_fields",
+        "ce_value",
+    ] {
+        assert!(defs.get(n).is_some(), "missing definition {n}");
+    }
+
+    // metrics / statistics keys in wire order.
+    let metrics = defs.get("mc_metrics").cloned().unwrap();
+    assert_eq!(
+        prop_names(&metrics),
+        vec!["states", "transitions", "max_depth"]
+    );
+    let stats = defs.get("mc_statistics").cloned().unwrap();
+    assert_eq!(
+        prop_names(&stats),
+        vec![
+            "unexpected_terminations",
+            "monitor_size_bits",
+            "memory_estimate_bytes",
+            "peak_rss_kb"
+        ]
+    );
+
+    // No-drift pin: the counterexample definition is byte-identical to the
+    // ce-trace document's root (shared builder - task 7).
+    let ce_def = defs.get("counterexample").cloned().unwrap();
+    let ce_root_emitted = rfs::json_schema::emit_type(&rfs::info_format::ce_trace_schema().root);
+    assert_eq!(
+        ce_def.to_string_compact(),
+        ce_root_emitted.to_string_compact(),
+        "mc-report counterexample definition drifted from the ce-trace root"
+    );
+}
+
+#[test]
+fn mc_report_md_pins_sections() {
+    let out = run_info_format(&["mc-report"]);
+    assert!(out.status.success(), "stderr: {}", stderr_of(&out));
+    let text = stdout_of(&out);
+
+    assert!(
+        text.starts_with("# MC report document (mc-report)\n"),
+        "{}...",
+        &text[..text.len().min(60)]
+    );
+    assert!(text.contains("## document"), "missing document section");
+    assert!(
+        text.contains(
+            "| `status` | string (one of: pass-complete, fail, unknown-state-limit) | yes |"
+        ),
+        "missing status row"
+    );
+
+    // The fail fields are documented as optional (key omitted).
+    for k in ["reason", "label", "step", "counterexample"] {
+        assert!(text.contains(&format!("| `{k}` | ")), "missing row for {k}");
+    }
+
+    // One section per named definition (7: mc_metrics, mc_statistics,
+    // counterexample + the four ce-* sub-schemas).
+    let defs = rfs::info_format::mc_report_schema().definitions;
+    assert_eq!(defs.len(), 7);
+    for (name, _) in defs {
+        assert!(
+            text.contains(&format!("\n## {name}\n")),
+            "missing section for {name}"
+        );
+    }
+
+    // The counterexample section carries the kind table (all three kinds).
+    for k in [
+        rfs::codegen_mc::JSON_CE_KIND_TRACE,
+        rfs::codegen_mc::JSON_CE_KIND_LASSO,
+        rfs::codegen_mc::JSON_CE_KIND_DEADLOCK_CONFIG,
+    ] {
+        assert!(
+            text.contains(&format!("| `{k}` | ")),
+            "missing kind row {k}"
+        );
+    }
+}
+
+// ---------------------------------------------------------------------------
+// mc-report: D-P7-9 sync walk over real benchmark runs (Phase 7 task 8)
+// ---------------------------------------------------------------------------
+
+// The 6-tuple case type is complex by design (key, source, runtime args,
+// expected reason/label/step) - a struct would add more lines than it saves.
+#[allow(clippy::type_complexity)]
+#[test]
+fn mc_report_walk_benchmarks_both_backends() {
+    // Pass runs: all six benchmark specs -> status=pass-complete, no fail
+    // fields, no counterexample.
+    let bench_specs = [
+        "43_sliding_window.rfs",
+        "44_token_ring.rfs",
+        "45_elevator.rfs",
+        "47_http2_stream.rfs",
+        "48_usb_control_transfer.rfs",
+        "49_can_arbitration.rfs",
+    ];
+    for name in bench_specs {
+        let src = common::fail_variants::spec_source(name);
+        for backend in ["rust", "c"] {
+            let bin = ce_mc_binary(&format!("mcrep|{name}|{backend}"), backend, &src);
+            let rep = mc_report_of(&bin, name, &[]);
+            assert_eq!(
+                rep.get("status").and_then(rfs::json_rw::Json::as_str),
+                Some("pass-complete"),
+                "{name}/{backend}"
+            );
+            for k in ["reason", "label", "step", "counterexample"] {
+                assert!(
+                    rep.get(k).is_none(),
+                    "{name}/{backend}: '{k}' on a pass-complete run"
+                );
+            }
+            walk_mc_report(&rep, &format!("{name}/{backend}"));
+        }
+    }
+
+    // Fail runs: the five pinned FAIL variants shared with benchmark_mc_test
+    // (trace x4 + lasso) plus example 04 for the deadlock reason. The pins
+    // are the same deterministic values benchmark_mc_test asserts.
+    let cases: Vec<(&str, String, &[&str], &str, &str, i64)> = vec![
+        (
+            "ring_no_grant",
+            common::fail_variants::RING_NO_GRANT_SRC.to_string(),
+            &[],
+            "property-violation",
+            "holder_no_request",
+            1,
+        ),
+        (
+            "elev_noup",
+            common::fail_variants::ELEV_NO_UP_SRC.to_string(),
+            &[],
+            "liveness-violation",
+            "up2_served",
+            0,
+        ),
+        (
+            "http2_rst_fail",
+            common::fail_variants::http2_rst_fail_src(),
+            &[],
+            "property-violation",
+            "rst_goes_closed",
+            2,
+        ),
+        (
+            "48_usb_control_transfer",
+            common::fail_variants::spec_source("48_usb_control_transfer.rfs"),
+            &["--assumes", "none"],
+            "property-violation",
+            "completes_after_setup",
+            16,
+        ),
+        (
+            "can_passive_fail",
+            common::fail_variants::can_passive_fail_src(),
+            &[],
+            "property-violation",
+            "passive_band",
+            6,
+        ),
+        (
+            "ex04_deadlock",
+            common::fail_variants::spec_source("04_tcp_handshake_like.rfs"),
+            &[],
+            "deadlock",
+            "-",
+            2,
+        ),
+    ];
+    for (key, src, args, want_reason, want_label, want_step) in cases {
+        for backend in ["rust", "c"] {
+            let bin = ce_mc_binary(&format!("mcrep|{key}|{backend}"), backend, &src);
+            let rep = mc_report_of(&bin, key, args);
+            assert_eq!(
+                rep.get("status").and_then(rfs::json_rw::Json::as_str),
+                Some("fail"),
+                "{key}/{backend}"
+            );
+            assert_eq!(
+                rep.get("reason").and_then(rfs::json_rw::Json::as_str),
+                Some(want_reason),
+                "{key}/{backend}"
+            );
+            assert_eq!(
+                rep.get("label").and_then(rfs::json_rw::Json::as_str),
+                Some(want_label),
+                "{key}/{backend}"
+            );
+            assert_eq!(
+                rep.get("step").and_then(rfs::json_rw::Json::as_int),
+                Some(want_step),
+                "{key}/{backend}"
+            );
+            assert!(
+                rep.get("counterexample").is_some(),
+                "{key}/{backend}: fail carries a counterexample"
+            );
+            walk_mc_report(&rep, &format!("{key}/{backend}"));
+        }
+    }
+
+    // unknown-state-limit: example 43 truncated to 1 state (the same case
+    // backend_parity_test pins for the five status/reason combinations).
+    let src = common::fail_variants::spec_source("43_sliding_window.rfs");
+    for backend in ["rust", "c"] {
+        let bin = ce_mc_binary(&format!("mcrep|ex43_unknown|{backend}"), backend, &src);
+        let rep = mc_report_of(&bin, "ex43_unknown", &["--max-states", "1"]);
+        assert_eq!(
+            rep.get("status").and_then(rfs::json_rw::Json::as_str),
+            Some("unknown-state-limit"),
+            "{backend}"
+        );
+        for k in ["reason", "label", "step", "counterexample"] {
+            assert!(
+                rep.get(k).is_none(),
+                "ex43_unknown/{backend}: '{k}' on an unknown run"
+            );
+        }
+        walk_mc_report(&rep, &format!("ex43_unknown/{backend}"));
+    }
+}
+
+#[test]
+fn mc_report_walk_ref_mc_in_process() {
+    // The toolchain-side builder (ref_mc::to_json_report) is the third
+    // producer of the full report - it must agree with the model too. One
+    // run per status: pass-complete, fail (trace), fail (deadlock), and
+    // unknown-state-limit via the state cap.
+    let pass_src = common::fail_variants::spec_source("43_sliding_window.rfs");
+    let ir = rfs::parse_source(&pass_src).expect("43 must parse");
+    let module = &ir.modules[0];
+
+    let res = rfs::ref_mc::run(module, &rfs::ref_mc::RefConfig::default()).expect("ref_mc 43");
+    assert_eq!(res.status, rfs::codegen_mc::ExactStatus::PassComplete);
+    walk_mc_report(
+        &rfs::ref_mc::to_json_report(&res, module).to_json(),
+        "ref_mc/43_pass",
+    );
+
+    let ir = rfs::parse_source(common::fail_variants::RING_NO_GRANT_SRC)
+        .expect("ring_no_grant must parse");
+    let module = &ir.modules[0];
+    let res =
+        rfs::ref_mc::run(module, &rfs::ref_mc::RefConfig::default()).expect("ref_mc ring_no_grant");
+    assert_eq!(res.status, rfs::codegen_mc::ExactStatus::Fail);
+    walk_mc_report(
+        &rfs::ref_mc::to_json_report(&res, module).to_json(),
+        "ref_mc/ring_no_grant",
+    );
+
+    let dl_src = common::fail_variants::spec_source("04_tcp_handshake_like.rfs");
+    let ir = rfs::parse_source(&dl_src).expect("04 must parse");
+    let module = &ir.modules[0];
+    let res = rfs::ref_mc::run(module, &rfs::ref_mc::RefConfig::default()).expect("ref_mc 04");
+    assert_eq!(res.status, rfs::codegen_mc::ExactStatus::Fail);
+    walk_mc_report(
+        &rfs::ref_mc::to_json_report(&res, module).to_json(),
+        "ref_mc/ex04_deadlock",
+    );
+
+    let ir = rfs::parse_source(&pass_src).expect("43 must parse");
+    let module = &ir.modules[0];
+    let cfg = rfs::ref_mc::RefConfig {
+        max_states: 1,
+        ..Default::default()
+    };
+    let res = rfs::ref_mc::run(module, &cfg).expect("ref_mc 43 capped");
+    assert_eq!(res.status, rfs::codegen_mc::ExactStatus::UnknownStateLimit);
+    walk_mc_report(
+        &rfs::ref_mc::to_json_report(&res, module).to_json(),
+        "ref_mc/43_unknown",
+    );
 }
 
 // ---------------------------------------------------------------------------

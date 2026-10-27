@@ -86,15 +86,16 @@ fn list_pins_all_registered_formats() {
         "unexpected row count: {text}"
     );
 
-    // Byte pin of the current registry (tasks 5-8 ship spec-rfs + spec-json
-    // + ce-trace + mc-report).
+    // Byte pin of the current registry (tasks 5-9 ship spec-rfs + spec-json
+    // + ce-trace + mc-report + validate-json).
     assert_eq!(
         expected,
         vec![
             "spec-rfs".to_string(),
             "spec-json".to_string(),
             "ce-trace".to_string(),
-            "mc-report".to_string()
+            "mc-report".to_string(),
+            "validate-json".to_string()
         ]
     );
     assert!(
@@ -118,6 +119,12 @@ fn list_pins_all_registered_formats() {
     assert!(
         text.contains(
             "| `mc-report` | md, schema | Full exact-mode MC report (--counterexample-format json; status, metrics, statistics + counterexample) |"
+        ),
+        "{text}"
+    );
+    assert!(
+        text.contains(
+            "| `validate-json` | md, schema | rfs validate --json diagnostics (file mode: one object; directory mode: array of failing files) |"
         ),
         "{text}"
     );
@@ -1421,6 +1428,266 @@ fn mc_report_walk_ref_mc_in_process() {
         &rfs::ref_mc::to_json_report(&res, module).to_json(),
         "ref_mc/43_unknown",
     );
+}
+
+// ---------------------------------------------------------------------------
+// validate-json: schema output (Phase 7 task 9, D-P7-8)
+// ---------------------------------------------------------------------------
+
+#[test]
+fn validate_json_schema_document_pin() {
+    let out = run_info_format(&["validate-json", "--output", "schema"]);
+    assert!(out.status.success(), "stderr: {}", stderr_of(&out));
+    let text = stdout_of(&out);
+
+    // Pretty JSON through json_rw (project rule) - must round-trip.
+    let doc = rfs::json_rw::parse(&text).expect("schema output must be valid JSON");
+    assert_eq!(
+        doc.get("$schema").and_then(|v| v.as_str()),
+        Some("http://json-schema.org/draft-07/schema#")
+    );
+    assert_eq!(
+        doc.get("title").and_then(|v| v.as_str()),
+        Some("Validate diagnostics document (validate-json)")
+    );
+
+    // Root: union of the two shapes - file mode object | directory mode
+    // array (draft-07 anyOf; a non-object root is wrapped in allOf).
+    let allof = doc.get("allOf").and_then(|v| v.as_arr()).cloned().unwrap();
+    assert_eq!(allof.len(), 1);
+    let anyof = allof[0]
+        .get("anyOf")
+        .and_then(|v| v.as_arr())
+        .cloned()
+        .unwrap();
+    assert_eq!(anyof.len(), 2);
+    assert_eq!(
+        anyof[0].get("$ref").and_then(|v| v.as_str()),
+        Some("#/definitions/validate_file")
+    );
+    let arr = &anyof[1];
+    assert_eq!(arr.get("type").and_then(|v| v.as_str()), Some("array"));
+    assert_eq!(
+        arr.get("items")
+            .cloned()
+            .unwrap()
+            .get("$ref")
+            .and_then(|v| v.as_str()),
+        Some("#/definitions/validate_file")
+    );
+
+    // Both definitions present, strict, keys in writer order.
+    let defs = doc.get("definitions").cloned().unwrap();
+    for n in ["validate_file", "validate_error"] {
+        assert!(defs.get(n).is_some(), "missing definition {n}");
+    }
+    let file_def = defs.get("validate_file").cloned().unwrap();
+    assert_eq!(prop_names(&file_def), vec!["file", "ok", "errors"]);
+    assert_eq!(
+        file_def
+            .get("additionalProperties")
+            .and_then(|v| v.as_bool()),
+        Some(false)
+    );
+    let err_def = defs.get("validate_error").cloned().unwrap();
+    assert_eq!(prop_names(&err_def), vec!["kind", "line", "col", "message"]);
+    assert_eq!(
+        err_def
+            .get("additionalProperties")
+            .and_then(|v| v.as_bool()),
+        Some(false)
+    );
+
+    // kind enum = the two StructuredError kinds from frontend.rs.
+    let kind_schema = err_def
+        .get("properties")
+        .cloned()
+        .unwrap()
+        .get("kind")
+        .cloned()
+        .unwrap();
+    assert_eq!(
+        enum_vals(&kind_schema),
+        vec!["parse".to_string(), "semantic".to_string()]
+    );
+
+    // All four error keys are required (line/col are 0, never omitted).
+    let err_req_arr = err_def
+        .get("required")
+        .and_then(|v| v.as_arr())
+        .cloned()
+        .unwrap();
+    let err_req: Vec<&str> = err_req_arr.iter().filter_map(|v| v.as_str()).collect();
+    assert_eq!(err_req, vec!["kind", "line", "col", "message"]);
+}
+
+#[test]
+fn validate_json_md_pins_sections() {
+    let out = run_info_format(&["validate-json"]);
+    assert!(out.status.success(), "stderr: {}", stderr_of(&out));
+    let text = stdout_of(&out);
+
+    assert!(
+        text.starts_with("# Validate diagnostics document (validate-json)\n"),
+        "{}...",
+        &text[..text.len().min(60)]
+    );
+    // Union root: both shapes named in the document section.
+    assert!(
+        text.contains("Type: [validate_file] | array of [validate_file]"),
+        "{text}"
+    );
+
+    // One section per named definition.
+    for (name, _) in rfs::info_format::validate_json_schema().definitions {
+        assert!(
+            text.contains(&format!("\n## {name}\n")),
+            "missing section for {name}"
+        );
+    }
+
+    // Every documented key appears as a table row.
+    for k in ["file", "ok", "errors", "kind", "line", "col", "message"] {
+        assert!(text.contains(&format!("| `{k}` | ")), "missing row for {k}");
+    }
+
+    // The modes section carries both example shapes.
+    assert!(text.contains("## file mode vs directory mode"), "{text}");
+    assert!(text.contains("\"ok\": true"), "{text}");
+    assert!(text.contains("\"kind\": \"parse\""), "{text}");
+}
+
+// ---------------------------------------------------------------------------
+// validate-json: D-P7-9 sync walk over real validation runs (Phase 7 task 9)
+// ---------------------------------------------------------------------------
+
+/// The D-P7-9 walk against the validate-json model (required keys present,
+/// no undocumented key at any object level, types + enum constraints agree).
+fn walk_validate_json(doc: &rfs::json_schema::SchemaDoc, json: &rfs::json_rw::Json, what: &str) {
+    if let Err(errs) = rfs::json_schema::walk_check(doc, json) {
+        panic!(
+            "{what}: validate-json model out of sync with the rendered document:\n{}",
+            errs.join("\n")
+        );
+    }
+}
+
+#[test]
+fn validate_json_walk_invalid_examples_both_kinds() {
+    let doc = rfs::info_format::validate_json_schema();
+    let files = rfs::collect_rfs_files(root().join("examples/invalid"))
+        .expect("invalid examples directory should exist");
+    assert_eq!(files.len(), 13, "corpus changed: update the pin");
+
+    let mut kinds: std::collections::HashSet<&str> = std::collections::HashSet::new();
+    for path in &files {
+        // File mode: one object for the input file.
+        let failed = rfs::frontend::run_validate_structured(None, path)
+            .unwrap_or_else(|e| panic!("{}: {e:?}", path.display()));
+        assert!(
+            !failed.is_empty(),
+            "{} must fail validation",
+            path.display()
+        );
+        let text = rfs::frontend::render_validate_json(path, false, &failed);
+        let json = rfs::json_rw::parse(&text).unwrap_or_else(|e| {
+            panic!(
+                "{}: rendered document is not valid JSON: {e}",
+                path.display()
+            )
+        });
+        walk_validate_json(&doc, &json, &format!("file mode {}", path.display()));
+
+        // ok=false with at least one error of a documented kind.
+        assert_eq!(json.get("ok").and_then(|v| v.as_bool()), Some(false));
+        for (p, errs) in &failed {
+            assert_eq!(p, path);
+            for e in errs {
+                kinds.insert(e.kind);
+            }
+        }
+    }
+    // Both error kinds must be observed across the corpus.
+    assert!(
+        kinds.contains("parse"),
+        "no parse errors observed: {kinds:?}"
+    );
+    assert!(
+        kinds.contains("semantic"),
+        "no semantic errors observed: {kinds:?}"
+    );
+}
+
+#[test]
+fn validate_json_walk_valid_files_ok_true() {
+    let doc = rfs::info_format::validate_json_schema();
+    let files = rfs::collect_rfs_files(root().join("examples/valid"))
+        .expect("valid examples directory should exist");
+    assert!(!files.is_empty(), "no valid examples found");
+
+    for path in &files {
+        let failed = rfs::frontend::run_validate_structured(None, path)
+            .unwrap_or_else(|e| panic!("{}: {e:?}", path.display()));
+        assert!(failed.is_empty(), "{} must validate clean", path.display());
+        // File mode prints the object even on success: ok=true, errors=[].
+        let text = rfs::frontend::render_validate_json(path, false, &failed);
+        let json = rfs::json_rw::parse(&text).unwrap_or_else(|e| {
+            panic!(
+                "{}: rendered document is not valid JSON: {e}",
+                path.display()
+            )
+        });
+        walk_validate_json(&doc, &json, &format!("file mode {}", path.display()));
+        assert_eq!(json.get("ok").and_then(|v| v.as_bool()), Some(true));
+        assert!(
+            json.get("errors")
+                .and_then(|v| v.as_arr())
+                .map(|a| a.is_empty())
+                == Some(true),
+            "{}: errors must be an empty array",
+            path.display()
+        );
+    }
+}
+
+#[test]
+fn validate_json_walk_directory_mode() {
+    let doc = rfs::info_format::validate_json_schema();
+
+    // All-failing directory: one object per failing file.
+    let invalid_dir = root().join("examples/invalid");
+    let failed =
+        rfs::frontend::run_validate_structured(Some(rfs::frontend::Format::Rfs), &invalid_dir)
+            .expect("directory validation should run");
+    assert_eq!(failed.len(), 13, "every invalid example must fail");
+    let text = rfs::frontend::render_validate_json(&invalid_dir, true, &failed);
+    let json = rfs::json_rw::parse(&text).expect("directory document must be valid JSON");
+    walk_validate_json(&doc, &json, "directory mode examples/invalid");
+    let arr = json.as_arr().cloned().unwrap();
+    assert_eq!(arr.len(), 13);
+    for entry in &arr {
+        assert_eq!(entry.get("ok").and_then(|v| v.as_bool()), Some(false));
+        assert!(
+            !entry
+                .get("errors")
+                .and_then(|v| v.as_arr())
+                .cloned()
+                .unwrap()
+                .is_empty(),
+            "failing file must carry errors"
+        );
+    }
+
+    // All-valid directory: the array is EMPTY (valid files are omitted).
+    let valid_dir = root().join("examples/valid");
+    let failed =
+        rfs::frontend::run_validate_structured(Some(rfs::frontend::Format::Rfs), &valid_dir)
+            .expect("directory validation should run");
+    assert!(failed.is_empty(), "all valid examples must pass");
+    let text = rfs::frontend::render_validate_json(&valid_dir, true, &failed);
+    let json = rfs::json_rw::parse(&text).unwrap();
+    walk_validate_json(&doc, &json, "directory mode examples/valid");
+    assert!(json.as_arr().cloned().unwrap().is_empty());
 }
 
 // ---------------------------------------------------------------------------

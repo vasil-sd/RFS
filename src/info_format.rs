@@ -849,6 +849,127 @@ fn mc_report_render(output: &str) -> Result<String, Vec<String>> {
     }
 }
 
+// ---------------------------------------------------------------------------
+// validate-json - structured diagnostics of `rfs validate --json`
+// (Phase 7 task 9)
+// ---------------------------------------------------------------------------
+
+/// The field model of the `rfs validate --json` document, derived from
+/// `frontend::validate_json_doc` / `render_validate_json` (the single source
+/// of truth for key names and order). File mode emits ONE object for the
+/// input file; directory mode emits an array of one object per FAILING file
+/// (valid files are omitted), so the root is a union of the two shapes over
+/// the same `validate_file` definition. The walk test over all 13 invalid
+/// examples + every valid example proves the model stays in sync with the
+/// writer (D-P7-9).
+pub fn validate_json_schema() -> SchemaDoc {
+    let file_doc = FieldType::obj(vec![
+        Field::req(
+            "file",
+            FieldType::str(),
+            Some("the input path as passed on the command line (file mode) or the collected file path (directory mode)"),
+        ),
+        Field::req(
+            "ok",
+            FieldType::bool(),
+            Some("true IFF `errors` is empty"),
+        ),
+        Field::req(
+            "errors",
+            FieldType::arr(FieldType::r#ref("validate_error")),
+            Some("structured diagnostics; empty when ok (file mode prints the object even on success)"),
+        ),
+    ]);
+    let error_obj = FieldType::obj(vec![
+        Field::req(
+            "kind",
+            // The literals mirror the call sites in frontend.rs
+            // (`StructuredError { kind: "parse" | "semantic", .. }`).
+            FieldType::enum_str(&["parse", "semantic"]),
+            Some("\"parse\" = RFS source rejected by the parser (line/col are the 1-based error position); \"semantic\" = parsed IR rejected by the validator, or a .json input that is not valid IR JSON in directory mode (no span: line/col are 0)"),
+        ),
+        Field::req(
+            "line",
+            FieldType::int(),
+            Some("1-based error line; 0 when unknown (semantic errors carry no span)"),
+        ),
+        Field::req(
+            "col",
+            FieldType::int(),
+            Some("1-based error column; 0 when unknown"),
+        ),
+        Field::req(
+            "message",
+            FieldType::str(),
+            Some("the diagnostic text (same wording as the stderr report)"),
+        ),
+    ]);
+
+    SchemaDoc {
+        title: "Validate diagnostics document (validate-json)".into(),
+        description:
+            "The structured diagnostics document of `rfs validate --json` -\nthe shape editor integrations consume (Phase 5 task 13). File mode prints\nONE object for the input file (`ok: true` with an empty `errors` array on\nsuccess); directory mode prints an array of one object per FAILING file -\nvalid files are omitted entirely, so an all-valid directory prints `[]`.\nExit codes mirror the text path: 0 when nothing failed, 1 otherwise. The\nroot is a union of the two shapes (draft-07 anyOf over the same\n`validate_file` definition). A `.json` input that is not valid IR JSON\nproduces a CLI-level stderr error in file mode (no document) but appears as\na `kind: \"semantic\"` entry (line/col 0) in directory mode.".into(),
+        root: FieldType::union(vec![
+            FieldType::r#ref("validate_file"),
+            FieldType::arr(FieldType::r#ref("validate_file")),
+        ]),
+        definitions: vec![
+            ("validate_file".into(), file_doc),
+            ("validate_error".into(), error_obj),
+        ],
+        extra_sections: vec![(
+            "file mode vs directory mode".into(),
+            VALIDATE_MODES_MD.to_string(),
+        )],
+    }
+}
+
+/// The two document shapes with examples (md-only section; never emitted
+/// into the schema).
+const VALIDATE_MODES_MD: &str = r#"The same `validate_file` object appears in two shapes, selected by the input kind:
+
+File mode (`rfs validate --json spec.rfs`) - one object, printed even on success:
+
+```json
+{
+  "file": "spec.rfs",
+  "ok": true,
+  "errors": []
+}
+```
+
+Directory mode (`rfs validate --json --input rfs specs/`) - an array of one
+object per FAILING file; valid files are omitted (an all-valid directory
+prints `[]`):
+
+```json
+[
+  {
+    "file": "specs/broken.rfs",
+    "ok": false,
+    "errors": [
+      { "kind": "parse", "line": 7, "col": 9, "message": "RFS parse error" }
+    ]
+  }
+]
+```
+
+Exit codes mirror the text path: 0 when nothing failed, 1 otherwise. A
+`.json` input that is not valid IR JSON produces a CLI-level stderr error in
+file mode (no document) but appears as a `kind: "semantic"` entry (line/col
+0) in directory mode."#;
+
+fn validate_json_render(output: &str) -> Result<String, Vec<String>> {
+    let doc = validate_json_schema();
+    match output {
+        "md" => Ok(json_schema::render_md(&doc)),
+        "schema" => Ok(json_schema::emit_schema_pretty(&doc)),
+        other => Err(vec![format!(
+            "validate-json: unsupported output '{other}' (expected md or schema)"
+        )]),
+    }
+}
+
 /// The format registry. Order = `--list` order.
 pub static FORMATS: &[FormatInfo] = &[
     FormatInfo {
@@ -875,6 +996,12 @@ pub static FORMATS: &[FormatInfo] = &[
         summary: "Full exact-mode MC report (--counterexample-format json; status, metrics, statistics + counterexample)",
         outputs: &["md", "schema"],
         render: mc_report_render,
+    },
+    FormatInfo {
+        name: "validate-json",
+        summary: "rfs validate --json diagnostics (file mode: one object; directory mode: array of failing files)",
+        outputs: &["md", "schema"],
+        render: validate_json_render,
     },
 ];
 

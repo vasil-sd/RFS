@@ -1243,6 +1243,100 @@ fn diagram_dot_render(output: &str) -> Result<String, Vec<String>> {
     }
 }
 
+// ---------------------------------------------------------------------------
+// diagram-puml - the PlantUML subset `rfs diagram --format puml` generates
+// (Phase 7 task 12)
+// ---------------------------------------------------------------------------
+
+/// The documented PlantUML subset, derived from `diagrams/plantuml.rs`
+/// `generate` (the single source of truth). The sync test over all 50 valid
+/// examples asserts that every generated line is one of the documented shapes
+/// filled with the module's IR data - no undocumented token (D-P7-9).
+const PUML_SUBSET_MD: &str = r##"# PlantUML state diagram subset (diagram-puml)
+
+The PlantUML text that `rfs diagram --format puml` generates for one module.
+Generation is pure Rust and deterministic: transitions in IR order, on_error
+edges last. The output is EXACTLY the following structure - nothing else is
+ever emitted (the sync test over all 50 valid examples enforces it):
+
+```text
+@startuml
+title <module_name>
+[*] --> <initial>            <- only when the module has an initial state
+<transition lines + note-on-link lines, IR order>
+<on_error lines + note-on-link lines - only when the module declares on_error>
+@enduml
+```
+
+## Frame lines (always exactly these)
+
+| Line | When |
+|---|---|
+| `@startuml` | first line, always |
+| `title <module_name>` | second line, always (the module name verbatim) |
+| `[*] --> <initial>` | only when the module has an initial state |
+| `@enduml` | last line, always |
+
+## Transition lines (one per transition, IR order)
+
+```text
+<from> --> <to> : <EventLabel>
+<from> --> <to> : <EventLabel> \n <guard>
+```
+
+- `<EventLabel>`: the event pattern rendered as `Group`, `Group(Variant)` or
+  `Group(Variant(args))`; args are pattern expressions - `_` wildcard, a bound
+  name, an integer/boolean literal, or a `Type.Variant` path.
+- With a guard the label is `<EventLabel> \n <guard>`: `\n` is the LITERAL
+  two-character sequence (backslash + n) followed by a space - not a newline.
+  The guard is the rendered expression (literals, dot-separated paths, unary
+  `!`/`~`/`-`, binary operators with parentheses).
+
+## note-on-link lines (emitted data)
+
+Directly after each transition line, one line per emitted output:
+
+```text
+note on link : emits <OutputLabel>
+```
+
+- `<OutputLabel>`: the output rendered as `Group`, `Group(Variant)` or
+  `Group(Variant(args))` (args are rendered expressions).
+- The position word is omitted (`note on link`, not `note right on link`) -
+  plantuml-core's parser rejects the position word; real PlantUML accepts both.
+
+## on_error edges (only when the module declares on_error)
+
+One dashed edge per state to the fallback target (it fires from ANY state):
+
+```text
+<state> -[dashed]-> <fallback> : on_error
+```
+
+- The bracketed `-[dashed]->` form is used - unbracketed `-dashed->` is not
+  valid PlantUML.
+- The label is exactly `on_error` (no guard part).
+- Directly after, one `note on link : emits <OutputLabel>` line per output the
+  on_error declaration emits.
+
+## State names and escaping
+
+States have no explicit declarations - they appear implicitly as edge
+endpoints (and as the `[*] -->` target). Names are inserted VERBATIM: no
+quoting or escaping is performed, which is safe because RFS identifier grammar
+guarantees none of the characters that would break PlantUML line structure
+(newlines, `:` inside a label) occur in emitted data.
+"##;
+
+fn diagram_puml_render(output: &str) -> Result<String, Vec<String>> {
+    match output {
+        "md" => Ok(PUML_SUBSET_MD.to_string()),
+        other => Err(vec![format!(
+            "diagram-puml: unsupported output '{other}' (expected md)"
+        )]),
+    }
+}
+
 /// The format registry. Order = `--list` order.
 pub static FORMATS: &[FormatInfo] = &[
     FormatInfo {
@@ -1287,6 +1381,12 @@ pub static FORMATS: &[FormatInfo] = &[
         summary: "the Graphviz DOT subset rfs diagram --format dot generates (header, node/edge line grammar, escaping)",
         outputs: &["md"],
         render: diagram_dot_render,
+    },
+    FormatInfo {
+        name: "diagram-puml",
+        summary: "the PlantUML subset rfs diagram --format puml generates (frame lines, event \\n guard labels, note on link, dashed on_error)",
+        outputs: &["md"],
+        render: diagram_puml_render,
     },
 ];
 

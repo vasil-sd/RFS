@@ -86,8 +86,9 @@ fn list_pins_all_registered_formats() {
         "unexpected row count: {text}"
     );
 
-    // Byte pin of the current registry (tasks 5-11 ship spec-rfs + spec-json
-    // + ce-trace + mc-report + validate-json + info-json + diagram-dot).
+    // Byte pin of the current registry (tasks 5-12 ship spec-rfs + spec-json
+    // + ce-trace + mc-report + validate-json + info-json + diagram-dot
+    // + diagram-puml).
     assert_eq!(
         expected,
         vec![
@@ -97,7 +98,8 @@ fn list_pins_all_registered_formats() {
             "mc-report".to_string(),
             "validate-json".to_string(),
             "info-json".to_string(),
-            "diagram-dot".to_string()
+            "diagram-dot".to_string(),
+            "diagram-puml".to_string()
         ]
     );
     assert!(
@@ -139,6 +141,12 @@ fn list_pins_all_registered_formats() {
     assert!(
         text.contains(
             "| `diagram-dot` | md | the Graphviz DOT subset rfs diagram --format dot generates (header, node/edge line grammar, escaping) |"
+        ),
+        "{text}"
+    );
+    assert!(
+        text.contains(
+            "| `diagram-puml` | md | the PlantUML subset rfs diagram --format puml generates (frame lines, event \\n guard labels, note on link, dashed on_error) |"
         ),
         "{text}"
     );
@@ -2172,6 +2180,191 @@ fn diagram_dot_generated_output_matches_documented_subset() {
         saw_struct_event,
         "corpus lost its struct-event-label coverage"
     );
+}
+
+// ---------------------------------------------------------------------------
+// diagram-puml: md document + generated-output sync (Phase 7 task 12)
+// ---------------------------------------------------------------------------
+
+#[test]
+fn diagram_puml_md_pins_sections() {
+    let out = run_info_format(&["diagram-puml"]);
+    assert!(out.status.success(), "stderr: {}", stderr_of(&out));
+    let text = stdout_of(&out);
+
+    assert!(
+        text.starts_with("# PlantUML state diagram subset (diagram-puml)\n"),
+        "{}...",
+        &text[..text.len().min(60)]
+    );
+
+    // All documented sections.
+    for s in [
+        "## Frame lines",
+        "## Transition lines",
+        "## note-on-link lines",
+        "## on_error edges",
+        "## State names and escaping",
+    ] {
+        assert!(text.contains(s), "missing section {s}");
+    }
+
+    // The exact documented line forms.
+    for l in [
+        "@startuml",
+        "title <module_name>",
+        "[*] --> <initial>",
+        "@enduml",
+        "<from> --> <to> : <EventLabel>",
+        "<from> --> <to> : <EventLabel> \\n <guard>",
+        "note on link : emits <OutputLabel>",
+        "<state> -[dashed]-> <fallback> : on_error",
+    ] {
+        assert!(text.contains(l), "missing documented line form: {l}");
+    }
+
+    // md-only entry: schema output is rejected with the supported list.
+    let out = run_info_format(&["diagram-puml", "--output", "schema"]);
+    assert!(!out.status.success());
+    let err = stderr_of(&out);
+    assert!(err.contains("does not support output 'schema'"), "{err}");
+    assert!(err.contains("supported: md"), "{err}");
+}
+
+/// The coverage check for the diagram-puml format (D-P7-9 style): every line
+/// of the PlantUML text `generate()` emits for a module must be one of the
+/// documented line shapes filled with that module's IR data - no undocumented
+/// token. The expected lines are rebuilt from the IR with the documented
+/// templates (event/guard/emit label text via the pub label helpers, which
+/// implement the documented renderings).
+fn check_puml_documented_subset(text: &str, m: &rfs::ir::Module, what: &str) {
+    let lines: Vec<&str> = text.lines().collect();
+
+    // Frame: @startuml + title first, @enduml last.
+    assert_eq!(
+        lines.first().copied(),
+        Some("@startuml"),
+        "{what}: undocumented first line"
+    );
+    assert_eq!(
+        lines.get(1).copied(),
+        Some(format!("title {}", m.name).as_str()),
+        "{what}: undocumented title line"
+    );
+    assert_eq!(
+        lines.last().copied(),
+        Some("@enduml"),
+        "{what}: undocumented last line"
+    );
+
+    let mut idx = 2;
+    // [*] --> initial IFF the module has an initial state.
+    if let Some(init) = &m.initial_state {
+        assert_eq!(
+            lines.get(idx).copied(),
+            Some(format!("[*] --> {init}").as_str()),
+            "{what}: undocumented initial-state line"
+        );
+        idx += 1;
+    }
+
+    // Transition lines + note-on-link lines, IR order.
+    for t in &m.transitions {
+        let ev = rfs::diagrams::event_label(&t.pattern);
+        let label = match rfs::diagrams::guard_label(&t.guard) {
+            None => ev.clone(),
+            Some(g) => format!("{ev} \\n {g}"),
+        };
+        assert_eq!(
+            lines.get(idx).copied(),
+            Some(format!("{} --> {} : {}", t.state, t.next_state, label).as_str()),
+            "{what}: transition line not in the documented shape"
+        );
+        idx += 1;
+        for e in rfs::diagrams::emit_labels(&t.emits) {
+            assert_eq!(
+                lines.get(idx).copied(),
+                Some(format!("note on link : emits {e}").as_str()),
+                "{what}: note-on-link line not in the documented shape"
+            );
+            idx += 1;
+        }
+    }
+
+    // on_error edges: IFF declared, one per state to the fallback target.
+    if let Some(on) = &m.on_error {
+        for s in rfs::diagrams::states(m) {
+            assert_eq!(
+                lines.get(idx).copied(),
+                Some(format!("{s} -[dashed]-> {} : on_error", on.next_state).as_str()),
+                "{what}: on_error edge line not in the documented shape"
+            );
+            idx += 1;
+            for e in rfs::diagrams::emit_labels(&on.emits) {
+                assert_eq!(
+                    lines.get(idx).copied(),
+                    Some(format!("note on link : emits {e}").as_str()),
+                    "{what}: on_error note-on-link line not in the documented shape"
+                );
+                idx += 1;
+            }
+        }
+    }
+
+    // No extra lines beyond the documented structure (@enduml is last).
+    assert_eq!(idx, lines.len() - 1, "{what}: undocumented trailing lines");
+}
+
+#[test]
+fn diagram_puml_generated_output_matches_documented_subset() {
+    let files = rfs::collect_rfs_files(root().join("examples/valid"))
+        .expect("valid examples directory should exist");
+    assert!(!files.is_empty(), "no valid examples found");
+
+    // Corpus coverage: the walk must exercise every documented construct,
+    // not just the plain fast path.
+    let mut saw_guard = false;
+    let mut saw_on_error = false;
+    let mut saw_struct_event = false;
+    let mut saw_emit_note = false;
+
+    for path in &files {
+        let ir = rfs::parse_file(path)
+            .unwrap_or_else(|e| panic!("{}: valid example failed to parse: {e}", path.display()));
+        for m in &ir.modules {
+            let text = rfs::diagrams::plantuml::generate(m);
+            check_puml_documented_subset(&text, m, &path.display().to_string());
+
+            for t in &m.transitions {
+                if t.guard.is_some() {
+                    saw_guard = true;
+                }
+                if !t.emits.is_empty() {
+                    saw_emit_note = true;
+                }
+                if matches!(
+                    &t.pattern.variant,
+                    Some(rfs::ir::PatternVariant::Struct { .. })
+                ) {
+                    saw_struct_event = true;
+                }
+            }
+            if let Some(on) = &m.on_error {
+                saw_on_error = true;
+                if !on.emits.is_empty() {
+                    saw_emit_note = true;
+                }
+            }
+        }
+    }
+
+    assert!(saw_guard, "corpus lost its guard-label coverage");
+    assert!(saw_on_error, "corpus lost its on_error-edge coverage");
+    assert!(
+        saw_struct_event,
+        "corpus lost its struct-event-label coverage"
+    );
+    assert!(saw_emit_note, "corpus lost its note-on-link coverage");
 }
 
 // ---------------------------------------------------------------------------

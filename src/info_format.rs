@@ -970,6 +970,198 @@ fn validate_json_render(output: &str) -> Result<String, Vec<String>> {
     }
 }
 
+// ---------------------------------------------------------------------------
+// info-json - the `rfs info <spec> --json` introspection document
+// (Phase 7 task 10)
+// ---------------------------------------------------------------------------
+
+/// The field model of the `rfs info <spec> --json` document, derived from
+/// `info.rs` `render_json` / `module_json` (the single source of truth for
+/// key names and order). Unlike the spec-json IR document: types/expressions/
+/// formulas are rendered as human-readable strings (the same text the default
+/// `rfs info` prints), `transitions` is an integer COUNT (not an array of
+/// transition objects), and each property/assumption carries its
+/// `monitor_status` (the R1-R4 monitor-subset verdict shared with the
+/// codegen backends). The walk test over all valid examples proves the model
+/// stays in sync with the writer (D-P7-9).
+pub fn info_json_schema() -> SchemaDoc {
+    let field = FieldType::obj(vec![
+        Field::req("name", FieldType::str(), Some("field name")),
+        Field::req(
+            "type",
+            FieldType::str(),
+            Some("rendered type text (e.g. bool, bit<8>, an enum type name)"),
+        ),
+    ]);
+    let variant = FieldType::obj(vec![
+        Field::req("name", FieldType::str(), Some("variant name")),
+        Field::req(
+            "fields",
+            FieldType::nullable(FieldType::arr(FieldType::r#ref("info_field"))),
+            Some("null for a unit variant; the field list for a struct variant"),
+        ),
+    ]);
+    let group = FieldType::obj(vec![
+        Field::req(
+            "name",
+            FieldType::str(),
+            Some("group name (event or output)"),
+        ),
+        Field::req(
+            "variants",
+            FieldType::arr(FieldType::r#ref("info_variant")),
+            None,
+        ),
+    ]);
+    let on_error = FieldType::obj(vec![
+        Field::req(
+            "next_state",
+            FieldType::str(),
+            Some("the state entered when an input has no enabled transition"),
+        ),
+        Field::req(
+            "emits",
+            FieldType::arr(FieldType::r#ref("info_emit")),
+            Some("outputs emitted on the error transition (may be empty)"),
+        ),
+    ]);
+    let emit = FieldType::obj(vec![
+        Field::req("group", FieldType::str(), Some("output group name")),
+        Field::req(
+            "variant",
+            FieldType::nullable(FieldType::str()),
+            Some("variant name; null when the group has a single unnamed variant"),
+        ),
+    ]);
+    let prop = FieldType::obj(vec![
+        Field::req("name", FieldType::str(), Some("property/assumption label")),
+        Field::req(
+            "formula",
+            FieldType::str(),
+            Some("rendered formula text (the same text the default `rfs info` prints)"),
+        ),
+        Field::req(
+            "monitor_status",
+            FieldType::str(),
+            Some("\"monitored\" or \"skipped: <reason>\" - the SAME R1-R4 monitor-subset check the codegen backends use, so info never disagrees with generated code; the reason text is open-ended, hence a plain string (not an enum)"),
+        ),
+    ]);
+
+    SchemaDoc {
+        title: "Info introspection document (info-json)".into(),
+        description:
+            "The machine-readable introspection document of `rfs info <spec> --json`\n(Phase 5 task 3) - what IDE/tooling consumers parse. One object per module in\nthe top-level `modules` array; stable key order, all keys always present with\nJSON null for absent values (a fixed schema). Unlike the spec-json IR\ndocument: types/expressions/formulas are rendered as human-readable strings,\n`transitions` is an integer COUNT (not an array of transition objects - use\nspec-json for the full transition data), and each property/assumption carries\nits `monitor_status`.".into(),
+        root: FieldType::obj(vec![Field::req(
+            "modules",
+            FieldType::arr(FieldType::r#ref("info_module")),
+            Some("one object per module, in spec order"),
+        )]),
+        definitions: vec![
+            (
+                "info_module".into(),
+                FieldType::obj(vec![
+                    Field::req("name", FieldType::str(), Some("module name")),
+                    Field::req(
+                        "version",
+                        FieldType::nullable(FieldType::str()),
+                        Some("the version header (X.Y or X.Y.Z); null when the module has none"),
+                    ),
+                    Field::req(
+                        "initial_state",
+                        FieldType::nullable(FieldType::str()),
+                        Some("the initial state name; null when absent"),
+                    ),
+                    Field::req(
+                        "enums",
+                        FieldType::arr(FieldType::r#ref("info_enum")),
+                        None,
+                    ),
+                    Field::req(
+                        "events",
+                        FieldType::arr(FieldType::r#ref("info_group")),
+                        None,
+                    ),
+                    Field::req(
+                        "outputs",
+                        FieldType::arr(FieldType::r#ref("info_group")),
+                        None,
+                    ),
+                    Field::req(
+                        "vars",
+                        FieldType::arr(FieldType::r#ref("info_var")),
+                        None,
+                    ),
+                    Field::req(
+                        "transitions",
+                        FieldType::int(),
+                        Some("the NUMBER of transitions in the module - an integer count, NOT an array of transition objects (use spec-json for the full transition data)"),
+                    ),
+                    Field::req(
+                        "on_error",
+                        FieldType::nullable(FieldType::r#ref("info_on_error")),
+                        Some("the on_error declaration; null when the module has none"),
+                    ),
+                    Field::req(
+                        "properties",
+                        FieldType::arr(FieldType::r#ref("info_prop")),
+                        None,
+                    ),
+                    Field::req(
+                        "assumptions",
+                        FieldType::arr(FieldType::r#ref("info_prop")),
+                        None,
+                    ),
+                ]),
+            ),
+            (
+                "info_enum".into(),
+                FieldType::obj(vec![
+                    Field::req("name", FieldType::str(), Some("enum type name")),
+                    Field::req(
+                        "variants",
+                        FieldType::arr(FieldType::str()),
+                        Some("variant names, in declaration order"),
+                    ),
+                ]),
+            ),
+            ("info_group".into(), group),
+            ("info_variant".into(), variant),
+            ("info_field".into(), field),
+            (
+                "info_var".into(),
+                FieldType::obj(vec![
+                    Field::req("name", FieldType::str(), Some("variable name")),
+                    Field::req(
+                        "type",
+                        FieldType::str(),
+                        Some("rendered type text (e.g. bool, bit<8>, an enum type name)"),
+                    ),
+                    Field::req(
+                        "init",
+                        FieldType::str(),
+                        Some("rendered initializer expression text"),
+                    ),
+                ]),
+            ),
+            ("info_on_error".into(), on_error),
+            ("info_emit".into(), emit),
+            ("info_prop".into(), prop),
+        ],
+        extra_sections: vec![],
+    }
+}
+
+fn info_json_render(output: &str) -> Result<String, Vec<String>> {
+    let doc = info_json_schema();
+    match output {
+        "md" => Ok(json_schema::render_md(&doc)),
+        "schema" => Ok(json_schema::emit_schema_pretty(&doc)),
+        other => Err(vec![format!(
+            "info-json: unsupported output '{other}' (expected md or schema)"
+        )]),
+    }
+}
+
 /// The format registry. Order = `--list` order.
 pub static FORMATS: &[FormatInfo] = &[
     FormatInfo {
@@ -1002,6 +1194,12 @@ pub static FORMATS: &[FormatInfo] = &[
         summary: "rfs validate --json diagnostics (file mode: one object; directory mode: array of failing files)",
         outputs: &["md", "schema"],
         render: validate_json_render,
+    },
+    FormatInfo {
+        name: "info-json",
+        summary: "rfs info --json introspection document (per-module static view; transitions is a count, monitor_status per property)",
+        outputs: &["md", "schema"],
+        render: info_json_render,
     },
 ];
 

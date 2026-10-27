@@ -86,8 +86,8 @@ fn list_pins_all_registered_formats() {
         "unexpected row count: {text}"
     );
 
-    // Byte pin of the current registry (tasks 5-9 ship spec-rfs + spec-json
-    // + ce-trace + mc-report + validate-json).
+    // Byte pin of the current registry (tasks 5-10 ship spec-rfs + spec-json
+    // + ce-trace + mc-report + validate-json + info-json).
     assert_eq!(
         expected,
         vec![
@@ -95,7 +95,8 @@ fn list_pins_all_registered_formats() {
             "spec-json".to_string(),
             "ce-trace".to_string(),
             "mc-report".to_string(),
-            "validate-json".to_string()
+            "validate-json".to_string(),
+            "info-json".to_string()
         ]
     );
     assert!(
@@ -125,6 +126,12 @@ fn list_pins_all_registered_formats() {
     assert!(
         text.contains(
             "| `validate-json` | md, schema | rfs validate --json diagnostics (file mode: one object; directory mode: array of failing files) |"
+        ),
+        "{text}"
+    );
+    assert!(
+        text.contains(
+            "| `info-json` | md, schema | rfs info --json introspection document (per-module static view; transitions is a count, monitor_status per property) |"
         ),
         "{text}"
     );
@@ -1688,6 +1695,288 @@ fn validate_json_walk_directory_mode() {
     let json = rfs::json_rw::parse(&text).unwrap();
     walk_validate_json(&doc, &json, "directory mode examples/valid");
     assert!(json.as_arr().cloned().unwrap().is_empty());
+}
+
+// ---------------------------------------------------------------------------
+// info-json: schema output (Phase 7 task 10, D-P7-8)
+// ---------------------------------------------------------------------------
+
+#[test]
+fn info_json_schema_document_pin() {
+    let out = run_info_format(&["info-json", "--output", "schema"]);
+    assert!(out.status.success(), "stderr: {}", stderr_of(&out));
+    let text = stdout_of(&out);
+
+    // Pretty JSON through json_rw (project rule) - must round-trip.
+    let doc = rfs::json_rw::parse(&text).expect("schema output must be valid JSON");
+    assert_eq!(
+        doc.get("$schema").and_then(|v| v.as_str()),
+        Some("http://json-schema.org/draft-07/schema#")
+    );
+    assert_eq!(
+        doc.get("title").and_then(|v| v.as_str()),
+        Some("Info introspection document (info-json)")
+    );
+
+    // Root: plain object with the single top-level key, strict.
+    assert_eq!(doc.get("type").and_then(|v| v.as_str()), Some("object"));
+    let required = doc
+        .get("required")
+        .and_then(|v| v.as_arr())
+        .cloned()
+        .unwrap();
+    let req_names: Vec<String> = required
+        .iter()
+        .map(|v| v.as_str().unwrap().to_string())
+        .collect();
+    assert_eq!(req_names, vec!["modules"]);
+    assert_eq!(
+        doc.get("additionalProperties").and_then(|v| v.as_bool()),
+        Some(false)
+    );
+
+    // All nine named definitions present.
+    let defs = doc.get("definitions").cloned().unwrap();
+    for n in [
+        "info_module",
+        "info_enum",
+        "info_group",
+        "info_variant",
+        "info_field",
+        "info_var",
+        "info_on_error",
+        "info_emit",
+        "info_prop",
+    ] {
+        assert!(defs.get(n).is_some(), "missing definition {n}");
+    }
+
+    // Module keys in writer order (11 keys).
+    let module = defs.get("info_module").cloned().unwrap();
+    assert_eq!(
+        prop_names(&module),
+        vec![
+            "name",
+            "version",
+            "initial_state",
+            "enums",
+            "events",
+            "outputs",
+            "vars",
+            "transitions",
+            "on_error",
+            "properties",
+            "assumptions"
+        ]
+    );
+
+    // transitions is an INTEGER count (the documented non-array).
+    let transitions_schema = module
+        .get("properties")
+        .cloned()
+        .unwrap()
+        .get("transitions")
+        .cloned()
+        .unwrap();
+    assert_eq!(
+        transitions_schema.get("type").and_then(|v| v.as_str()),
+        Some("integer")
+    );
+
+    // Nullable simple types merge into a type array (string|null);
+    // nullable REFS need anyOf ($ref cannot take siblings in draft-07).
+    let props = module.get("properties").cloned().unwrap();
+    for k in ["version", "initial_state"] {
+        let s = props.get(k).cloned().unwrap();
+        let type_arr = s.get("type").and_then(|v| v.as_arr()).cloned().unwrap();
+        let types: Vec<&str> = type_arr.iter().filter_map(|v| v.as_str()).collect();
+        assert_eq!(
+            types,
+            vec!["string", "null"],
+            "{k} must be string|null: {s:?}"
+        );
+    }
+    let on_error_schema = props.get("on_error").cloned().unwrap();
+    assert!(
+        on_error_schema
+            .get("anyOf")
+            .and_then(|v| v.as_arr())
+            .cloned()
+            .unwrap()
+            .iter()
+            .any(|a| a.get("$ref").is_some()),
+        "on_error must be anyOf with $ref: {on_error_schema:?}"
+    );
+
+    // monitor_status is a PLAIN string (open-ended "skipped: <reason>" text -
+    // not an enum).
+    let prop_def = defs.get("info_prop").cloned().unwrap();
+    assert_eq!(
+        prop_names(&prop_def),
+        vec!["name", "formula", "monitor_status"]
+    );
+    let status_schema = prop_def
+        .get("properties")
+        .cloned()
+        .unwrap()
+        .get("monitor_status")
+        .cloned()
+        .unwrap();
+    assert_eq!(
+        status_schema.get("type").and_then(|v| v.as_str()),
+        Some("string")
+    );
+    assert!(
+        status_schema.get("enum").is_none(),
+        "no closed enum: {status_schema:?}"
+    );
+
+    // Unit-variant fields are null (nullable array of info_field).
+    let variant_def = defs.get("info_variant").cloned().unwrap();
+    let fields_schema = variant_def
+        .get("properties")
+        .cloned()
+        .unwrap()
+        .get("fields")
+        .cloned()
+        .unwrap();
+    assert!(fields_schema.get("anyOf").is_some(), "{fields_schema:?}");
+}
+
+#[test]
+fn info_json_md_pins_sections() {
+    let out = run_info_format(&["info-json"]);
+    assert!(out.status.success(), "stderr: {}", stderr_of(&out));
+    let text = stdout_of(&out);
+
+    assert!(
+        text.starts_with("# Info introspection document (info-json)\n"),
+        "{}...",
+        &text[..text.len().min(60)]
+    );
+    assert!(text.contains("## document"), "missing document section");
+    assert!(
+        text.contains("| `modules` | array of [info_module] | yes |"),
+        "missing modules row"
+    );
+
+    // One section per named definition (9).
+    let defs = rfs::info_format::info_json_schema().definitions;
+    assert_eq!(defs.len(), 9);
+    for (name, _) in &defs {
+        assert!(
+            text.contains(&format!("\n## {name}\n")),
+            "missing section for {name}"
+        );
+    }
+
+    // The documented non-array: transitions row says integer + count.
+    assert!(
+        text.contains("| `transitions` | integer | yes |"),
+        "missing transitions row"
+    );
+    assert!(
+        text.contains("NOT an array of transition objects"),
+        "{text}"
+    );
+
+    // Nullable rows render as "... or null".
+    for k in ["version", "initial_state", "on_error"] {
+        assert!(
+            text.contains(&format!("| `{k}` | ")) && text.contains("or null"),
+            "missing nullable row {k}"
+        );
+    }
+}
+
+// ---------------------------------------------------------------------------
+// info-json: D-P7-9 sync walk over every valid example (Phase 7 task 10)
+// ---------------------------------------------------------------------------
+
+#[test]
+fn info_json_walk_all_valid_examples() {
+    let doc = rfs::info_format::info_json_schema();
+    let files = rfs::collect_rfs_files(root().join("examples/valid"))
+        .expect("valid examples directory should exist");
+    assert!(!files.is_empty(), "no valid examples found");
+
+    // Corpus coverage: the walk must exercise the optional shapes, not just
+    // the all-null fast path.
+    let mut saw_on_error = false;
+    let mut saw_assumption = false;
+    let mut saw_skipped_monitor = false;
+
+    for path in &files {
+        // The exact command path: parse + validate + render_json.
+        let text = rfs::info::run_info(path, &rfs::info::InfoOptions { json: true })
+            .unwrap_or_else(|e| panic!("{}: {e}", path.display()));
+        let json = rfs::json_rw::parse(&text).unwrap_or_else(|e| {
+            panic!(
+                "{}: rendered document is not valid JSON: {e}",
+                path.display()
+            )
+        });
+
+        // (a) every required key present, (b) no undocumented key at any
+        // object level, (c) types + constraints agree.
+        if let Err(errs) = rfs::json_schema::walk_check(&doc, &json) {
+            panic!(
+                "{}: info-json model out of sync with info.rs render_json:\n{}",
+                path.display(),
+                errs.join("\n")
+            );
+        }
+
+        // (d) the transitions count is really the module's transition count.
+        let ir = rfs::parse_file(path).unwrap_or_else(|e| panic!("{}: {e}", path.display()));
+        let modules = json
+            .get("modules")
+            .and_then(|v| v.as_arr())
+            .cloned()
+            .unwrap();
+        assert_eq!(modules.len(), ir.modules.len());
+        for (i, m) in modules.iter().enumerate() {
+            let count = m
+                .get("transitions")
+                .and_then(|v| v.as_int())
+                .expect("transitions must be an integer");
+            assert_eq!(
+                count,
+                ir.modules[i].transitions.len() as i64,
+                "{}: transitions count mismatch",
+                path.display()
+            );
+
+            if m.get("on_error")
+                .is_some_and(|v| !matches!(v, rfs::json_rw::Json::Null))
+            {
+                saw_on_error = true;
+            }
+            if let Some(a) = m.get("assumptions").and_then(|v| v.as_arr()) {
+                if !a.is_empty() {
+                    saw_assumption = true;
+                }
+            }
+            for list in ["properties", "assumptions"] {
+                if let Some(arr) = m.get(list).and_then(|v| v.as_arr()) {
+                    for p in arr {
+                        if let Some(s) = p.get("monitor_status").and_then(|v| v.as_str()) {
+                            if s.starts_with("skipped:") {
+                                saw_skipped_monitor = true;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    assert!(saw_on_error, "corpus lost its on_error coverage");
+    assert!(saw_assumption, "corpus lost its assumption coverage");
+    assert!(
+        saw_skipped_monitor,
+        "corpus lost its skipped-monitor coverage"
+    );
 }
 
 // ---------------------------------------------------------------------------

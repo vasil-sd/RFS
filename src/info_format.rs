@@ -10,6 +10,7 @@
 //! Rationale: users/CI get actual information about rfs internals from the
 //! binary itself, kept in sync with the code by tests - no stale docs.
 
+use crate::codegen_mc as mc;
 use crate::{ebnf_grammar, json_schema};
 use json_schema::{Field, FieldType, SchemaDoc, TaggedVariant};
 
@@ -472,6 +473,7 @@ pub fn spec_json_schema() -> SchemaDoc {
                 ]),
             ),
         ],
+        extra_sections: vec![],
     }
 }
 
@@ -482,6 +484,221 @@ fn spec_json_render(output: &str) -> Result<String, Vec<String>> {
         "schema" => Ok(json_schema::emit_schema_pretty(&doc)),
         other => Err(vec![format!(
             "spec-json: unsupported output '{other}' (expected md or schema)"
+        )]),
+    }
+}
+
+// ---------------------------------------------------------------------------
+// ce-trace - the counterexample trace document (Phase 7 task 7)
+// ---------------------------------------------------------------------------
+
+/// The field model of the MC report's `counterexample` object, built against
+/// the `JSON_KEY_*` constants in `codegen_mc.rs` (the single source of truth
+/// for key names and the per-kind key order). The walk test over pinned
+/// FAIL-variant runs on both backends proves the two stay in sync (D-P7-9).
+pub fn ce_trace_schema() -> SchemaDoc {
+    // One input/output value: variant name + field values in declaration
+    // order. Field KEYS are spec-defined names (arbitrary), so `fields` is a
+    // free-keyed object over the shared value type.
+    let io = FieldType::obj(vec![
+        Field::req(
+            mc::JSON_KEY_VARIANT,
+            FieldType::str(),
+            Some("event/output variant name (unique_name form, e.g. `Go_G`)"),
+        ),
+        Field::req(
+            mc::JSON_KEY_FIELDS,
+            FieldType::r#ref("ce_fields"),
+            Some("field values in declaration order; keys are the field names"),
+        ),
+    ]);
+    // One step of a trace (mirrors one `step N` line of the text report).
+    let step = FieldType::obj(vec![
+        Field::req(mc::JSON_KEY_INPUT, FieldType::r#ref("ce_io"), None),
+        Field::req(
+            mc::JSON_KEY_OUTPUTS,
+            FieldType::arr(FieldType::r#ref("ce_io")),
+            Some("outputs emitted by the step (may be empty)"),
+        ),
+        Field::req(
+            mc::JSON_KEY_FROM_STATE,
+            FieldType::str(),
+            Some("state before the step (`State::Name`)"),
+        ),
+        Field::req(
+            mc::JSON_KEY_TO_STATE,
+            FieldType::str(),
+            Some("state after the step (`State::Name`)"),
+        ),
+        Field::req(
+            mc::JSON_KEY_VARS,
+            FieldType::r#ref("ce_fields"),
+            Some("variable values AFTER the step; keys are the variable names"),
+        ),
+    ]);
+
+    SchemaDoc {
+        title: "Counterexample trace document (ce-trace)".into(),
+        description: format!(
+            "The counterexample payload of an exact-mode MC report - the value\nof the `{}` key, present IFF `status` is \"fail\" (see the mc-report\nformat for the full document). Emitted by both backends' generated engines\n(`--counterexample-format json`) and by the in-process reference MC; key\norder is part of the cross-backend byte-parity contract. Internally-tagged\nby `{}`: a property violation carries the full trace, a liveness violation\ncarries prefix + one cycle iteration, a deadlock carries the terminal\nconfiguration. `{}` (last key of every counterexample) is the trace-length\nquality metric: `steps.len()` for a trace, prefix + cycle length for a\nlasso, the depth for a deadlock configuration. Value encoding in the\nname->value maps (`initial_vars`, `vars`, `fields`): bool -> JSON boolean,\nbit<N> -> unsigned decimal integer, enum -> \"Type::Variant\" string - the\nsame names the text report prints.",
+            mc::JSON_KEY_COUNTEREXAMPLE,
+            mc::JSON_KEY_KIND,
+            mc::JSON_KEY_CE_STEPS
+        ),
+        root: FieldType::tagged_union(vec![
+            TaggedVariant::new(
+                mc::JSON_CE_KIND_TRACE,
+                vec![
+                    Field::req(
+                        mc::JSON_KEY_INITIAL_STATE,
+                        FieldType::str(),
+                        Some("initial state (`State::Name`)"),
+                    ),
+                    Field::req(
+                        mc::JSON_KEY_INITIAL_VARS,
+                        FieldType::r#ref("ce_fields"),
+                        Some("variable values at the initial configuration; keys are the variable names"),
+                    ),
+                    Field::req(
+                        mc::JSON_KEY_STEPS,
+                        FieldType::arr(FieldType::r#ref("ce_step")),
+                        Some("the violating steps in execution order (0-based)"),
+                    ),
+                    ce_steps_field(),
+                ],
+            ),
+            TaggedVariant::new(
+                mc::JSON_CE_KIND_LASSO,
+                vec![
+                    Field::req(
+                        mc::JSON_KEY_INITIAL_STATE,
+                        FieldType::str(),
+                        Some("initial state (`State::Name`)"),
+                    ),
+                    Field::req(
+                        mc::JSON_KEY_INITIAL_VARS,
+                        FieldType::r#ref("ce_fields"),
+                        Some("variable values at the initial configuration; keys are the variable names"),
+                    ),
+                    Field::req(
+                        mc::JSON_KEY_PREFIX,
+                        FieldType::arr(FieldType::r#ref("ce_step")),
+                        Some("steps before the cycle (may be empty)"),
+                    ),
+                    Field::req(
+                        mc::JSON_KEY_CYCLE,
+                        FieldType::arr(FieldType::r#ref("ce_step")),
+                        Some("one iteration of the violating cycle"),
+                    ),
+                    Field::req(
+                        mc::JSON_KEY_CYCLE_LENGTH,
+                        FieldType::int(),
+                        Some("number of steps in `cycle` (== its length)"),
+                    ),
+                    ce_steps_field(),
+                ],
+            ),
+            TaggedVariant::new(
+                mc::JSON_CE_KIND_DEADLOCK_CONFIG,
+                vec![
+                    Field::req(
+                        mc::JSON_KEY_DEPTH,
+                        FieldType::int(),
+                        Some("graph depth of the dead configuration"),
+                    ),
+                    Field::req(
+                        mc::JSON_KEY_STATE,
+                        FieldType::str(),
+                        Some("state of the dead configuration (`State::Name`)"),
+                    ),
+                    Field::req(
+                        mc::JSON_KEY_VARS,
+                        FieldType::r#ref("ce_fields"),
+                        Some("variable values of the dead configuration; keys are the variable names"),
+                    ),
+                    ce_steps_field(),
+                ],
+            ),
+        ]),
+        definitions: vec![
+            ("ce_step".into(), step),
+            ("ce_io".into(), io),
+            (
+                "ce_fields".into(),
+                FieldType::free_obj(FieldType::r#ref("ce_value")),
+            ),
+            (
+                "ce_value".into(),
+                FieldType::union(vec![
+                    FieldType::bool(),
+                    FieldType::int(),
+                    FieldType::str(),
+                ]),
+            ),
+        ],
+        extra_sections: vec![(
+            "text trace format (default report)".into(),
+            TEXT_TRACE_MD.to_string(),
+        )],
+    }
+}
+
+fn ce_steps_field() -> Field {
+    Field::req(
+        mc::JSON_KEY_CE_STEPS,
+        FieldType::int(),
+        Some("trace length in steps (quality metric; last key of the object)"),
+    )
+}
+
+/// The default `--counterexample-format text` report, as printed by both
+/// backends' generated engines and the in-process reference MC (byte-
+/// identical format, D-P6-10). Documented from `ref_mc::render_text_impl`
+/// / `codegen_mc::exact_summary_line`.
+const TEXT_TRACE_MD: &str = r#"The default report is a pinned human-readable document. On a failing run it consists of:
+
+1. The status line: `FAIL` (or `PASS (complete)` / `UNKNOWN (state limit reached)`).
+2. The machine summary line, followed by a blank line:
+   `model-check summary: status=fail states=N transitions=M max_depth=D reason=<r> label=<L> step=S`
+   - `<r>` is `property-violation`, `liveness-violation` or `deadlock`;
+   - for a deadlock `label=-` and `step` is the dead configuration's depth;
+   - otherwise `step` is the violation step (0-based).
+3. Indented statistics lines: `unexpected terminations: N`, optionally
+   `first unexpected: config C input index I`, then `monitor size: N bits`
+   and `memory estimate: N bytes`.
+4. A reason block:
+   - property violation: `property violation: <label>` plus indented
+     `trigger step: T` and `vars at trigger step: ...` (when the monitor
+     fired before the violation was confirmed) and `violation step: S` with
+     `vars at violation step: ...`; when the violation holds at the initial
+     configuration the trace is empty and both lines carry the
+     `(initial configuration)` suffix instead of var lines.
+   - liveness violation: `liveness violation: <label>` plus indented
+     `formula: <text>`, `violation step: S`, `cycle length: N` (the number of
+     steps in the cycle) and a one-line `note:` explaining the cycle.
+   - deadlock: `deadlock: configuration at depth D has no enabled transition`.
+5. The trace itself:
+
+   ```text
+   counterexample trace:
+     initial state=State::X vars=Vars { v1: val, ... }
+     step 0 input=Input::V { f: val } outputs=[Output::O { f: val }] from=State::A to=State::B vars=Vars { ... }
+   ```
+
+   One `step N` line per executed step (N = 0-based index; for a lasso the
+   prefix and cycle steps are printed as ONE flat sequence - the JSON report
+   is what splits them). Value rendering: bool -> `true`/`false`, bit<N> ->
+   unsigned decimal, enum -> `Enum::Variant`. A module with no variables
+   prints bare `Vars`; an input/output without fields prints `Input::V` /
+   `Output::O`; a step with no outputs prints `outputs=[]`."#;
+
+fn ce_trace_render(output: &str) -> Result<String, Vec<String>> {
+    let doc = ce_trace_schema();
+    match output {
+        "md" => Ok(json_schema::render_md(&doc)),
+        "schema" => Ok(json_schema::emit_schema_pretty(&doc)),
+        other => Err(vec![format!(
+            "ce-trace: unsupported output '{other}' (expected md or schema)"
         )]),
     }
 }
@@ -499,6 +716,13 @@ pub static FORMATS: &[FormatInfo] = &[
         summary: "IR v1 JSON document (rfs parse --output json; the machine-readable spec)",
         outputs: &["md", "schema"],
         render: spec_json_render,
+    },
+    FormatInfo {
+        name: "ce-trace",
+        summary:
+            "MC counterexample trace (the report's `counterexample` object + the text trace format)",
+        outputs: &["md", "schema"],
+        render: ce_trace_render,
     },
 ];
 

@@ -8,9 +8,19 @@
 //!
 //! The checks are library-driven where possible (they stay green as later Phase 7
 //! tasks register more formats) plus byte-level pins for the current registry.
+//!
+//! Task 7 adds the ce-trace entry: schema/md document pins and the D-P7-9 sync
+//! walk of REAL counterexample documents - pinned FAIL-variant benchmark runs
+//! (shared from `tests/common/fail_variants.rs`) on BOTH backends plus the
+//! in-process reference MC, covering all three `kind`s (trace / lasso /
+//! deadlock-config).
 
-use std::path::PathBuf;
+mod common;
+
+use std::collections::HashMap;
+use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
+use std::sync::{LazyLock, Mutex};
 
 fn rfs_bin() -> &'static str {
     env!("CARGO_BIN_EXE_rfs")
@@ -76,10 +86,15 @@ fn list_pins_all_registered_formats() {
         "unexpected row count: {text}"
     );
 
-    // Byte pin of the current registry (tasks 5-6 ship spec-rfs + spec-json).
+    // Byte pin of the current registry (tasks 5-7 ship spec-rfs + spec-json
+    // + ce-trace).
     assert_eq!(
         expected,
-        vec!["spec-rfs".to_string(), "spec-json".to_string()]
+        vec![
+            "spec-rfs".to_string(),
+            "spec-json".to_string(),
+            "ce-trace".to_string()
+        ]
     );
     assert!(
         text.contains(
@@ -90,6 +105,12 @@ fn list_pins_all_registered_formats() {
     assert!(
         text.contains(
             "| `spec-json` | md, schema | IR v1 JSON document (rfs parse --output json; the machine-readable spec) |"
+        ),
+        "{text}"
+    );
+    assert!(
+        text.contains(
+            "| `ce-trace` | md, schema | MC counterexample trace (the report's `counterexample` object + the text trace format) |"
         ),
         "{text}"
     );
@@ -523,6 +544,465 @@ fn spec_json_walk_all_valid_examples() {
                 errs.join("\n")
             );
         }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// ce-trace: schema output (Phase 7 task 7, D-P7-8)
+// ---------------------------------------------------------------------------
+
+#[test]
+fn ce_trace_schema_document_pin() {
+    let out = run_info_format(&["ce-trace", "--output", "schema"]);
+    assert!(out.status.success(), "stderr: {}", stderr_of(&out));
+    let text = stdout_of(&out);
+
+    // Pretty JSON through json_rw (project rule) - must round-trip.
+    let doc = rfs::json_rw::parse(&text).expect("schema output must be valid JSON");
+    assert_eq!(
+        doc.get("$schema").and_then(|v| v.as_str()),
+        Some("http://json-schema.org/draft-07/schema#"),
+        "draft-07 (widest CI-validator support, D-P7-8)"
+    );
+    assert_eq!(
+        doc.get("title").and_then(|v| v.as_str()),
+        Some("Counterexample trace document (ce-trace)")
+    );
+
+    // Root: tagged union -> allOf[oneOf] with the three kinds, in wire order.
+    let allof = doc.get("allOf").and_then(|v| v.as_arr()).cloned().unwrap();
+    assert_eq!(allof.len(), 1);
+    let oneof = allof[0]
+        .get("oneOf")
+        .and_then(|v| v.as_arr())
+        .cloned()
+        .unwrap();
+    assert_eq!(oneof.len(), 3);
+    let kinds: Vec<&str> = oneof
+        .iter()
+        .map(|alt| {
+            alt.get("properties")
+                .as_ref()
+                .unwrap()
+                .get("kind")
+                .as_ref()
+                .unwrap()
+                .get("enum")
+                .as_ref()
+                .unwrap()
+                .as_arr()
+                .as_ref()
+                .unwrap()[0]
+                .as_str()
+                .unwrap()
+        })
+        .collect();
+    assert_eq!(
+        kinds,
+        vec![
+            rfs::codegen_mc::JSON_CE_KIND_TRACE,
+            rfs::codegen_mc::JSON_CE_KIND_LASSO,
+            rfs::codegen_mc::JSON_CE_KIND_DEADLOCK_CONFIG
+        ]
+    );
+
+    // ce_steps is required in EVERY variant and is the last key (wire order).
+    for alt in &oneof {
+        let req = alt
+            .get("required")
+            .and_then(|v| v.as_arr())
+            .cloned()
+            .unwrap();
+        let names: Vec<&str> = req.iter().filter_map(|v| v.as_str()).collect();
+        assert!(
+            names.contains(&rfs::codegen_mc::JSON_KEY_CE_STEPS),
+            "ce_steps missing from a variant's required list: {names:?}"
+        );
+        assert_eq!(
+            *names.last().unwrap(),
+            rfs::codegen_mc::JSON_KEY_CE_STEPS,
+            "ce_steps must be the last key: {names:?}"
+        );
+    }
+
+    // All four named definitions present.
+    let defs = doc.get("definitions").cloned().unwrap();
+    for n in ["ce_step", "ce_io", "ce_fields", "ce_value"] {
+        assert!(defs.get(n).is_some(), "missing definition {n}");
+    }
+
+    // ce_fields: free-keyed object - additionalProperties is the $ref to
+    // ce_value, and there is NO fixed properties list (keys are spec-defined
+    // variable/field names).
+    let fields = defs.get("ce_fields").cloned().unwrap();
+    assert_eq!(fields.get("type").and_then(|v| v.as_str()), Some("object"));
+    assert!(fields.get("properties").is_none(), "{fields:?}");
+    let ap = fields.get("additionalProperties").cloned().unwrap();
+    assert_eq!(
+        ap.get("$ref").and_then(|v| v.as_str()),
+        Some("#/definitions/ce_value")
+    );
+
+    // ce_value: anyOf boolean | integer | string - the bool / bit<N> / enum
+    // value encoding of the name->value maps.
+    let value = defs.get("ce_value").cloned().unwrap();
+    let alts = value
+        .get("anyOf")
+        .and_then(|v| v.as_arr())
+        .cloned()
+        .unwrap();
+    let types: Vec<&str> = alts
+        .iter()
+        .map(|a| a.get("type").and_then(|v| v.as_str()).unwrap())
+        .collect();
+    assert_eq!(types, vec!["boolean", "integer", "string"]);
+
+    // ce_step: the five step keys in wire order.
+    let step = defs.get("ce_step").cloned().unwrap();
+    let props = step.get("properties").cloned().unwrap();
+    let prop_names: Vec<String> = props
+        .as_obj()
+        .cloned()
+        .unwrap()
+        .iter()
+        .map(|(k, _)| k.clone())
+        .collect();
+    assert_eq!(
+        prop_names,
+        vec!["input", "outputs", "from_state", "to_state", "vars"]
+    );
+}
+
+// ---------------------------------------------------------------------------
+// ce-trace: md output (Phase 7 task 7)
+// ---------------------------------------------------------------------------
+
+#[test]
+fn ce_trace_md_pins_sections() {
+    let out = run_info_format(&["ce-trace"]);
+    assert!(out.status.success(), "stderr: {}", stderr_of(&out));
+    let text = stdout_of(&out);
+
+    assert!(
+        text.starts_with("# Counterexample trace document (ce-trace)\n"),
+        "{}...",
+        &text[..text.len().min(60)]
+    );
+
+    // The document section carries the kind table with all three kinds.
+    assert!(text.contains("## document"), "missing document section");
+    for k in [
+        rfs::codegen_mc::JSON_CE_KIND_TRACE,
+        rfs::codegen_mc::JSON_CE_KIND_LASSO,
+        rfs::codegen_mc::JSON_CE_KIND_DEADLOCK_CONFIG,
+    ] {
+        assert!(
+            text.contains(&format!("| `{k}` | ")),
+            "missing kind row {k}"
+        );
+    }
+
+    // One section per named definition.
+    for (name, _) in rfs::info_format::ce_trace_schema().definitions {
+        assert!(
+            text.contains(&format!("\n## {name}\n")),
+            "missing section for {name}"
+        );
+    }
+
+    // The text trace format section documents the step-line grammar as
+    // printed by both backends (D-P6-10 unified report).
+    assert!(
+        text.contains("## text trace format (default report)"),
+        "missing text trace format section"
+    );
+    assert!(text.contains("counterexample trace:"), "{text}");
+    assert!(
+        text.contains("initial state=State::X vars=Vars { v1: val, ... }"),
+        "{text}"
+    );
+    assert!(
+        text.contains(
+            "step 0 input=Input::V { f: val } outputs=[Output::O { f: val }] from=State::A to=State::B vars=Vars { ... }"
+        ),
+        "{text}"
+    );
+    assert!(
+        text.contains(
+            "model-check summary: status=fail states=N transitions=M max_depth=D reason=<r> label=<L> step=S"
+        ),
+        "{text}"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// ce-trace: D-P7-9 sync walk over REAL counterexample documents (Phase 7
+// task 7) - pinned FAIL-variant benchmark runs on both backends + the
+// in-process reference MC, covering all three `kind`s.
+// ---------------------------------------------------------------------------
+
+static CE_BIN_CACHE: LazyLock<Mutex<HashMap<String, PathBuf>>> =
+    LazyLock::new(|| Mutex::new(HashMap::new()));
+
+fn rustc_path() -> String {
+    std::env::var("RUSTC").unwrap_or_else(|_| "rustc".to_string())
+}
+
+/// Codegen + compile one exact-mode MC binary for `src` (cached per key so
+/// the suite's tests share binaries, like benchmark_mc_test).
+fn ce_mc_binary(key: &str, backend: &str, src: &str) -> PathBuf {
+    let mut cache = CE_BIN_CACHE.lock().unwrap();
+    if let Some(p) = cache.get(key) {
+        return p.clone();
+    }
+    let dir = root().join("target").join("rfs_info_format");
+    std::fs::create_dir_all(&dir).expect("create scratch dir");
+
+    let ir = rfs::parse_source(src).unwrap_or_else(|e| panic!("{key} must parse ({backend}): {e}"));
+    assert_eq!(ir.modules.len(), 1);
+    let be = rfs::codegen::get_backend(backend)
+        .unwrap_or_else(|| panic!("backend {backend} registered"));
+    let code = rfs::codegen::CodegenCommandKind::ModelChecker
+        .run(be, &ir, &rfs::codegen::BackendOptions::default())
+        .unwrap_or_else(|e| panic!("codegen {backend} for {key}: {e:?}"))
+        .code;
+
+    // The file name doubles as the rustc crate name: sanitize the cache key.
+    let stem: String = key
+        .chars()
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || c == '_' {
+                c
+            } else {
+                '_'
+            }
+        })
+        .collect();
+    let ext = if backend == "c" { "c" } else { "rs" };
+    let src_path = dir.join(format!("{stem}_mc.{ext}"));
+    std::fs::write(&src_path, code).expect("write MC source");
+    let bin = dir.join(format!("{stem}_mc_{backend}"));
+    let out = if backend == "c" {
+        Command::new("/usr/bin/gcc")
+            .arg("-Wall")
+            .arg(&src_path)
+            .arg("-o")
+            .arg(&bin)
+            .output()
+    } else {
+        Command::new(rustc_path())
+            .args(["--edition", "2021", "-O"])
+            .arg(&src_path)
+            .arg("-o")
+            .arg(&bin)
+            .output()
+    };
+    let out = out.unwrap_or_else(|e| panic!("run compiler for {key}: {e}"));
+    assert!(
+        out.status.success(),
+        "{backend} compile failed for {key}:\n{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    cache.insert(key.to_string(), bin.clone());
+    bin
+}
+
+/// One `--counterexample-format json` run of a FAILING binary: returns the
+/// report's `counterexample` object (present iff status is fail).
+fn ce_object(bin: &Path, key: &str) -> rfs::json_rw::Json {
+    let out = Command::new(bin)
+        .args(["--counterexample-format", "json"])
+        .output()
+        .unwrap_or_else(|e| panic!("run MC binary for {key}: {e}"));
+    let stdout = String::from_utf8_lossy(&out.stdout).to_string();
+    assert_eq!(
+        out.status.code(),
+        Some(1),
+        "{key}: failing MC exits 1; {stdout}"
+    );
+    let doc = rfs::json_rw::parse(&stdout)
+        .unwrap_or_else(|e| panic!("{key}: JSON report must parse: {e}\n{stdout}"));
+    assert_eq!(
+        doc.get("status").and_then(rfs::json_rw::Json::as_str),
+        Some("fail"),
+        "{key}"
+    );
+    doc.get("counterexample")
+        .cloned()
+        .unwrap_or_else(|| panic!("{key}: fail carries a counterexample: {stdout}"))
+}
+
+/// The D-P7-9 walk against the ce-trace model (required keys present, no
+/// undocumented key at any object level, types + enum constraints agree).
+fn walk_ce(ce: &rfs::json_rw::Json, what: &str) {
+    let doc = rfs::info_format::ce_trace_schema();
+    if let Err(errs) = rfs::json_schema::walk_check(&doc, ce) {
+        panic!(
+            "{what}: ce-trace model out of sync with the generated report:\n{}",
+            errs.join("\n")
+        );
+    }
+}
+
+#[test]
+fn ce_trace_walk_trace_and_lasso_both_backends() {
+    // The pinned FAIL variants shared with benchmark_mc_test: ring_no_grant
+    // = property violation (trace), elev_noup = liveness violation (lasso).
+    let cases: Vec<(&str, &str, &str)> = vec![
+        (
+            "ring_no_grant",
+            common::fail_variants::RING_NO_GRANT_SRC,
+            rfs::codegen_mc::JSON_CE_KIND_TRACE,
+        ),
+        (
+            "elev_noup",
+            common::fail_variants::ELEV_NO_UP_SRC,
+            rfs::codegen_mc::JSON_CE_KIND_LASSO,
+        ),
+    ];
+    for (key, src, want_kind) in cases {
+        let mut docs: [Option<rfs::json_rw::Json>; 2] = [None, None];
+        for (i, backend) in ["rust", "c"].iter().enumerate() {
+            let bin = ce_mc_binary(&format!("ce|{key}|{backend}"), backend, src);
+            let ce = ce_object(&bin, key);
+            assert_eq!(
+                ce.get("kind").and_then(rfs::json_rw::Json::as_str),
+                Some(want_kind),
+                "{key}/{backend}"
+            );
+            walk_ce(&ce, &format!("{key}/{backend}"));
+            docs[i] = Some(ce);
+        }
+        // The counterexample object is byte-identical across backends (the
+        // parity contract; peak_rss_kb lives in statistics, not here).
+        assert_eq!(
+            docs[0].as_ref().unwrap().to_string_compact(),
+            docs[1].as_ref().unwrap().to_string_compact(),
+            "{key}: counterexample must be identical across backends"
+        );
+    }
+
+    // Pins (deterministic exact mode; the same values benchmark_mc_test pins
+    // via ce_steps / cycle_length): ring_no_grant is a one-step trace,
+    // elev_noup a lasso with cycle length 2.
+    let rt = ce_object(
+        &ce_mc_binary(
+            "ce|ring_no_grant|rust",
+            "rust",
+            common::fail_variants::RING_NO_GRANT_SRC,
+        ),
+        "ring_no_grant",
+    );
+    assert_eq!(
+        rt.get(rfs::codegen_mc::JSON_KEY_CE_STEPS)
+            .and_then(rfs::json_rw::Json::as_int),
+        Some(1)
+    );
+    let steps = rt
+        .get(rfs::codegen_mc::JSON_KEY_STEPS)
+        .and_then(rfs::json_rw::Json::as_arr)
+        .cloned()
+        .unwrap();
+    assert_eq!(steps.len(), 1);
+
+    let rl = ce_object(
+        &ce_mc_binary(
+            "ce|elev_noup|rust",
+            "rust",
+            common::fail_variants::ELEV_NO_UP_SRC,
+        ),
+        "elev_noup",
+    );
+    assert_eq!(
+        rl.get(rfs::codegen_mc::JSON_KEY_CYCLE_LENGTH)
+            .and_then(rfs::json_rw::Json::as_int),
+        Some(2)
+    );
+    let cycle = rl
+        .get(rfs::codegen_mc::JSON_KEY_CYCLE)
+        .and_then(rfs::json_rw::Json::as_arr)
+        .cloned()
+        .unwrap();
+    assert_eq!(cycle.len(), 2);
+}
+
+#[test]
+fn ce_trace_walk_deadlock_config_both_backends() {
+    // Example 04: a terminal state with no enabled transition -> deadlock at
+    // depth 2 (the same case backend_parity_test pins for the five
+    // status/reason combinations).
+    let src = common::fail_variants::spec_source("04_tcp_handshake_like.rfs");
+    let mut docs: [Option<rfs::json_rw::Json>; 2] = [None, None];
+    for (i, backend) in ["rust", "c"].iter().enumerate() {
+        let bin = ce_mc_binary(&format!("ce|ex04_deadlock|{backend}"), backend, &src);
+        let ce = ce_object(&bin, "ex04_deadlock");
+        assert_eq!(
+            ce.get("kind").and_then(rfs::json_rw::Json::as_str),
+            Some(rfs::codegen_mc::JSON_CE_KIND_DEADLOCK_CONFIG),
+            "{backend}"
+        );
+        walk_ce(&ce, &format!("ex04_deadlock/{backend}"));
+        docs[i] = Some(ce);
+    }
+    assert_eq!(
+        docs[0].as_ref().unwrap().to_string_compact(),
+        docs[1].as_ref().unwrap().to_string_compact(),
+        "ex04_deadlock: counterexample must be identical across backends"
+    );
+
+    // Pin: depth 2 (deterministic; matches the text run's `deadlock:
+    // configuration at depth 2`), ce_steps = depth for a deadlock config.
+    let ce = docs[0].as_ref().unwrap();
+    assert_eq!(
+        ce.get(rfs::codegen_mc::JSON_KEY_DEPTH)
+            .and_then(rfs::json_rw::Json::as_int),
+        Some(2)
+    );
+    assert_eq!(
+        ce.get(rfs::codegen_mc::JSON_KEY_CE_STEPS)
+            .and_then(rfs::json_rw::Json::as_int),
+        Some(2)
+    );
+}
+
+#[test]
+fn ce_trace_walk_ref_mc_in_process() {
+    // The toolchain-side builder (ref_mc::to_json_report) is the third
+    // producer of the document - it must agree with the model too.
+    let cases: Vec<(&str, String, &str)> = vec![
+        (
+            "ring_no_grant",
+            common::fail_variants::RING_NO_GRANT_SRC.to_string(),
+            rfs::codegen_mc::JSON_CE_KIND_TRACE,
+        ),
+        (
+            "elev_noup",
+            common::fail_variants::ELEV_NO_UP_SRC.to_string(),
+            rfs::codegen_mc::JSON_CE_KIND_LASSO,
+        ),
+        (
+            "ex04_deadlock",
+            common::fail_variants::spec_source("04_tcp_handshake_like.rfs"),
+            rfs::codegen_mc::JSON_CE_KIND_DEADLOCK_CONFIG,
+        ),
+    ];
+    for (key, src, want_kind) in cases {
+        let ir = rfs::parse_source(&src).unwrap_or_else(|e| panic!("{key} must parse: {e}"));
+        let module = &ir.modules[0];
+        let res = rfs::ref_mc::run(module, &rfs::ref_mc::RefConfig::default())
+            .unwrap_or_else(|e| panic!("{key}: ref_mc: {e}"));
+        assert_eq!(res.status, rfs::codegen_mc::ExactStatus::Fail, "{key}");
+        let report = rfs::ref_mc::to_json_report(&res, module).to_json();
+        let ce = report
+            .get("counterexample")
+            .cloned()
+            .unwrap_or_else(|| panic!("{key}: fail carries a counterexample"));
+        assert_eq!(
+            ce.get("kind").and_then(rfs::json_rw::Json::as_str),
+            Some(want_kind),
+            "{key}"
+        );
+        walk_ce(&ce, key);
     }
 }
 

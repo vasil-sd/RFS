@@ -6,8 +6,12 @@
 //! writers, and this module renders it as:
 //! - draft-07 JSON Schema - pretty JSON produced through `json_rw` (project
 //!   rule: all JSON goes through json_rw), with `additionalProperties: false`
-//!   at every object level so CI validators reject undocumented keys;
-//! - a markdown field-table document (the `md` output).
+//!   at every object level so CI validators reject undocumented keys (the
+//!   exception is [`FieldType::FreeObj`] - objects whose KEYS are data, e.g.
+//!   variable/field-name maps in counterexample traces);
+//! - a markdown field-table document (the `md` output), optionally followed
+//!   by free-form extra sections ([`SchemaDoc::extra_sections`]) for format
+//!   aspects that have no schema (e.g. the text trace format).
 //!
 //! [`walk_check`] is the D-P7-9 sync guarantee: it verifies that a real
 //! generated document matches the model - every required key present, no
@@ -67,6 +71,14 @@ pub enum FieldType {
     TaggedUnion(Vec<TaggedVariant>),
     /// Inner type or JSON null - the key is still present (e.g. `guard`).
     Nullable(Box<FieldType>),
+    /// Object with ARBITRARY string keys; every value must conform to the
+    /// inner type (JSON Schema: `additionalProperties` = the inner schema,
+    /// no fixed `properties`). For name->value maps whose names come from
+    /// the spec (variable names, field names) - e.g. ce-trace `vars`.
+    FreeObj(Box<FieldType>),
+    /// Plain type union: the value must conform to at least one alternative
+    /// (JSON Schema: `anyOf`). Not a tagged union - no discriminator.
+    Union(Vec<FieldType>),
 }
 
 impl FieldType {
@@ -100,6 +112,12 @@ impl FieldType {
     pub fn nullable(inner: FieldType) -> Self {
         FieldType::Nullable(Box::new(inner))
     }
+    pub fn free_obj(value: FieldType) -> Self {
+        FieldType::FreeObj(Box::new(value))
+    }
+    pub fn union(alts: Vec<FieldType>) -> Self {
+        FieldType::Union(alts)
+    }
 }
 
 /// One variant of an internally-tagged union.
@@ -126,6 +144,10 @@ pub struct SchemaDoc {
     pub root: FieldType,
     /// Named sub-schemas (recursion + reuse). Order = md section order.
     pub definitions: Vec<(String, FieldType)>,
+    /// Free-form markdown sections appended after the definition sections in
+    /// the `md` output (heading, body) - for format aspects without a schema
+    /// (e.g. the ce-trace text report format). Never emitted into the schema.
+    pub extra_sections: Vec<(String, String)>,
 }
 
 // ---------------------------------------------------------------------------
@@ -188,6 +210,14 @@ fn emit_type(ty: &FieldType) -> Json {
                 Json::arr(vec![emit_type(inner), emit_type(&FieldType::Null)]),
             )]),
         },
+        FieldType::FreeObj(value) => Json::obj(vec![
+            ("type".into(), Json::str("object")),
+            ("additionalProperties".into(), emit_type(value)),
+        ]),
+        FieldType::Union(alts) => Json::obj(vec![(
+            "anyOf".into(),
+            Json::arr(alts.iter().map(emit_type).collect()),
+        )]),
     }
 }
 
@@ -281,6 +311,10 @@ fn type_md(ty: &FieldType) -> String {
         FieldType::Ref(name) => format!("[{name}]"),
         FieldType::TaggedUnion(_) => "tagged union (see its section)".into(),
         FieldType::Nullable(inner) => format!("{} or null", type_md(inner)),
+        FieldType::FreeObj(value) => {
+            format!("object (arbitrary keys; values: {})", type_md(value))
+        }
+        FieldType::Union(alts) => alts.iter().map(type_md).collect::<Vec<_>>().join(" | "),
     }
 }
 
@@ -303,6 +337,36 @@ fn field_table(fields: &[Field]) -> String {
     out
 }
 
+/// The kind table of an internally-tagged union (one row per variant).
+fn kind_table(variants: &[TaggedVariant]) -> String {
+    let mut out = String::from("| kind | Fields (beyond `kind`) |\n");
+    out.push_str("|---|---|\n");
+    for v in variants {
+        let fields: Vec<String> = v
+            .fields
+            .iter()
+            .map(|f| {
+                format!(
+                    "`{}`: {}{}",
+                    f.name,
+                    type_md(&f.ty),
+                    if f.required { "" } else { " (optional)" }
+                )
+            })
+            .collect();
+        out.push_str(&format!(
+            "| `{}` | {} |\n",
+            v.kind,
+            if fields.is_empty() {
+                "-".into()
+            } else {
+                fields.join(", ")
+            }
+        ));
+    }
+    out
+}
+
 /// The markdown document: intro + one section per root/definition.
 pub fn render_md(doc: &SchemaDoc) -> String {
     let mut out = String::new();
@@ -317,6 +381,12 @@ pub fn render_md(doc: &SchemaDoc) -> String {
             out.push_str("\n## document\n\n");
             out.push_str(&field_table(fields));
         }
+        // A tagged-union root documents its variants in the document section
+        // itself (there is no separate `## name` section for the root).
+        FieldType::TaggedUnion(variants) => {
+            out.push_str("\n## document\n\n");
+            out.push_str(&kind_table(variants));
+        }
         other => {
             out.push_str(&format!("\n## document\n\nType: {}\n", type_md(other)));
         }
@@ -326,35 +396,13 @@ pub fn render_md(doc: &SchemaDoc) -> String {
         out.push_str(&format!("\n## {name}\n\n"));
         match ty {
             FieldType::Obj(fields) => out.push_str(&field_table(fields)),
-            FieldType::TaggedUnion(variants) => {
-                out.push_str("| kind | Fields (beyond `kind`) |\n");
-                out.push_str("|---|---|\n");
-                for v in variants {
-                    let fields: Vec<String> = v
-                        .fields
-                        .iter()
-                        .map(|f| {
-                            format!(
-                                "`{}`: {}{}",
-                                f.name,
-                                type_md(&f.ty),
-                                if f.required { "" } else { " (optional)" }
-                            )
-                        })
-                        .collect();
-                    out.push_str(&format!(
-                        "| `{}` | {} |\n",
-                        v.kind,
-                        if fields.is_empty() {
-                            "-".into()
-                        } else {
-                            fields.join(", ")
-                        }
-                    ));
-                }
-            }
+            FieldType::TaggedUnion(variants) => out.push_str(&kind_table(variants)),
             other => out.push_str(&format!("Type: {}\n", type_md(other))),
         }
+    }
+
+    for (heading, body) in &doc.extra_sections {
+        out.push_str(&format!("\n## {heading}\n\n{body}"));
     }
     out
 }
@@ -510,6 +558,35 @@ fn check_type(
                 json_type_name(v)
             )),
         },
+        FieldType::FreeObj(value) => match v {
+            Json::Obj(pairs) => {
+                for (k, val) in pairs {
+                    check_type(value, val, &format!("{path}.{k}"), defs, errs);
+                }
+            }
+            _ => errs.push(format!(
+                "type mismatch at {path}: expected object, got {}",
+                json_type_name(v)
+            )),
+        },
+        FieldType::Union(alts) => {
+            // Conforms iff at least one alternative passes cleanly; report
+            // the shortest error list otherwise.
+            let mut best: Option<Vec<String>> = None;
+            for alt in alts {
+                let mut e = Vec::new();
+                check_type(alt, v, path, defs, &mut e);
+                if e.is_empty() {
+                    return;
+                }
+                if best.as_ref().is_none_or(|b| e.len() < b.len()) {
+                    best = Some(e);
+                }
+            }
+            if let Some(e) = best {
+                errs.extend(e);
+            }
+        }
     }
 }
 
@@ -544,6 +621,7 @@ mod tests {
                 Field::opt("b", FieldType::int(), None),
                 Field::req("c", FieldType::nullable(FieldType::r#ref("thing")), None),
             ]),
+            extra_sections: vec![],
             definitions: vec![(
                 "thing".into(),
                 FieldType::tagged_union(vec![TaggedVariant::new(
@@ -621,5 +699,65 @@ mod tests {
         assert!(md.contains("## thing"), "{md}");
         assert!(md.contains("`a` | string | yes"), "{md}");
         assert!(md.contains("[thing] or null"), "{md}");
+    }
+
+    #[test]
+    fn free_obj_and_union_emit_and_walk() {
+        let doc = SchemaDoc {
+            title: "free".into(),
+            description: "d".into(),
+            root: FieldType::obj(vec![Field::req(
+                "m",
+                FieldType::free_obj(FieldType::union(vec![FieldType::bool(), FieldType::int()])),
+                None,
+            )]),
+            definitions: vec![],
+            extra_sections: vec![("extra".into(), "body text".into())],
+        };
+        let s = emit_schema_pretty(&doc);
+        let j = crate::json_rw::parse(&s).expect("valid JSON");
+        let m = j.get("properties").unwrap().get("m").cloned().unwrap();
+        assert_eq!(m.get("type").and_then(|v| v.as_str()), Some("object"));
+        // Free keys: additionalProperties carries the value schema (anyOf),
+        // and there is NO properties/required list.
+        let ap = m.get("additionalProperties").cloned().unwrap();
+        assert!(ap.get("anyOf").is_some(), "{ap:?}");
+        assert!(m.get("properties").is_none(), "{m:?}");
+
+        // md: the extra section is appended after the definitions.
+        let md = render_md(&doc);
+        assert!(md.contains("\n## extra\n\nbody text"), "{md}");
+        assert!(
+            md.contains("object (arbitrary keys; values: boolean | integer)"),
+            "{md}"
+        );
+
+        // walk: arbitrary keys accepted, value types enforced.
+        let ok = crate::json_rw::parse(r#"{"m": {"a": true, "b": 3}}"#).unwrap();
+        assert!(walk_check(&doc, &ok).is_ok());
+        let bad = crate::json_rw::parse(r#"{"m": {"a": "s"}}"#).unwrap();
+        let errs = walk_check(&doc, &bad).unwrap_err();
+        assert!(
+            errs.iter().any(|e| e.contains("type mismatch at $.m.a")),
+            "{errs:?}"
+        );
+    }
+
+    #[test]
+    fn tagged_union_root_renders_kind_table_in_document_section() {
+        let doc = SchemaDoc {
+            title: "rooted".into(),
+            description: "d".into(),
+            root: FieldType::tagged_union(vec![TaggedVariant::new(
+                "x",
+                vec![Field::req("v", FieldType::int(), None)],
+            )]),
+            definitions: vec![],
+            extra_sections: vec![],
+        };
+        let md = render_md(&doc);
+        assert!(md.contains("## document"), "{md}");
+        assert!(md.contains("| kind | Fields (beyond `kind`) |"), "{md}");
+        assert!(md.contains("| `x` | `v`: integer |"), "{md}");
     }
 }

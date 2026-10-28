@@ -80,3 +80,11 @@ aggregate anyway per protocol; `cargo test-training` green.
 
 - No new examples, no language/algorithm changes.
 - No rewording of existing entries (append-only).
+
+## Task corrections (during execution)
+
+| Date | What changed | Why |
+|------|--------------|-----|
+| 2026-10-28 | Scope expanded by one file: `src/main.rs` - the usage-text `info format` paragraph (written in task 5) was stale ("Currently: spec-rfs ... JSON-schema outputs land with the JSON format entries") although tasks 6-14 registered nine more formats; replaced with a one-line summary of the current 10-format registry | The training entries document `rfs info format` against the REAL CLI surface; shipping SFT data that teaches a stale usage line would be exactly the drift class D-P7-9 exists to catch. Help text only - no behavior change, no test pinned the line |
+| 2026-10-28 | The three new entries quote verbatim tool output captured in this session (rfs 1.0.0, spec `examples/valid/04_tcp_handshake_like.rfs`): internal SVG sizes dot 3766 / puml 4391 / mmd 6366 bytes with every external tool unresolvable; external dot 3335 / puml 7077 / mmdc 189407 bytes; `mc-ref` on spec 04 exits 1 (the known pinned deadlock) and its JSON report validates against the emitted mc-report schema | KB.md protocol: entries must contain REAL tool output, no fiction - so the numbers in the data are this session's captures, not placeholders |
+| 2026-10-28 | Entry 2 carries an honest note that the installed plantuml (apt 1.2020.02) predates PlantUML EBNF support and answers "No diagram found" (exit 100) even for a minimal `@startebnf` file, so real-tool acceptance of `spec-rfs --output plantuml` is pinned structurally by the test suite instead | The entry documents what the tool ACTUALLY does in this environment; task 16 should consider noting in TOOLCHAIN.md that real-tool acceptance requires a newer PlantUML release |

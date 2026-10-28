@@ -16,8 +16,10 @@ info format: machine-readable descriptions of rfs input/output formats,
       rendered from the in-binary models so they stay in sync with the code
       (Phase 7). `--list` shows registered formats; `<name> [--output KIND]`
       prints one document to stdout (default output = the format's first).
-      Currently: spec-rfs (RFS v0 EBNF grammar; outputs md, plantuml, svg).
-      JSON-schema outputs land with the JSON format entries.
+      Formats: spec-rfs (RFS v0 EBNF grammar; md, plantuml, svg), spec-json /
+      ce-trace / mc-report / validate-json / info-json (md + draft-07 JSON
+      schema), diagram-dot / diagram-puml / diagram-mmd (generated subset,
+      md), artifact-header (md).
 
 test: generate + compile + run the selected test suites for the spec in one
       invocation (the CI entry point for generated tests; model checking stays

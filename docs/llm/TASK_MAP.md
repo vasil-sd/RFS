@@ -43,3 +43,8 @@ rewrites this section into the full functionality-to-source map.
 - `src/backends/c_fsm.rs` - C backend: production FSM source generation
 - `src/backends/c_mc.rs` - C backend: model-checker executable generation (same wire format as Rust)
 - `src/backends/c_test.rs` - C backend: unit-test / fuzz-target generation
+- `src/mc_plan.rs` - codegen-time plan for the exact MC engine (embedded in both binaries)
+- `src/smt_plan.rs` - backend-neutral SMT spec for k-step unrolling over z3 bitvectors
+- `src/smt_emit.rs` - shared SMT emitter: renders the spec into Rust (z3 crate) and C (libz3)
+- `src/ref_mc.rs` - brute-force reference model checker (ground truth, rfs mc-ref)
+- `src/monitor.rs` - PSL-to-monitor compiler: formulas to MonitorPlan

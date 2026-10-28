@@ -10,6 +10,7 @@
 //!   references, no nested temporal operators);
 //! - variables: bit<N> and bool only (no enum-typed vars);
 //! - concrete payload fields: bit<N>/bool with N <= 64.
+//! Docs: dev:mc-engine-overview, llm:mc-engine
 
 use crate::ir::{Expr, Formula, Module};
 use crate::mc_plan::{McPlan, ValueDomain};

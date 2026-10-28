@@ -214,7 +214,7 @@ manifest +5; run the gate.
 Skeletons `docs/dev/backend_c.md`, `docs/llm/backend_c.md`; pointers in the 4
 files under `src/backends/` (c, c_fsm, c_mc, c_test); manifest +4; run the gate.
 
-### Action 1.8: MC engine + monitor chunk
+### Action 1.8: MC engine + monitor chunk (DONE 2026-10-28)
 
 Skeletons `docs/dev/mc_engine.md`, `docs/dev/monitor_compiler.md`,
 `docs/llm/mc_engine.md`, `docs/llm/monitor_compiler.md`; pointers in

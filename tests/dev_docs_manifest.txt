@@ -29,7 +29,12 @@ src/json_rw.rs
 src/json_schema.rs
 src/lib.rs
 src/main.rs
+src/mc_plan.rs
+src/monitor.rs
 src/parser.rs
 src/printer.rs
+src/ref_mc.rs
+src/smt_emit.rs
+src/smt_plan.rs
 src/spec_hash.rs
 src/validator.rs

@@ -21,6 +21,7 @@
 //! The plan is a pure function of the module (+ assumption selection): no
 //! environment reads, no randomness. It is not consumed by any backend until
 //! Phase 4 task 2; nothing here changes generated output.
+//! Docs: dev:mc-engine-overview, llm:mc-engine
 
 use std::collections::HashSet;
 

@@ -1,3 +1,7 @@
+//! RFS CLI entry point: argument parsing and command dispatch for all
+//! `rfs` subcommands.
+//! Docs: dev:code-map-frontend
+
 use std::env;
 use std::path::Path;
 use std::process::ExitCode;

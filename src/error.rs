@@ -1,3 +1,6 @@
+//! Shared source spans and parse-error types used across the toolchain.
+//! Docs: dev:code-map-frontend
+
 use std::fmt;
 
 /// A byte span in the source text.

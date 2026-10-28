@@ -11,6 +11,7 @@
 //! - `run_validate`: parse + semantically validate `.rfs` or `.json` files.
 //!   For directory inputs, failing files get a `<name>.rfs-validation.err`
 //!   text file written next to them.
+//! Docs: dev:code-map-frontend
 
 use crate::ir::Ir;
 use crate::printer;

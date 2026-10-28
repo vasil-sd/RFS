@@ -6,6 +6,7 @@
 //! and always go to stderr, exactly like the pre-Phase-5 commands do. The
 //! logger exists for informational progress output of the new external-tool
 //! commands (`rfs test`, `rfs diagram`, ...).
+//! Docs: dev:code-map-frontend
 
 /// Log level filter (higher = more verbose).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]

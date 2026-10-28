@@ -6,3 +6,10 @@
 # docs/llm/. The sync gate (tests/dev_docs_test.rs) checks exactly this set;
 # tasks 1.2-1.9 extend it chunk by chunk, and task 1.10 adds the completeness
 # check (manifest == filesystem scan of all 72 hand-written .rs files).
+
+src/cli_log.rs
+src/error.rs
+src/frontend.rs
+src/lib.rs
+src/main.rs
+src/printer.rs

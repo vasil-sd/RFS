@@ -1,3 +1,10 @@
+//! RFS - Rust Finite-State Specification Language: toolchain crate root.
+//!
+//! Declares all library modules; the CLI entry point is `src/main.rs`. The
+//! developer documentation set lives in `docs/dev/`, the LLM-assistant set in
+//! `docs/llm/`; traceability conventions are pinned by `tests/dev_docs_test.rs`.
+//! Docs: dev:index, llm:index, dev:architecture-pipeline, dev:architecture-components, dev:architecture-hierarchy, dev:code-map-frontend, dev:deps-file-level, dev:decisions-early, dev:decisions-p2-p3, dev:decisions-p4-p5, dev:decisions-p6-p7, llm:task-map, llm:change-impact
+
 pub mod backends;
 pub mod cli_log;
 pub mod codegen;

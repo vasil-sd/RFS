@@ -18,6 +18,7 @@
 //! - The printer assumes parser-invariant IR shapes (unique constructor groups,
 //!   valid variant names, ...); hand-crafted JSON that violates those invariants
 //!   may not round-trip exactly.
+//! Docs: dev:code-map-frontend
 
 use crate::ir::*;
 use std::fmt::Write as _;

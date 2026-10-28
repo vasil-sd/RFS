@@ -64,9 +64,9 @@ skeleton docs exist with their fragment IDs fixed for the content tasks 2-13.
 | `docs/dev/README.md` | `dev:index` | `src/lib.rs` |
 | `docs/llm/README.md` | `llm:index` | `src/lib.rs` |
 | `docs/dev/ARCHITECTURE.md` | `dev:architecture-pipeline`, `dev:architecture-components`, `dev:architecture-hierarchy` | `src/lib.rs` |
-| `docs/dev/CODE_MAP.md` | `dev:code-map-frontend`, `dev:code-map-codegen`, `dev:code-map-cli`, `dev:code-map-workspace` | frontend: the 6 root files; codegen/cli/workspace: `src/lib.rs` (co-owners added in later chunks) |
+| `docs/dev/CODE_MAP.md` | `dev:code-map-frontend`, `dev:code-map-codegen`, `dev:code-map-cli`, `dev:code-map-workspace` | frontend: the 6 root files (anchored in 1.2); codegen: `src/codegen.rs` (anchored in 1.5); cli: `src/main.rs` (anchored in 1.9); workspace: `crates/rfs-build/src/lib.rs` (anchored in 1.10) |
 | `docs/dev/DEPENDENCIES.md` | `dev:deps-file-level`; function-level: `dev:deps-fn-parser`, `dev:deps-fn-validator`, `dev:deps-fn-codegen-rust`, `dev:deps-fn-backend-c`, `dev:deps-fn-mc-engine`, `dev:deps-fn-monitor` | file-level: `src/lib.rs`; fn-*: `src/parser.rs`, `src/validator.rs`, `src/codegen.rs`, `src/backends/c.rs`, `src/mc_plan.rs`, `src/monitor.rs` (anchors added in chunks 4.2-4.5) |
-| `docs/dev/DECISIONS.md` | `dev:decisions-early`, `dev:decisions-p2-p3`, `dev:decisions-p4-p5`, `dev:decisions-p6-p7` | `src/lib.rs` (anchors added in chunks 5.1-5.4) |
+| `docs/dev/DECISIONS.md` | `dev:decisions-early`, `dev:decisions-p2-p3`, `dev:decisions-p4-p5`, `dev:decisions-p6-p7` | `src/lib.rs` (all four anchored from 1.2) |
 | `docs/dev/ALGORITHMS.md` | `dev:algo-parser-validation`, `dev:algo-ir-codegen`, `dev:algo-mc-engine`, `dev:algo-monitor` | `src/parser.rs`, `src/codegen.rs`, `src/mc_plan.rs`, `src/monitor.rs` (anchors added in chunks 6.1-6.4) |
 | `docs/dev/REFERENCES.md` | `dev:references-theory`, `dev:references-model-checking` | `src/parser.rs`, `src/ref_mc.rs` (anchors added in chunks 7.1-7.2) |
 | `docs/llm/TASK_MAP.md` | `llm:task-map` | `src/lib.rs` |
@@ -165,7 +165,7 @@ still green (fixtures are valid Markdown); clippy + fmt clean.
 | `tests/fixtures/dev_docs/orphan_frag.md` | new | negative control: defined fragment with no owner |
 | `tests/fixtures/dev_docs/budget_overflow.md` | new | negative control: 6 lines vs budget 5 |
 
-### Action 1.2: index + cross-cutting skeletons
+### Action 1.2: index + cross-cutting skeletons (DONE 2026-10-28)
 
 Add `docs/dev/README.md` + `docs/llm/README.md` (conventions, fragment-ID
 scheme, context-budget rules - restating the gate's module doc) and skeletons
@@ -180,7 +180,7 @@ the ownership table. Extend the manifest with the 6 files; run the gate.
 | File | Operation | Description + rationale |
 |------|-----------|-------------------------|
 | `docs/dev/README.md`, `docs/llm/README.md` | new | index + conventions for both classes |
-| 8 skeleton docs (ARCHITECTURE, CODE_MAP, DEPENDENCIES, DECISIONS, ALGORITHMS, REFERENCES under `docs/dev/`; TASK_MAP, CHANGE_IMPACT under `docs/llm/`) | new | stable fragment-ID headers + TBD placeholders; Class B with budget headers |
+| 8 skeleton docs (ARCHITECTURE, CODE_MAP, DEPENDENCIES, DECISIONS, ALGORITHMS, REFERENCES under `docs/dev/`; TASK_MAP, CHANGE_IMPACT under `docs/llm/`) | new | stable fragment-ID headers + TBD placeholders; Class B with budget headers; TASK_MAP additionally carries the growing Coverage stub (see correction below) |
 | 6 root `.rs` files | change | `//! Docs:` pointer lines per the ownership table |
 | `tests/dev_docs_manifest.txt` | change | +6 entries |
 
@@ -270,3 +270,10 @@ the completeness test (manifest == filesystem scan of `src/` + `crates/` +
 - No item-level (`/// Docs:`) pointer gate-checking (convention only).
 - No completeness test before 1.10 (the manifest is intentionally partial in
   between, so the repo stays green at every step).
+
+## Task corrections
+
+| Correction | Description + rationale |
+|------------|-------------------------|
+| CODE_MAP / DECISIONS anchor schedule clarified (1.2) | The Context table originally suggested `src/lib.rs` would own all four code-map fragments from 1.2 and that the decision anchors would appear in chunks 5.x. Per Action 1.2's rule ("only fragments whose owners are in this chunk's manifest get anchors now"), CODE_MAP gets ONLY the `dev:code-map-frontend` anchor in 1.2 - the other three area sections stay plain headings until their owner files enter the manifest (1.5 / 1.9 / 1.10) - while all four DECISIONS fragments ARE anchored from 1.2 because their owner (`src/lib.rs`) is in the 1.2 manifest. The Context table rows were updated to match. |
+| TASK_MAP coverage check activates on skeleton creation (1.2) | Creating `docs/llm/TASK_MAP.md` in 1.2 immediately activates the gate's coverage check (it keys off file existence, not completeness), which then demanded doc→code references to ALL manifest files - but the full map only arrives in 13.1. Resolution: the skeleton carries a "Coverage (growing stub)" section listing every manifest file as a plain doc→code reference with a one-line role; chunks 1.3-1.10 each append their own files to that section (one line per file), and 13.1 rewrites it into the full functionality-to-source map. The section is a plain heading (no fragment anchor) so it creates no orphan-fragment obligation. |

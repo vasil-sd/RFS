@@ -27,7 +27,7 @@ activation: `TOOLCHAIN.md`. Session entry point for LLM-assisted work: `START.md
 | File | Content | Lifecycle |
 |---|---|---|
 | `INTRO.md` | This file: overview, phase-state table, formatting rules (templates), two-stage work protocol | Maintained; update when the protocol or templates change |
-| `PHASE_N.md` (N = 0..6) | Phase description: goal, scope, phase-specific sections, deliverables, exit criteria, non-goals | Written once per phase; frozen during planning/implementation - changes only via plan corrections recorded in `PHASE_N_PLAN.md` |
+| `PHASE_N.md` (N = 0..8) | Phase description: goal, scope, phase-specific sections, deliverables, exit criteria, non-goals | Written once per phase; frozen during planning/implementation - changes only via plan corrections recorded in `PHASE_N_PLAN.md` |
 | `PHASE_N_PLAN.md` | Detailed implementation plan for the phase (planned-task table + corrections table) | Created in the planning stage and reviewed by the user; during implementation only its "Plan corrections" table is appended to |
 | `PHASE_N_STATUS.md` | Phase completion report: files added/changed/removed, functionality deltas, tests, findings | Written once when the phase exit criteria are reached (implementation stage step r); not rewritten afterwards |
 | `PHASE_N_TASK_M.md` (M = task number from `PHASE_N_PLAN.md`, including correction numbers like `4a`) | One detailed file per top-level planned task (subtask rows live inside their parent's task file) | Written after user confirmation of `PHASE_N_PLAN.md` (planning step j), reviewed by the user (step k); frozen afterwards - only its "Task corrections" section is appended to |
@@ -45,6 +45,7 @@ Phase state (2026-10-28):
 | 5 - Full toolchain and production integration | COMPLETE (close-out 2026-10-23: full verification green, `PHASE_5_STATUS.md`) | `PHASE_5.md`, `PHASE_5_PLAN.md`, `PHASE_5_TASK_{1..17}.md` (+ `_STATUS` files), `PHASE_5_STATUS.md` |
 | 6 - Production hardening and v1.0 | COMPLETE (close-out 2026-10-25: full verification green, tag v1.0.0, `PHASE_6_STATUS.md`) | `PHASE_6.md`, `PHASE_6_PLAN.md`, `PHASE_6_TASK_{1..10}.md` + `PHASE_6_TASK_2A.md` (+ `_STATUS` files), `PHASE_6_STATUS.md` |
 | 7 - Documentation and self-describing formats | COMPLETE (close-out 2026-10-28: full verification green, `PHASE_7_STATUS.md`) | `PHASE_7.md`, `PHASE_7_PLAN.md`, `PHASE_7_TASK_{1..16}.md` (+ `_STATUS` files), `PHASE_7_STATUS.md` |
+| 8 - Detailed developer documentation and code↔doc traceability | NOT PLANNED (description written 2026-10-28; planning-stage trigger: "let's make a plan for Phase 8") | `PHASE_8.md` |
 
 Keep this table current: update it when a phase is planned, completed, or re-planned.
 Note (2026-10-16): Phase 3 implementation began before the per-task protocol was

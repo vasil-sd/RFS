@@ -1,0 +1,8 @@
+# Code→doc pointer coverage manifest (Phase 8, task 1.1).
+#
+# One repo-relative .rs path per line; blank lines and `#` comments are
+# ignored. Every listed file must carry exactly one module-doc pointer line
+# `//! Docs: dev:name, llm:name` naming fragments defined under docs/dev/ +
+# docs/llm/. The sync gate (tests/dev_docs_test.rs) checks exactly this set;
+# tasks 1.2-1.9 extend it chunk by chunk, and task 1.10 adds the completeness
+# check (manifest == filesystem scan of all 72 hand-written .rs files).

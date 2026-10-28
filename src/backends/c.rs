@@ -10,6 +10,7 @@
 //!   format as the Rust model checker).
 //!
 //! Architecture notes live in `backends/C.md`.
+//! Docs: dev:backend-c-overview, llm:backend-c
 
 use crate::codegen::{Backend, BackendCommandInfo};
 use crate::ir::Type;

@@ -7,6 +7,7 @@
 //! pointer mirroring the Rust `AssumptionHandler`), and the priority-ordered
 //! `fsm_step`. Simultaneous variable updates use temporary next variables,
 //! exactly like the Rust backend (DESIGN.md section 19).
+//! Docs: dev:backend-c-overview, llm:backend-c
 
 use crate::backends::c::{c_binding_ident, c_ident, c_type, int_c_literal, mask_c_expr};
 use crate::codegen::{self, BackendOptions, PropertyMonitorMode};

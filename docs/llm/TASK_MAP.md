@@ -39,3 +39,7 @@ rewrites this section into the full functionality-to-source map.
 - `src/backends/rust_fsm.rs` - Rust backend: production FSM source generation
 - `src/backends/rust_mc.rs` - Rust backend: model-checker executable generation
 - `src/backends/rust_test.rs` - Rust backend: unit-test / fuzz / aggregate-crate generation
+- `src/backends/c.rs` - C backend: plugin registration + shared C helpers
+- `src/backends/c_fsm.rs` - C backend: production FSM source generation
+- `src/backends/c_mc.rs` - C backend: model-checker executable generation (same wire format as Rust)
+- `src/backends/c_test.rs` - C backend: unit-test / fuzz-target generation

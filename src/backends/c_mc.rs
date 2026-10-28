@@ -15,6 +15,7 @@
 //!
 //! Hard requirement: the generated C compiles with plain `gcc -Wall` without
 //! warnings.
+//! Docs: dev:backend-c-overview, llm:backend-c
 
 use crate::backends::c::{c_ident, int_c_literal};
 use crate::codegen::{BackendOptions, CodegenOutput, McMode};

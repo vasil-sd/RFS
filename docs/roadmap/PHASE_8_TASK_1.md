@@ -209,7 +209,7 @@ Skeletons `docs/dev/backend_rust.md`, `docs/llm/backend_rust.md`; pointers in
 the 5 files under `src/backends/` (mod, rust, rust_fsm, rust_mc, rust_test);
 manifest +5; run the gate.
 
-### Action 1.7: C backend chunk
+### Action 1.7: C backend chunk (DONE 2026-10-28)
 
 Skeletons `docs/dev/backend_c.md`, `docs/llm/backend_c.md`; pointers in the 4
 files under `src/backends/` (c, c_fsm, c_mc, c_test); manifest +4; run the gate.

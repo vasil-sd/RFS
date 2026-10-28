@@ -202,7 +202,9 @@ artifact stays dependency-free.
 
 ## 6. External-tool parameterization and --print-script
 
-Every tool-invoking command (`test`, `diagram --render`) resolves external
+Every tool-invoking command (`test`, and `diagram --render` ONLY with
+`--renderer external` - since Phase 7 the default `--renderer internal`
+renders SVG in-process and needs NO external binaries) resolves external
 tools with unified precedence: **CLI flag > environment variable > bare name on
 PATH**:
 

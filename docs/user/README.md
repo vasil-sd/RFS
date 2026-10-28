@@ -33,7 +33,7 @@ flowchart TB
     subgraph Authoring
         S[.rfs spec files] --> V[rfs validate - parse + semantic checks]
         S --> I[rfs info - static introspection, monitor status]
-        S --> D[rfs diagram - dot/puml/mmd/table/md sources]
+        S --> D[rfs diagram - dot/puml/mmd/table/md sources; SVG rendered in-process by default]
         G[rfs gen-spec - random or base-mutated specs] -.-> S
     end
     subgraph Compilation
@@ -53,9 +53,10 @@ flowchart TB
     end
 ```
 
-Eight stable commands (the v1.0 CLI surface): `parse`, `validate`, `info`,
-`test`, `diagram`, `codegen`, `mc-ref`, `gen-spec`. Run any of them with no
-arguments for its usage text:
+Eight stable commands (the v1.0 CLI surface): `parse`, `validate`, `info`
+(incl. the self-describing `info format` mode), `test`, `diagram` (SVG
+rendered in-process by default - no external tools needed), `codegen`,
+`mc-ref`, `gen-spec`. Run any of them with no arguments for its usage text:
 
 ```sh
 cargo run --            # full usage, including per-command descriptions

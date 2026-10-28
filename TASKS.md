@@ -1244,3 +1244,18 @@ Per PHASE_5_TASK_16.md: run the complete BUILD.md §5 checklist (+ Phase 5 addit
 - Verification: every quoted output re-run and matched verbatim this session (`diagram --list`, internal/external SVG sizes for all three formats, internal `--print-script`, `info format --list`, spec-rfs md/plantuml heads, spec-json schema head, parse + mc-ref + python jsonschema end-to-end, plantuml EBNF caveat); `cargo test-training` **5 pass / 0 fail** (4 training tests + the codegen aggregate over valid examples + training snippets); full root **526 pass / 0 fail** (unchanged - no new tests this task); clippy zero errors (46 pre-existing warnings, none in `src/main.rs`); fmt clean.
 - Counts for task 16's BUILD.md re-pin: aggregate **264** lines (was 261); snippets unchanged at **138 valid + 128 invalid**; root suite unchanged at **526**.
 - Status: `docs/roadmap/PHASE_7_TASK_15_STATUS.md` written; plan corrections row + task corrections section appended. INTRO.md row -> tasks 1-15 of 16 complete. Next is task 16 (phase close-out).
+
+## 2026-10-28 08:12 — Phase 7 task 16 (complete): phase close-out - full verification matrix green on the final tree, docs sync (DESIGN.md section 25, KB/START/BUILD baselines, INTRO row, docs/user), PHASE_7_STATUS.md + task status, single commit
+
+### Interpretation & plan
+
+- Per `PHASE_7_TASK_16.md`: close Phase 7 - run the full verification matrix on the final tree and confirm green; sync all docs (DESIGN.md section 25 with D-P7-1..D-P7-13, KB.md, START.md, BUILD.md baselines, INTRO.md row -> COMPLETE, docs/user); write `PHASE_7_STATUS.md` per template 2.3 + `PHASE_7_TASK_16_STATUS.md`; record the pinned plantuml-core rev; append this entry; single commit.
+- The previous (interrupted) session had already updated DESIGN.md section 25, KB.md, START.md, INTRO.md, docs/user/* and part of BUILD.md - this task verified those changes, re-measured everything from scratch, fixed the remaining stale spots, and wrote the two status files.
+
+### Report
+
+- Verification (2026-10-28, final tree, all re-run): build OK; `cargo test` **526/526**; `--workspace` **550/550**; `--features smt` **528/528** (z3 5.3.1 env per TOOLCHAIN.md 5.2); test-generated-code **1683/1683** (192 modules); examples_test **3 pass** (50 valid + 13 invalid); training pipeline extract+build+test **5 pass**, aggregate **264 lines** (snippets 138 valid + 128 invalid, unchanged); clippy no errors (**46 warning lines / 35 unique**: dead-code in `tests/common/{prod_driver,mc_json,fail_variants}.rs` (23) + pre-existing patterns in `src/backends/c_fsm.rs` (8) and one each in `src/{codegen,codegen_test,test_cmd,validator}.rs`; zero in Phase 7's new source files and the two new test suites); fmt clean; diagram_render_parity **13/13** with the external half fully run (dot/plantuml/mmdc + java installed).
+- Docs: BUILD.md section 5 baseline re-measured (date -> 2026-10-28 task 16 close-out, aggregate 261 -> 264, clippy breakdown); KB.md lint line fixed (36 -> 46 lines / 35 unique with file distribution); START.md baseline line aligned to the same wording; DESIGN.md section 25 (D-P7-1..D-P7-13 as shipped + execution notes) verified complete; INTRO.md row 7 -> COMPLETE; docs/user/{README,INTEGRATION,MIGRATION}.md verified.
+- Status files: `docs/roadmap/PHASE_7_STATUS.md` (template 2.3, incl. the pinned plantuml-core rev `8066f6124a86ed5da59c6d7d570f0568891c378e` per D-P7-3) + `docs/roadmap/PHASE_7_TASK_16_STATUS.md` written.
+- Commit: single close-out commit with the 8 modified docs + 2 new status files (tasks 1-15 were already committed incrementally).
+- Note: `docs/TODO.txt` / `docs/TODO1.txt` are untracked user scratch notes - left alone, not committed.

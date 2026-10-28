@@ -45,7 +45,7 @@ model-checkable (no unbounded data, floats, or arbitrary functions in the core).
    any code is touched and executes tasks one at a time - every task starts only
    after explicit user confirmation.
 
-## 1. Project state snapshot (2026-10-23)
+## 1. Project state snapshot (2026-10-28)
 
 - Phases 0-5 are COMPLETE. **Phase 5 (Full toolchain and production
   integration)** closed out 2026-10-23 (task 16: full verification +
@@ -67,8 +67,9 @@ model-checkable (no unbounded data, floats, or arbitrary functions in the core).
   fuzz harnesses both ecosystems), and IDE support (`ide/` TextMate grammar +
   snippets, `rfs validate --json` structured diagnostics). Design decisions
   D-P5-1..D-P5-14: `DESIGN.md` section 23.
-- Phase 6 (production hardening and v1.0): implementation tasks 1-9 COMPLETE,
-  close-out task 10 pending per `docs/roadmap/PHASE_6_PLAN.md`. Phase 6 added:
+- Phase 6 (production hardening and v1.0) is COMPLETE (close-out
+  2026-10-25: full verification green, tag v1.0.0) per
+  `docs/roadmap/PHASE_6_PLAN.md`. Phase 6 added:
   the NORMATIVE formal semantics document (`docs/SEMANTICS.md`), the v1.0
   versioning surface (formalized `version "X.Y[.Z]"` header with validator
   format check, `IR_VERSION = 1` with {0,1} read policy, spec hash +
@@ -92,12 +93,31 @@ model-checkable (no unbounded data, floats, or arbitrary functions in the core).
   mdr's exact parser stack; mdr itself is binary-only), and the training-data
   update (17 new entries). Design decisions D-P6-1..D-P6-11: `DESIGN.md`
   section 24.
-- Known-good baseline (re-measured 2026-10-25, Phase 6 task 9): 453/453 main
-  tests (477 with `--workspace`, 455 with `--features smt`), 1683/1683
-  generated-code tests (192 modules), clippy without errors (36 pre-existing
-  warnings, all in Phase 6 tasks 4-6 files), fmt clean; 50 valid + 13 invalid
-  examples; 11 training categories / 261 aggregated SFT examples (138 valid +
-  128 invalid snippets).
+- Phase 7 (documentation and self-describing formats) is COMPLETE (close-out
+  2026-10-28: full verification green, `PHASE_7_STATUS.md`) per
+  `docs/roadmap/PHASE_7_PLAN.md`. Docs-only phase - no parser/validator/
+  codegen/MC changes. Phase 7 added: in-process SVG rendering for
+  `rfs diagram --render svg` (new `--renderer internal|external` flag,
+  default **internal** - zero external binaries; mmd via mermaid-rs-renderer,
+  puml via rev-pinned git dep plantuml-core, dot via layout-rs; the external
+  path is preserved byte-for-byte) + a cross-renderer syntax parity suite
+  (syntax correctness only, never visual); the new `rfs info format` family -
+  10 registered formats (`spec-rfs` EBNF grammar in md/plantuml/svg, five JSON
+  document formats as md + draft-07 JSON Schema for CI validation,
+  `diagram-dot`/`diagram-puml`/`diagram-mmd` generated-subset docs,
+  `artifact-header`) with sync tests that walk REAL tool output against the
+  embedded models (drift caught in both directions); DESIGN.md section 6's
+  ebnf fence re-synced to the actual parser (61 rules). Design decisions
+  D-P7-1..D-P7-13: `DESIGN.md` section 25.
+- Known-good baseline (re-measured 2026-10-28, Phase 7 task 16 close-out):
+  526/526 main tests (550 with `--workspace`, 528 with `--features smt`),
+  1683/1683 generated-code tests (192 modules), clippy without errors
+  (46 warning lines / 35 unique - dead-code in shared test modules
+  `tests/common/{prod_driver,mc_json,fail_variants}.rs` + pre-existing patterns
+  in `src/backends/c_fsm.rs` etc.; zero in Phase 7's new source files and the
+  two new test suites), fmt clean;
+  50 valid + 13 invalid examples; 11 training categories / 264 aggregated SFT
+  examples (138 valid + 128 invalid snippets).
 
 ## 2. Documentation map (what each file is for)
 
@@ -125,7 +145,9 @@ src/frontend.rs      parse/validate CLI logic (incl. --json)    src/main.rs     
 src/validator.rs     semantic validation + typing               src/printer.rs    IR -> formatted RFS
 src/json_rw.rs       hand-rolled JSON reader-writer (all JSON)  src/info.rs       rfs info command
 src/ext_tool.rs      external-tool resolver + --print-script    src/test_cmd.rs   rfs test command (unit/fuzz suites)
-src/diagram.rs + src/diagrams/   rfs diagram plugin registry (dot/puml/mmd/table/md)
+src/diagram.rs + src/diagrams/   rfs diagram plugin registry (dot/puml/mmd/table/md; Phase 7 in-process SVG)
+src/info_format.rs   rfs info format registry + embedded models (Phase 7 D-P7-6)  src/ebnf_grammar.rs EBNF RuleNode model + 61-rule GRAMMAR_RULES (D-P7-7)
+src/json_schema.rs   shared draft-07 JSON-Schema emitter + walk check (Phase 7 D-P7-8/9)
 src/codegen.rs       backend plugin registry + CLI              src/backends/     rust*.rs + c*.rs backends (+ RUST.md, C.md)
 src/codegen_fsm.rs   shared production-FSM analysis             src/codegen_test.rs  extended unit-test planning
 src/codegen_mc.rs    shared exact-mode concepts (statuses, summary line, flag defaults, JSON report model)
@@ -145,11 +167,12 @@ tests/               examples_test, frontend_test, codegen_test, backend_parity_
                    liveness_mc_test, monitor_integration_test, example_projects_test, integration_example_test,
                    library_comparison, training_test + Phase 6: ref_mc_sweep/ref_mc_diag/ref_mc_diff,
                    prod_parity, monitor_ref, psl_translation, toolchain_fuzz, wide_ops_parity, docs_md
+                   + Phase 7: diagram_render_parity (cross-renderer syntax), info_format (10-format sync suite)
 fuzz/                root-level DETACHED cargo-fuzz workspace (Phase 6 task 5): parser/validator/ir_roundtrip/
                    codegen libFuzzer targets over the TOOLCHAIN itself (distinct from `rfs test --suite fuzz`)
 examples/valid       50 .rfs files (file-driven suite, incl. tla_adapted/)   examples/invalid  13 .rfs files (must fail)
 training/<cat>/      11 categories: rfs_training.jsonl + snippets/{valid,invalid}/
-all_rfs_training.jsonl   aggregated SFT set (261 lines) at repo root
+all_rfs_training.jsonl   aggregated SFT set (264 lines) at repo root
 ```
 
 ## 4. Toolchain essentials (do not search - use this)
@@ -187,11 +210,13 @@ then `sed -n '<start>,<end>p'`. Sections:
   14 toolchain CLI plan / 15 testing strategy / 16 risks / 17 Phase 0 deliverables /
   18 example spec / 19 Phase 1 codegen decisions / 20 Phase 2 core-DSL decisions /
   21 Phase 3 property/monitor decisions / 22 Phase 4 model-checking decisions
-  (D-P4-1..14) / 23 Phase 5 toolchain decisions (D-P5-1..14).
+  (D-P4-1..14) / 23 Phase 5 toolchain decisions (D-P5-1..14) /
+  24 Phase 6 production-hardening decisions (D-P6-1..11) /
+  25 Phase 7 documentation and self-describing formats (D-P7-1..13).
 - **docs/roadmap/**: split roadmap (replaces the old `ROADMAP.md`, removed
-  2026-10-16): `INTRO.md` (overview + templates + protocol), `PHASE_0..6.md`
+  2026-10-16): `INTRO.md` (overview + templates + protocol), `PHASE_0..7.md`
   (phase descriptions), `PHASE_N_PLAN.md` / `PHASE_N_STATUS.md` where they exist
-  (status exists for completed phases 0-2). All small: read the specific file you
+  (status exists for completed phases 0-6). All small: read the specific file you
   need, fully.
 
 ## 6. Task -> read / do / verify table (lazy loading protocol)
@@ -202,7 +227,7 @@ then `sed -n '<start>,<end>p'`. Sections:
 | Change RFS syntax/grammar | `DESIGN.md` sections 5-6 + `KB.md` sections 3, 6.5; add examples FIRST | Update parser/validator | Full checklist (`BUILD.md` section 5) + update DESIGN/KB |
 | Change the IR | `DESIGN.md` section 7 + `to_json`/`from_json` in `src/ir.rs` (hand-rolled, D-P5-2) | Decide backward compat; bump `IR_VERSION` if needed | JSON round-trip tests + full checklist |
 | Add a codegen backend language | `CODEGEN.md` fully + `src/backends/RUST.md` / `src/backends/C.md` as references | Implement 3 command fns in `src/backends/<lang>*.rs`, register static in `BACKENDS` | per-command generation tests (see CODEGEN section 8) |
-| Phase implementation (next: Phase 5 task 16 close-out, then Phase 6) | `docs/roadmap/INTRO.md` fully + `docs/roadmap/PHASE_N.md`; phase-specific docs (`DESIGN.md` sections 22-23 for the shipped MC/toolchain decisions, `KB.md` section 2.6 for properties) | Two-stage protocol from INTRO.md: planning stage writes `PHASE_N_PLAN.md`, then stops for user review; implementation stage executes the plan, tracks corrections, writes `PHASE_N_STATUS.md` at exit criteria | Full checklist + docs sync + TASKS.md entry |
+| Phase implementation (Phases 0-7 COMPLETE; next phase to be planned) | `docs/roadmap/INTRO.md` fully + `docs/roadmap/PHASE_N.md`; phase-specific docs (`DESIGN.md` sections 22-25 for the shipped MC/toolchain/docs decisions, `KB.md` section 2.6 for properties) | Two-stage protocol from INTRO.md: planning stage writes `PHASE_N_PLAN.md`, then stops for user review; implementation stage executes the plan, tracks corrections, writes `PHASE_N_STATUS.md` at exit criteria | Full checklist + docs sync + TASKS.md entry |
 | Improve validator/codegen checks | `DESIGN.md` sections 19-20 (decision tables D1-D10) + `KB.md` section 7 | Implement checks, add invalid examples first | Full checklist |
 | Training-set work | `KB.md` section 4.6 (format rules: 2 messages, `< think> ... < /think>` assistant, snippets auto-extracted) | Edit `training/<cat>/rfs_training.jsonl` | `cargo extract-training-snippets && cargo build-training && cargo test-training` |
 | LLM training run (GPU) | `head -60 training.py` (docstring only) + `BUILD.md` last command row | `python training.py --stage both` | `--dry-run` first for CPU-only data/reward validation |

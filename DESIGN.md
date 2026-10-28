@@ -2309,3 +2309,191 @@ toolchain-fuzz suite.
   validates every repo `.md` with mdr's parser stack (dev-deps `comrak 0.55` +
   `mermaid-rs-renderer 0.3` - the exact versions mdr 0.6.1 renders with; mdr
   itself is binary-only and cannot be a library dependency).
+
+## 25. Phase 7 documentation and self-describing formats (as shipped)
+
+Record of D-P7-1..D-P7-13 as IMPLEMENTED (plan: `docs/roadmap/PHASE_7_PLAN.md`;
+its "Plan corrections" table records the deviations found during execution).
+Phase 7 is a DOCS-ONLY phase: no parser, validator, codegen, or MC changes -
+the shipped surface is in-process SVG rendering for `rfs diagram --render svg`
+plus the new `rfs info format` family with embedded machine-readable models
+and sync tests that keep the documentation pinned to the code.
+
+### D-P7-1. `rfs diagram --renderer internal|external`, default INTERNAL (task 1)
+`--render svg` renders IN-PROCESS by default: each format's pure-Rust SVG
+renderer runs inside the rfs binary, so production/CI needs ZERO external
+binaries. `--renderer external` keeps the pre-Phase-7 behaviour byte-for-byte
+(resolved tool via `src/ext_tool.rs`, strict errors with no fallback - user
+decision 2026-10-21, `--print-script` with the tool invocation). Users who
+want the official renderers (dot/plantuml/mmdc) opt in explicitly. This is a
+v1.1 CLI addition, not a break - documented in `docs/user/MIGRATION.md`.
+Shipped: `Renderer { Internal, External }` option in `src/diagram.rs`, the
+`--renderer` flag in `src/main.rs` (unknown values rejected with a clear
+error).
+
+### D-P7-2. `DiagramPlugin.internal_render_svg` hook (task 1)
+The plugin gains `internal_render_svg: Option<fn(&str) -> Result<String,
+Vec<String>>>` (diagram source text -> SVG string) plus
+`internal_renderer_name` (human-readable crate name for `--print-script`
+comments). `table` / `md` keep `None` - their "no SVG renderer" error is
+unchanged. The three v1 renderers: mmd = `mermaid_rs_renderer::render_strict`
+over the emitted stateDiagram-v2 subset (task 1); puml =
+`plantuml_core::render` (task 2); dot = layout-rs following the upstream
+binary's code path, `gv::DotParser` -> GraphBuilder ->
+`VisualGraph::do_it` -> `backends::svg::SVGWriter` (no documented one-shot
+dot->SVG function exists) (task 3).
+
+### D-P7-3. plantuml-core is a rev-pinned git dependency (task 2)
+`plantuml-core = { git = "https://github.com/askidmobile/PlantUML_RUST",
+rev = "8066f6124a86ed5da59c6d7d570f0568891c378e" }` (plantuml-core 0.2.0) -
+the crate is NOT on crates.io. First build needs network; offline rebuilds
+work via the cargo git cache. Recorded in `TOOLCHAIN.md` section 6.
+Execution notes: plantuml-core's parser REJECTS the position word in
+`note right on link`, so the emitted puml changed to bare `note on link`
+with ONE `note on link : emits X` line per output - the minimal change that
+parses in BOTH plantuml-core and real PlantUML (external path re-verified
+byte-for-byte). Known gap: note-on-link TEXT is not drawn into the SVG by
+plantuml-core (syntax accepted, layout skips it); task 2's e2e pin asserts
+states/edge labels only and documents the gap in-test.
+
+### D-P7-4. mermaid-rs-renderer promoted to a regular dependency (task 1)
+Moved from `[dev-dependencies]` to `[dependencies]` with
+`default-features = false` (SVG only; no `resvg`/`png`/`cli`). Dev-deps do
+not link into the binary, so a production renderer must be a regular
+dependency. The docs gate keeps compiling (`render_strict` is core API).
+
+### D-P7-5. `--print-script` internal variant (task 1)
+In internal mode the script's heredoc writes the source file, then a comment
+line states which in-process crate rendered the SVG and its version - NO
+tool invocation. External mode is unchanged (heredoc + render invocation,
+extra puppeteer-config step for mermaid).
+
+### D-P7-6. `rfs info format` CLI shape (task 5)
+`rfs info format [--list] <name?> [--output md|plantuml|svg|schema]` is a new
+sub-mode of the existing `info` command (dispatch on first arg == "format"
+in `cmd_info`, BEFORE path handling - a file literally named `format`
+cannot collide). Registry pattern mirrors `DIAGRAMS` / `BACKENDS`: static
+`FORMATS: &[FormatInfo]` in new module `src/info_format.rs`; each format
+task registers exactly one entry. Shipped registry (10 entries):
+`spec-rfs` (md/plantuml/svg), `spec-json`, `ce-trace`, `mc-report`,
+`validate-json`, `info-json` (md/schema), `diagram-dot`, `diagram-puml`,
+`diagram-mmd`, `artifact-header` (md). `--list` prints a markdown table;
+unknown names and unsupported `--output` values are clear errors.
+
+### D-P7-7. EBNF grammar model mirrors the parser (task 5)
+New module `src/ebnf_grammar.rs`: const-constructible
+`enum RuleNode { Terminal, NonTerminal, Sequence, Choice, Optional,
+ZeroOrMore, OneOrMore }` + `pub static GRAMMAR_RULES: &[(&str, RuleNode)]`
+with 61 rules mirroring the ACTUAL parser (incl. the lexical rules
+`identifier`, `letter`, `digit`, `unsigned_integer_literal`). Renderers:
+`to_md()` (code block + rule table), `to_plantuml_ebnf()` (@startebnf/
+@endebnf, quoted terminals, `[0..n]`/`[1..n]` suffixes per
+plantuml.com/en/ebnf "All EBNF Elements"), and `to_svg()` - a railroad
+mapping (Sequence->Seq, Choice->Choice+Alt, Optional->Opt, ZeroOrMore->
+Repeat, OneOrMore->OneOrMore) on a stylesheet diagram
+(`Diagram::new_with_stylesheet`, standalone SVG; `railroad 0.3` with
+`default-features = false`). The model is the source of truth: DESIGN.md
+section 6's ebnf fence was found STALE and replaced with the canonical text
+of `to_ebnf_text()` (one rule per line, no in-fence comments), and a sync
+test enforces rule-name parity + KEYWORDS terminal coverage.
+
+### D-P7-8. JSON Schema: draft-07 via a shared emitter (tasks 6-10)
+draft-07 (widest CI-validator support), emitted by the small shared emitter
+`src/json_schema.rs` from a compact field model, with required/optional
+marking and enum-constraint notes. Schema output is pretty JSON produced
+through `json_rw` (project rule: all JSON goes through json_rw). The
+mc-report model `$ref`s the ce-trace model via `definitions`. Execution
+notes: the shipped model EXTENDS the plan sketch (`Str/Int/Bool/Null/Obj/
+Arr`) with `EnumStr`, `Ref`, `TaggedUnion` (internally-tagged unions ->
+`oneOf` per variant), `Nullable` (nullable refs as `anyOf` - $ref siblings
+are ignored in draft-07), and for ce-trace's name->value maps `FreeObj`
+(arbitrary keys, `additionalProperties` = inner schema) + `Union` (plain
+anyOf; the ce_value boolean|integer|string encoding); `additionalProperties:
+false` everywhere on fixed objects. The status/reason enum values are
+derived from `ExactStatus::wire()` / `FailReason::wire()` at build time (no
+string literals - a wire-name change follows automatically). The fail fields
+(`reason`/`label`/`step`/`counterexample`) are modeled OPTIONAL (draft-07
+without if/then conditionals); their IFF-fail presence is pinned by the walk
+tests over real runs instead.
+
+### D-P7-9. Sync tests: the "stays in sync with the code" guarantee (tasks 5-14)
+- spec-rfs: every `KEYWORDS` entry appears as a terminal in GRAMMAR_RULES;
+rule names equal the names parsed out of the DESIGN.md section 6 ebnf fence.
+- spec-json / validate-json / info-json: walk EVERY generated JSON document
+(all 50 valid examples via `rfs parse` output, all 13 invalid examples for
+validate-json, real `rfs info --json` documents) and verify (a) every
+required key in the model is present, (b) every key actually present at each
+object level is documented - catches drift in BOTH directions without
+touching `ir.rs`.
+- ce-trace / mc-report: pinned FAIL-variant benchmark runs produce real
+reports; same walk check against models built from the `JSON_KEY_*`
+constants (in `src/codegen_mc.rs`).
+- diagram-dot / diagram-puml / diagram-mmd: coverage sync tests over all 50
+valid examples x every module - every generated line is one of the
+documented shapes filled with IR data (no undocumented tokens), plus corpus
+pins for guard/struct-event/on_error/emits/note-on-link coverage.
+- artifact-header: line 1 byte-equal to the documented template over all 50
+valid examples x both backends x all three codegen commands (incl. fuzz
+skeletons) + hash-variation corpus sanity.
+
+### D-P7-10. Cross-renderer parity = syntax correctness ONLY (task 4)
+`tests/diagram_render_parity_test.rs`: internal half covers ALL 50 valid
+examples x 3 formats (fast, pure Rust); external half covers a pinned
+representative subset (~4 specs exercising guards/emits/on_error/payloads)
+x 3 tools via `--renderer external`, availability-gated and serialized under
+a static mutex, exactly like the existing real-tool tests. The source file is
+byte-identical to the in-process generated text (the same text parsed by
+both renderers). Comparison is parse/render SUCCESS only - never visual
+output (user requirement).
+
+### D-P7-11. No new example `.rfs` files
+No language or algorithm changes in this phase, so `examples/valid/`
+(50) and `examples/invalid/` (13) stay untouched.
+
+### D-P7-12. Training set: category-local additions (task 15)
+Additions to `training/frontend_cli/rfs_training.jsonl` in the two-message
+format per KB.md - `rfs diagram --renderer internal|external` usage incl.
+the zero-external-deps proof with every tool env var unresolvable + strict
+external semantics + internal-mode `--print-script`, and `rfs info format`
+usage (`--list`, per-format `--output` choices, CI/CD use of the emitted
+draft-07 schemas via a real end-to-end python jsonschema validation run) -
+all with verbatim real tool output. No `.rfs` snippets added (no new
+language surface); snippets + aggregate regenerated per protocol; aggregate
+re-pinned 261 -> 264.
+
+### D-P7-13. table/md and the `.err` artifact get no `info format` entries
+Self-describing plain text / standard error stream; they are covered by
+docs/user only.
+
+### Phase 7 execution notes (drift from plan, as shipped)
+- DESIGN.md section 6 ebnf fence found STALE vs the actual parser (missing
+  `version` in module, `on_error_decl`, `priority_action`,
+  `output_call_payload`, the bitwise ladder levels, literal alternatives in
+  `pattern_field`/`pattern_expr`, and the lexical rules were referenced but
+  never defined); replaced with the canonical text of `to_ebnf_text()`; the
+  sync test now enforces rule-name parity. The in-binary model (verified
+  rule-by-rule against `parser.rs`) is the source of truth.
+- The WIP `GRAMMAR_RULES` from an interrupted earlier attempt was missing
+  `add_expr`/`mul_expr` (the parser's expression ladder contains BOTH the
+  bitwise levels `| ^ &` AND the arithmetic levels `+ - *` between shift and
+  unary); rule count 59 -> 61. Caught by cross-checking the model against
+  the parser BEFORE writing the sync test.
+- The plan's `mc_report_json.rs` does not exist - the `JSON_KEY_*`
+  constants and the counterexample JSON builder live in `src/codegen_mc.rs`
+  (task 7); likewise the plan's `ir.rs` `render_json` lives in `src/info.rs`
+  (task 10). Name drift between the plan (written from the Phase 5 record)
+  and the shipped tree; the constants are the same, only the home file
+  differs.
+- The pinned FAIL variants moved OUT of `tests/benchmark_mc_test.rs` into a
+  new shared module `tests/common/fail_variants.rs` (consumed by both the
+  benchmark suite and the ce-trace walk) - duplicating ~220 lines of variant
+  spec text into a second suite is exactly the drift class this project pins
+  against.
+- ce-trace's root + sub-definitions were extracted into a shared
+  `counterexample_model()` builder: the mc-report entry's `counterexample`
+  definition REUSES it, so the two documents cannot drift - a test pins the
+  emitted definition byte-identical to the ce-trace root.
+- The usage-text `info format` paragraph in `src/main.rs` (written in task
+  5) was stale after tasks 6-14 registered nine more formats; fixed in task
+  15 to a one-line summary of the current 10-format registry. Help text
+  only - no behavior change.

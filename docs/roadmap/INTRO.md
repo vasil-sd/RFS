@@ -33,7 +33,7 @@ activation: `TOOLCHAIN.md`. Session entry point for LLM-assisted work: `START.md
 | `PHASE_N_TASK_M.md` (M = task number from `PHASE_N_PLAN.md`, including correction numbers like `4a`) | One detailed file per top-level planned task (subtask rows live inside their parent's task file) | Written after user confirmation of `PHASE_N_PLAN.md` (planning step j), reviewed by the user (step k); frozen afterwards - only its "Task corrections" section is appended to |
 | `PHASE_N_TASK_M_STATUS.md` | Task completion report: files added/changed/removed, functionality deltas, tests, findings | Written once when the task exit criteria are reached (implementation step m, template 2.5.2) or when an unimplemented task is cancelled (template 2.5.1); not rewritten afterwards |
 
-Phase state (2026-10-21):
+Phase state (2026-10-28):
 
 | Phase | State | Files present |
 |---|---|---|
@@ -44,7 +44,7 @@ Phase state (2026-10-21):
 | 4 - Scalable model checking | COMPLETE (close-out 2026-10-20: full verification green, `PHASE_4_STATUS.md`) | `PHASE_4.md`, `PHASE_4_PLAN.md`, `PHASE_4_TASK_{1..14}.md` + `PHASE_4_TASK_10B.md` (+ `_STATUS` files), `PHASE_4_STATUS.md` |
 | 5 - Full toolchain and production integration | COMPLETE (close-out 2026-10-23: full verification green, `PHASE_5_STATUS.md`) | `PHASE_5.md`, `PHASE_5_PLAN.md`, `PHASE_5_TASK_{1..17}.md` (+ `_STATUS` files), `PHASE_5_STATUS.md` |
 | 6 - Production hardening and v1.0 | COMPLETE (close-out 2026-10-25: full verification green, tag v1.0.0, `PHASE_6_STATUS.md`) | `PHASE_6.md`, `PHASE_6_PLAN.md`, `PHASE_6_TASK_{1..10}.md` + `PHASE_6_TASK_2A.md` (+ `_STATUS` files), `PHASE_6_STATUS.md` |
-| 7 - Documentation and self-describing formats | planned (2026-10-26); implementing (tasks 1-15 of 16 complete) | `PHASE_7.md`, `PHASE_7_PLAN.md`, `PHASE_7_TASK_{1..16}.md` (+ `_STATUS` files for completed tasks) |
+| 7 - Documentation and self-describing formats | COMPLETE (close-out 2026-10-28: full verification green, `PHASE_7_STATUS.md`) | `PHASE_7.md`, `PHASE_7_PLAN.md`, `PHASE_7_TASK_{1..16}.md` (+ `_STATUS` files), `PHASE_7_STATUS.md` |
 
 Keep this table current: update it when a phase is planned, completed, or re-planned.
 Note (2026-10-16): Phase 3 implementation began before the per-task protocol was

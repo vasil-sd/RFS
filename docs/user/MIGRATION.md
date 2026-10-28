@@ -65,7 +65,9 @@ Every command present at a MAJOR tag - its name, its flags and their
 meaning, its exit codes, and what it writes to stdout/stderr - is stable until
 the next MAJOR bump. As of this writing the commands are `parse`, `validate`,
 `info`, `test`, `diagram`, `codegen`; Phase 6 adds `mc-ref` and `gen-spec`
-before the v1.0 tag, so the v1.0 surface is those eight. Rules:
+before the v1.0 tag, so the v1.0 surface is those eight; Phase 7 adds the
+`rfs diagram --renderer` flag and the additive `rfs info format` sub-mode
+before the v1.1 tag (recorded in section 4). Rules:
 
 - Adding a command or a flag (with a default that leaves existing behavior
   unchanged) is MINOR.
@@ -185,6 +187,42 @@ is the only new content), and step semantics (`docs/SEMANTICS.md`).
    the old ones - both load.
 4. Re-pin any byte-pinned headers to the new line-1 format (pin the FIELDS,
    not the wording - section 2.5).
+
+### v1 -> v1.1 (Phase 7, pending minor bump)
+
+**What changes for users.**
+
+- **`rfs diagram --render svg` renders IN-PROCESS by default** (D-P7-1): a new
+  `--renderer internal|external` flag defaults to `internal`, where each
+  format's pure-Rust SVG renderer runs inside the rfs binary - NO external
+  binaries (dot/plantuml/mmdc) are needed. `--renderer external` restores the
+  pre-v1.1 behaviour byte-for-byte (resolved tool, strict errors, no fallback).
+  The generated SOURCE files (`.dot`/`.puml`/`.mmd`) are unchanged by this.
+- **Generated PlantUML source normalized** (task 2): `note right on link`
+  became bare `note on link`, and emitted outputs now print ONE
+  `note on link : emits X` line per output instead of a single multi-line note
+  block. Both forms are valid PlantUML with identical meaning; the change was
+  required by the in-process renderer's parser. If you byte-pin generated
+  `.puml` sources, re-pin them.
+- **New additive surface: `rfs info format`** (D-P7-6): self-describing
+  documentation for the toolchain's own formats - `--list`, per-format
+  `--output md|plantuml|svg|schema`. The five JSON document formats
+  (`spec-json`, `ce-trace`, `mc-report`, `validate-json`, `info-json`) emit
+  draft-07 JSON Schemas you can drop into CI to validate tool output; sync
+  tests keep the models pinned to the code.
+
+**What did NOT change.** The `.rfs` language, IR JSON schema (still v1),
+generated-code public API, all other CLI commands/flags/exit codes, MC report
+bytes, and step semantics (`docs/SEMANTICS.md`). No new example specs.
+
+**Migration steps for a project pinning diagram output.**
+
+1. Update your toolchain to the v1.1 release.
+2. If you render SVG in CI, you can now DROP the dot/plantuml/mmdc
+   dependencies - the default path needs none. Keep `--renderer external`
+   only if you specifically want the official renderers' output.
+3. Re-pin any byte-pinned `.puml` sources (note-on-link form change above);
+   `.dot`/`.mmd` sources and all other artifacts are unchanged.
 
 ## 5. Process: how future migrations are made (maintainer template)
 

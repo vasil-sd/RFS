@@ -196,7 +196,7 @@ Skeletons `docs/dev/validator.md`, `docs/dev/ir_json_rw.md`,
 `docs/llm/validator.md`, `docs/llm/ir_json_rw.md`; pointers in `src/validator.rs`,
 `ir.rs`, `json_rw.rs`, `json_schema.rs`, `spec_hash.rs`; manifest +5; run the gate.
 
-### Action 1.5: codegen core chunk
+### Action 1.5: codegen core chunk (DONE 2026-10-28)
 
 Skeletons `docs/dev/codegen_core.md`, `docs/llm/codegen_core.md`; pointers in
 `src/codegen.rs`, `codegen_fsm.rs`, `codegen_mc.rs`, `codegen_test.rs`; add the

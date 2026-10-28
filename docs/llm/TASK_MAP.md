@@ -30,3 +30,7 @@ rewrites this section into the full functionality-to-source map.
 - `src/json_rw.rs` - hand-rolled JSON reader/writer (only JSON impl in the toolchain)
 - `src/json_schema.rs` - draft-07 JSON-Schema emitter + markdown renderer + sync walker
 - `src/spec_hash.rs` - hand-rolled SHA-256; spec hash for generated artifact headers
+- `src/codegen.rs` - codegen backend API + plugin registry (language-agnostic core)
+- `src/codegen_fsm.rs` - shared production-FSM codegen helpers (variants, rep values)
+- `src/codegen_mc.rs` - bounded model-checker concepts shared by all backends
+- `src/codegen_test.rs` - unit-test planning (TestPlan) shared by all backends

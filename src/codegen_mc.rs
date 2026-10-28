@@ -17,6 +17,7 @@
 //! Backends render these concepts into executable target-language code. The
 //! generated binary must not depend on this crate, so backends embed their own
 //! copies of the parsing helpers (kept in sync with the formats defined here).
+//! Docs: dev:codegen-core-overview, llm:codegen-core
 
 use crate::codegen::AssumptionSelection;
 

@@ -9,10 +9,11 @@ links both ways. The pointer scope is driven by `tests/dev_docs_manifest.txt`.
 
 TBD (task 3.1): root (6), parser (2), validator+IR (5).
 
+<a id="dev:code-map-codegen"></a>
 ## Codegen core + backends (18 files)
 
 TBD (task 3.2): codegen core (4) + Rust backend (5) + C backend (4); both
-backends at equal depth. Fragment anchor added in task 1.5.
+backends at equal depth.
 
 ## CLI + diagrams area (18 files)
 

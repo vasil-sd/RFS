@@ -22,6 +22,7 @@
 //! Golden tests in `tests/frontend_test.rs` pin the rendered text; the
 //! round-trip property (parse rfs -> to_json -> from_json == original IR) is
 //! tested over all valid examples there as well.
+//! Docs: dev:ir-json-rw-overview, llm:ir-json-rw
 
 use crate::json_rw::Json;
 

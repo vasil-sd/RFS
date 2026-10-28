@@ -25,3 +25,8 @@ rewrites this section into the full functionality-to-source map.
 - `src/printer.rs` - IR-to-RFS source printer (unparser) and round-trip helpers
 - `src/parser.rs` - RFS v0 source parser (nom-based): spec text to IR
 - `src/ebnf_grammar.rs` - EBNF grammar model + renderers for IDE/tooling output
+- `src/validator.rs` - semantic validation and expression typing for RFS IR
+- `src/ir.rs` - IR types + hand-written JSON (de)serialization (pinned wire format)
+- `src/json_rw.rs` - hand-rolled JSON reader/writer (only JSON impl in the toolchain)
+- `src/json_schema.rs` - draft-07 JSON-Schema emitter + markdown renderer + sync walker
+- `src/spec_hash.rs` - hand-rolled SHA-256; spec hash for generated artifact headers

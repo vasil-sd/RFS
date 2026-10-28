@@ -190,7 +190,7 @@ Skeletons `docs/dev/parser.md`, `docs/llm/parser.md` (fragments
 `dev:parser-overview`, `llm:parser`); pointers in `src/parser.rs`,
 `src/ebnf_grammar.rs`; manifest +2; run the gate.
 
-### Action 1.4: validator + IR area chunk
+### Action 1.4: validator + IR area chunk (DONE 2026-10-28)
 
 Skeletons `docs/dev/validator.md`, `docs/dev/ir_json_rw.md`,
 `docs/llm/validator.md`, `docs/llm/ir_json_rw.md`; pointers in `src/validator.rs`,

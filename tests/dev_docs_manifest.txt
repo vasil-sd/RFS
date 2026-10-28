@@ -11,7 +11,12 @@ src/cli_log.rs
 src/ebnf_grammar.rs
 src/error.rs
 src/frontend.rs
+src/ir.rs
+src/json_rw.rs
+src/json_schema.rs
 src/lib.rs
 src/main.rs
 src/parser.rs
 src/printer.rs
+src/spec_hash.rs
+src/validator.rs

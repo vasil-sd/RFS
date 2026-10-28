@@ -1,4 +1,5 @@
 //! Semantic validation and expression typing for RFS IR.
+//! Docs: dev:validator-overview, llm:validator
 
 use crate::ir::*;
 use std::collections::{HashMap, HashSet};

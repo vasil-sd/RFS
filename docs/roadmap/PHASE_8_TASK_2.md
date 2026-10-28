@@ -65,7 +65,7 @@ statement carries a doc→code reference that resolves under the sync gate.
 
 ## Planned actions
 
-### Action 2.1: pipeline overview + component diagram
+### Action 2.1: pipeline overview + component diagram (DONE 2026-10-28)
 
 Replace the `dev:architecture-pipeline` and `dev:architecture-components`
 TBDs: a stage-by-stage pipeline write-up (`.rfs`/`.json` input → parse →
@@ -73,7 +73,7 @@ validate → IR → codegen / model-checking / test / diagram targets) with a
 doc→code reference at every stage, plus a mermaid component diagram of the
 toolchain. Run the gate.
 
-### Action 2.2: functionality hierarchy + relationship map
+### Action 2.2: functionality hierarchy + relationship map (DONE 2026-10-28)
 
 Replace the `dev:architecture-hierarchy` TBD: functionality hierarchy tree
 (mermaid) + prose relationship map between components (who calls whom, what
@@ -81,11 +81,11 @@ is shared, where parity constraints bind). Run the full gate.
 
 ## Task exit criteria
 
-- [ ] All three fragments filled; no TBD placeholders remain in ARCHITECTURE.md.
-- [ ] Every technical statement carries a resolving doc→code reference
+- [x] All three fragments filled; no TBD placeholders remain in ARCHITECTURE.md.
+- [x] Every technical statement carries a resolving doc→code reference
       (gate check 1); fragment anchors/headings unchanged.
-- [ ] Mermaid blocks render under `docs_md_test`.
-- [ ] Full verification green: dev_docs_test, docs_md_test, cargo build/test/
+- [x] Mermaid blocks render under `docs_md_test`.
+- [x] Full verification green: dev_docs_test, docs_md_test, cargo build/test/
       clippy/fmt (+ --workspace).
 
 ## Non-goals

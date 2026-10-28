@@ -1,5 +1,6 @@
 //! sync_handler demo binary: run one ARQ session over std mpsc channels and
 //! print what the receiver observed. Exit 0 on success, 1 on protocol error.
+//! Docs: dev:workspace-crates-overview, llm:workspace-crates
 fn main() {
     match sync_handler::run() {
         Ok(r) => {

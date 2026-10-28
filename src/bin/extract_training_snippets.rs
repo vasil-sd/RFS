@@ -1,3 +1,6 @@
+//! CLI entry point: extract the training snippets from the examples.
+//! Docs: dev:toolchain-fuzz-overview, llm:toolchain-fuzz
+
 use std::path::PathBuf;
 
 fn main() {

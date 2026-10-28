@@ -3,6 +3,7 @@
 //! The FSM is stepped synchronously inside `poll_next` (generated `step`
 //! does no I/O), so ANY executor works - no tokio dependency. Requires the
 //! `async` feature.
+//! Docs: dev:workspace-crates-overview, llm:workspace-crates
 
 use crate::ProtocolFsm;
 use alloc::collections::VecDeque;

@@ -4,6 +4,7 @@
 //! (2 backends x production/test/mc) without error, and every artifact passes
 //! cheap structural checks. No compilation inside the fuzzer - that lives in
 //! the slow CI suite `tests/toolchain_fuzz_test.rs`.
+//! Docs: dev:toolchain-fuzz-overview, llm:toolchain-fuzz
 
 #![no_main]
 

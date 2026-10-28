@@ -4,9 +4,31 @@
 # ignored. Every listed file must carry exactly one module-doc pointer line
 # `//! Docs: dev:name, llm:name` naming fragments defined under docs/dev/ +
 # docs/llm/. The sync gate (tests/dev_docs_test.rs) checks exactly this set;
-# tasks 1.2-1.9 extend it chunk by chunk, and task 1.10 adds the completeness
-# check (manifest == filesystem scan of all 72 hand-written .rs files).
-
+# tasks 1.2-1.9 extended it chunk by chunk, and task 1.10 completed it: the
+# completeness test pins manifest == filesystem scan of all 71 hand-written
+# .rs files (build-generated artifacts are excluded - see that test).
+crates/examples/async_handler/build.rs
+crates/examples/async_handler/src/lib.rs
+crates/examples/async_handler/src/main.rs
+crates/examples/fuzz_rust/build.rs
+crates/examples/fuzz_rust/src/lib.rs
+crates/examples/sync_handler/build.rs
+crates/examples/sync_handler/src/lib.rs
+crates/examples/sync_handler/src/main.rs
+crates/rfs-adapters/src/async_adapter.rs
+crates/rfs-adapters/src/callback.rs
+crates/rfs-adapters/src/channel.rs
+crates/rfs-adapters/src/lib.rs
+crates/rfs-adapters/src/minimal.rs
+crates/rfs-adapters/tests/adapters.rs
+crates/rfs-adapters/tests/nostd_minimal.rs
+crates/rfs-build/src/lib.rs
+crates/rfs-build/tests/integration.rs
+fuzz/fuzz_targets/codegen.rs
+fuzz/fuzz_targets/common.rs
+fuzz/fuzz_targets/ir_roundtrip.rs
+fuzz/fuzz_targets/parser.rs
+fuzz/fuzz_targets/validator.rs
 src/backends/c.rs
 src/backends/c_fsm.rs
 src/backends/c_mc.rs
@@ -16,6 +38,10 @@ src/backends/rust.rs
 src/backends/rust_fsm.rs
 src/backends/rust_mc.rs
 src/backends/rust_test.rs
+src/bin/build_training.rs
+src/bin/extract_training_snippets.rs
+src/bin/generate_code_tests.rs
+src/bin/test_generated_code.rs
 src/cli_log.rs
 src/codegen.rs
 src/codegen_fsm.rs
@@ -50,4 +76,5 @@ src/smt_plan.rs
 src/spec_hash.rs
 src/specgen.rs
 src/test_cmd.rs
+src/training.rs
 src/validator.rs

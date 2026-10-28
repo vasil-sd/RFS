@@ -1,6 +1,7 @@
 //! Build script: generate the spec-43 ARQ sender at build time via rfs-build
 //! (Phase 5 task 11), with the opt-in `--with-protocol-fsm` flag so the
 //! generated `Fsm` implements `rfs_adapters::ProtocolFsm`.
+//! Docs: dev:workspace-crates-overview, llm:workspace-crates
 use std::path::Path;
 
 fn main() {

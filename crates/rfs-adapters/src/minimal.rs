@@ -2,6 +2,7 @@
 //! wrapper with no state of its own and no allocations beyond the trait's
 //! own `Vec` return. Core-only - works with the `#![no_std]` production
 //! artifacts of Phase 5 task 9.
+//! Docs: dev:workspace-crates-overview, llm:workspace-crates
 
 use crate::ProtocolFsm;
 use alloc::vec::Vec;

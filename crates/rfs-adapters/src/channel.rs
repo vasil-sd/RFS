@@ -1,6 +1,7 @@
 //! The sync channel-based adapter (Phase 5 task 11): the FSM runs on its
 //! own thread; inputs and outcomes cross std mpsc channels. FIFO ordering is
 //! preserved. Requires the `std` feature.
+//! Docs: dev:workspace-crates-overview, llm:workspace-crates
 
 use crate::ProtocolFsm;
 use alloc::vec::Vec;

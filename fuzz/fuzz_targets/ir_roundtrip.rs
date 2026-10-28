@@ -3,6 +3,7 @@
 //! Invariant: random valid IRs (specgen-backed, optionally mutated through
 //! the task-3 `mutate` API) satisfy to_json -> from_json -> to_json
 //! byte-stability.
+//! Docs: dev:toolchain-fuzz-overview, llm:toolchain-fuzz
 
 #![no_main]
 

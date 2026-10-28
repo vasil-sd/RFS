@@ -61,3 +61,30 @@ rewrites this section into the full functionality-to-source map.
 - `src/diagrams/tables.rs` - transition tables + variable/event summaries (table/md formats)
 - `src/specgen.rs` - seeded random spec generator + incremental mutation
 - `src/ext_tool.rs` - external-tool resolution, invocation, deterministic script emission
+- `crates/rfs-build/src/lib.rs` - rfs-build: the build.rs helper API for RFS codegen
+- `crates/rfs-build/tests/integration.rs` - rfs-build end-to-end test against a real spec
+- `crates/rfs-adapters/src/lib.rs` - rfs-adapters root: ProtocolFsm trait + generic adapter core
+- `crates/rfs-adapters/src/async_adapter.rs` - futures-based async adapter (submit inputs, await outputs)
+- `crates/rfs-adapters/src/callback.rs` - callback-based adapter: driving loop with per-event callbacks
+- `crates/rfs-adapters/src/channel.rs` - sync channel-based adapter: FSM on its own thread
+- `crates/rfs-adapters/src/minimal.rs` - no_std-minimal adapter: pure step-forwarding surface
+- `crates/rfs-adapters/tests/adapters.rs` - adapter tests over an in-crate mock FSM
+- `crates/rfs-adapters/tests/nostd_minimal.rs` - no_std-minimal compile checks
+- `crates/examples/async_handler/build.rs` - example build script: spec-43 ARQ sender via rfs-build
+- `crates/examples/async_handler/src/lib.rs` - async_handler example lib (generated sliding-window FSM)
+- `crates/examples/async_handler/src/main.rs` - async_handler demo binary (futures stream)
+- `crates/examples/sync_handler/build.rs` - example build script: spec-43 ARQ sender via rfs-build
+- `crates/examples/sync_handler/src/lib.rs` - sync_handler example lib (generated sliding-window FSM)
+- `crates/examples/sync_handler/src/main.rs` - sync_handler demo binary (std mpsc channels)
+- `crates/examples/fuzz_rust/build.rs` - example build script: ARQ sender + libFuzzer skeleton wiring
+- `crates/examples/fuzz_rust/src/lib.rs` - fuzz_rust root crate: generated spec-43 ARQ body
+- `fuzz/fuzz_targets/parser.rs` - fuzz target: the RFS v0 parser
+- `fuzz/fuzz_targets/validator.rs` - fuzz target: semantic validation + IR JSON deserialization
+- `fuzz/fuzz_targets/ir_roundtrip.rs` - fuzz target: IR JSON serialization stability
+- `fuzz/fuzz_targets/codegen.rs` - fuzz target: the code generators
+- `fuzz/fuzz_targets/common.rs` - shared helpers for the toolchain fuzz targets
+- `src/training.rs` - training-set utilities (valid/invalid snippet extraction)
+- `src/bin/build_training.rs` - CLI entry: build the training dataset
+- `src/bin/extract_training_snippets.rs` - CLI entry: extract training snippets from examples
+- `src/bin/generate_code_tests.rs` - CLI entry: generate code tests for all valid examples
+- `src/bin/test_generated_code.rs` - CLI entry: compile + run the generated code tests

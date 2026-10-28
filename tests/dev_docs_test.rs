@@ -22,9 +22,11 @@
 //! 5. **Class B budgets**: every `.md` under `docs/llm/` declares a line
 //!    budget in its header and stays within it.
 //!
-//! The pointer-check scope is driven by the manifest, which grows chunk by
-//! chunk (tasks 1.2-1.9); task 1.10 adds the completeness check (manifest ==
-//! filesystem scan of all 72 hand-written `.rs` files).
+//! The pointer-check scope is driven by the manifest, which grew chunk by
+//! chunk (tasks 1.2-1.9) and was completed in task 1.10; the completeness
+//! check (`manifest_matches_filesystem_scan`) pins manifest == filesystem
+//! scan of all 71 hand-written `.rs` files (build-generated artifacts are
+//! excluded - see that test).
 //!
 //! Conventions pinned by this suite (the doc-set READMEs from task 1.2 onward
 //! restate them):
@@ -755,6 +757,66 @@ fn sync_gate_passes_on_current_tree() {
         "sync gate found {} problem(s):\n{}",
         problems.len(),
         problems.join("\n")
+    );
+}
+
+/// Completeness (task 1.10): the manifest must equal a filesystem scan of
+/// every hand-written `.rs` file under `src/`, `crates/` and
+/// `fuzz/fuzz_targets/`. Generated artifacts are excluded from the scan:
+/// anything under a `target/` directory, plus
+/// `crates/examples/fuzz_rust/fuzz/fuzz_targets/arq.rs` - emitted by that
+/// crate's build.rs, git-ignored via `crates/examples/fuzz_rust/.gitignore`,
+/// and absent on a fresh checkout.
+#[test]
+fn manifest_matches_filesystem_scan() {
+    let root = repo_root();
+    let (manifest, mp) = read_manifest(&root);
+    assert!(mp.is_empty(), "manifest problems: {}", mp.join("; "));
+
+    let mut scanned: BTreeSet<String> = BTreeSet::new();
+    fn walk(root: &Path, d: &Path, out: &mut BTreeSet<String>) {
+        let Ok(entries) = std::fs::read_dir(d) else {
+            return;
+        };
+        for entry in entries.flatten() {
+            let p = entry.path();
+            if p.is_dir() {
+                let name = p.file_name().and_then(|n| n.to_str()).unwrap_or("");
+                if !name.starts_with('.') && name != "target" {
+                    walk(root, &p, out);
+                }
+            } else if p.extension().is_some_and(|e| e == "rs") {
+                let rel = rel(root, &p);
+                if rel != "crates/examples/fuzz_rust/fuzz/fuzz_targets/arq.rs" {
+                    out.insert(rel);
+                }
+            }
+        }
+    }
+    for dir in ["src", "crates", "fuzz/fuzz_targets"] {
+        walk(&root, &root.join(dir), &mut scanned);
+    }
+
+    let listed: BTreeSet<String> = manifest.iter().cloned().collect();
+    let missing: Vec<&String> = scanned.difference(&listed).collect();
+    let extra: Vec<&String> = listed.difference(&scanned).collect();
+    assert!(
+        missing.is_empty() && extra.is_empty(),
+        "manifest ({} entries) != filesystem scan ({} files)\n\
+         missing from manifest:\n{}\n\
+         in manifest but not on disk:\n{}",
+        manifest.len(),
+        scanned.len(),
+        missing
+            .iter()
+            .map(|s| format!("  {s}"))
+            .collect::<Vec<_>>()
+            .join("\n"),
+        extra
+            .iter()
+            .map(|s| format!("  {s}"))
+            .collect::<Vec<_>>()
+            .join("\n")
     );
 }
 

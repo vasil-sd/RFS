@@ -3,6 +3,7 @@
 //! Invariant: arbitrary bytes -> `parse_source` must NOT panic. On success
 //! the IR validates without panicking and round-trips through the hand-rolled
 //! JSON serialization byte-stably (D-P5-2 contract on parser output).
+//! Docs: dev:toolchain-fuzz-overview, llm:toolchain-fuzz
 
 #![no_main]
 

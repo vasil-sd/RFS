@@ -1,4 +1,5 @@
 //! Adapter tests over a small in-crate mock FSM (no generated code needed).
+//! Docs: dev:workspace-crates-overview, llm:workspace-crates
 
 use rfs_adapters::callback::{drive, CallbackResult};
 use rfs_adapters::minimal::Minimal;

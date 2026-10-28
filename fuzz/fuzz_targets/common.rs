@@ -5,6 +5,7 @@
 //! fuzzer bytes -> specgen seed + bounds and builds random VALID specs through
 //! the task-3 `rfs::specgen` builder (validity by construction -
 //! `SpecGen::generate` asserts it).
+//! Docs: dev:toolchain-fuzz-overview, llm:toolchain-fuzz
 
 // Each target binary compiles this module with only the helpers it uses, so
 // the unused ones would warn as dead code per binary.

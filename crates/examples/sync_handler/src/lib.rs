@@ -6,6 +6,7 @@
 //! ticking until all 8 frames are sent and acknowledged; every third tick it
 //! injects an out-of-band `Ack` that the protocol must drop. The receiver
 //! side observes only what crosses the channel: SendFrame/RecvAck outputs.
+//! Docs: dev:workspace-crates-overview, llm:workspace-crates
 
 // The generated spec-43 artifact (build.rs strips its inner attributes and
 // writes the byte-identical body to OUT_DIR). `include!` cannot carry inner

@@ -1,6 +1,7 @@
 //! async_handler demo binary: run one ARQ session over the futures stream
 //! adapter and print what the receiver observed. Exit 0 on success, 1 on
 //! protocol error.
+//! Docs: dev:workspace-crates-overview, llm:workspace-crates
 fn main() {
     match async_handler::run() {
         Ok(r) => {

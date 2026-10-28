@@ -1,5 +1,6 @@
 //! `fuzz_rust` root crate (Phase 5 task 12): the generated spec-43 ARQ
 //! sender as a plain lib, consumed by the cargo-fuzz harness in `fuzz/`.
+//! Docs: dev:workspace-crates-overview, llm:workspace-crates
 
 // The generated artifact body (build.rs strips its inner attributes and
 // writes it to OUT_DIR). The module-level #[allow] mirrors the artifact's

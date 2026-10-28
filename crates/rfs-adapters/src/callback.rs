@@ -1,6 +1,7 @@
 //! The callback-based adapter (Phase 5 task 11): a driving loop where a
 //! user-supplied closure decides the next input from the PREVIOUS step's
 //! outputs - a reactive protocol driver. Core-only.
+//! Docs: dev:workspace-crates-overview, llm:workspace-crates
 
 use crate::ProtocolFsm;
 use alloc::vec::Vec;

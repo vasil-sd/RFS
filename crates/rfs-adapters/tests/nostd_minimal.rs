@@ -3,6 +3,7 @@
 //! hand-written mock FSM and against a REAL task-9 no_std generated FSM
 //! (with the opt-in ProtocolFsm impl). Gated on rustc availability, like the
 //! toolchain's other compile checks; generation runs unconditionally.
+//! Docs: dev:workspace-crates-overview, llm:workspace-crates
 
 fn rustc_on_path() -> bool {
     std::env::var_os("PATH").map_or(false, |paths| {

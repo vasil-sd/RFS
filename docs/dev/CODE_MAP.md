@@ -20,7 +20,7 @@ backends at equal depth.
 
 TBD (task 3.3): CLI/diagrams (13) + bins/training (5).
 
+<a id="dev:code-map-workspace"></a>
 ## Workspace crates + fuzz (23 files)
 
-TBD (task 3.4): `crates/` (18) + `fuzz/` (5). Fragment anchor added in task
-1.10.
+TBD (task 3.4): `crates/` (18) + `fuzz/` (5).

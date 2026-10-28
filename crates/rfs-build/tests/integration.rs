@@ -2,6 +2,7 @@
 //! `rfs` binary (built by cargo as part of `cargo test`) and prove the
 //! generated artifact compiles. The hermetic stub-binary tests live in the
 //! lib unit tests; this file is the one real end-to-end check.
+//! Docs: dev:workspace-crates-overview, llm:workspace-crates
 
 use std::path::{Path, PathBuf};
 use std::process::Command;

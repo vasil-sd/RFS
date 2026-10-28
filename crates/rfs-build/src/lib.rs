@@ -57,6 +57,7 @@
 //! `.no_std(true)` (Phase 5 task 9) maps to the production-only `--no-std`
 //! flag: the generated Rust becomes `#![no_std]` + `extern crate alloc` with
 //! an identical public API. For the C backend the flag is a documented no-op.
+//! Docs: dev:workspace-crates-overview, dev:code-map-workspace, llm:workspace-crates
 
 use std::path::{Path, PathBuf};
 use std::process::Command;

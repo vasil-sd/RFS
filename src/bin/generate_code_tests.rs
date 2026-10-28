@@ -1,3 +1,6 @@
+//! CLI entry point: generate code tests for all valid examples.
+//! Docs: dev:toolchain-fuzz-overview, llm:toolchain-fuzz
+
 use rfs::{backends::rust_test, codegen, collect_rfs_files};
 use std::path::PathBuf;
 use std::process::ExitCode;

@@ -5,6 +5,7 @@
 //! outcomes from the stream; the same protocol scenario as sync_handler -
 //! wake tick, then ticks until all 8 frames are sent and acknowledged, an
 //! out-of-band `Ack` injected every third tick, completion + quiescence.
+//! Docs: dev:workspace-crates-overview, llm:workspace-crates
 
 // The generated spec-43 artifact (build.rs strips its inner attributes and
 // writes the byte-identical body to OUT_DIR). `include!` cannot carry inner

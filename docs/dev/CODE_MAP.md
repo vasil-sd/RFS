@@ -193,4 +193,68 @@ links both ways. The pointer scope is driven by `tests/dev_docs_manifest.txt`.
 <a id="dev:code-map-workspace"></a>
 ## Workspace crates + fuzz (23 files)
 
-TBD (task 3.4): `crates/` (18) + `fuzz/` (5).
+### rfs-build (2)
+
+- `crates/rfs-build/src/lib.rs` - build.rs helper for RFS: drives `.rfs`
+  compilation from dependent crates' build scripts:
+  `crates/rfs-build/src/lib.rs::RfsBuild` (`new`, `backend`, `compile`), tool
+  resolution `resolve_rfs_bin`, errors `RfsBuildError`. Owner of
+  `dev:code-map-workspace`. Deep dive:
+  `dev:workspace-crates-overview` / `llm:workspace-crates`.
+- `crates/rfs-build/tests/integration.rs` - end-to-end test running
+  `RfsBuild` against a real spec with the workspace toolchain.
+
+### rfs-adapters (7)
+
+- `crates/rfs-adapters/src/lib.rs` - adapter layer root: the
+  `crates/rfs-adapters/src/lib.rs::ProtocolFsm` trait (associated types
+  `Input` / `Output` / `Error`, `new()`, `step()`) that generated FSMs
+  implement.
+- `crates/rfs-adapters/src/async_adapter.rs` - futures-based async adapter:
+  `crates/rfs-adapters/src/async_adapter.rs::AsyncFsm`, outcomes
+  `AsyncOutcome`.
+- `crates/rfs-adapters/src/callback.rs` - callback-based adapter: driving
+  loop `crates/rfs-adapters/src/callback.rs::drive`, results
+  `CallbackResult`.
+- `crates/rfs-adapters/src/channel.rs` - sync channel-based adapter (FSM on
+  its own thread): `crates/rfs-adapters/src/channel.rs::ChannelFsm`, outcomes
+  `ChannelOutcome`.
+- `crates/rfs-adapters/src/minimal.rs` - no_std-minimal adapter: pure
+  step-forwarding wrapper `crates/rfs-adapters/src/minimal.rs::Minimal`.
+- `crates/rfs-adapters/tests/adapters.rs` - adapter tests over a small
+  in-crate mock FSM (no generated code needed).
+- `crates/rfs-adapters/tests/nostd_minimal.rs` - no_std-minimal compile
+  checks (the Phase 5 no_std exit criterion).
+
+### Examples (8)
+
+- `crates/examples/async_handler/build.rs` - build script: generates the
+  spec-43 ARQ sender at build time via rfs-build.
+- `crates/examples/async_handler/src/lib.rs` - example lib: `include!`s the
+  generated sliding-window FSM body from OUT_DIR.
+- `crates/examples/async_handler/src/main.rs` - demo binary: one ARQ session
+  over the futures stream.
+- `crates/examples/sync_handler/build.rs` - build script: generates the
+  spec-43 ARQ sender at build time via rfs-build.
+- `crates/examples/sync_handler/src/lib.rs` - example lib: `include!`s the
+  generated sliding-window FSM body from OUT_DIR.
+- `crates/examples/sync_handler/src/main.rs` - demo binary: one ARQ session
+  over std mpsc channels.
+- `crates/examples/fuzz_rust/build.rs` - build script: generates the spec-43
+  ARQ sender for the lib AND wires the emitted libFuzzer skeleton into the
+  cargo-fuzz layout; the ARQ fuzz-target skeleton it produces is git-ignored
+  (a build artifact, not a mapped file).
+- `crates/examples/fuzz_rust/src/lib.rs` - example lib: `include!`s the
+  generated ARQ body from OUT_DIR.
+
+### Fuzz targets (5)
+
+- `fuzz/fuzz_targets/parser.rs` - fuzz target: the RFS v0 parser. Deep dive:
+  `dev:toolchain-fuzz-overview` / `llm:toolchain-fuzz`.
+- `fuzz/fuzz_targets/validator.rs` - fuzz target: semantic validation + IR
+  JSON deserialization.
+- `fuzz/fuzz_targets/ir_roundtrip.rs` - fuzz target: IR JSON serialization
+  stability.
+- `fuzz/fuzz_targets/codegen.rs` - fuzz target: the code generators.
+- `fuzz/fuzz_targets/common.rs` - shared helpers for the toolchain fuzz
+  targets.

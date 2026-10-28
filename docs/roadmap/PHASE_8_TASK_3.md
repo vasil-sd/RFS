@@ -57,33 +57,33 @@ fill the four area sections in order.
 
 ## Planned actions
 
-### Action 3.1: frontend area (13 files)
+### Action 3.1: frontend area (13 files) (DONE 2026-10-28)
 
 Fill `dev:code-map-frontend`: root (6), parser (2), validator+IR (5). Also fix
 the stale 72/18 intro counts to 71/17 per the task 1.10 correction. Run the
 gate.
 
-### Action 3.2: codegen core + backends (18 files)
+### Action 3.2: codegen core + backends (18 files) (DONE 2026-10-28)
 
 Fill `dev:code-map-codegen`: codegen core (4) + Rust backend (5) + C backend
 (4); both backends at equal depth. Run the gate.
 
-### Action 3.3: CLI + diagrams area (18 files)
+### Action 3.3: CLI + diagrams area (18 files) (DONE 2026-10-28)
 
 Fill `dev:code-map-cli`: CLI/diagrams (13) + bins/training (5). Run the gate.
 
-### Action 3.4: workspace crates + fuzz (final)
+### Action 3.4: workspace crates + fuzz (final) (DONE 2026-10-28)
 
 Fill `dev:code-map-workspace`: the 17 tracked crate files + the 5 fuzz
 targets; arq.rs mentioned as build artifact. Run the full gate.
 
 ## Task exit criteria
 
-- [ ] All four sections filled; no TBD placeholders remain in CODE_MAP.md;
+- [x] All four sections filled; no TBD placeholders remain in CODE_MAP.md;
       intro counts corrected to 71/17.
-- [ ] Every key-item span resolves (gate check 1); anchors/headings unchanged.
-- [ ] Rust and C backends at equal depth (3.2).
-- [ ] Full verification green: dev_docs_test, docs_md_test, cargo build/test/
+- [x] Every key-item span resolves (gate check 1); anchors/headings unchanged.
+- [x] Rust and C backends at equal depth (3.2).
+- [x] Full verification green: dev_docs_test, docs_md_test, cargo build/test/
       clippy/fmt (+ --workspace).
 
 ## Non-goals

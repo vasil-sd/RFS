@@ -15,10 +15,10 @@ TBD (task 3.1): root (6), parser (2), validator+IR (5).
 TBD (task 3.2): codegen core (4) + Rust backend (5) + C backend (4); both
 backends at equal depth.
 
+<a id="dev:code-map-cli"></a>
 ## CLI + diagrams area (18 files)
 
-TBD (task 3.3): CLI/diagrams (13) + bins/training (5). Fragment anchor added
-in task 1.9.
+TBD (task 3.3): CLI/diagrams (13) + bins/training (5).
 
 ## Workspace crates + fuzz (23 files)
 

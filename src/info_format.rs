@@ -9,6 +9,7 @@
 //!
 //! Rationale: users/CI get actual information about rfs internals from the
 //! binary itself, kept in sync with the code by tests - no stale docs.
+//! Docs: dev:cli-commands-overview, llm:cli-commands
 
 use crate::codegen_mc as mc;
 use crate::{ebnf_grammar, json_schema};

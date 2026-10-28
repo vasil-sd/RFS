@@ -48,3 +48,16 @@ rewrites this section into the full functionality-to-source map.
 - `src/smt_emit.rs` - shared SMT emitter: renders the spec into Rust (z3 crate) and C (libz3)
 - `src/ref_mc.rs` - brute-force reference model checker (ground truth, rfs mc-ref)
 - `src/monitor.rs` - PSL-to-monitor compiler: formulas to MonitorPlan
+- `src/info.rs` - rfs info: static spec introspection
+- `src/info_format.rs` - rfs info format: machine-readable input/output format descriptions
+- `src/gen_spec_cmd.rs` - rfs gen-spec: write a random spec (two modes)
+- `src/test_cmd.rs` - rfs test: generate + compile + run test suites in one invocation
+- `src/mc_ref_cmd.rs` - rfs mc-ref: run the reference model checker in-process
+- `src/diagram.rs` - rfs diagram: plugin-based state-diagram/table generation
+- `src/diagrams/mod.rs` - diagram format plugins: registration entries per format
+- `src/diagrams/dot.rs` - Graphviz DOT state diagrams (pure-Rust generation)
+- `src/diagrams/mermaid.rs` - Mermaid state diagrams (verified syntax subset)
+- `src/diagrams/plantuml.rs` - PlantUML state diagrams (verified syntax subset)
+- `src/diagrams/tables.rs` - transition tables + variable/event summaries (table/md formats)
+- `src/specgen.rs` - seeded random spec generator + incremental mutation
+- `src/ext_tool.rs` - external-tool resolution, invocation, deterministic script emission

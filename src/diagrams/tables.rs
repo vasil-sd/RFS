@@ -5,6 +5,7 @@
 //! the on_error summary, and the typed variable/event/output lists - so the
 //! plain-text and Markdown renderings can never disagree. Neither format has
 //! an external renderer (no `--render` support).
+//! Docs: dev:cli-commands-overview, llm:cli-commands
 
 use crate::diagram::DiagramPlugin;
 use crate::diagrams::{emit_labels, event_label, guard_label, states};

@@ -221,7 +221,7 @@ Skeletons `docs/dev/mc_engine.md`, `docs/dev/monitor_compiler.md`,
 `src/mc_plan.rs`, `smt_plan.rs`, `smt_emit.rs`, `ref_mc.rs`, `monitor.rs`;
 manifest +5; run the gate.
 
-### Action 1.9: CLI + diagrams chunk
+### Action 1.9: CLI + diagrams chunk (DONE 2026-10-28)
 
 Skeletons `docs/dev/cli_commands.md`, `docs/llm/cli_commands.md`; pointers in
 the 13 files (`src/info.rs`, `info_format.rs`, `gen_spec_cmd.rs`, `test_cmd.rs`,

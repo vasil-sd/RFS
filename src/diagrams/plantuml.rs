@@ -21,6 +21,7 @@
 //! `--plantuml-args`). plantuml derives its output name from the input file,
 //! so the source is written next to `--out *.svg` with the same stem
 //! (orchestrated by `crate::diagram`).
+//! Docs: dev:cli-commands-overview, llm:cli-commands
 
 use std::path::Path;
 

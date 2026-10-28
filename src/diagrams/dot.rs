@@ -10,6 +10,7 @@
 //! state is marked filled), one edge per transition in IR order labeled
 //! `Event [guard] -> next`, and - when the module declares `on_error` - one
 //! dashed edge per state to the fallback target (it fires from ANY state).
+//! Docs: dev:cli-commands-overview, llm:cli-commands
 
 use std::path::Path;
 

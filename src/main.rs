@@ -1,6 +1,6 @@
 //! RFS CLI entry point: argument parsing and command dispatch for all
 //! `rfs` subcommands.
-//! Docs: dev:code-map-frontend
+//! Docs: dev:code-map-frontend, dev:code-map-cli
 
 use std::env;
 use std::path::Path;

@@ -19,6 +19,7 @@
 //! fallbacks hide broken environments. Users who want a fallback compose it
 //! themselves (try render, on failure generate text only, or drive the
 //! `--print-script` output from their own wrapper).
+//! Docs: dev:cli-commands-overview, llm:cli-commands
 
 use std::path::{Path, PathBuf};
 

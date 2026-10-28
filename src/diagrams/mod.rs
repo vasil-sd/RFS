@@ -9,6 +9,7 @@
 //! All generators are deterministic: states in State-enum declaration order,
 //! transitions in IR order, on_error edges last. Every format's output for a
 //! pinned spec is byte-pinned in `tests/frontend_test.rs`.
+//! Docs: dev:cli-commands-overview, llm:cli-commands
 
 pub mod dot;
 pub mod mermaid;

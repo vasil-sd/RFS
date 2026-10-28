@@ -19,6 +19,7 @@
 //! resolution + compile diagnostics go to stderr via the logging helper.
 //! `--print-script` prints a deterministic, self-contained POSIX sh script
 //! instead of executing (task 3's Script emitter; no volatile temp paths).
+//! Docs: dev:cli-commands-overview, llm:cli-commands
 
 use std::path::{Path, PathBuf};
 

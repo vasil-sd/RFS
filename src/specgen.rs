@@ -6,6 +6,7 @@
 //! in the toolchain shares one RNG family. Generated specs are rendered through
 //! `crate::printer` (guaranteeing parseability and exercising the printer) and
 //! every generated/mutated module is validator-checked.
+//! Docs: dev:cli-commands-overview, llm:cli-commands
 
 use std::collections::HashSet;
 

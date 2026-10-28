@@ -17,6 +17,7 @@
 //! generates that JSON automatically (args overridable via env var
 //! `RFS_MERMAID_PUPPETEER_ARGS`) - a temp file at execution time, an explicit
 //! script step in `--print-script` mode.
+//! Docs: dev:cli-commands-overview, llm:cli-commands
 
 use std::path::Path;
 

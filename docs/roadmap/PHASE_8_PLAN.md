@@ -30,7 +30,7 @@ fine-grained (subtasks) so each one fits a single working session's context.
 | 2.2 | `docs/dev/ARCHITECTURE.md`: functionality hierarchy tree + relationship map between components | change: `docs/dev/ARCHITECTURE.md` | 2.1 | DONE |
 | 3.1 | `docs/dev/CODE_MAP.md`: `src/` frontend area - root (6), parser (2), validator+IR (5) = 13 files: responsibility, key items, doc links both ways | change: `docs/dev/CODE_MAP.md` | 1.4 | DONE |
 | 3.2 | `docs/dev/CODE_MAP.md`: codegen core (4) + both backends (9) + MC/monitor (5) = 18 files; Rust and C covered with equal depth | change: `docs/dev/CODE_MAP.md` | 1.8 | DONE |
-| 3.3 | `docs/dev/CODE_MAP.md`: CLI/diagrams area (13) + bins/training (5) = 18 files | change: `docs/dev/CODE_MAP.md` | 1.9 | PENDING |
+| 3.3 | `docs/dev/CODE_MAP.md`: CLI/diagrams area (13) + bins/training (5) = 18 files | change: `docs/dev/CODE_MAP.md` | 1.9 | DONE |
 | 3.4 | `docs/dev/CODE_MAP.md`: `crates/` (18) + `fuzz/` (5) = 23 files | change: `docs/dev/CODE_MAP.md` | 1.10 | PENDING |
 | 4.1 | `docs/dev/DEPENDENCIES.md`: file-level dependency graph (mermaid, split into per-area subgraphs to stay within the renderer's layout limits) | change: `docs/dev/DEPENDENCIES.md` | 1.2 | PENDING |
 | 4.2 | `docs/dev/DEPENDENCIES.md`: function-level graphs - parser, validator | change: `docs/dev/DEPENDENCIES.md` | 1.4 | PENDING |

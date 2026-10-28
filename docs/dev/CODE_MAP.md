@@ -135,7 +135,60 @@ links both ways. The pointer scope is driven by `tests/dev_docs_manifest.txt`.
 <a id="dev:code-map-cli"></a>
 ## CLI + diagrams area (18 files)
 
-TBD (task 3.3): CLI/diagrams (13) + bins/training (5).
+### CLI commands (7)
+
+- `src/info.rs` - `rfs info`: static spec introspection: `run_info` with text
+  / JSON rendering (`render_text`, `render_json`). Deep dive:
+  `dev:cli-commands-overview` / `llm:cli-commands`.
+- `src/info_format.rs` - `rfs info format`: machine-readable input/output
+  format descriptions: `FormatInfo`, embedded draft-07 schemas
+  (`spec_json_schema`, `ce_trace_schema`, `mc_report_schema`) + the
+  counterexample-model description (`counterexample_model`).
+- `src/gen_spec_cmd.rs` - `rfs gen-spec`: write a random spec (two modes):
+  `generate_random`, `mutate_base`, CLI `run_cli`.
+- `src/test_cmd.rs` - `rfs test`: generate + compile + run test suites in one
+  invocation: `TestSuite`, `TestOptions`, `run_test`, outcome `TestOutcome`;
+  compiles via `src/ext_tool.rs::ExtTool` (rustc/gcc).
+- `src/mc_ref_cmd.rs` - `rfs mc-ref`: run the reference model checker
+  in-process: `run_mc_ref`, exit-code mapping `exit_code_for`, CLI `run_cli`.
+- `src/specgen.rs` - seeded random spec generator + incremental mutation:
+  `SpecGen`, deterministic `Rng`, `Bounds`, `mutate_traced` (`MutOp`).
+- `src/ext_tool.rs` - external-tool resolution, invocation, deterministic
+  script emission: `ExtTool`, `ResolvedTool`, `Script`, `sh_quote`.
+
+### Diagrams (6)
+
+- `src/diagram.rs` - `rfs diagram`: plugin-based state-diagram/table
+  generation: `DiagramPlugin`, registry `DIAGRAMS`, render planning
+  `RenderPlan`, `list_diagrams`.
+- `src/diagrams/mod.rs` - diagram format plugins: registration entries per
+  format + shared label helpers (`event_label`, `guard_label`,
+  `emit_labels`, `states`).
+- `src/diagrams/dot.rs` - Graphviz DOT state diagrams (pure-Rust generation):
+  `generate`, external rendering `plan_render` / `render_svg`.
+- `src/diagrams/mermaid.rs` - Mermaid state diagrams (verified syntax subset):
+  `generate`, mmdc/Puppeteer argument handling (`puppeteer_args`,
+  `DEFAULT_PUPPETEER_ARGS`), external rendering `plan_render` /
+  `render_svg`.
+- `src/diagrams/plantuml.rs` - PlantUML state diagrams (verified syntax
+  subset): `generate`, external `plan_render` / `render_svg` + in-process
+  `render_svg_internal`.
+- `src/diagrams/tables.rs` - transition tables + variable/event summaries:
+  `generate_table`, `generate_md`, plugins `TABLE_PLUGIN` / `MD_PLUGIN`.
+
+### Bins + training (5)
+
+- `src/training.rs` - training-set utilities (valid/invalid snippet
+  extraction): `SnippetCounts`, category discovery (`training_root`,
+  `category_dirs`, `category_jsonl_path`), JSONL I/O. Deep dive:
+  `dev:toolchain-fuzz-overview` / `llm:toolchain-fuzz`.
+- `src/bin/build_training.rs` - CLI entry: build the training dataset.
+- `src/bin/extract_training_snippets.rs` - CLI entry: extract the training
+  snippets from the examples.
+- `src/bin/generate_code_tests.rs` - CLI entry: generate code tests for all
+  valid examples (via `rfs::codegen` + the Rust test backend).
+- `src/bin/test_generated_code.rs` - CLI entry: compile + run the generated
+  code tests.
 
 <a id="dev:code-map-workspace"></a>
 ## Workspace crates + fuzz (23 files)

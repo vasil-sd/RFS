@@ -7,6 +7,11 @@
 # tasks 1.2-1.9 extend it chunk by chunk, and task 1.10 adds the completeness
 # check (manifest == filesystem scan of all 72 hand-written .rs files).
 
+src/backends/mod.rs
+src/backends/rust.rs
+src/backends/rust_fsm.rs
+src/backends/rust_mc.rs
+src/backends/rust_test.rs
 src/cli_log.rs
 src/codegen.rs
 src/codegen_fsm.rs

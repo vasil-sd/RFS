@@ -6,6 +6,7 @@
 //! of `crate::monitor` - identical semantics to the C backend), and the
 //! `Fsm` implementation with its transition blocks. See `backends/RUST.md`
 //! for the generated-code anatomy and design decisions.
+//! Docs: dev:backend-rust-overview, llm:backend-rust
 
 use crate::backends::rust::{
     bit_rust_type, mask_expr, representative_input_expr, rust_binding_ident, rust_ident, rust_type,

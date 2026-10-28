@@ -34,3 +34,8 @@ rewrites this section into the full functionality-to-source map.
 - `src/codegen_fsm.rs` - shared production-FSM codegen helpers (variants, rep values)
 - `src/codegen_mc.rs` - bounded model-checker concepts shared by all backends
 - `src/codegen_test.rs` - unit-test planning (TestPlan) shared by all backends
+- `src/backends/mod.rs` - backend plugin modules: registration entries per target language
+- `src/backends/rust.rs` - Rust backend: plugin registration + shared Rust helpers
+- `src/backends/rust_fsm.rs` - Rust backend: production FSM source generation
+- `src/backends/rust_mc.rs` - Rust backend: model-checker executable generation
+- `src/backends/rust_test.rs` - Rust backend: unit-test / fuzz / aggregate-crate generation

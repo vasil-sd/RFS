@@ -203,7 +203,7 @@ Skeletons `docs/dev/codegen_core.md`, `docs/llm/codegen_core.md`; pointers in
 `dev:code-map-codegen` anchor to CODE_MAP (co-owner `src/codegen.rs`);
 manifest +4; run the gate.
 
-### Action 1.6: Rust backend chunk
+### Action 1.6: Rust backend chunk (DONE 2026-10-28)
 
 Skeletons `docs/dev/backend_rust.md`, `docs/llm/backend_rust.md`; pointers in
 the 5 files under `src/backends/` (mod, rust, rust_fsm, rust_mc, rust_test);

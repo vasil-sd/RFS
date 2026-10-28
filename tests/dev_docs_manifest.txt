@@ -8,8 +8,10 @@
 # check (manifest == filesystem scan of all 72 hand-written .rs files).
 
 src/cli_log.rs
+src/ebnf_grammar.rs
 src/error.rs
 src/frontend.rs
 src/lib.rs
 src/main.rs
+src/parser.rs
 src/printer.rs

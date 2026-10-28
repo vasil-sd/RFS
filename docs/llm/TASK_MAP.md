@@ -23,3 +23,5 @@ rewrites this section into the full functionality-to-source map.
 - `src/cli_log.rs` - minimal stderr logging for the new CLI commands
 - `src/frontend.rs` - frontend CLI logic: RFS/JSON conversion, validation dispatch
 - `src/printer.rs` - IR-to-RFS source printer (unparser) and round-trip helpers
+- `src/parser.rs` - RFS v0 source parser (nom-based): spec text to IR
+- `src/ebnf_grammar.rs` - EBNF grammar model + renderers for IDE/tooling output

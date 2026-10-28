@@ -1,3 +1,6 @@
+//! RFS v0 source parser (nom-based): parses spec text into an IR document.
+//! Docs: dev:parser-overview, llm:parser
+
 use crate::error::{ParseError, Span};
 use crate::ir::*;
 use nom::{

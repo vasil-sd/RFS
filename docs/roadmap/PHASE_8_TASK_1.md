@@ -184,7 +184,7 @@ the ownership table. Extend the manifest with the 6 files; run the gate.
 | 6 root `.rs` files | change | `//! Docs:` pointer lines per the ownership table |
 | `tests/dev_docs_manifest.txt` | change | +6 entries |
 
-### Action 1.3: parser area chunk
+### Action 1.3: parser area chunk (DONE 2026-10-28)
 
 Skeletons `docs/dev/parser.md`, `docs/llm/parser.md` (fragments
 `dev:parser-overview`, `llm:parser`); pointers in `src/parser.rs`,

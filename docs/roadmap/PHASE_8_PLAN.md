@@ -40,7 +40,7 @@ fine-grained (subtasks) so each one fits a single working session's context.
 | 5.1 | `docs/dev/DECISIONS.md`: rationale index for `DESIGN.md` §9 (subsections 9.1-9.11) + §19 bullets - 2-4 line "why" each + link to the DESIGN.md section + implementing code | change: `docs/dev/DECISIONS.md` | 1.2 | DONE |
 | 5.2 | `docs/dev/DECISIONS.md`: §20 D1-D10 + §21 D-P3-1..6 | change: `docs/dev/DECISIONS.md` | 1.2 | DONE |
 | 5.3 | `docs/dev/DECISIONS.md`: §22 D-P4-1..14 + §23 D-P5-1..14 | change: `docs/dev/DECISIONS.md` | 1.2 | DONE |
-| 5.4 | `docs/dev/DECISIONS.md`: §24 D-P6-1..11 + §25 D-P7-1..13 | change: `docs/dev/DECISIONS.md` | 1.2 | PENDING |
+| 5.4 | `docs/dev/DECISIONS.md`: §24 D-P6-1..11 + §25 D-P7-1..13 | change: `docs/dev/DECISIONS.md` | 1.2 | DONE |
 | 6.1 | `docs/dev/ALGORITHMS.md`: parser construction (LL(1)/chumsky) + validation passes - L1 abstract / L2 key structures+invariants / L3 optional implementation details (important ones emphasized), every level linked to the implementing code | change: `docs/dev/ALGORITHMS.md` | 1.4 | PENDING |
 | 6.2 | `docs/dev/ALGORITHMS.md`: IR normalization + codegen pipeline (same L1/L2/L3 structure) | change: `docs/dev/ALGORITHMS.md` | 1.5 | PENDING |
 | 6.3 | `docs/dev/ALGORITHMS.md`: MC engine - exact / liveness / SMT paths | change: `docs/dev/ALGORITHMS.md` | 1.8 | PENDING |

@@ -159,7 +159,7 @@ new reference. Run the full gate (dev_docs_test + docs_md_test).
       TBD remains in that section; gate green.
 - [x] 5.2: D1-D10 + D-P3-1..6 present under `dev:decisions-p2-p3`; no TBD;
       gate green.
-- [ ] 5.3: D-P4-1..14 + D-P5-1..14 present under `dev:decisions-p4-p5`; no
+- [x] 5.3: D-P4-1..14 + D-P5-1..14 present under `dev:decisions-p4-p5`; no
       TBD; gate green.
 - [ ] 5.4: D-P6-1..11 + D-P7-1..13 present under `dev:decisions-p6-p7`; no
       TBD anywhere in DECISIONS.md; full gate green (dev_docs_test +

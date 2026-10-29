@@ -975,7 +975,662 @@ additionally calls `src/mc_plan.rs::LivenessDecomposition::compute` and the
 
 ## Function level - C backend + MC engine
 
-TBD (task 4.4). Fragment anchor added in task 4.4.
+<a id="dev:deps-fn-backend-c"></a>
+### C backend registration + helpers (`src/backends/c.rs`)
+
+`src/backends/c.rs` registers `C_BACKEND` (three command descriptors plus
+the three function pointers into `c_fsm` / `c_test` / `c_mc`) and provides
+the C-specific helpers shared by all three generator modules: identifier
+mangling (`src/backends/c.rs::c_ident` for keywords,
+`src/backends/c.rs::c_binding_ident` which additionally renames pattern
+bindings that would shadow identifiers the generated body uses unqualified),
+type mapping (`src/backends/c.rs::c_type` ->
+`src/backends/c.rs::bit_c_type`, which rejects widths other than 8/16/32/64
+per decision D8), the in-range integer literal
+`src/backends/c.rs::int_c_literal`, and the bit-mask expression
+`src/backends/c.rs::mask_c_expr`.
+
+```mermaid
+flowchart TD
+    subgraph IDENT["identifier mangling"]
+        cbi["c_binding_ident"]
+        ci["c_ident"]
+    end
+
+    subgraph TYPE["type + value mapping"]
+        ct["c_type"]
+        bct["bit_c_type"]
+        icl["int_c_literal"]
+        mce["mask_c_expr"]
+    end
+
+    cbi --> ci
+    ct --> bct
+    ct --> ci
+```
+
+Isolated leaves: `int_c_literal` and `mask_c_expr` are called only from the
+other backend modules (c_fsm / c_test / c_mc).
+
+### C production FSM generation (`src/backends/c_fsm.rs`)
+
+`src/backends/c_fsm.rs::generate_production` maps the
+`--with-property-monitors` flag to a monitor mode and delegates to
+`src/backends/c_fsm.rs::generate_core` - the core generator shared by all
+three commands (the test and mc entry points pass `Always` mode instead).
+`generate_core` drives the `Gen` emitter: `Gen::new` first rejects
+unsupported bit widths (D8), then builds the variant table
+(`src/codegen_fsm.rs::build_variants`), compiles the monitors, and runs the
+emission pipeline in a fixed order - header (v1.0 artifact header +
+`#define RFS_PROPERTY_MONITORS` in Gated mode), types (enums, `vars_t`,
+tagged-union `input_t`/`output_t` via `emit_tagged`, trace/status/handler
+types), monitors, and the `fsm_t` implementation.
+
+Monitor rendering mirrors the Rust backend: `compile_monitors` compiles each
+property/assumption formula via `src/monitor.rs::compile_formula` (formulas
+outside the monitor subset are skipped with a warning); `emit_monitors`
+renders one `mon_*` struct per plan via `render_monitor` -> `render_node`
+(nodes numbered in DFS pre-order, evaluated in post-order), where each
+node's per-sample signal is rendered by `gen_signal_c` ->
+`src/backends/c_fsm.rs::render_signal_expr_c` (recursive descent over the
+signal tree into `gen_expr_c` for variable expressions, referencing the
+per-monitor pattern helpers `{prefix}_in_<i>` / `{prefix}_out_<i>` emitted
+by `input_is_sample_helper_c` / `output_has_sample_helper_c` from the
+conditions of `input_match_cond_c` / `output_match_cond_c`). `emit_fsm_impl`
+emits `fsm_new` / `fsm_free` / `rfs_commit` / `fsm_step` plus the per-state
+transition blocks (`transition_block_c` -> `gen_expr_c` /
+`output_expr_c`, with bindings as local variables via `c_binding_ident`)
+and the `on_error` fallback. `src/backends/c_fsm.rs::gen_expr_c` is the
+shared expression lowering: it types every subexpression via
+`src/validator.rs::type_expr` and renders bit-vector arithmetic with C
+casts plus `mask_c_expr` masking (including the uint64-wide multiply and
+guarded shift forms).
+
+The MC/test shared renderers reuse the same helpers:
+`src/backends/c_fsm.rs::render_mc_step_all_c` renders the exact-mode
+`mc_step_all` (every enabled transition in firing order) via
+`render_mc_step_all_body` + `mc_pattern_cond`, and
+`src/backends/c_fsm.rs::render_liv_sample_evaluator_c` renders a per-sample
+boolean evaluator for liveness leaves via
+`src/monitor.rs::formula_to_signal` + `gen_signal_c`.
+
+```mermaid
+flowchart TD
+    subgraph ENTRY["entry"]
+        gp["generate_production"]
+        gc["generate_core"]
+        gn["Gen::new"]
+    end
+
+    subgraph PIPE["emission pipeline (Gen::new order)"]
+        cm["compile_monitors"]
+        et["emit_types"]
+        em["emit_monitors"]
+        efi["emit_fsm_impl"]
+        hp["has_prop / prop_wrap / prop_emit"]
+    end
+
+    subgraph MON["monitor rendering"]
+        rm["render_monitor"]
+        rn["render_node"]
+        gs["gen_signal_c"]
+        ram["render_assume_monitors"]
+        rpm["render_prop_monitors"]
+    end
+
+    subgraph SIG["signal rendering"]
+        rse["render_signal_expr_c"]
+        iish["input_is_sample_helper_c"]
+        oosh["output_has_sample_helper_c"]
+        imc["input_match_cond_c"]
+        omc["output_match_cond_c"]
+    end
+
+    subgraph EXPR["expression lowering"]
+        gec["gen_expr_c"]
+    end
+
+    subgraph TRANS["transition blocks"]
+        tbc["transition_block_c"]
+        oec["output_expr_c"]
+    end
+
+    subgraph SHARED["MC/test shared renderers"]
+        rmsa["render_mc_step_all_c"]
+        rmsab["render_mc_step_all_body"]
+        mpc["mc_pattern_cond"]
+        rslse["render_liv_sample_evaluator_c"]
+    end
+
+    gp --> gc
+    gc --> gn
+    gn --> cm
+    gn --> et
+    gn --> em
+    gn --> efi
+    em --> rm
+    em --> rpm
+    em --> ram
+    em --> hp
+    efi --> hp
+    efi --> tbc
+    efi --> oec
+    efi --> gec
+    rm --> rn
+    rm --> iish
+    rm --> oosh
+    rn --> gs
+    gs --> rse
+    rse --> gec
+    iish --> imc
+    oosh --> omc
+    tbc --> gec
+    tbc --> oec
+    oec --> gec
+    rmsa --> gn
+    rmsa --> rmsab
+    rmsab --> mpc
+    rmsab --> gec
+    rmsab --> oec
+    rslse --> gn
+    rslse --> gs
+    rslse --> iish
+    rslse --> oosh
+```
+
+`render_signal_expr_c` and `gen_expr_c` are recursive (self-edges omitted).
+Isolated nodes: `emit_header` (v1.0 header + no_std note), `emit_tagged`
+(tagged-union types), `range_cond_c` (anchor-range condition),
+`c_contains_ident` (whole-identifier check for the `(void)` unused-binding
+cast), `collect_signal_patterns` / `collect_liv_signal_patterns` (recursive
+pattern collectors), and the method wrappers `input_is_sample_helper_c` /
+`output_has_sample_helper_c` on `Gen` (which delegate to the free
+functions). `emit_monitors` additionally calls
+`src/backends/rust.rs::snake` for label normalization; `render_monitor`
+uses `src/backends/rust.rs::snake`; `gen_expr_c` uses
+`src/backends/c.rs::bit_c_type` / `src/backends/c.rs::c_ident` /
+`src/backends/c.rs::int_c_literal` / `src/backends/c.rs::mask_c_expr`;
+`transition_block_c` / `mc_pattern_cond` / `render_mc_step_all_body` use
+`src/backends/c.rs::c_binding_ident` / `src/backends/c.rs::c_type` /
+`src/backends/c.rs::c_ident` / `src/backends/c.rs::int_c_literal` plus
+`src/validator.rs::Env::for_module`.
+
+### C unit-test generation (`src/backends/c_test.rs`)
+
+`src/backends/c_test.rs::generate_unit_tests` runs
+`src/backends/c_fsm.rs::generate_core` with `Always` monitor mode, then
+appends a plain-assert harness (`main()` runs a table of test functions,
+one `PASS`/`FAIL` line each) from the shared plan
+(`src/codegen_test.rs::build_test_plan`): module-level tests (initial state,
+positive drive, `render_negative_c`'s negative search), then one renderer
+per plan class - `render_transition_test_c` (taken / not-taken via
+`render_outputs_assert_c` / `render_signature_compare_c`),
+`render_invariant_test_c` (re-checks the property atom at every sample via
+`src/backends/c_fsm.rs::render_signal_expr_c` + the pattern helpers),
+`render_monitor_test_c`, and `render_random_trace_test_c`. Literal rendering
+flows through `var_value_literal_c` / `vars_initializer_c` /
+`input_case_expr_c` / `resolve_output_variant_c`. The command also emits a
+separate `fuzz_target.c` (a libFuzzer skeleton decoding inputs per
+`src/codegen_test.rs::build_fuzz_decode`) via
+`src/backends/c_test.rs::emit_fuzz_target_c`.
+
+```mermaid
+flowchart TD
+    subgraph ENTRY["entry"]
+        gut["generate_unit_tests"]
+        eft["emit_fuzz_target_c"]
+        pbc["payload_byte_count"]
+    end
+
+    subgraph TM["test rendering"]
+        rnc["render_negative_c"]
+        rtt["render_transition_test_c"]
+        rit["render_invariant_test_c"]
+        rmt["render_monitor_test_c"]
+        rrt2["render_random_trace_test_c"]
+    end
+
+    subgraph LIT["literal rendering helpers"]
+        vvl["var_value_literal_c"]
+        vi["vars_initializer_c"]
+        ice["input_case_expr_c"]
+        rov["resolve_output_variant_c"]
+        roa["render_outputs_assert_c"]
+        rsc["render_signature_compare_c"]
+        ric["rep_input_c"]
+    end
+
+    gut --> rnc
+    gut --> rtt
+    gut --> rit
+    gut --> rmt
+    gut --> rrt2
+    gut --> ric
+    gut --> eft
+    rtt --> ice
+    rtt --> vi
+    rtt --> roa
+    rtt --> rsc
+    rmt --> ice
+    rmt --> vi
+    roa --> rov
+    roa --> vvl
+    rsc --> rov
+    rsc --> vvl
+    ice --> vvl
+    vi --> vvl
+    eft --> pbc
+```
+
+Isolated leaves: `render_random_trace_test_c` (pure formatting) and
+`render_negative_c` (calls `src/codegen_test.rs::has_definite_unexpected`
+plus `src/backends/c.rs::c_ident`). `generate_unit_tests` additionally
+calls `src/backends/rust.rs::snake` for test-name normalization;
+`render_invariant_test_c` calls the `src/backends/c_fsm.rs` pattern helpers
++ `render_signal_expr_c` (external); `emit_fuzz_target_c` additionally uses
+`src/backends/c.rs::bit_c_type` / `src/backends/c.rs::c_ident`.
+
+### C model-checker generation (`src/backends/c_mc.rs`)
+
+`src/backends/c_mc.rs::generate_model_checker` rejects `--no-std` and
+`--with-protocol-fsm` with the pinned errors from `src/codegen.rs`; in
+`smt-bounded` mode it renders a standalone z3 binary from the shared plan
+(`src/smt_plan.rs::build_smt_spec` + `src/smt_emit.rs::emit_c_spec`).
+Otherwise it reuses the production FSM core
+(`src/backends/c_fsm.rs::generate_core` with `Always` monitors) and appends
+the exact-mode runtime rendered by
+`src/backends/c_mc.rs::exact_codegen_c` from the codegen-time plan
+(`src/mc_plan.rs::McPlan`): the shared trace/vars printers
+(`shared_printers` -> `print_value_c`, byte-identical to the Rust MC's
+Debug format), the canonical `all_inputs` enumeration (via `domain_loop` /
+`rep_value_c` / `domain_size`), the `config_bytes` packing (via
+`var_value_c`), the shared `mc_step_all`
+(`src/backends/c_fsm.rs::render_mc_step_all_c`), the static BFS engine, the
+JSON counterexample writer plus the per-module renderers
+(`json_renderers_c` -> `json_value_c`), and the liveness engine - per-leaf
+sample evaluators rendered by
+`src/backends/c_fsm.rs::render_liv_sample_evaluator_c`, skeleton
+expressions flattened by `flatten_skeleton_c`, property text via
+`src/printer.rs::print_formula`. The fuzz runtime
+(`fuzz_runtime` -> `rep_inputs` -> `rep_input_c`) and the main dispatch are
+static string templates (no codegen-time calls).
+
+```mermaid
+flowchart TD
+    subgraph ENTRY["entry"]
+        gmc["generate_model_checker"]
+        fr["fuzz_runtime"]
+    end
+
+    subgraph EXACT["exact-mode runtime rendering"]
+        ec["exact_codegen_c"]
+        sp["shared_printers"]
+        jrc["json_renderers_c"]
+        jvc["json_value_c"]
+        fsc["flatten_skeleton_c"]
+        dl["domain_loop"]
+        rvc["rep_value_c"]
+        ri["rep_inputs"]
+        ric["rep_input_c"]
+    end
+
+    gmc --> sp
+    gmc --> ec
+    gmc --> fr
+    ec --> dl
+    ec --> rvc
+    ec --> jrc
+    ec --> fsc
+    jrc --> jvc
+    fr --> ri
+    ri --> ric
+```
+
+`flatten_skeleton_c` is recursive (self-edge omitted). `exact_codegen_c`
+additionally calls `src/mc_plan.rs::LivenessDecomposition::compute` and the
+`src/backends/c.rs` helpers; `shared_printers` / `json_renderers_c` call
+`src/codegen_fsm.rs::build_variants`; `domain_loop` / `rep_value_c` /
+`rep_input_c` / `var_value_c` use `src/backends/c.rs::c_ident` /
+`src/backends/c.rs::int_c_literal` / `src/backends/c.rs::c_type`.
+
+<a id="dev:deps-fn-mc-engine"></a>
+### MC plan (`src/mc_plan.rs`)
+
+`src/mc_plan.rs::McPlan` is the codegen-time plan computed once per module
+and embedded as tables in both MC binaries (D-P4-1..3):
+`src/mc_plan.rs::McPlan::compute` builds the input abstraction
+(`referenced_fields` decides which payload fields stay concrete - referenced
+by guards/emit args/assignment values via `used_identifiers` /
+`collect_paths`, or constrained by `input_is` literals via
+`collect_input_is_refs` - the rest are abstracted to representative
+values), the configuration encoding (`monitor_layouts` -> `layout_for` ->
+`walk_node` assigns node ids and persistent-state bits; `config_encoding`
+packs state + vars + monitors into a byte layout via `type_bits` /
+`ceil_log2`), and the traversal spec (`traversal_spec`: canonical value
+domains + per-state firing order). `src/mc_plan.rs::LivenessDecomposition`
+(D-P4-9) decomposes liveness-bearing properties:
+`src/mc_plan.rs::LivenessDecomposition::compute` -> `contains_liveness` +
+`decompose_top` (obligations anywhere in the boolean skeleton; every other
+leaf must be `boolean_over_atoms`), producing the obligations + skeleton
+that both backends' liveness engines render.
+
+```mermaid
+flowchart TD
+    subgraph PLAN["plan computation"]
+        mc["McPlan::compute"]
+        rf["referenced_fields"]
+        cir["collect_input_is_refs"]
+        ml["monitor_layouts"]
+        lf["layout_for"]
+        wn["walk_node"]
+        ce["config_encoding"]
+        ts["traversal_spec"]
+        tb["type_bits"]
+    end
+
+    subgraph LIV["liveness decomposition"]
+        ldc["LivenessDecomposition::compute"]
+        cl["contains_liveness"]
+        dt["decompose_top"]
+        boa["boolean_over_atoms"]
+    end
+
+    mc --> rf
+    mc --> ml
+    mc --> ce
+    mc --> ts
+    rf --> cir
+    ml --> lf
+    lf --> wn
+    ce --> tb
+    ldc --> cl
+    ldc --> dt
+    dt --> boa
+    dt --> cl
+```
+
+`walk_node` is recursive (self-edge omitted). Isolated leaves: `ceil_log2`,
+`value_domain`, `used_identifiers`, `collect_paths`. `McPlan::compute`
+additionally calls `src/codegen_fsm.rs::build_variants`; `monitor_layouts`
+calls `src/monitor.rs::compile_formula`.
+
+### Reference model checker (`src/ref_mc.rs`)
+
+`src/ref_mc.rs::run` is the independent ground-truth engine (imports only
+the IR + `src/codegen_mc.rs` report concepts - no backend code): it compiles
+the safety monitors with its own compiler (`compile_formula` ->
+`compile_check` -> `compile_signal`), decomposes liveness properties
+(`decompose_properties` -> `decompose_top`), and runs a level-synchronous
+BFS over the reachable configurations - `all_inputs` (its own input
+abstraction: `referenced_fields` + `field_domain` /
+`representative_value`), `match_effect` (transition matching:
+`input_matches_variant` -> `input_matches`, `pattern_bindings`,
+`eval_expr`), `mon_step` (the monitor interpreter: `min_trigger` for And/Or;
+`mon_key` / `mon_key_node` for the configuration identity), `bnode_key` for
+the visited set, `path_to` for counterexample paths. After the BFS,
+liveness is checked on the explored graph by `liv_analyze` (per-leaf
+progress automata: `leaf_signals` -> `compile_signal`, `leaf_bits` ->
+`eval_sig`, `prod_delta` limit vectors, `skel_eval`), and the
+counterexample is rendered by `trace_steps` + `liv_note`.
+
+The public surface around `run`: `src/ref_mc.rs::verify_counterexample`
+independently re-checks a reported counterexample (replay via
+`step_trace` -> `match_effect`, configuration checks via
+`check_initial` / `check_step_config`, property confirmation via
+`property_confirms_at` -> `mon_step`, liveness via `verify_lasso` ->
+`skel_eval` / `prod_delta`, deadlock via `verify_deadlock` ->
+`mon_from_key`); `src/ref_mc.rs::minimal_violation_labels` re-runs the BFS
+to collect all violated labels (`collect_min_labels`);
+`src/ref_mc.rs::render_text` / `src/ref_mc.rs::to_json_report` render the
+unified report (`render_text_impl` -> `render_vars` / `render_input` /
+`render_output`). Expression evaluation is its own: `eval_expr` (with
+`bool_of` / `val_eq` / `mask`) typed by `expr_type` -> `binary_type` ->
+`bit_op_type` / `compatible`; signals via `eval_sig` -> `eval_expr` /
+`input_matches` / `output_matches`.
+
+```mermaid
+flowchart TD
+    subgraph ENTRY["entry points"]
+        run["run (BFS engine)"]
+        vce["verify_counterexample"]
+        mvl["minimal_violation_labels"]
+        rt["render_text"]
+        tjr["to_json_report"]
+        st["step_trace"]
+    end
+
+    subgraph BFS["BFS core"]
+        bk["bnode_key"]
+        mk["mon_key"]
+        tst["trace_steps"]
+    end
+
+    subgraph MON["monitor interpreter (own compiler)"]
+        cf["compile_formula"]
+        cc["compile_check"]
+        mi["mon_init"]
+        ms["mon_step"]
+        mt["min_trigger"]
+    end
+
+    subgraph EXPR["value + expression evaluation"]
+        ee["eval_expr"]
+        et["expr_type"]
+        bt["binary_type"]
+    end
+
+    subgraph SIG["signals + patterns"]
+        es["eval_sig"]
+        im["input_matches"]
+        om["output_matches"]
+        fl["flatten"]
+    end
+
+    subgraph ABS["input abstraction (own copy)"]
+        ai["all_inputs"]
+        rf["referenced_fields"]
+    end
+
+    subgraph TRANS["transition matching"]
+        me["match_effect"]
+        imv["input_matches_variant"]
+    end
+
+    subgraph LIV["liveness analysis (own algorithm)"]
+        dp["decompose_properties"]
+        dt["decompose_top"]
+        cl["contains_liveness"]
+        boa["boolean_over_atoms"]
+        ls["leaf_signals"]
+        se["skel_eval"]
+        la["liv_analyze"]
+        lb["leaf_bits"]
+        ln["liv_note"]
+    end
+
+    subgraph REND["report rendering"]
+        rti["render_text_impl"]
+        rv["render_vars"]
+        ri["render_input"]
+        ro["render_output"]
+    end
+
+    subgraph CE["counterexample verification"]
+        vl["verify_lasso"]
+        vd["verify_deadlock"]
+        ci["check_initial"]
+        pca["property_confirms_at"]
+        mf["mon_from_key"]
+        ic["initial_config"]
+    end
+
+    run --> cf
+    run --> dp
+    run --> ee
+    run --> mi
+    run --> ms
+    run --> ai
+    run --> fl
+    run --> bk
+    run --> me
+    run --> mk
+    run --> la
+    run --> tst
+    run --> ln
+    mvl --> run
+    rt --> rti
+    tjr --> fl
+    st --> ic
+    st --> me
+    vce --> ci
+    vce --> st
+    vce --> vl
+    vce --> vd
+    cf --> cc
+    ms --> mt
+    ms --> es
+    bk --> mk
+    ee --> et
+    et --> bt
+    es --> ee
+    es --> im
+    es --> om
+    ai --> rf
+    ai --> fl
+    me --> imv
+    me --> ee
+    imv --> im
+    dp --> cl
+    dp --> dt
+    dt --> boa
+    dt --> cl
+    la --> ls
+    la --> se
+    la --> lb
+    lb --> es
+    ln --> ls
+    ln --> me
+    rti --> rv
+    rti --> ri
+    rti --> ro
+    vl --> dp
+    vl --> ls
+    vl --> se
+    vd --> cf
+    vd --> mf
+    vd --> ai
+    vd --> me
+    vd --> ms
+    pca --> cf
+    pca --> mi
+    pca --> ms
+    ic --> ee
+```
+
+`compile_check`, `decompose_top`, `mon_init`, `mon_key_node`, `eval_expr`,
+`expr_type`, `mon_step` are recursive (self-edges omitted). Isolated leaves
+(omitted for readability): `compile_signal`, `mon_key_node`, `mon_bits`,
+`ceil_log2`, `bool_of`, `val_eq`, `mask`, `ir_to_rtype`, `state_variants`,
+`compatible`, `bit_op_type`, `enum_match`, `pattern_bindings`, `var_map`,
+`state_index`, `output_variant_idx`, `input_group`, `used_identifiers`,
+`collect_paths`, `collect_input_is_refs`, `field_domain`,
+`representative_value`, `val_key`, `path_to`, `state_name`, `io_in`,
+`io_out`, `leaf_good`, `prod_delta`, `render_val`, `render_outputs`,
+`check_step_config`, `io_to_input` / `io_to_output` / `json_val`,
+`ce_state_name`, and the formula/expr printing sublayer
+(`print_formula_ctx` -> `print_expr_min` with the precedence tables
+`bin_prec` / `bin_str`, `needs_parens`, `expr_has_boolean_op`,
+`print_pattern_*`).
+
+### SMT bounded path (`src/smt_plan.rs` + `src/smt_emit.rs`)
+
+`src/smt_plan.rs::build_smt_spec` converts a validated module +
+`src/mc_plan.rs::McPlan` into the language-agnostic `SmtSpec` (classes,
+transitions, properties) shared by both SMT emitters: `convert_expr` /
+`convert_formula` lower IR expressions/formulas into the `Se` / `Sf` AST
+(concrete fields resolved via `fi_concrete`, variant names via
+`variant_name`, property tags via `formula_tag`), and `se_type` /
+`bit_op_type` compute the SMT-level types (mirroring the validator's
+`bit_op_type`). `src/smt_emit.rs::emit_rust_spec` and
+`src/smt_emit.rs::emit_c_spec` render the standalone z3 binaries from the
+same `SmtSpec`: `render_sf_rust` / `render_sf_c` render property formulas,
+`render_se_rust` / `render_se_c` render expressions (dispatching to
+`render_bool_bin_rust` / `render_bool_bin_c` for boolean ops,
+`render_bit_bin_rust` / `render_bit_bin_c` for bit-vector ops, and
+`render_shift_rust` / `render_shift_c` for shifts), with width handling via
+`cmp_widths_full` (widen to a common width when the operands differ) and
+`produces_bool` (decide whether a binary op yields a boolean).
+
+```mermaid
+flowchart TD
+    subgraph PLAN["spec conversion (smt_plan)"]
+        bss["build_smt_spec"]
+        ce["convert_expr"]
+        cf["convert_formula"]
+        set["se_type"]
+        bot["bit_op_type"]
+    end
+
+    subgraph EMIT_R["Rust emitter (smt_emit)"]
+        ers["emit_rust_spec"]
+        rsf_r["render_sf_rust"]
+        rserr["render_se_rust"]
+        rbb_r["render_bool_bin_rust"]
+        rbit_r["render_bit_bin_rust"]
+        rsh_r["render_shift_rust"]
+    end
+
+    subgraph EMIT_C["C emitter (smt_emit)"]
+        ecs["emit_c_spec"]
+        rsf_c["render_sf_c"]
+        rsec["render_se_c"]
+        rbb_c["render_bool_bin_c"]
+        rbit_c["render_bit_bin_c"]
+        rsh_c["render_shift_c"]
+    end
+
+    subgraph SHARED["shared width helpers"]
+        cwf["cmp_widths_full"]
+        pb["produces_bool"]
+    end
+
+    bss --> ce
+    bss --> cf
+    cf --> ce
+    set --> bot
+    ers --> rsf_r
+    ers --> rserr
+    rsf_r --> rserr
+    rserr --> rbb_r
+    rserr --> rbit_r
+    rserr --> set
+    rserr --> pb
+    rbb_r --> rserr
+    rbb_r --> cwf
+    rbit_r --> rserr
+    rbit_r --> rsh_r
+    rsh_r --> rserr
+    ecs --> rsf_c
+    ecs --> rsec
+    rsf_c --> rsec
+    rsec --> rbb_c
+    rsec --> rbit_c
+    rsec --> set
+    rsec --> pb
+    rbb_c --> rsec
+    rbb_c --> cwf
+    rbit_c --> rsec
+    rbit_c --> rsh_c
+    rsh_c --> rsec
+```
+
+`convert_expr`, `convert_formula`, `se_type`, `render_se_rust`,
+`render_se_c`, `render_bool_bin_rust`, `render_bool_bin_c`,
+`render_bit_bin_rust`, `render_bit_bin_c` are recursive (self-edges
+omitted). Isolated leaves: `variant_name`, `formula_tag`, `fi_concrete`,
+`SeType::width`, `global_field_index`, `se_uses_step`, `sf_uses_step`,
+`finish_bool_rust`, `finish_bool_c`, `widen_rust`, `widen_c`,
+`rust_str_list`, `c_str_list`, `shift_amt_width`.
 
 ## Function level - monitor compiler
 

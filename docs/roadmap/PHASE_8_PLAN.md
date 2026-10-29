@@ -34,7 +34,7 @@ fine-grained (subtasks) so each one fits a single working session's context.
 | 3.4 | `docs/dev/CODE_MAP.md`: `crates/` (18) + `fuzz/` (5) = 23 files | change: `docs/dev/CODE_MAP.md` | 1.10 | DONE |
 | 4.1 | `docs/dev/DEPENDENCIES.md`: file-level dependency graph (mermaid, split into per-area subgraphs to stay within the renderer's layout limits) | change: `docs/dev/DEPENDENCIES.md` | 1.2 | DONE |
 | 4.2 | `docs/dev/DEPENDENCIES.md`: function-level graphs - parser, validator | change: `docs/dev/DEPENDENCIES.md` | 1.4 | DONE |
-| 4.3 | `docs/dev/DEPENDENCIES.md`: function-level graphs - codegen core, Rust backend | change: `docs/dev/DEPENDENCIES.md` | 1.6 | PENDING |
+| 4.3 | `docs/dev/DEPENDENCIES.md`: function-level graphs - codegen core, Rust backend | change: `docs/dev/DEPENDENCIES.md` | 1.6 | DONE |
 | 4.4 | `docs/dev/DEPENDENCIES.md`: function-level graphs - C backend, `mc_plan` + `ref_mc` (MC engine) | change: `docs/dev/DEPENDENCIES.md` | 1.8 | PENDING |
 | 4.5 | `docs/dev/DEPENDENCIES.md`: function-level graph - monitor compiler (+ SMT path where relevant) | change: `docs/dev/DEPENDENCIES.md` | 1.8 | PENDING |
 | 5.1 | `docs/dev/DECISIONS.md`: rationale index for `DESIGN.md` §9 (subsections 9.1-9.11) + §19 bullets - 2-4 line "why" each + link to the DESIGN.md section + implementing code | change: `docs/dev/DECISIONS.md` | 1.2 | PENDING |

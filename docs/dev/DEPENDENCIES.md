@@ -586,7 +586,392 @@ flowchart TD
 
 ## Function level - codegen core + Rust backend
 
-TBD (task 4.3). Fragment anchor added in task 4.3.
+<a id="dev:deps-fn-codegen-rust"></a>
+### Codegen core (`src/codegen.rs`)
+
+The codegen core is the language-agnostic plugin layer: the `Backend` struct
+carries one function pointer per command kind, and the static registry is
+looked up by CLI name via `src/codegen.rs::get_backend` (listing via
+`src/codegen.rs::list_backends`). `src/codegen.rs::parse_codegen_args` parses
+the `rfs codegen` CLI into a `CodegenRequest`, collecting ALL errors before
+failing (through the `finish` helper) and rejecting `--no-std` /
+`--with-protocol-fsm` on the wrong commands with the pinned error constants.
+`CodegenCommandKind::run` is the standard dispatch: it stamps the v1.0 spec
+hash (`src/spec_hash.rs::spec_hash16` over the canonical IR JSON of the whole
+file) into a cloned options set and delegates to `run_module`, which invokes
+the backend's function pointer for the command kind. `src/codegen.rs::common_help`
+and `src/codegen.rs::backend_help` render the help text from the registry
+(command descriptors only - no generation happens there).
+
+```mermaid
+flowchart TD
+    subgraph REG["registry + help"]
+        lb["list_backends"]
+        gb["get_backend"]
+        ch["common_help"]
+        bh["backend_help"]
+    end
+
+    subgraph CLI["CLI request parsing"]
+        pca["parse_codegen_args"]
+        fs["finish"]
+        cks["CodegenCommandKind::from_str"]
+    end
+
+    subgraph DISP["dispatch"]
+        run["CodegenCommandKind::run"]
+        rm["CodegenCommandKind::run_module"]
+        ci["CodegenCommandKind::info"]
+    end
+
+    ch --> lb
+    pca --> cks
+    pca --> fs
+    run --> rm
+```
+
+Isolated nodes: `get_backend` / `backend_help` / `CodegenCommandKind::info`
+are leaves (registry reads only). `run` additionally calls
+`src/spec_hash.rs::spec_hash16` and `Ir::to_json` (external); `run_module`
+dispatches through the backend's function pointers, so the per-language edges
+appear in the backend graphs below.
+
+### Rust backend registration + helpers (`src/backends/rust.rs`)
+
+`src/backends/rust.rs` registers `RUST_BACKEND` (three command descriptors
+plus the three function pointers into `rust_fsm` / `rust_test` / `rust_mc`)
+and provides the Rust-specific helpers shared by all three generator modules:
+identifier mangling (`src/backends/rust.rs::rust_ident` for keywords,
+`src/backends/rust.rs::rust_binding_ident` which additionally renames pattern
+bindings that would shadow identifiers the generated body uses unqualified),
+name normalization (`src/backends/rust.rs::snake`), type mapping
+(`src/backends/rust.rs::rust_type` -> `src/backends/rust.rs::bit_rust_type`),
+the bit-mask expression `src/backends/rust.rs::mask_expr`, and
+`src/backends/rust.rs::representative_input_expr`, which renders a
+representative input value from `src/codegen_fsm.rs::representative_values`.
+
+```mermaid
+flowchart TD
+    subgraph IDENT["identifier mangling"]
+        rbi["rust_binding_ident"]
+        ri["rust_ident"]
+        sn["snake"]
+    end
+
+    subgraph TYPE["type + value mapping"]
+        rt["rust_type"]
+        brt["bit_rust_type"]
+        me["mask_expr"]
+        rpie["representative_input_expr"]
+    end
+
+    rbi --> ri
+    rt --> brt
+    rt --> ri
+    rpie --> ri
+```
+
+Isolated leaves: `snake` and `mask_expr` are called only from the other
+backend modules (rust_fsm / rust_mc / rust_test); `representative_input_expr`
+also calls `src/codegen_fsm.rs::representative_values` (external).
+
+### Rust production FSM generation (`src/backends/rust_fsm.rs`)
+
+`src/backends/rust_fsm.rs::generate_production` maps the
+`--with-property-monitors` flag to a monitor mode and delegates to
+`src/backends/rust_fsm.rs::generate_core` - the core generator shared by all
+three commands (the test and mc entry points pass `with_tests` / `Always`
+mode instead). `generate_core` re-validates the module
+(`src/validator.rs::validate_module`) and then drives the `Gen` emitter:
+`Gen::new` builds the variant table (`src/codegen_fsm.rs::build_variants`),
+compiles the monitors, and runs the emission pipeline in a fixed order -
+prelude (v1.0 header + no_std), enums, `Vars`, `Input`/`Output`, report
+renderers, trace/handler types, monitors, the `Fsm` impl, and optionally the
+`ProtocolFsm` impl and the test module
+(`src/backends/rust_test.rs::emit_test_module`).
+
+Monitor rendering: `compile_monitors` compiles each property/assumption
+formula via `src/monitor.rs::compile_formula` (formulas outside the monitor
+subset are skipped with a warning); `emit_monitors` renders one `Mon_*`
+struct per plan via `render_monitor` -> `render_node` (nodes numbered in DFS
+pre-order, evaluated in post-order), where each node's per-sample signal is
+rendered by `gen_signal` -> `src/backends/rust_fsm.rs::render_signal_expr`
+(recursive descent over the signal tree into `gen_expr` for variable
+expressions and `src/backends/rust_fsm.rs::input_is_sample_expr` /
+`src/backends/rust_fsm.rs::output_has_sample_expr` for pattern atoms).
+`emit_fsm_impl` emits `Fsm::new` / `step` / `commit_step` plus the per-state
+transition blocks (`transition_block` -> `pattern_block_open` / `gen_expr` /
+`output_expr` / `pattern_block_close`) and the `on_error` fallback
+(`on_error_block`). `src/backends/rust_fsm.rs::gen_expr` is the shared
+expression renderer: it types every subexpression via
+`src/validator.rs::type_expr` and renders bit-vector arithmetic with wrapping
+ops plus width handling through `width_from_type` and the `mask_expr` /
+`bit_rust_type` helpers of `src/backends/rust.rs`.
+
+The MC/test shared renderers reuse the same helpers: `src/backends/rust_fsm.rs::render_mc_step_all`
+renders the exact-mode `mc_step_all` (every enabled transition in firing
+order) from the same IR with the same `pattern_block_open` / `gen_expr` /
+`output_expr` helpers, and `src/backends/rust_fsm.rs::render_sample_formula_evaluator`
+renders a per-sample boolean evaluator for liveness leaves via
+`src/monitor.rs::formula_to_signal` + `gen_signal`. `src/backends/rust_fsm.rs::enum_renderer_names`
+is the shared enum -> renderer name map used by both `emit_renderers` and the
+MC JSON renderer (`src/backends/rust_mc.rs::json_renderers_rust`).
+
+```mermaid
+flowchart TD
+    subgraph ENTRY["entry"]
+        gp["generate_production"]
+        gc["generate_core"]
+        gn["Gen::new"]
+    end
+
+    subgraph PIPE["emission pipeline (Gen::new order)"]
+        ep["emit_prelude"]
+        ee["emit_enums"]
+        ev["emit_vars"]
+        eio["emit_input_output"]
+        er["emit_renderers"]
+        eth["emit_trace_and_handlers"]
+        em["emit_monitors"]
+        efi["emit_fsm_impl"]
+        epi2["emit_protocol_fsm_impl"]
+    end
+
+    subgraph MON["monitor rendering"]
+        cm["compile_monitors"]
+        rm2["render_monitor"]
+        rn["render_node"]
+        rc["range_cond"]
+        gs["gen_signal"]
+        eam["emit_assume_monitors"]
+        epm["emit_prop_monitors"]
+        hp["has_prop / prop_cfg"]
+    end
+
+    subgraph SIG["signal rendering"]
+        rse["render_signal_expr"]
+        sec["signal_expr_ctx"]
+        iise["input_is_sample_expr"]
+        ohse["output_has_sample_expr"]
+    end
+
+    subgraph EXPR["expression rendering"]
+        ge["gen_expr"]
+        wft["width_from_type"]
+        ecn["ExprCtx::new"]
+    end
+
+    subgraph TRANS["transition blocks"]
+        tb["transition_block"]
+        oeb["on_error_block"]
+        pbo["pattern_block_open"]
+        pbc["pattern_block_close"]
+        oe["output_expr"]
+        ive["initial_vars_expr"]
+        iv["input_variant / output_variant"]
+    end
+
+    subgraph SHARED["MC/test shared renderers"]
+        rmsa["render_mc_step_all"]
+        rsfe["render_sample_formula_evaluator"]
+        ern["enum_renderer_names"]
+        rar["renderer_arg_rust"]
+    end
+
+    gp --> gc
+    gc --> gn
+    gn --> cm
+    gn --> ep
+    gn --> ee
+    gn --> ev
+    gn --> eio
+    gn --> er
+    gn --> eth
+    gn --> em
+    gn --> efi
+    gn --> epi2
+    er --> ern
+    er --> rar
+    em --> rm2
+    em --> epm
+    em --> eam
+    em --> hp
+    efi --> hp
+    efi --> ive
+    efi --> tb
+    efi --> oeb
+    rm2 --> rn
+    rn --> gs
+    rn --> rc
+    gs --> rse
+    rse --> sec
+    rse --> ge
+    rse --> iise
+    rse --> ohse
+    ge --> wft
+    tb --> pbo
+    tb --> ge
+    tb --> oe
+    tb --> pbc
+    tb --> ecn
+    oeb --> oe
+    oeb --> ecn
+    pbo --> iv
+    oe --> iv
+    oe --> ge
+    ive --> ge
+    ive --> ecn
+    rmsa --> pbo
+    rmsa --> ge
+    rmsa --> oe
+    rmsa --> pbc
+    rmsa --> ecn
+    rsfe --> gs
+```
+
+`render_signal_expr` and `gen_expr` are recursive (self-edges omitted). The
+pipeline emitters `emit_prelude` / `emit_enums` / `emit_vars` /
+`emit_input_output` / `emit_trace_and_handlers` are leaves (string emission
+only); `emit_monitors` additionally calls
+`src/backends/rust.rs::representative_input_expr` for the `ALL_INPUTS`
+table, `render_monitor` uses `src/backends/rust.rs::snake`, and
+`pattern_block_open` uses `src/backends/rust.rs::rust_binding_ident` plus
+`src/validator.rs::type_to_expr_type` / `Env::for_module`.
+
+### Rust unit-test generation (`src/backends/rust_test.rs`)
+
+`src/backends/rust_test.rs::generate_unit_tests` runs
+`src/backends/rust_fsm.rs::generate_core` with `with_tests` + `Always`
+monitor mode, then appends the libfuzzer_sys fuzz skeleton as a separate
+extra file via `src/backends/rust_test.rs::emit_fuzz_target` (decoding inputs
+per `src/codegen_test.rs::build_fuzz_decode`). `src/backends/rust_test.rs::emit_test_module`
+renders the `#[cfg(test)]` module from the shared plan
+(`src/codegen_test.rs::build_test_plan`, with the negative-test assertion
+chosen via `src/codegen_test.rs::has_definite_unexpected`): the module-level
+tests (initial state, positive drive, negative search) plus one renderer per
+plan class - `render_transition_test` (taken / not-taken),
+`render_invariant_test` (re-checks the property atom at every sample via
+`src/backends/rust_fsm.rs::render_signal_expr`), `render_monitor_test`, and
+`render_random_trace_test`. Literal rendering flows through
+`var_value_literal` / `vars_initializer` / `input_case_expr` /
+`output_case_full_literal` / `resolve_output_variant` / `render_outputs_assert`
+(full `assert_eq!` when every arg is statically known, otherwise the
+documented partial-match fallback). `src/backends/rust_test.rs::generate_aggregate_test_crate`
+(used by the `generate_code_tests` / `test_generated_code` bins) parses each
+file (`src/parser.rs::parse_file`), stamps the per-file spec hash
+(`src/spec_hash.rs::spec_hash16`), and codegens every module into its own
+`pub mod` via `src/backends/rust_fsm.rs::generate_core`;
+`src/backends/rust_test.rs::write_generated_crate` writes the crate under
+`target/`.
+
+```mermaid
+flowchart TD
+    subgraph ENTRY["entry"]
+        gut["generate_unit_tests"]
+        gats["generate_aggregate_test_crate"]
+        wgc["write_generated_crate"]
+    end
+
+    subgraph TM["test module rendering"]
+        etm["emit_test_module"]
+        rtt["render_transition_test"]
+        rit["render_invariant_test"]
+        rmt["render_monitor_test"]
+        rrt2["render_random_trace_test"]
+    end
+
+    subgraph LIT["literal rendering helpers"]
+        vvl["var_value_literal"]
+        vi["vars_initializer"]
+        ice["input_case_expr"]
+        rov["resolve_output_variant"]
+        ocl["output_case_full_literal"]
+        roa["render_outputs_assert"]
+    end
+
+    subgraph FUZZ["fuzz skeleton"]
+        eft["emit_fuzz_target"]
+        pbc2["payload_byte_count"]
+    end
+
+    gut --> eft
+    etm --> rtt
+    etm --> rit
+    etm --> rmt
+    etm --> rrt2
+    rtt --> ice
+    rtt --> vi
+    rtt --> roa
+    rtt --> ocl
+    rmt --> ice
+    rmt --> vi
+    roa --> ocl
+    roa --> rov
+    roa --> vvl
+    ocl --> rov
+    ocl --> vvl
+    ice --> vvl
+    vi --> vvl
+    eft --> pbc2
+```
+
+Isolated leaves: `write_generated_crate` (std::fs only) and
+`render_random_trace_test` (pure formatting). `generate_unit_tests` and
+`generate_aggregate_test_crate` both call
+`src/backends/rust_fsm.rs::generate_core` (external); `emit_fuzz_target`
+additionally uses `src/backends/rust.rs::bit_rust_type` /
+`src/backends/rust.rs::rust_ident`.
+
+### Rust model-checker generation (`src/backends/rust_mc.rs`)
+
+`src/backends/rust_mc.rs::generate_model_checker` rejects `--no-std` and
+`--with-protocol-fsm` with the pinned errors from `src/codegen.rs`; in
+`smt-bounded` mode it renders a standalone z3 binary from the shared plan
+(`src/smt_plan.rs::build_smt_spec` + `src/smt_emit.rs::emit_rust_spec`).
+Otherwise it reuses the production FSM core
+(`src/backends/rust_fsm.rs::generate_core` with `Always` monitors) and
+appends the exact-mode runtime rendered by
+`src/backends/rust_mc.rs::exact_codegen` from the codegen-time plan
+(`src/mc_plan.rs::McPlan`): the canonical `all_inputs` enumeration (via
+`domain_iter` / `rep_expr`), the `config_bytes` packing (via
+`var_value_expr`), the shared `mc_step_all`
+(`src/backends/rust_fsm.rs::render_mc_step_all`), the static BFS engine, the
+JSON counterexample writer plus the per-module renderers
+(`json_renderers_rust`, sharing `src/backends/rust_fsm.rs::enum_renderer_names`
+with the text renderers), and the liveness engine - per-leaf sample
+evaluators rendered by `src/backends/rust_fsm.rs::render_sample_formula_evaluator`,
+skeleton expressions flattened by `flatten_skeleton`, property text via
+`src/printer.rs::print_formula`. The fuzz runtime and the main dispatch are
+static string templates (no codegen-time calls).
+
+```mermaid
+flowchart TD
+    subgraph ENTRY["entry"]
+        gmc["generate_model_checker"]
+    end
+
+    subgraph EXACT["exact-mode runtime rendering"]
+        ec["exact_codegen"]
+        jrr["json_renderers_rust"]
+        fs2["flatten_skeleton"]
+        di["domain_iter"]
+        re["rep_expr"]
+        vve["var_value_expr"]
+    end
+
+    gmc --> ec
+    ec --> di
+    ec --> re
+    ec --> vve
+    ec --> jrr
+    ec --> fs2
+```
+
+`flatten_skeleton` is recursive (self-edge omitted). `exact_codegen`
+additionally calls `src/mc_plan.rs::LivenessDecomposition::compute` and the
+`src/backends/rust.rs` helpers; `json_renderers_rust` calls
+`src/codegen_fsm.rs::build_variants`; `domain_iter` / `rep_expr` /
+`var_value_expr` use `src/backends/rust.rs::rust_ident`.
 
 ## Function level - C backend + MC engine
 

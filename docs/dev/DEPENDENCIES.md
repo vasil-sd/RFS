@@ -330,7 +330,259 @@ Reading the graph:
 
 ## Function level - parser + validator
 
-TBD (task 4.2). Fragment anchor added in task 4.2.
+<a id="dev:deps-fn-parser"></a>
+### Parser (`src/parser.rs`)
+
+The parser is a nom-based recursive-descent implementation: every grammar
+rule is a function returning `IResult<&str, T>`, and the rule tree mirrors
+the EBNF grammar (rendered by `src/ebnf_grammar.rs`). Entry: `src/parser.rs::parse_file`
+reads the file and delegates to `src/parser.rs::parse_source`, which strips
+comments (`strip_comments`), runs the nom root `rfs_source`, and maps failures
+through `nom_error_to_parse_error` / `err_at` (with the dedicated
+`find_eventually_missing_paren` recovery for a missing `eventually` paren).
+`semantic_err` / `syntax_err` are the tagged-error constructors used inside
+the grammar rules. The expression chain is a 12-level precedence climb
+(`expr` down to `primary_expr`); the PSL formula chain is a separate 8-level
+precedence climb (`formula` down to `primary_formula`), whose primary also
+parses event/output patterns and non-boolean expressions for `on`-style
+operands. `src/parser.rs::KEYWORDS` is the keyword table shared by the
+`keyword` / `soft_keyword` lexical helpers.
+
+```mermaid
+flowchart TD
+    subgraph ENTRY["entry + error handling"]
+        pf["parse_file"]
+        ps["parse_source"]
+        sc["strip_comments"]
+        re["rfs_source (nom root)"]
+        ne["nom_error_to_parse_error"]
+        ea["err_at"]
+        fe["find_eventually_missing_paren"]
+        se["semantic_err / syntax_err"]
+    end
+
+    subgraph MOD["module grammar"]
+        mo["module"]
+        mi["module_item"]
+        bm["build_module"]
+        td["transition_decl"]
+        bt["build_transition"]
+        ab["action_block"]
+        ac["action"]
+    end
+
+    subgraph DECL["declaration parsers"]
+        ed["enum_decl"]
+        ini["initial_decl"]
+        evd["event_decl"]
+        od["output_decl"]
+        vd["var_decl"]
+        ocp["opt_constructor_payload"]
+        cv["constructor_variant"]
+        fl["field_list"]
+        tp["type_parser"]
+        btt["bit_type"]
+        pd["prop_decl"]
+        ad["assume_decl"]
+        oed["on_error_decl"]
+    end
+
+    subgraph PAT["event/output patterns"]
+        ep["event_pattern"]
+        op["output_pattern"]
+        gp["group_pattern"]
+        pfl["pattern_field_list"]
+        pfd["pattern_field"]
+        pe["pattern_expr"]
+    end
+
+    subgraph EXPR["expression precedence chain"]
+        ex["expr"]
+        lor["logic_or"]
+        land["logic_and"]
+        eq["equality"]
+        rel["relational"]
+        bor["bitwise_or"]
+        bxor["bitwise_xor"]
+        band["bitwise_and"]
+        shf["shift"]
+        add["additive"]
+        mul["multiplicative"]
+        un["unary_expr"]
+        prim["primary_expr"]
+        oe["output_expr"]
+        nbe["non_boolean_expr"]
+    end
+
+    subgraph FORM["PSL formula chain"]
+        fo["formula"]
+        for2["or_formula"]
+        imf["impl_formula"]
+        anf["and_formula"]
+        unf["unary_formula"]
+        utf["until_formula"]
+        no["neg_operand"]
+        pfo["primary_formula"]
+    end
+
+    subgraph LEX["lexical primitives"]
+        idn["identifier"]
+        ip["ident_path"]
+        il["int_lit"]
+        kw["keyword / soft_keyword"]
+        sl["string_lit"]
+    end
+
+    pf --> ps
+    ps --> sc
+    ps --> re
+    ps --> ne
+    ps --> ea
+    ps --> fe
+    re --> mo
+    mo --> mi
+    mo --> bm
+    mi --> ed
+    mi --> ini
+    mi --> evd
+    mi --> od
+    mi --> vd
+    mi --> td
+    mi --> pd
+    mi --> ad
+    mi --> oed
+    td --> bt
+    td --> ab
+    td --> ep
+    ab --> ac
+    ac --> oe
+    ac --> ex
+    od --> ocp
+    ocp --> cv
+    cv --> fl
+    vd --> tp
+    tp --> btt
+    ep --> gp
+    op --> gp
+    gp --> pfl
+    pfl --> pfd
+    pfd --> pe
+    pe --> ip
+    ex --> lor
+    lor --> land
+    land --> eq
+    eq --> rel
+    rel --> bor
+    bor --> bxor
+    bxor --> band
+    band --> shf
+    shf --> add
+    add --> mul
+    mul --> un
+    un --> prim
+    prim --> il
+    prim --> ip
+    fo --> for2
+    for2 --> imf
+    imf --> anf
+    anf --> unf
+    unf --> utf
+    utf --> no
+    no --> pfo
+    pfo --> ep
+    pfo --> op
+    pfo --> nbe
+    pfo --> ip
+    ip --> idn
+```
+
+Isolated nodes (`semantic_err` / `syntax_err`, `keyword` / `soft_keyword`,
+`string_lit`) are leaf helpers called from many grammar rules; the trivial
+lexical leaves (`ident_start`, `ident_cont`, `digit`, `is_ident_byte`,
+`p_tag`, `opt_p_tag`, `opt_semi`, `p_space0`, `p_space1`) are omitted for
+readability.
+
+<a id="dev:deps-fn-validator"></a>
+### Validator (`src/validator.rs`)
+
+Validation is two-phase. The fatal phase: `src/validator.rs::validate_ir`
+iterates the modules and delegates to `validate_module`, which runs the
+per-item checks - event/output pattern validation
+(`validate_event_pattern` / `validate_output_expr`), expression typing
+(`type_expr`), formula typing (`type_formula`), the bounded-always
+malformation check (`bounded_always_error`), and the version-format check
+(`is_valid_version_format`). The non-fatal phase: `src/validator.rs::module_warnings`
+produces the Phase 2 diagnostics (unreachable states, dead events, unused
+variables, impossible guards) via `contradictory_equalities`,
+`is_literal_false` and `collect_names`; these never block code generation.
+Typing resolves paths against the `src/validator.rs::Env` environment
+(`resolve_path`), combines operand types in `binary_type` (which dispatches
+to `bit_op_type` for the bit-level operators), and converts IR types via
+`type_to_expr_type`. `type_formula` delegates pattern-group checks to
+`check_pattern_group` / `check_output_pattern_group` - both are Phase 1
+stubs (formula patterns do not bind variables yet). `src/validator.rs::is_safety_formula`
+is a public utility with no internal callers (used by tests and external
+tooling).
+
+```mermaid
+flowchart TD
+    subgraph VENTRY["entry"]
+        vi["validate_ir"]
+        vm["validate_module"]
+        mw["module_warnings"]
+    end
+
+    subgraph VCHECKS["per-item checks"]
+        vep["validate_event_pattern"]
+        voe["validate_output_expr"]
+        bae["bounded_always_error"]
+        ivf["is_valid_version_format"]
+    end
+
+    subgraph VTYPING["expression + formula typing"]
+        te["type_expr"]
+        rp["resolve_path"]
+        bt2["binary_type"]
+        bot["bit_op_type"]
+        tf["type_formula"]
+        cpg["check_pattern_group (Phase 1 stub)"]
+        cogp["check_output_pattern_group (Phase 1 stub)"]
+        tte["type_to_expr_type"]
+        isf["is_safety_formula (public utility)"]
+    end
+
+    subgraph VPAT["pattern compatibility"]
+        pec["pattern_expr_compatible"]
+        pvn["pattern_variant_name"]
+    end
+
+    subgraph VWARN["warning helpers"]
+        ce["contradictory_equalities"]
+        ilf["is_literal_false"]
+        cn["collect_names"]
+    end
+
+    vi --> vm
+    vm --> vep
+    vm --> voe
+    vm --> te
+    vm --> tf
+    vm --> bae
+    vm --> ivf
+    te --> rp
+    te --> bt2
+    bt2 --> bot
+    tf --> cpg
+    tf --> cogp
+    vep --> pec
+    vep --> pvn
+    vep --> tte
+    voe --> te
+    voe --> tte
+    mw --> ce
+    mw --> ilf
+    mw --> cn
+```
 
 ## Function level - codegen core + Rust backend
 

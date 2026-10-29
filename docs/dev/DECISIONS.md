@@ -187,7 +187,244 @@ in KB.md section 13):
 <a id="dev:decisions-p2-p3"></a>
 ## Phase 2 core DSL (D1-D10) + Phase 3 (D-P3-1..6)
 
-TBD (task 5.2).
+Phase 2 makes the DSL practical for real endpoint protocol FSMs (the IR already
+carried `priority`, pattern bindings, and output payloads since Phase 0; Phase
+2 wires them through validation and code generation, adds two syntax forms,
+and adds the C backend). Phase 3 implements the PSL-like property subset with
+ONLINE monitors in every backend: each `prop`/`assume` compiles in the shared,
+language-agnostic monitor compiler to a per-label plan that both backends
+render with identical semantics.
+
+### D1. Priority direction - larger number wins (checked first)
+
+Larger priority numbers win; smaller-wins (POSIX nice / interrupt style)
+rejected.
+**Why:** matches the "priority 10 beats priority 5" intuition and is easy to
+explain in specs; the inverted convention would leave authors wondering whether
+1 is top or bottom.
+Table: DESIGN.md section 20, D1 - Code: `src/backends/rust_fsm.rs::emit_fsm_impl`,
+`src/backends/c_fsm.rs::emit_fsm_impl`.
+
+### D2. Ambiguity and duplicate detection (same state, identical event pattern)
+
+Two transitions in one state can conflict only when their patterns are
+identical. Severity ladder: identical pattern + identical guard = **error**
+("duplicate transitions" - the second is provably shadowed); two *different*
+explicit priorities = allowed (author pinned intent); duplicate explicit
+priority value = **error** (a tie cannot be ordered deterministically); no
+priorities with different (or one missing) guard = **warning**
+("order-dependent" - first match wins in source order). Guards are compared
+structurally, no value analysis.
+**Why:** the check is precise where conflicts are possible and lenient where
+they are not; provably dead transitions must fail, unorderable ties must fail,
+and legal if/else chains stay valid but get told to pin intent - the "at least
+syntactically" level required by the roadmap, with bounded checking left to
+Phase 4.
+Table: DESIGN.md section 20, D2 - Code: `src/validator.rs::validate_module`.
+
+### D3. Duplicate-priority scope - unique per (state, pattern)
+
+Priorities must be unique per (state, pattern); per-state uniqueness rejected.
+**Why:** numbers can be reused across unrelated patterns in the same state with
+the minimal constraint; per-state uniqueness forces a global numbering scheme
+even for patterns that cannot conflict - it was rejected after it broke a
+natural spec during implementation.
+Table: DESIGN.md section 20, D3 - Code: `src/validator.rs::validate_module`.
+
+### D4. Severity of reachability/usage diagnostics - warnings only
+
+Unreachable state, dead event (constructor never in any pattern), unused
+variable, and impossible guard (literal `false`; same variable compared equal
+to two different integer literals in one top-level conjunction) are all
+**warnings**; they never block code generation or validation exit codes.
+**Why:** these checks over-approximate (guards ignored), so legitimate specs
+with defensive states must not fail, and the existing valid examples had to
+keep passing; warnings are printed by `rfs validate` and surfaced through
+codegen output warnings.
+Table: DESIGN.md section 20, D4 - Code: `src/validator.rs::module_warnings`,
+`src/frontend.rs::run_validate`.
+
+### D5. Effective priority default - 0 (lowest)
+
+A transition without `priority N;` has effective priority 0; within a state,
+arms are checked in descending effective priority (stable for ties; ties are
+validator errors); cross-state ordering is irrelevant because only the active
+state can match. Generated code groups transitions by state and sorts each
+group.
+**Why:** specs without priorities generate behaviorally identical code to
+Phase 1 (source order preserved within a state), so the default is invisible
+unless the author opts in.
+Table: DESIGN.md section 20, D5 - Code: `src/backends/rust_fsm.rs::emit_fsm_impl`,
+`src/backends/c_fsm.rs::emit_fsm_impl`.
+
+### D6. Error handling for unexpected inputs - module-level `on_error` block
+
+A single module-level `on_error { next S; [emit O(...);] }` block is chosen;
+wildcard transitions and policy keywords rejected. Semantics: when no
+transition matches, `on_error` executes in the current state - it moves to its
+declared state and emits its outputs, with **no pattern bindings** and no
+variable assignments (values carry over unchanged). Without `on_error`,
+behavior is unchanged from Phase 1 (`StepError::UnexpectedEvent` /
+`RFS_UNEXPECTED_EVENT`).
+**Why:** explicit, one per module, no new pattern grammar, works in every
+state, and MC-compatible (it is just a fallback arm); the wildcard form would
+clash with the existing `_` field wildcard and be easy to misuse, and an
+"ignore" policy silently drops protocol errors (bad for model checking).
+Table: DESIGN.md section 20, D6 - Code: `src/ir.rs::Module`,
+`src/backends/rust_fsm.rs::on_error_block`, `src/backends/c_fsm.rs::emit_fsm_impl`.
+
+### D7. Module version header syntax - `module Name version "x.y.z" {`
+
+An optional version token on the module line is chosen; a
+`meta version = "..."` item inside the module rejected (revisit if more
+metadata keys appear). The version is stored in the IR (`Module.version`,
+optional, skipped when absent), printed by the RFS printer, and emitted as
+`pub const SPEC_VERSION` (Rust) / `#define RFS_SPEC_VERSION` (C).
+**Why:** visible at a glance, one optional token, trivially round-trips; a new
+item kind for what is currently a single value was overkill while no second
+metadata key exists.
+Table: DESIGN.md section 20, D7 - Code: `src/ir.rs::Module`,
+`src/printer.rs::print_ir`, `src/backends/rust_fsm.rs::emit_monitors`,
+`src/backends/c_fsm.rs::emit_monitors`.
+
+### D8. C backend type mapping and scope
+
+`bool` -> `bool`; `bit<N>` -> `uintN_t` for N in {8, 16, 32, 64} (other widths
+are a **codegen error** - C has no wider fixed-width types; Rust uses u128
+intermediates, C relies on native unsigned wrap-around, identical results mod
+2^N); enums -> `typedef enum` with the `STATE_` prefix on state variants;
+inputs/outputs -> payload structs + `kind` int + anonymous union
+(`input_t` / `output_t`); simultaneous updates via temp variables exactly like
+Rust; assumption handling via a function pointer with CONTINUE/STOP/PANIC
+policies (default handler aborts), mirroring the Rust `AssumptionHandler`
+trait; unit tests are a plain-assert harness in `main()` with failure counting
+(same TestPlan semantics as Rust, including the on_error landing check); the
+model checker uses the **same runtime wire format** as the Rust MC (same flags,
+same LCG constants 6364136223846793005 / 1442695040888963407, same three-phase
+step strategy, same summary line); property translation is the same subset -
+**Phase 3 update (D-P3-4/D-P3-5):** all in-subset formulas, including bounded
+liveness, are now online-monitored in BOTH backends from the shared monitor
+plan; only out-of-subset formulas (R1-R4) are skipped, with identical warning
+text.
+**Why:** backend parity - the C backend must produce exactly the same
+observable behavior as Rust for the same spec and inputs; native unsigned
+wrap-around gives bit-identical fixed-width arithmetic without wider types,
+and sharing the MC wire format makes cross-backend differential testing
+meaningful.
+Table: DESIGN.md section 20, D8 - Code: `src/backends/c.rs::c_type`,
+`src/backends/c.rs::bit_c_type`, `src/backends/c_fsm.rs::emit_monitors`,
+`src/backends/c_mc.rs::generate_model_checker`.
+
+### D9. Feature flags (std/no_std, property-monitors, logging hooks) - deferred, resolved in Phase 5
+
+Deferred beyond Phase 2: the roadmap marked `no_std` as "later" and no
+consumer needed the other two yet; recorded so they are not silently dropped.
+**Phase 5 resolution (D-P5-9):** `--no-std` production codegen shipped
+(`#![no_std]` + `extern crate alloc`, identical public API shape; C accepts the
+flag as a documented no-op); property monitors shipped in Phase 3 (debug-gated,
+D-P3-6); no logging hook (the CLI has `--log-level` instead).
+**Why:** generated code is already dependency-free single files, which keeps
+the door open; shipping flags only when a consumer needs them avoids maintaining
+dead options.
+Table: DESIGN.md section 20, D9 - Code: `src/codegen.rs::BackendOptions`.
+
+### D10. IR evolution rule - additive optional fields do not bump IR_VERSION
+
+Additive optional fields (default + skip-when-none) do **not** bump
+`IR_VERSION`; existing IR JSON keeps deserializing. Breaking changes to the IR
+shape must bump `IR_VERSION` and update round-trip tests. Phase 2 added
+`Module.version` and `Module.on_error` under this rule (IR stayed v0).
+**Why:** purely additive changes need no version boundary - old JSON
+round-trips unchanged; reserving bumps for breaking changes keeps the version
+meaningful. (Phase 5's hand-rolled JSON reader-writer, D-P5-2, preserves this
+contract with pinned key order.)
+Table: DESIGN.md section 20, D10 - Code: `src/ir.rs::IR_VERSION`,
+`src/json_rw.rs`.
+
+### D-P3-1. IR representation of `always[N]` - additive `BoundedAlways` variant
+
+An additive `BoundedAlways { bound, inner }` formula variant (wire tag
+`bounded_always`) with no `IR_VERSION` bump; a v1 bump rejected.
+**Why:** old IR JSON round-trips unchanged - purely additive per the D10 rule;
+bumping for an additive change would break all existing IR JSON for no benefit.
+Table: DESIGN.md section 21, D-P3-1 - Code: `src/ir.rs::Formula`.
+
+### D-P3-2. Zero-bound rules - `always[N]` requires N >= 1; `be[0]` stays legal
+
+`always[N]` requires N >= 1 (validator error); `bounded_eventually[0]` stays
+legal and means "the body must hold at the trigger sample itself"; uniform
+rejection of both zero bounds rejected.
+**Why:** the new syntax has no compatibility concern, while `be[0]` keeps a
+meaningful degenerate "hold now" form; no existing example used either form
+(verified), so the asymmetric rule costs nothing.
+Table: DESIGN.md section 21, D-P3-2 - Code:
+`src/validator.rs::bounded_always_error`.
+
+### D-P3-3. Exact monitor semantics - violation confirmed at the deadline sample
+
+Sampling follows DESIGN.md section 11: per-sample values are post-step;
+`input_is`/`output_has` refer to the transition just taken; sample 0 is the
+initial configuration (no input/outputs, so both atoms are false there). For an
+obligation triggered at sample i with bound N, the violation is confirmed at
+the deadline sample i + N - 1 (countdown reaches 0); confirming one sample
+after the deadline (i + N) rejected.
+**Why:** tighter counterexamples - the violation step is the last allowed
+sample, matching the countdown implementation; the alternative points past the
+last allowed sample and is off-by-one vs the countdown. Pinned by
+monitor-compiler tests before any codegen rendered it (PHASE_3.md's conceptual
+pseudocode had to be reconciled).
+Table: DESIGN.md section 21, D-P3-3 - Code: `src/monitor.rs::compile_check`,
+`src/monitor.rs::ReferenceMonitor`.
+
+### D-P3-4. Online monitors replace post-hoc checks
+
+Monitors step online in the generated commit-step function; the generated
+post-hoc `property_check`/`assume_check` trace functions were removed in BOTH
+backends; keeping both paths rejected. Assumption enforcement stays on the
+existing `AssumptionHandler` path (a monitor-driven assumption violation is
+reported through it), so all MC/test call sites - trial-step forced violations,
+`--assumes`, integration tests - keep working unchanged; the
+`PROPERTY_LABELS`/`ASSUME_LABELS` constants stay.
+**Why:** a single evaluation path - bounded-liveness obligations become
+monitorable mid-run and assumption pruning works online in MC (incl. liveness
+assumptions); two paths could diverge and would duplicate monitor state.
+Table: DESIGN.md section 21, D-P3-4 - Code:
+`src/backends/rust_fsm.rs::step_with_handler`, `src/monitor.rs::compile_formula`.
+
+### D-P3-5. C backend: full monitor parity
+
+Full monitor parity in C: the same monitor plan rendered in C, C MC gets online
+detection + enhanced counterexamples, and cross-backend differential tests
+verify identical behavior; Rust-only monitors rejected. Monitor-compilability
+restrictions R1-R4 (no `bounded_eventually` under negation; a
+`bounded_eventually[N]` body must be temporal-operator-free with placement
+rules; `always[N]` only at top level or under boolean connectives; `next` not
+inside a bounded-eventually body) are enforced by the shared monitor compiler,
+identical in every backend. Formulas outside R1-R4 parse + validate succeed;
+codegen in EVERY backend emits the same skip warning and generates no monitor
+for that label.
+**Why:** the backend parity principle (INTRO.md) - same functionality and
+exactly the same observable behavior in ALL backends, with differential
+testing meaningful; Rust-only monitors would leave C MC silently skipping
+liveness assumptions and property detection.
+Table: DESIGN.md section 21, D-P3-5 - Code: `src/monitor.rs::compile_formula`,
+`src/backends/c_fsm.rs::emit_monitors`, `tests/backend_parity_test.rs`.
+
+### D-P3-6. CLI flag and per-language gating - `--with-property-monitors` on production only
+
+`--with-property-monitors` applies to the PRODUCTION command of every backend;
+mc and test always include monitors; gating is per-language with
+zero-cost-when-disabled semantics (Rust `#[cfg(debug_assertions)]`, C
+`#ifdef RFS_PROPERTY_MONITORS`). New generated error surface: Rust
+`StepError::PropertyViolation { label, step }`; C `RFS_PROPERTY_VIOLATION`
+status in `step_result_t` with `prop_label`/`prop_step`/`prop_trigger_step`
+fields.
+**Why:** release production builds pay zero monitor cost; MC/tests never need
+an opt-in flag (violations are the point - MC must not be able to disable
+them); one flag across backends keeps the CLI uniform.
+Table: DESIGN.md section 21, D-P3-6 - Code: `src/codegen.rs::PropertyMonitorMode`,
+`src/backends/rust_fsm.rs::emit_monitors`,
+`src/backends/c_fsm.rs::render_prop_monitors`.
 
 <a id="dev:decisions-p4-p5"></a>
 ## Phase 4 (D-P4-1..14) + Phase 5 (D-P5-1..14)

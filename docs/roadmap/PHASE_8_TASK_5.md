@@ -157,7 +157,7 @@ new reference. Run the full gate (dev_docs_test + docs_md_test).
 - [x] 5.1: section 9.1-9.11 + all eight section-19 bullets present under
       `dev:decisions-early` with chosen option + why + Table/Code lines; no
       TBD remains in that section; gate green.
-- [ ] 5.2: D1-D10 + D-P3-1..6 present under `dev:decisions-p2-p3`; no TBD;
+- [x] 5.2: D1-D10 + D-P3-1..6 present under `dev:decisions-p2-p3`; no TBD;
       gate green.
 - [ ] 5.3: D-P4-1..14 + D-P5-1..14 present under `dev:decisions-p4-p5`; no
       TBD; gate green.

@@ -164,11 +164,11 @@ new reference. Run the full gate (dev_docs_test + docs_md_test).
 - [x] 5.4: D-P6-1..11 + D-P7-1..13 present under `dev:decisions-p6-p7`; no
       TBD anywhere in DECISIONS.md; full gate green (dev_docs_test +
       docs_md_test).
-- [ ] Every doc-to-code reference resolves (gate check 1); no new fragment
+- [x] Every doc-to-code reference resolves (gate check 1); no new fragment
       IDs introduced; no source files changed.
-- [ ] Plan rows 5.1-5.4 marked DONE; this file's boxes checked; one git
+- [x] Plan rows 5.1-5.4 marked DONE; this file's boxes checked; one git
       commit per subtask; `TASKS.md` entry appended after 5.4.
-- [ ] Full verification green: cargo build/test/clippy/fmt (+ --workspace).
+- [x] Full verification green: cargo build/test/clippy/fmt (+ --workspace).
 
 ## Non-goals
 

@@ -1259,3 +1259,21 @@ Per PHASE_5_TASK_16.md: run the complete BUILD.md §5 checklist (+ Phase 5 addit
 - Status files: `docs/roadmap/PHASE_7_STATUS.md` (template 2.3, incl. the pinned plantuml-core rev `8066f6124a86ed5da59c6d7d570f0568891c378e` per D-P7-3) + `docs/roadmap/PHASE_7_TASK_16_STATUS.md` written.
 - Commit: single close-out commit with the 8 modified docs + 2 new status files (tasks 1-15 were already committed incrementally).
 - Note: `docs/TODO.txt` / `docs/TODO1.txt` are untracked user scratch notes - left alone, not committed.
+
+## 2026-10-29 22:03 — Phase 8 task 5 complete: DECISIONS.md rationale index over every DESIGN.md decision entry (subtasks 5.1-5.4)
+
+### Interpretation & plan
+
+- User request: execute Phase 8 task 5 subtasks 5.1-5.4 one by one, stopping after each for review; check/install toolchain tools before use.
+- `PHASE_8_TASK_5.md` did not exist (tasks 1-4 done per git log) - created it first per the established pattern (task file at top-level-task start), covering all four subtasks with DESIGN.md line ranges, entry format, and a pre-verified reference list.
+- Each subtask fills one `docs/dev/DECISIONS.md` fragment from its DESIGN.md section(s): 5.1 = §9.1-9.11 + §19 bullets (`dev:decisions-early`), 5.2 = §20 D1-D10 + §21 D-P3-1..6 (`dev:decisions-p2-p3`), 5.3 = §22 D-P4-1..14 + §23 D-P5-1..14 (`dev:decisions-p4-p5`), 5.4 = §24 D-P6-1..11 + §25 D-P7-1..13 (`dev:decisions-p6-p7`). Every entry: chosen option + 2-4 line why + Table pointer to the DESIGN.md section + Code doc->code references, each verified against a declaration line before writing (sync-gate rule).
+- Toolchain check up front: cargo/rustc 1.99.0 (project-local), dot 2.43.0, plantuml 1.2020.02, mmdc 12.0.0, clang 18.1.3 all present - no installs needed at that point.
+
+### Report
+
+- New: `docs/roadmap/PHASE_8_TASK_5.md` (goal/context/scope/actions 5.1-5.4/exit criteria/non-goals; all boxes checked).
+- Changed: `docs/dev/DECISIONS.md` - all four TBD sections replaced; 1376 lines total, 87 decision entries (19 + 16 + 28 + 24), no TBD remains. No new fragment IDs, no source edits (all four fragments already owned by `src/lib.rs`).
+- Changed: `docs/roadmap/PHASE_8_PLAN.md` - plan rows 5.1-5.4 marked DONE.
+- Environment fix (pre-existing, not caused by this task): mmdc's `chrome-headless-shell` 156.0.8078.47 was missing from the container home, failing `diagram_render_parity_test`'s external half - reproduced identically on baseline commit 76edb01 in a temp worktree; restored via `npx puppeteer browsers install chrome-headless-shell` (the browser downloads during package install even though the CLI itself crashes on Node 18's regex support); mmdc verified end-to-end (exit 0, valid SVG).
+- Verification: after each subtask dev_docs_test 9/9 + docs_md_test 5/5 (gate runtime ~182s). Final full verification: cargo build OK; cargo test 535/535 root (baseline 526 + the 9 dev_docs_test tests from Phase 8 task 1.1 - BUILD.md count update is task 14's scope); cargo clippy --all-targets 0 errors (only pre-existing warnings in shared test modules); cargo fmt --check clean; cargo test --workspace 559/559.
+- Commits: 13fbd0d (5.1), e58fe58 (5.2), 712fddc (5.3), e6c4fdb (5.4) + this bookkeeping commit.

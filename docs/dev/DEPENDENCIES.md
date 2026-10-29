@@ -1634,4 +1634,125 @@ omitted). Isolated leaves: `variant_name`, `formula_tag`, `fi_concrete`,
 
 ## Function level - monitor compiler
 
-TBD (task 4.5). Fragment anchor added in task 4.5.
+<a id="dev:deps-fn-monitor"></a>
+### Monitor compiler (`src/monitor.rs`)
+
+`src/monitor.rs` is the language-agnostic PSL-to-monitor compiler (Phase 3):
+it compiles formulas from the Phase 3 property subset into a
+`src/monitor.rs::MonitorPlan` - a tree of `src/monitor.rs::MonNode` that
+every backend renders with identical semantics (backend parity principle,
+`docs/roadmap/INTRO.md`). The plan is the single source of truth: Rust and C
+codegen render the same tree, so both backends step monitors identically on
+the same input sequence. Semantics are pinned by D-P3-3
+(`docs/roadmap/PHASE_3_PLAN.md`): samples carry post-step values, an
+obligation triggered at sample i requires its body to hold at some sample j
+with i <= j <= i + N - 1 (N >= 1), and the violation is confirmed at sample
+i + N - 1 when the body still fails.
+
+The module has two halves. The **compiler** (used by codegen):
+`src/monitor.rs::compile_formula` is the entry point - it calls
+`src/monitor.rs::compile_check` with the top-level anchor range
+`src/monitor.rs::AnchorRange::all` and `in_temporal = false`.
+`compile_check` (recursive) maps each formula form to a `MonNode`:
+`bounded_eventually[N]` and `trigger -> bounded_eventually[N] body` become
+`Obligation` nodes (the bare form's trigger is
+`src/monitor.rs::true_signal`), `p -> next q` becomes a `DelayedCheck` and
+bare `next p` a `RangeCheck`, both over the
+`src/monitor.rs::AnchorRange::shifted` range, `always` recurses with
+`in_temporal = true`, `always[N]` recurses over the window 0..N-1 (rejected
+under a temporal operator, R3), boolean connectives recurse into both sides,
+and `not` / bare signals compile to `RangeCheck` over a signal. Every
+temporal-operator-free subformula is lowered by
+`src/monitor.rs::compile_signal` (recursive) into a
+`src/monitor.rs::SignalExpr` tree (`src/monitor.rs::SignalAtom` variants
+`VarExpr` / `InputIs` / `OutputHas` / `True` under `Not` / `And` / `Or`);
+`compile_signal` returns `None` (not `Err`) on temporal operators, and
+callers decide whether that is an error. Formulas outside the monitor subset
+(R1-R4, including the liveness operators `eventually` / `until`) make
+`compile_formula` return `Err` - codegen in every backend emits the identical
+"outside monitor subset; skipped" warning.
+
+The **reference interpreter** (tests only) pins the same observable behavior
+(violation sample + trigger step) as the generated code:
+`src/monitor.rs::ReferenceMonitor::new` builds the initial state tree via
+`src/monitor.rs::initial_state` (recursive over the `MonNode` tree), and
+`src/monitor.rs::ReferenceMonitor::step` steps one sample via
+`src/monitor.rs::step_node` (recursive over the state/spec pair), reporting a
+newly confirmed failure via `src/monitor.rs::MonState::failed`. `step_node`
+implements the D-P3-3 pending model for obligations (a re-trigger while
+pending is ignored; a confirmed violation is terminal) and composes And/Or
+from the children's current-sample failure statuses, with
+`src/monitor.rs::min_trigger_at` picking the earliest trigger step among the
+currently failing children (via `src/monitor.rs::MonState::trigger_step`).
+
+```mermaid
+flowchart TD
+    subgraph ENTRY["entry"]
+        cf["compile_formula"]
+        fts["formula_to_signal"]
+    end
+
+    subgraph COMP["compiler (recursive)"]
+        cc["compile_check"]
+        cs["compile_signal"]
+        ts["true_signal"]
+    end
+
+    subgraph RANGE["AnchorRange"]
+        ra["AnchorRange::all"]
+        rs["AnchorRange::shifted"]
+        rc["AnchorRange::contains"]
+    end
+
+    subgraph REF["reference interpreter (tests only)"]
+        rmn["ReferenceMonitor::new"]
+        rms["ReferenceMonitor::step"]
+        ist["initial_state"]
+        sn["step_node"]
+        mta["min_trigger_at"]
+        mf["MonState::failed"]
+        mts["MonState::trigger_step"]
+    end
+
+    cf --> cc
+    cf --> ra
+    fts --> cs
+    cc --> cs
+    cc --> ts
+    cc --> rs
+    rmn --> ist
+    rms --> mf
+    rms --> sn
+    sn --> rc
+    sn --> mta
+    mta --> mts
+```
+
+`compile_check`, `compile_signal`, `initial_state`, and `step_node` are
+recursive (self-edges omitted). There are no isolated leaves: every helper
+is reachable from `compile_formula` or the reference interpreter.
+
+Consumers (edges out of this module): `src/backends/rust_fsm.rs::compile_monitors`
+and `src/backends/c_fsm.rs::compile_monitors` call
+`src/monitor.rs::compile_formula` for each property/assumption (formulas
+outside the subset are skipped with a warning) and render the resulting
+`MonNode` trees (see `dev:deps-fn-codegen-rust` / `dev:deps-fn-backend-c`);
+`src/backends/rust_fsm.rs::render_sample_formula_evaluator` and
+`src/backends/c_fsm.rs::render_liv_sample_evaluator_c` call
+`src/monitor.rs::formula_to_signal` to render per-sample boolean evaluators
+for liveness leaves; `src/mc_plan.rs::monitor_layouts` (called from
+`src/mc_plan.rs::McPlan::compute`) calls `src/monitor.rs::compile_formula`
+to compute the monitor state layout embedded in both MC binaries;
+`src/info.rs::monitor_status` calls `src/monitor.rs::compile_formula` so
+that `info` reports the same R1-R4 monitor-subset status as codegen; and
+`src/codegen_test.rs` (tests) drives `src/monitor.rs::ReferenceMonitor` to
+cross-check generated monitors against the reference interpreter.
+
+The SMT bounded path does not use the monitor compiler:
+`src/smt_plan.rs::build_smt_spec` lowers formulas directly into its own
+`Se` / `Sf` AST (see `dev:deps-fn-mc-engine`). Likewise `src/ref_mc.rs`
+carries its own independent monitor compiler (private `compile_formula` /
+`compile_check` / `compile_signal` over its own `Mon` / `Sig` types) as
+ground truth for the reference model checker. The monitor compiler in
+`src/monitor.rs` is therefore the single shared compiler for the two
+production backends, the MC plan, and `info`.

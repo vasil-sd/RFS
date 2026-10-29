@@ -98,13 +98,13 @@ Run the full gate.
 
 ## Task exit criteria
 
-- [ ] All five sections filled; no TBD placeholders remain; stale 72 count
+- [x] All five sections filled; no TBD placeholders remain; stale 72 count
       fixed.
-- [ ] All six fragments anchored AND owned (gate check 4); owner `//! Docs:`
+- [x] All six fragments anchored AND owned (gate check 4); owner `//! Docs:`
       lines extended in the same subtask as their anchor.
-- [ ] Every mermaid block renders under `docs_md_test`; every prose
+- [x] Every mermaid block renders under `docs_md_test`; every prose
       statement carries a resolving doc→code reference.
-- [ ] Full verification green: dev_docs_test, docs_md_test, cargo build/test/
+- [x] Full verification green: dev_docs_test, docs_md_test, cargo build/test/
       clippy/fmt (+ --workspace).
 
 ## Non-goals

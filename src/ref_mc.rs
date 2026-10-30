@@ -35,7 +35,7 @@
 //! `crate::json_rw::Json`. NOT imported: `mc_plan`, `monitor`,
 //! `codegen_fsm`, `printer`, backend modules - enforced by the
 //! `independence_import_audit` test.
-//! Docs: dev:mc-engine-overview, dev:algorithms-mc-engine, llm:mc-engine
+//! Docs: dev:mc-engine-overview, dev:algorithms-mc-engine, dev:references-model-checking, llm:mc-engine
 
 use std::collections::{HashMap, HashSet};
 use std::time::Instant;

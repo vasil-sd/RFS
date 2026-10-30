@@ -644,6 +644,8 @@ Code: `src/ref_mc.rs::bnode_key`, `src/ref_mc.rs::match_effect`,
 `src/smt_emit.rs::emit_c_spec`,
 `src/backends/rust_mc.rs::SMT_ENGINE_RUST`
 
+Refs: [model checking, SMT/SAT solving](REFERENCES.md#model-checking-smt-sat-solving)
+
 <a id="dev:algorithms-monitor-compile"></a>
 ## Monitor compilation (PSL translation)
 
@@ -856,3 +858,5 @@ Code: `src/monitor.rs::SignalExpr`, `src/monitor.rs::SignalAtom`,
 Code: `src/monitor.rs::step_node`, `src/monitor.rs::min_trigger_at`,
 `src/backends/rust_fsm.rs::emit_monitors`,
 `src/backends/c_fsm.rs::emit_monitors`, `src/mc_plan.rs::monitor_layouts`
+
+Refs: [model checking, SMT/SAT solving](REFERENCES.md#model-checking-smt-sat-solving)

@@ -109,7 +109,7 @@ Same shape for the MC/monitor area. Candidate entries (pick at execution time
 from what the code actually uses): Clarke/Grumberg/Peled "Model Checking"
 (the standard text - LTL model checking, Büchi automata, fairness); Tarjan,
 "Depth-first search and linear-time algorithms for strongly-connected
-components" (1972) - SCC in the liveness cycle analysis (`src/ref_mc.rs`
+components" (JACM 20(4), 1973) - SCC in the liveness cycle analysis (`src/ref_mc.rs`
 iterative Tarjan; generated engines use Kosaraju over the stay-edge subgraph);
 IEEE 1850 PSL standard - RFS's property language is a PSL-like subset
 (`src/monitor.rs`, `src/parser.rs`); de Moura/Bjørner, "Z3: An Efficient SMT
@@ -127,13 +127,13 @@ docs_md_test).
       fragment owned by `src/parser.rs`; Refs: lines wired into ALGORITHMS
       sections "Parser construction + validation passes" and "IR normalization
       + codegen pipeline"; no TBD in that section; gate green.
-- [ ] 7.2: model-checking/SMT section filled the same way; no TBD anywhere
+- [x] 7.2: model-checking/SMT section filled the same way; no TBD anywhere
       in REFERENCES.md; full gate green (dev_docs_test + docs_md_test).
-- [ ] Every doc-to-code reference resolves (gate check 1); each new fragment
+- [x] Every doc-to-code reference resolves (gate check 1); each new fragment
       owned (no orphans); source edits limited to `//! Docs:` lines.
-- [ ] Plan rows 7.1-7.2 marked DONE; this file's boxes checked; one git
+- [x] Plan rows 7.1-7.2 marked DONE; this file's boxes checked; one git
       commit per subtask; `TASKS.md` entry appended after 7.2.
-- [ ] Full verification green at task end: cargo build/test/clippy/fmt
+- [x] Full verification green at task end: cargo build/test/clippy/fmt
       (+ --workspace).
 
 ## Non-goals

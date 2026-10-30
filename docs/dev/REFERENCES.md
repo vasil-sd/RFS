@@ -25,6 +25,20 @@ work covers, then which RFS component uses it.
 
 - **Aho, Lam, Sethi, Ullman - Compilers: Principles, Techniques, and Tools ("Dragon Book", 2nd ed., Addison-Wesley, 2006).** The standard reference on compiler construction: lexical analysis, top-down parsing (recursive descent, LL(k)), operator precedence, IR design, code generation. RFS uses: the two-stage parse-then-validate frontend (`src/parser.rs`, `src/validator.rs`), recursive-descent grammar functions with single-lookahead decision points, and the IR as a single normalized form rendered by per-language backends (`src/codegen.rs`).
 
+<a id="dev:references-model-checking"></a>
 ## Model checking, SMT/SAT solving
 
-TBD (task 7.2). Fragment anchor added in task 7.2.
+External references for the model-checking subsystem (exact engine,
+liveness, SMT bounded path) and the property-language area - the last two
+sections of `ALGORITHMS.md`. Each entry: what the work covers, then which RFS
+component uses it.
+
+### Model checking
+
+- **Clarke, Grumberg, Peled - Model Checking (MIT Press, 1999).** The standard text on model checking: state-space exploration, LTL model checking via Büchi automata, fairness, and cycle detection. RFS uses: the exact engine's reachable-state BFS (`src/mc_plan.rs`, `src/ref_mc.rs`); liveness checking by product-graph analysis with limit vectors and cycle (SCC) detection (`src/ref_mc.rs`; generated engines in `src/backends/rust_mc.rs`, `src/backends/c_mc.rs`).
+- **Robert Tarjan - "Depth-first search and linear-time algorithms for strongly-connected components" (Journal of the ACM 20(4), 1973).** The classic linear-time SCC algorithm. RFS uses: liveness cycle analysis - `src/ref_mc.rs` runs iterative Tarjan on its own product graph; the generated engines use Kosaraju's two-pass DFS over the stay-edge subgraph (`src/backends/rust_mc.rs`, `src/backends/c_mc.rs`).
+- **IEEE 1850 - Standard for Property Specification Language (PSL).** The IEEE standard defining PSL, a temporal property specification language for verification. RFS uses: the property/assumption language is a PSL-like subset - `next` / `always` / `bounded_eventually[N]` / `eventually` / `until` with standard PSL/CTL precedence (`src/parser.rs`, `src/monitor.rs`).
+
+### SMT/SAT solving
+
+- **de Moura, Bjørner - "Z3: An Efficient SMT Solver" (TACAS 2008).** The paper introducing z3, an SMT solver for combinations of logical theories including bit-vectors. RFS uses: the optional bounded model-checking path - k-step unrolling over z3 bitvectors with first-match encoded as prefix-OR constraints (`src/smt_plan.rs`, `src/smt_emit.rs`); the generated SMT binaries link libz3's C API directly in both backends, and the `z3` crate (0.21) is an optional test-only dependency for solver-environment sanity checks.

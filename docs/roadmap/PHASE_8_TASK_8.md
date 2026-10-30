@@ -561,8 +561,292 @@ budget) - per the confirmed scope decision (plan Corrections entry 3).
   8.3; START.md/KB.md/BUILD.md pointer sync = task 14).
 - No DESIGN.md edits; no new example `.rfs` files.
 
+## Subtask 8.3 - IR + JSON deep dive (added at execution, see Task corrections)
+
+### Goal
+
+Fill in `docs/dev/ir_json_rw.md` (Class A deep dive): full content on the IR
+document model (`src/ir.rs`) and its pinned hand-rolled JSON wire format, the
+dependency-free JSON reader/writer (`src/json_rw.rs`), the draft-07 schema
+emitter + sync walker (`src/json_schema.rs`), and the spec hash for artifact
+headers (`src/spec_hash.rs`). Also fill in the matching Class B card
+`docs/llm/ir_json_rw.md` (within its 150-line budget) - per the confirmed
+scope decision (plan Corrections entry 3).
+
+### Context
+
+- **Skeleton state (from task 1.4)**: `docs/dev/ir_json_rw.md` exists with one
+  anchored fragment `dev:ir-json-rw-overview` (owner: ALL FOUR files - each
+  file's `//! Docs:` line already names it) followed by a TBD line;
+  `docs/llm/ir_json_rw.md` exists with budget header `<!-- llm-budget: 150 -->`,
+  fragment `llm:ir-json-rw` (same four owners), and a TBD line. Existing
+  anchor + heading stay byte-stable.
+- **Fragment structure**: keep `dev:ir-json-rw-overview` for Overview; add
+  five new sub-fragments, one per source area:
+  - `dev:ir-model` - IR document model (`src/ir.rs`)
+  - `dev:ir-wire-format` - Pinned JSON wire format + (de)serialization (`src/ir.rs`)
+  - `dev:json-rw` - Hand-rolled JSON reader/writer (`src/json_rw.rs`)
+  - `dev:json-schema` - Schema emitter + sync walker (`src/json_schema.rs`)
+  - `dev:spec-hash` - Spec hash (`src/spec_hash.rs`)
+  ORPHAN RULE: the new IDs go on the owner file's `//! Docs:` line in the same
+  action. Exact target lines:
+  - `src/ir.rs` line 25 becomes:
+    `//! Docs: dev:ir-json-rw-overview, dev:ir-model, dev:ir-wire-format, dev:algorithms-ir-codegen, llm:ir-json-rw`
+  - `src/json_rw.rs` line 52 becomes:
+    `//! Docs: dev:ir-json-rw-overview, dev:json-rw, dev:algorithms-ir-codegen, llm:ir-json-rw`
+  - `src/json_schema.rs` line 19 becomes:
+    `//! Docs: dev:ir-json-rw-overview, dev:json-schema, llm:ir-json-rw`
+  - `src/spec_hash.rs` line 8 becomes:
+    `//! Docs: dev:ir-json-rw-overview, dev:spec-hash, dev:algorithms-ir-codegen, llm:ir-json-rw`
+- **No duplication with existing fragments**: ALGORITHMS.md
+  `dev:algorithms-ir-codegen` already carries the L1/L2/L3 write-up of IR
+  normalization (the four contractual properties of hand-rolled JSON, version
+  read policy, u64 value model, SHA-256) and the codegen pipeline; CODE_MAP.md
+  `dev:code-map-frontend` has the file entries; DECISIONS.md indexes D10 /
+  D-P5-2 / D-P6-2 / D-P6-3 / D-P7-8 / D-P7-9. The deep dive goes DEEPER: the
+  full type tree, per-type key order + complete kind tables, reader strictness
+  rules with error-offset semantics, writer layout/escaping contract, schema
+  model -> draft-07 mapping, walk-check semantics, and the change checklist.
+  Cross-link; never restate.
+- **Verified source material (measured 2026-10-30; line numbers for
+  navigation only - doc references use item names)**:
+  - `src/ir.rs` (1432 lines, no unit tests in file): types - `IR_VERSION`
+    (36, = 1; read policy D-P6-2 documented on the constant), `Ir` (39:
+    ir_version + modules), `Module` (60: name, version Option<String>,
+    on_error Option<OnError>, enums, initial_state Option<String>, events /
+    outputs Vec<ConstructorGroup>, vars, transitions, properties, assumptions
+    - 11 fields), `OnError` (79: next_state + emits; no pattern bindings),
+    `EnumDecl` (85), `Type` (91: Bool | Bit{width u32} | Enum{name}),
+    `FieldDecl` (98), `ConstructorGroup` (104), `ConstructorVariant` (110:
+    Unit{name} | Struct{name, fields}), `VarDecl` (121: name/ty/init Expr),
+    `Transition` (128: id usize, state, pattern EventPattern, guard
+    Option<Expr>, next_state, emits, assignments, priority Option<u32>),
+    `EventPattern` (140) / `OutputPattern` (146): group + variant
+    Option<PatternVariant>, `PatternVariant` (152: Unit | Struct with
+    PatternField list), `PatternField` (163: name Option<String> + pattern
+    PatternExpr), `PatternExpr` (169: Wildcard | Bind{name} | Int{u64} |
+    Bool{bool} | EnumVariant{path Vec<String>}), `OutputExpr` (178: group +
+    variant Option<String> + args Vec<Expr>), `Assignment` (185), `Property`
+    (191: name + formula), `Formula` (197: 13 variants - InputIs/OutputHas/
+    Expr/Not/And/Or/Implies/Next/Always/BoundedAlways{bound u64}/
+    BoundedEventually{bound u64}/Eventually/Until; doc comments carry the
+    D-P3-1/D-P4-8 semantics), `Expr` (256: Int{u64} | Bool | Path{Vec<String>}
+    | Unary | Binary), `UnaryOp` (278: Not/BitNot/Neg), `BinOp` (285: 16 ops
+    Plus..LogicAnd). Serialization - private `IrJson` trait (309: to_json /
+    from_json with a path argument for errors); helpers `json_type_name`
+    (317), `type_err` (328, "expected {expected} at {path}, got {type}"),
+    `field` (333, "missing field '{key}' at {path}"), `str_field` (344),
+    `opt_str_field` (352), `arr_field` (361), `uint_field` (370, rejects
+    negatives), `bool_field` (381), `opt_uint32_field` (389, 0..=u32::MAX or
+    null), `str_list` (400), `kind` (412), `unknown_kind` (420, "unknown
+    {what} kind '{got}' at {path} (expected one of: ...)"), `uint_json` (429,
+    FAILS above i64::MAX - the value model is 64-bit signed). impl IrJson for:
+    Ir (439; from_json enforces the read policy with the pinned "unsupported
+    IR version" error), Module (475; version/on_error OMITTED when None and
+    optional on read, initial_state null when absent), OnError (616),
+    EnumDecl (644), Type (663; kinds bool/bit/enum), FieldDecl (692),
+    ConstructorGroup (708), ConstructorVariant (736; unit/struct), VarDecl
+    (782), Transition (800; guard/priority null when absent), EventPattern
+    (871) / OutputPattern (897; variant null = bare pattern), PatternVariant
+    (923), PatternField (969; name null = anonymous field), PatternExpr (994;
+    wildcard/bind/int/bool/enum_variant), OutputExpr (1045; variant null =
+    bare output), Assignment (1081), Property (1097), Formula (1113; 13 kinds
+    input_is..until), Expr (1275; int/bool/path/unary/binary), UnaryOp (1346;
+    BARE STRINGS not/bit_not/neg), BinOp (1368; bare strings plus..logic_and).
+    Public convenience API: `Ir::to_json` (1424) / `Ir::from_json` (1429,
+    root path "$").
+  - `src/json_rw.rs` (961 lines; production 1-619, `mod tests` 621-961 with
+    24 tests): module docs carry the decision rationale (four contractual
+    properties), scope limits, and the formatting contract. `MAX_DEPTH` (57,
+    = 512); `Json` (62: Null/Bool/Int(i64)/Str/Arr(Vec<Json>)/Obj(Vec<(String,
+    Json)>) - ORDERED objects); constructors obj/arr/str/int/bool;
+    `to_string_compact` / `to_string_pretty`; typed extraction get/as_str/
+    as_int/as_bool/as_arr/as_obj; Display = compact. Writer: `write_compact`
+    (176), `write_pretty` (207: 2-space indent, one element per line, empty
+    containers inline), `write_escaped` (246: quote/backslash/b/t/n/f/r;
+    other U+0000..=U+001F as \u00XX lowercase hex; everything else raw UTF-8).
+    Reader: `JsonError` (273: message + byte offset), `parse` (288: skip ws ->
+    value -> trailing-garbage check), `Reader` (299): parse_value (depth >
+    MAX_DEPTH rejected), parse_literal, parse_number (no leading zeros; i64
+    range with ASYMMETRIC negative limit 9223372036854775808 = 2^63;
+    fractional/exponent = syntax error - integer-only scope), parse_string
+    (escapes incl. \uXXXX surrogate pairs -> non-BMP char; ALL escape
+    diagnostics point at the backslash; raw control chars rejected),
+    parse_hex4, parse_object (duplicate key rejected at the second
+    occurrence's opening quote; no trailing comma), parse_array. Notable
+    tests: writer escaping/layout pins, reader error classes with exact
+    offsets, roundtrip_property_compact_and_pretty +
+    roundtrip_property_key_order_preserved over a corpus covering every value
+    kind.
+  - `src/json_schema.rs` (767 lines; production 1-614, `mod tests` 616-767
+    with 5 tests): `Field` (25: name/ty/required/note; req/opt constructors),
+    `FieldType` (57: Str/Int/Bool/Null/EnumStr/Obj/Arr/Ref/TaggedUnion/
+    Nullable/FreeObj/Union + constructor helpers), `TaggedVariant` (126: kind
+    + fields beyond kind), `SchemaDoc` (142: title/description/root/
+    definitions/extra_sections). Emission: `emit_type` (161: draft-07 mapping
+    - EnumStr -> type+enum, TaggedUnion -> oneOf of objects each with a kind
+    enum field, Nullable simple types -> type array with null / complex ->
+    anyOf, FreeObj -> object + additionalProperties = inner schema, Union ->
+    anyOf), `emit_object` (228: properties + required +
+    additionalProperties:false; description omitted on $ref properties -
+    draft-07 siblings of $ref are ignored), `emit_schema` (266: $schema
+    draft-07 URI + title/description; object root inlined at top level, other
+    roots wrapped in allOf; definitions), `emit_schema_pretty` (296, through
+    json_rw). Markdown: `type_md` (306, [name] for refs, "or null", "no (key
+    omitted)"), `field_table` (325), `kind_table` (345), `render_md` (375:
+    intro + ## document + one section per definition + extra_sections). Sync
+    walker (D-P7-9): `check_object` (429: required keys present, no
+    undocumented key at any object level), `check_type` (450: all FieldType
+    cases; Ref resolves via the definitions map; TaggedUnion checks kind then
+    variant fields; FreeObj checks every value; Union = conform if ANY
+    alternative passes cleanly, else report the shortest error list),
+    `walk_check` (600: returns ALL violations, empty = in sync).
+  - `src/spec_hash.rs` (158 lines; production 1-116, `mod tests` 118-158 with
+    2 tests): hand-rolled SHA-256 (FIPS 180-4), no dependencies (D-P5-2
+    stance). `K` (12: 64 round constants), `sha256_hex` (24: full 64-char
+    lowercase hex), `spec_hash16` (36: first 16 hex chars - D-P6-3),
+    `sha256` (41: padding 0x80 + zeros to 56 mod 64 + 64-bit big-endian bit
+    length; FIPS initial H values; message schedule s0/s1; 64-round
+    compression). Tests: NIST FIPS 180-4 vectors (empty, "abc", 56-byte
+    padding boundary, 112-byte multi-block) + spec_hash16_is_prefix_and_
+    stable (16 lowercase hex chars, prefix of sha256_hex, deterministic,
+    content-sensitive).
+  - **Consumers (verified)**: `src/frontend.rs::convert_file_to_ir` (241:
+    .json input = json_rw::parse + Ir::from_json), `src/frontend.rs::render_
+    ir` (256: JSON output = to_json pretty + newline); `src/printer.rs::
+    roundtrip_rfs` (507: rfs -> json -> IR equality); `src/codegen.rs::run`
+    (401; stamps options.spec_hash from the whole-file canonical JSON at 411);
+    `src/backends/rust_test.rs` (934: same per-file hash for multi-module
+    unit-test artifacts); `src/info_format.rs::spec_json_schema` (51: field
+    model derived from ir.rs to_json - the single source of truth; FORMATS
+    entries spec-json/ce-trace/mc-report/validate-json/info-json at 1496+);
+    `src/backends/rust_mc.rs::JSON_WRITER_RUST` (983) +
+    `src/backends/c_mc.rs::JSON_WRITER_C` (1708): embedded minimal copies of
+    the compact writer (same escaping contract, u64 integers) - generated
+    engines stay self-contained; cross-backend byte parity pins their output.
+  - **Pinned tests**: `tests/frontend_test.rs` - GOLDEN_SPEC_RFS +
+    ir_json_golden_compact_pins_key_order (711: exact compact text) +
+    ir_json_golden_pretty_pins_layout (720), ir_version_read_policy_v0_loads_
+    future_rejected (947: v0 loads, v2 rejected with the pinned message),
+    ir_json_roundtrip_property_all_valid_examples (984); `tests/info_format_
+    test.rs` - spec_json_schema_document_pin (442), spec_json_md_pins_all_
+    sections (546), spec_json_walk_all_valid_examples (576: the D-P7-9 walk
+    over every valid example's parse JSON) + ce-trace/mc-report/validate-json/
+    info-json walks (906/1104/1603/1951); `fuzz/fuzz_targets/ir_roundtrip.rs`
+    - to_json -> from_json -> to_json byte-stability on random valid IRs.
+- **Entry format / gate rules / bookkeeping**: same as subtask 8.1 above
+  (house style with per-section Code: lines; doc-to-code reference rules;
+  run dev_docs_test after each action, docs_md_test at task end; plan row ->
+  DONE, boxes checked, one TASKS.md entry, commit per action).
+- **Verified doc-to-code references for this subtask** (declaration lines
+  checked 2026-10-30): all items listed above plus file-level
+  `tests/frontend_test.rs`, `tests/info_format_test.rs`,
+  `fuzz/fuzz_targets/ir_roundtrip.rs`. Non-reference backticks (safe):
+  `.rfs`/`.json` extensions, shell commands, bare identifiers, JSON key names
+  like "kind" (no path separator).
+
+### Planned actions
+
+1. **Class A deep dive - `docs/dev/ir_json_rw.md`**: replace the TBD and add
+   the five new sections (anchor line immediately above each heading):
+   - **Overview** (`dev:ir-json-rw-overview`): what this area is (IR document
+     model + hand-rolled JSON stack = the pinned wire-format contract at the
+     heart of the toolchain); file map (4 files with line counts); position in
+     the pipeline BOTH directions (.rfs -> parse -> Ir; .json ->
+     json_rw::parse -> from_json -> Ir; Ir -> to_json -> codegen/MC/diagram/
+     info/spec hash); the consumer list; cross-links to
+     `dev:algorithms-ir-codegen`, `dev:code-map-frontend`, DESIGN.md D10 /
+     D-P5-2 / D-P6-2 / D-P6-3 / D-P7-8 / D-P7-9, docs/user/MIGRATION.md.
+   - **IR document model** (`dev:ir-model`): the type tree from Ir down; which
+     types are internally tagged enums (Type, ConstructorVariant,
+     PatternVariant, PatternExpr, Formula, Expr) vs bare-string enums
+     (UnaryOp, BinOp); IR_VERSION + read policy (D-P6-2) + D10 evolution rule;
+     note that the parser builds these and the validator types them (link to
+     dev:parser-* / dev:validator-typing, do not restate).
+   - **Pinned wire format** (`dev:ir-wire-format`): the serialization rules
+     (declaration-order keys; Option -> null EXCEPT Module.version/on_error
+     omitted; kind-first snake_case tagging; unit ops bare strings; u64 value
+     model via uint_json); per-type key order + the complete kind tables for
+     the six tagged enums and the two string enums; the IrJson trait +
+     helpers and their error message shapes; the golden pins + round-trip
+     property + version-policy tests.
+   - **Hand-rolled JSON reader/writer** (`dev:json-rw`): the Json value model
+     (ordered objects, integers only); the four contractual properties
+     (D-P5-2) briefly + pointer to ALGORITHMS L3; writer layout/escaping
+     contract; reader strictness rules with error-offset semantics;
+     JsonError; typed extraction; Display = compact; round-trip + key-order
+     tests; the embedded copies in generated MC engines + cross-backend byte
+     parity.
+   - **Schema emitter + sync walker** (`dev:json-schema`): the SchemaDoc /
+     Field/FieldType/TaggedVariant model; emit_type -> draft-07 mapping
+     (additionalProperties:false at every object level, FreeObj exception,
+     oneOf tagged unions, anyOf nullable/union, $ref); emit_schema (object
+     root inlined, allOf otherwise); render_md (field/kind tables, [name]
+     refs, extra_sections); walk_check (D-P7-9) semantics; consumers: the five
+     JSON format entries (spec-json derived from to_json - single source of
+     truth), the walk tests over all valid examples + ce-trace/mc-report/
+     validate-json/info-json.
+   - **Spec hash** (`dev:spec-hash`): hand-rolled SHA-256 FIPS 180-4 (K
+     constants, padding, compression); sha256_hex; spec_hash16 = first 16 hex
+     chars of the canonical IR JSON text of the WHOLE file (D-P6-3);
+     consumers: codegen.rs::run stamps options.spec_hash (first module),
+     rust_test.rs per-file for multi-module test artifacts; the artifact
+     header line-1 format; NIST vectors pinned (56-byte boundary, multi-block)
+     + prefix/stability tests.
+   - **Changing the wire format** (unanchored closing section): developer
+     checklist - this is the most constrained area in the repo; D10 rule
+     (additive optional fields do NOT bump IR_VERSION; breaking changes do +
+     MIGRATION.md); golden pins in frontend_test; the spec-json schema model
+     must be updated in lockstep (the walk test fails on drift); the json_rw
+     formatting contract is pinned by its 24 unit tests + cross-backend byte
+     parity (MC engine JSON identity); training snippets if user-visible.
+   Run `cargo test --test dev_docs_test` after writing; extend the four
+   `//! Docs:` lines in the same action.
+2. **Class B card - `docs/llm/ir_json_rw.md`**: replace the TBD (keep budget
+   header, title, intro, anchor byte-stable): responsibility; key-items table
+   (Ir / Module / IR_VERSION / IrJson + uint_json / Json / parse / MAX_DEPTH /
+   JsonError / SchemaDoc / FieldType / emit_schema_pretty / render_md /
+   walk_check / spec_hash16 / sha256_hex / spec_json_schema); invariants that
+   must not break (declaration-order keys; kind-first tagging; Option -> null
+   except version/on_error omitted; u64 value model fails above i64::MAX +
+   rejects negatives; strict reader rules; read policy 0..=IR_VERSION;
+   additionalProperties:false + FreeObj exception; spec hash = first 16 hex of
+   SHA-256 over the whole-file canonical JSON); change-impact pointers (golden
+   pins, walk tests, D10 rule, MIGRATION.md; full table in llm:change-impact
+   at task 13.2); deep-dive links to the six Class A fragments. Total <= 150
+   lines. Run the gate.
+3. **Verification + bookkeeping**: dev_docs_test 9/9, docs_md_test 5/5,
+   full verification (build/test/clippy/fmt + workspace; counts unchanged:
+   535/535 root, 559/559 workspace); plan row 8.3 -> DONE; check off this
+   subtask's boxes; TASKS.md entry; commit per action.
+
+### Exit criteria (subtask 8.3)
+
+- [x] `docs/dev/ir_json_rw.md`: all six anchored sections + the unanchored
+      "Changing the wire format" checklist filled, no TBD remains; every
+      technical statement carries a resolving doc-to-code reference; the
+      existing `dev:ir-json-rw-overview` anchor + heading unchanged; the five
+      new fragments anchored AND owned in the same action.
+- [x] `docs/llm/ir_json_rw.md`: card filled, no TBD, total line count <= 150,
+      links to Class A without restating it.
+- [x] Source edits limited to the four `//! Docs:` lines (no code changes);
+      all cargo counts unchanged from the task-8.2 tree.
+- [x] Full verification green: dev_docs_test 9/9, docs_md_test 5/5, cargo
+      build/test/clippy/fmt (+ --workspace).
+- [x] Plan row 8.3 marked DONE; this subtask's boxes checked; TASKS.md entry
+      appended.
+
+### Non-goals (subtask 8.3)
+
+- No IR/JSON behavior changes of any kind; no new dependencies.
+- No restatement of ALGORITHMS L1/L2/L3 or DECISIONS rationale (link only);
+  no edits to other docs (codegen deep dive = task 9.1; START.md/KB.md/
+  BUILD.md pointer sync = task 14).
+- No DESIGN.md edits; no new example `.rfs` files.
+
 ## Task corrections
 
 | Correction | Description + rationale |
 |------------|-------------------------|
 | Subtask 8.2 added to this task file at execution (2026-10-30) | The file was initially written for plan row 8.1 only (user request "prepare to execute task8, subtask 8.1"); plan rows 8.1-8.3 are the group-8 deep dives and the user's model is one task file per plan group ("task 8.2" = subtask of task file 8). The 8.2 section above was appended after 8.1 completed, following template 2.4 internally; the frozen 8.1 sections are kept as the historical record. |
+| Subtask 8.3 added to this task file at execution (2026-10-30) | Same scheme as 8.2: plan rows 8.1-8.3 are the group-8 deep dives, one task file per plan group; the 8.3 section above was appended after 8.2 completed, following template 2.4 internally; the frozen 8.1/8.2 sections are kept as the historical record. |

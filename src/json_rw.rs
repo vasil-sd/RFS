@@ -49,7 +49,7 @@
 //! - String escaping: `"` `\` `\b` `\t` `\n` `\f` `\r`; other control chars
 //!   U+0000..=U+001F as `\u00XX` (lowercase hex); everything else raw UTF-8.
 //! - Integers via `i64` Display (no padding, no exponents).
-//! Docs: dev:ir-json-rw-overview, llm:ir-json-rw
+//! Docs: dev:ir-json-rw-overview, dev:algorithms-ir-codegen, llm:ir-json-rw
 
 use std::fmt;
 

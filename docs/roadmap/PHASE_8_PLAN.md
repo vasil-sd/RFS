@@ -42,7 +42,7 @@ fine-grained (subtasks) so each one fits a single working session's context.
 | 5.3 | `docs/dev/DECISIONS.md`: §22 D-P4-1..14 + §23 D-P5-1..14 | change: `docs/dev/DECISIONS.md` | 1.2 | DONE |
 | 5.4 | `docs/dev/DECISIONS.md`: §24 D-P6-1..11 + §25 D-P7-1..13 | change: `docs/dev/DECISIONS.md` | 1.2 | DONE |
 | 6.1 | `docs/dev/ALGORITHMS.md`: parser construction (LL(1)/chumsky) + validation passes - L1 abstract / L2 key structures+invariants / L3 optional implementation details (important ones emphasized), every level linked to the implementing code | change: `docs/dev/ALGORITHMS.md` | 1.4 | DONE |
-| 6.2 | `docs/dev/ALGORITHMS.md`: IR normalization + codegen pipeline (same L1/L2/L3 structure) | change: `docs/dev/ALGORITHMS.md` | 1.5 | PENDING |
+| 6.2 | `docs/dev/ALGORITHMS.md`: IR normalization + codegen pipeline (same L1/L2/L3 structure) | change: `docs/dev/ALGORITHMS.md` | 1.5 | DONE |
 | 6.3 | `docs/dev/ALGORITHMS.md`: MC engine - exact / liveness / SMT paths | change: `docs/dev/ALGORITHMS.md` | 1.8 | PENDING |
 | 6.4 | `docs/dev/ALGORITHMS.md`: monitor compilation (PSL translation) | change: `docs/dev/ALGORITHMS.md` | 1.8 | PENDING |
 | 7.1 | `docs/dev/REFERENCES.md`: entries for parsing theory, automata theory, compiler construction (one-line annotation + which RFS component uses it); wire links from ALGORITHMS parser/validation/codegen sections | change: `docs/dev/REFERENCES.md`, `docs/dev/ALGORITHMS.md` | 6.2 | PENDING |

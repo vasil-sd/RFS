@@ -220,9 +220,193 @@ Code: `src/parser.rs::non_boolean_expr`, `src/parser.rs::logic_or`,
 `src/validator.rs::contradictory_equalities`,
 `src/validator.rs::is_safety_formula`
 
+<a id="dev:algorithms-ir-codegen"></a>
 ## IR normalization + codegen pipeline
 
-TBD (task 6.2). Fragment anchor added in task 6.2.
+The IR is the single normalized form of a spec: every downstream stage
+(codegen, model checking, diagrams, info) consumes a validated `Ir`
+document and there is no intermediate on-disk representation between
+stages. Normalization means a versioned document with a PINNED wire
+format (hand-rolled JSON), a deterministic canonical rendering, and a
+spec hash stamped into every generated artifact. Code generation is a
+language-agnostic core (`src/codegen.rs`) plus shared planning modules,
+rendered by per-language backends registered in a static plugin table.
+
+### L1 - Abstract view
+
+**IR normalization.** The parser (section above) produces an `Ir`
+document; `.json` input loads straight into the same type via
+`from_json`. The document carries `IR_VERSION`; its wire format is a
+pinned byte-level contract (declaration-order keys, internally-tagged
+enums with a leading "kind" key), rendered deterministically by the
+hand-rolled JSON writer. The canonical rendering of the WHOLE file is
+the input to the spec hash - first 16 hex chars of SHA-256
+(`spec_hash16`) - which every generated artifact carries in its line-1
+header so users can detect spec/toolchain drift in checked-in code.
+
+**Codegen pipeline.** A `Backend` plugin value (name, command
+descriptors, one function pointer per command kind) is registered in
+the static table `BACKENDS`; the three command kinds are production FSM
+source, unit tests, and model checker. The standard dispatch stamps the
+spec hash into a shared options bag and generates for the FIRST module
+of the file. Language-agnostic planning modules decide WHAT to emit -
+FSM variant flattening + representative values (`src/codegen_fsm.rs`),
+the static unit-test plan (`src/codegen_test.rs`), model-checker run
+concepts and report formats (`src/codegen_mc.rs`) - and backends render
+that data into target syntax. Parity principle: one plan, rendered
+identically in Rust and C.
+
+Code: `src/ir.rs::Ir`, `src/ir.rs::IR_VERSION`,
+`src/spec_hash.rs::spec_hash16`, `src/codegen.rs::Backend`,
+`src/codegen.rs::BACKENDS`, `src/codegen.rs::CodegenCommandKind`
+
+### L2 - Key data structures and invariants
+
+**Versioned document.** `Ir { ir_version, modules }`; the read policy
+(D-P6-2) accepts the current version and ALL previous minor versions
+(0..=IR_VERSION), rejects higher versions with a pinned error - forward
+compatibility belongs to newer toolchains. Breaking schema changes bump
+`IR_VERSION`; additive optional fields do not (D10 evolution rule).
+
+**Module as codegen unit.** `Module` holds name, optional version
+header, optional on_error fallback, enums, initial state, event/output
+constructor groups, vars, transitions (sequential IDs), properties and
+assumptions. The CLI generates for the first module; multi-module files
+share the file's spec hash.
+
+**Pinned wire format.** Structs serialize keys in DECLARATION order;
+`Option` fields render as `null` EXCEPT `Module.version` /
+`Module.on_error`, which are omitted when absent (both optional on
+read); internally-tagged enums put "kind" FIRST with the snake_case
+variant name; unit op variants are bare strings. Integers: unsigned IR
+fields render as non-negative JSON numbers, `to_json` FAILS (rather
+than clamps) above i64::MAX because the value model is 64-bit signed,
+and `from_json` rejects negatives for those fields.
+
+**JSON value model.** `Json` objects are ORDERED key/value vectors -
+serialization order is exactly declaration order and the reader rejects
+duplicate keys; integers only (no float variant); strict reader (no
+trailing garbage, no leading zeros, nesting depth capped at
+`MAX_DEPTH`). The same writer is embedded VERBATIM in the generated MC
+engines, so toolchain and generated JSON behavior are identical by
+construction.
+
+**Spec hash.** `spec_hash16` = first 16 hex chars of hand-rolled
+SHA-256 (FIPS 180-4) over the canonical IR JSON text of the whole file;
+stable across runs and platforms, sensitive to any spec change.
+
+**Backend plugin + registry.** `Backend` is static data: name,
+description, per-command help descriptors, and one function pointer per
+command kind (`generate_production` / `generate_unit_tests` /
+`generate_model_checker`). `BACKENDS` currently holds the C and Rust
+backends; adding a target language means adding a module under
+`crate::backends` and appending to the table.
+
+**Shared options bag.** `BackendOptions` carries everything a command
+may need: assumption selection, test-run length, no_std, property-
+monitor mode, MC mode + limits (max states, nondet, timeout, threads,
+SMT bound), counterexample format, protocol-FSM opt-in, and the stamped
+spec hash. Backends ignore fields that do not apply to a command.
+
+**Shared planning invariants.** Variant flattening assigns collision-
+free names (single-variant group keeps the bare name, otherwise
+group_variant, duplicates get numeric suffixes); representative values
+are bool -> false, bit<N> -> 0, enum -> first declared variant; the
+translatable safety subset is `always(phi)` with phi liveness-free. The
+test planner is STATIC: it emits data (cases, expected outcomes,
+labels), never code, and records documented fallbacks in notes where a
+case cannot be decided statically. MC concepts are shared by all
+backends (generated engines embed copies kept in sync): per-step phase
+order (forced assumption violation -> unexpected injection -> allowed
+random input), the exact-mode status taxonomy (PassComplete / Fail /
+UnknownStateLimit with exit codes 0/1/2 and a parity-pinned summary
+line), and the counterexample report whose key ORDERING is part of the
+byte-parity contract.
+
+Code: `src/ir.rs::Module`, `src/json_rw.rs::Json`,
+`src/json_rw.rs::parse`, `src/spec_hash.rs::sha256_hex`,
+`src/codegen.rs::BackendOptions`,
+`src/codegen_fsm.rs::build_variants`,
+`src/codegen_fsm.rs::representative_values`,
+`src/codegen_test.rs::TestPlan`, `src/codegen_mc.rs::ExactStatus`,
+`src/codegen_mc.rs::McJsonReport`
+
+### L3 - Implementation details (important ones emphasized)
+
+**IR normalization.**
+
+1. **Hand-rolled JSON: four contractual properties (the most important
+   IR decision).** No external crate can provide: (a) key-ordering
+   guarantee - objects are ordered vectors, so the exact key sequence is
+   part of the wire contract and golden tests pin it byte-for-byte;
+   (b) always byte-identical text output - rendering depends only on the
+   value, never on platform or a dependency update; (c) zero external
+   dependencies - consistent with self-contained generated artifacts,
+   and the module is embedded verbatim in generated MC engines;
+   (d) stable wire format under our control - a dependency upgrade can
+   never reshape output or break inputs. Scope limits are documented:
+   integers only, strict reader.
+2. **Version read policy.** `from_json` accepts 0..=IR_VERSION and
+   rejects higher versions with a pinned message; the parser always
+   writes the current version. Additive variants and optional fields
+   land WITHOUT a version bump (D10 evolution rule): within one version
+   the schema only grows, and a document carrying a kind an older reader
+   does not know fails with a pinned unknown-kind error rather than a
+   version error.
+3. **u64 value model.** Unsigned IR fields (u32/u64/usize) render as
+   non-negative JSON numbers; `to_json` fails above i64::MAX instead of
+   clamping, and `from_json` rejects negatives for those fields - the
+   value model is 64-bit signed end to end.
+4. **Hand-rolled SHA-256.** FIPS 180-4 implemented without dependencies
+   (consistent with the dependency-light stance); NIST test vectors are
+   pinned, including the 56-byte padding boundary and a multi-block
+   message; `spec_hash16` is a prefix of `sha256_hex`, so it is
+   deterministic and content-sensitive by construction.
+
+**Codegen pipeline.**
+
+1. **Parity principle (the most important codegen invariant).** The
+   planning modules emit DATA, never code: one test plan / variant table
+   / MC concept set is rendered by each backend into its own syntax, and
+   cross-backend parity tests enforce byte-identical semantics for the
+   same input. Identifier mangling, type mapping, and expression
+   lowering stay in the backends.
+2. **Static guard evaluation mirrors the backend lowering exactly.**
+   The test planner evaluates guards with concrete values using the SAME
+   rules as generated code: simultaneous assignment updates (all values
+   computed from pre-step variables, like the temporary-next-variable
+   lowering), u128-wide bit masks, and width resolution identical to the
+   validator's typing. Where a case cannot be decided statically,
+   `TestPlan.notes` records the documented fallback instead of guessing.
+3. **Deterministic LCG everywhere.** The random-trace test uses an LCG
+   with the SAME constants and top-53-bit double mapping as the fuzz
+   wire format (fixed seed 12345), precomputed at plan time and
+   byte-pinned - so the unit-test random trace and the fuzz input stream
+   are mutually reproducible.
+4. **Spec-hash stamping.** `CodegenCommandKind::run` renders the
+   canonical IR JSON once per invocation, stamps `options.spec_hash`,
+   and every artifact (both backends, all commands + fuzz skeletons)
+   carries it in line 1; the hash is empty only when a library caller
+   renders via `run_module` without stamping.
+5. **JSON report key order is contractual.** The exact-mode JSON
+   counterexample document has a fixed key sequence (top level: status,
+   metrics, [reason, label, step], statistics, [counterexample];
+   ce_steps LAST as the trace-length quality metric); both backends'
+   generated engines embed a minimal copy of the shared writer and must
+   produce byte-identical output - EXCEPT `peak_rss_kb`, which is
+   informational (self-reported VmHWM/getrusage) and normalized to 0 in
+   cross-backend comparisons, exactly like wall-clock times.
+6. **Pinned cross-path error strings.** `--no-std` on a non-production
+   command and `--with-protocol-fsm` on the mc command are rejected with
+   ONE exact text at both the CLI parser and the backend entry points,
+   so tests pin one string for every path; C accepts `--no-std` as a
+   documented no-op (plain C is already dependency-free).
+
+Code: `src/ir.rs::to_json`, `src/ir.rs::from_json`,
+`src/json_rw.rs::MAX_DEPTH`, `src/codegen.rs::run`,
+`src/codegen_test.rs::Lcg`, `src/codegen_test.rs::RANDOM_TRACE_SEED`,
+`src/codegen_mc.rs::exact_summary_line`,
+`src/codegen_mc.rs::CounterexampleFormat`
 
 ## MC engine - exact / liveness / SMT paths
 

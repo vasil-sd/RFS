@@ -14,7 +14,7 @@
 //! - `crate::codegen_test`: unit-test planning (positive/negative run plan);
 //! - `crate::codegen_mc`: bounded model-checking concepts (config, violation
 //!   specs, sequence-generation phases, run-status taxonomy).
-//! Docs: dev:codegen-core-overview, llm:codegen-core, dev:code-map-codegen, dev:deps-fn-codegen-rust
+//! Docs: dev:codegen-core-overview, dev:algorithms-ir-codegen, llm:codegen-core, dev:code-map-codegen, dev:deps-fn-codegen-rust
 
 use crate::backends::{c, rust};
 use crate::ir::{Ir, Module};

@@ -16,7 +16,7 @@
 //! [`walk_check`] is the D-P7-9 sync guarantee: it verifies that a real
 //! generated document matches the model - every required key present, no
 //! undocumented key at any object level, types and enum constraints agree.
-//! Docs: dev:ir-json-rw-overview, llm:ir-json-rw
+//! Docs: dev:ir-json-rw-overview, dev:json-schema, llm:ir-json-rw
 
 use crate::json_rw::Json;
 

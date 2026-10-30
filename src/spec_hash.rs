@@ -5,7 +5,7 @@
 //! JSON text of the input file (`Ir::to_json()` rendering - deterministic key
 //! order and formatting per D-P5-2), so the hash is stable across runs and
 //! platforms, and any change to the spec changes it.
-//! Docs: dev:ir-json-rw-overview, dev:algorithms-ir-codegen, llm:ir-json-rw
+//! Docs: dev:ir-json-rw-overview, dev:spec-hash, dev:algorithms-ir-codegen, llm:ir-json-rw
 
 /// Round constants K[0..64]: first 32 bits of the fractional parts of the
 /// cube roots of the first 64 primes (FIPS 180-4 section 4.2.2).

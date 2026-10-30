@@ -233,6 +233,8 @@ Code: `src/parser.rs::non_boolean_expr`, `src/parser.rs::logic_or`,
 `src/validator.rs::contradictory_equalities`,
 `src/validator.rs::is_safety_formula`
 
+Refs: [parsing theory, automata, compiler construction](REFERENCES.md#parsing-automata-compiler-construction)
+
 <a id="dev:algorithms-ir-codegen"></a>
 ## IR normalization + codegen pipeline
 
@@ -438,6 +440,8 @@ Code: `src/ir.rs::to_json`, `src/ir.rs::from_json`,
 `src/codegen_test.rs::Lcg`, `src/codegen_test.rs::RANDOM_TRACE_SEED`,
 `src/codegen_mc.rs::exact_summary_line`,
 `src/codegen_mc.rs::CounterexampleFormat`
+
+Refs: [parsing theory, automata, compiler construction](REFERENCES.md#parsing-automata-compiler-construction)
 
 <a id="dev:algorithms-mc-engine"></a>
 ## MC engine - exact / liveness / SMT paths

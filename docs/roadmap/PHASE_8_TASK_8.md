@@ -346,7 +346,223 @@ owner lines; Action 2+3: card + bookkeeping).
   references it); no new example `.rfs` files.
 - No line-number-based anchors anywhere; stable item-name anchors only.
 
+## Subtask 8.2 - validator deep dive (added at execution, see Task corrections)
+
+### Goal
+
+Fill in `docs/dev/validator.md` (Class A deep dive): full content on the
+semantic validation + expression typing pass (`src/validator.rs`) -
+architecture and the parser/validator/codegen split, the fatal pass with all
+per-item checks, the typing system (ExprType lattice, Env, path resolution,
+binary/bit rules, formula typing), and the non-fatal warning pass. Also fill
+in the matching Class B card `docs/llm/validator.md` (within its 120-line
+budget) - per the confirmed scope decision (plan Corrections entry 3).
+
+### Context
+
+- **Skeleton state (from task 1.4)**: `docs/dev/validator.md` exists with one
+  anchored fragment `dev:validator-overview` (owner: `src/validator.rs` - its
+  `//! Docs:` line already names it) followed by a TBD line; `docs/llm/validator.md`
+  exists with budget header `<!-- llm-budget: 120 -->`, fragment `llm:validator`
+  (same owner), and a TBD line. Existing anchor + heading stay byte-stable.
+- **Fragment structure**: keep `dev:validator-overview` for Overview; add
+  three new sub-fragments, ALL owned by `src/validator.rs`:
+  - `dev:validator-fatal-pass` - Fatal validation pass
+  - `dev:validator-typing` - Expression and formula typing
+  - `dev:validator-warnings` - Non-fatal diagnostics (warnings)
+  ORPHAN RULE: the new IDs go on `src/validator.rs`'s `//! Docs:` line in the
+  same action. Exact target line:
+  `//! Docs: dev:validator-overview, dev:validator-fatal-pass, dev:validator-typing, dev:validator-warnings, dev:deps-fn-validator, dev:algorithms-parser-validation, llm:validator`
+- **No duplication with existing fragments**: ALGORITHMS.md
+  `dev:algorithms-parser-validation` L2 already lists the fatal invariants +
+  warning classes (one line each); DEPENDENCIES.md `dev:deps-fn-validator` has
+  the call graph. The deep dive goes DEEPER: per-check detail with exact error
+  message shapes, the full typing rule set, the priority/ambiguity ladder's
+  error-vs-warning split, and the warning algorithms. Cross-link; never
+  restate.
+- **Verified source material (measured 2026-10-30; line numbers for
+  navigation only - doc references use item names)**: `src/validator.rs`
+  (1239 lines; production 1-935, `mod tests` 937-1239 with 24 tests):
+  `ValidationError` (8: message ONLY - no span; semantic errors carry
+  line/col 0 in `validate --json`, cf. `src/frontend.rs::StructuredError`);
+  `ExprType` (21: Bool | Bit(u32) | IntLit | Enum(String)); `Env` (29: vars,
+  bindings, binding_idents - codegen mangle map, EMPTY from the validator's
+  side, state_variants, enums) + `for_module` (43: State enum ->
+  state_variants; all enums -> variant sets) + `with_binding` (66);
+  `type_to_expr_type` (72); `validate_ir` (80: all-errors collection over
+  modules, never fail-fast); `is_valid_version_format` (95: X.Y or X.Y.Z,
+  non-empty all-digit components, no regex dep - D-P6-1); `validate_module`
+  (103) check order: State enum non-empty -> initial state is a variant /
+  required when transitions exist -> version header format (parser accepts
+  any quoted string; this is the semantic gate) -> var init typing (loose:
+  literal may adapt to var type) -> per transition (state + next_state are
+  variants; event pattern via `validate_event_pattern` which POPULATES
+  env.bindings left-to-right, duplicate bindings rejected; guard types AND is
+  bool; set targets exist + values type-check; emits via
+  `validate_output_expr`) -> priority/ambiguity ladder (per state, pairwise:
+  duplicate priorities are an error ONLY for identical patterns - numbers may
+  be reused across different patterns; identical pattern + identical guard
+  with no priorities = shadowed-duplicate ERROR) -> on_error (next is a
+  variant; emits checked WITHOUT pattern bindings) -> prop/assume names
+  unique across BOTH lists (D-P3-4: generated monitor struct names would
+  collide) -> per formula: `type_formula` + `bounded_always_error` (308:
+  always[N] requires N >= 1, nested occurrences included;
+  bounded_eventually[0] stays legal = "body must hold at the trigger sample").
+  Patterns: `validate_event_pattern` (336: group exists; variant exists;
+  unit/struct shape match; field counts equal; per-field literal
+  compatibility via `pattern_expr_compatible` (406: wildcard/bind always ok;
+  int fits bit<N> via u64::MAX for width >= 64; int vs bool/enum rejected;
+  bool only vs bool; enum variant path must start with the enum name and be
+  >= 2 segments)); `validate_output_expr` (444: group exists; bare output ok
+  ONLY for single-variant groups; variant exists; arg count = field count;
+  args type-check + compatible_with field types). Typing: `type_expr` (505:
+  Int -> IntLit, Bool -> Bool, Path -> resolve_path, unary: ! requires bool,
+  ~ and - require bitvector with IntLit adapting to Bit(8), binary ->
+  binary_type); `resolve_path` (537: `state` special-cased to Enum("State");
+  precedence bindings > vars > State variants; qualified paths exactly 2
+  segments Enum::Variant, longer rejected); `binary_type` (578: logical ops
+  require bool operands -> Bool; comparisons via compatible_with -> Bool;
+  Plus/Minus/Star -> bit_op_type; shifts: left Bit(w) or IntLit->8, right may
+  be bit or literal - NO strict width equality; BitAnd/BitOr allow bool+bool
+  -> Bool, else bit_op_type; BitXor -> bit_op_type); `bit_op_type` (611:
+  Bit(a)+Bit(b) requires a == b; IntLit adapts to the other side's width;
+  IntLit+IntLit -> Bit(8)); `impl ExprType` (626: must_bool, compatible_with
+  - IntLit<->Bit ok, equal ok, IntLit vs Bool error, else mismatch);
+  `is_safety_formula` (646: bounded_eventually/eventually/until are NOT safety
+  (D-P4-8); public utility for MC planning/tests); `type_formula` (663: Expr
+  must type as bool; InputIs/OutputHas -> check_pattern_group (692, Phase 1
+  stub: formula patterns do NOT bind variables - struct fields with names are
+  rejected) / check_output_pattern_group (708, stub)); warnings:
+  `module_warnings` (789) five classes: unreachable states (DFS from initial
+  over transitions, guards ignored = over-approximation), dead events
+  (variant never referenced by any pattern; a bare group pattern marks ALL
+  its variants used), unused variables (never read via collect_names (720)
+  in guards/emit args incl. on_error emits, and never assigned),
+  order-dependent pairs (same state + identical pattern, no priorities,
+  DIFFERING guards - first match wins in source order; suggests `priority N`),
+  impossible guards (`is_literal_false` (737) or `contradictory_equalities`
+  (743): SYNTACTIC only - top-level `&&` conjuncts, var == int-literal pairs,
+  same var bound to two different literals). Notable unit tests:
+  duplicate_priority_same_pattern_is_error / _different_patterns_is_allowed
+  (997/1008), shadowed_duplicate_transition_is_error (1016),
+  order_dependent_guard_pair_is_warning_only (1026), unreachable_state_is_
+  warning (1038), dead_event_is_warning (1049), unused_var_is_warning
+  (1060), literal_false_guard_is_warning (1071),
+  contradictory_equalities_guard_is_warning (1082),
+  on_error_unknown_state_is_error (1091), bounded_always_zero_bound_is_error
+  + _nested (1103/1113), bounded_eventually_zero_bound_is_allowed (1125).
+- **Pinned error messages**: `tests/frontend_test.rs`
+  e2e_validate_json_semantic_error_shape_pinned pins the EXACT message text
+  "module 'always_zero_bound' property 'bad': always[N] requires N >= 1"
+  (kind "semantic", line/col 0) - changing a validator message shape breaks
+  that pin; the examples/invalid corpus (13 files) must keep failing.
+- **Entry format / gate rules / bookkeeping**: same as subtask 8.1 above
+  (house style with per-section Code: lines; doc-to-code reference rules;
+  run dev_docs_test after each action, docs_md_test at task end; plan row ->
+  DONE, boxes checked, one TASKS.md entry, commit per action).
+- **Verified doc-to-code references for this subtask** (declaration lines
+  checked 2026-10-30): all items listed above plus `src/frontend.rs::validate_
+  one_with_warnings`, `src/frontend.rs::ValidateOneResult`,
+  `src/frontend.rs::StructuredError`, `src/frontend.rs::run_validate`,
+  `src/ir.rs::Module`, `src/ir.rs::Transition`, `src/ir.rs::Formula`,
+  `src/ir.rs::EventPattern`, file-level `tests/frontend_test.rs`.
+
+### Planned actions
+
+1. **Class A deep dive - `docs/dev/validator.md`**: replace the TBD and add
+   the three new sections (anchor line immediately above each heading):
+   - **Overview** (`dev:validator-overview`): two-stage frontend split - what
+     the parser already checked (syntax, structural uniqueness at parse time)
+     vs what the validator checks (semantics + typing); entry points
+     `validate_ir` (fatal, all errors collected) and `module_warnings`
+     (non-fatal, independent pass); the `ValidationError` model (message only,
+     no span - semantic errors carry line/col 0 in `validate --json`, unlike
+     parse errors which have spans); the error/warning flow through
+     `src/frontend.rs::validate_one_with_warnings` (errors block codegen and
+     are all surfaced per file; warnings never block); what codegen may rely
+     on (well-typed expressions, known states/vars/patterns, unique
+     prop/assume names for monitor struct names, transition IDs in declaration
+     order); cross-links to `dev:algorithms-parser-validation`,
+     `dev:deps-fn-validator`, `dev:code-map-frontend`, DESIGN.md section 13,
+     `docs/SEMANTICS.md`.
+   - **Fatal validation pass** (`dev:validator-fatal-pass`): the
+     `validate_module` check order as a numbered list with per-check detail
+     and exact error message shapes (module 'X' ... prefixes); the
+     priority/ambiguity ladder's error-vs-warning split explained (duplicate
+     priorities only conflict for identical patterns; shadowed duplicates are
+     errors; differing guards without priorities are only a warning);
+     version-header format check (D-P6-1: parser accepts any quoted string,
+     validator is the semantic gate, legacy specs without a header stay
+     valid); `bounded_always_error` (N >= 1 nested; bounded_eventually[0]
+     legal and what it means).
+   - **Expression and formula typing** (`dev:validator-typing`): the ExprType
+     lattice with IntLit adaptation rules (lit+lit -> Bit(8)); `Env` fields
+     incl. binding_idents (codegen mangle map, empty from the validator's
+     side) and how pattern validation populates bindings left-to-right;
+     `resolve_path` precedence (`state` special-cased; bindings > vars >
+     State variants; qualified paths exactly 2 segments); the full
+     `binary_type`/`bit_op_type` rule set (width equality, IntLit adaptation,
+     shift rules with no strict width equality on the right, bool+bool for
+     BitAnd/BitOr); `compatible_with`; `type_formula` + the Phase 1 stubs
+     (formula patterns do not bind variables); `is_safety_formula` (D-P4-8)
+     and who consumes it.
+   - **Non-fatal diagnostics** (`dev:validator-warnings`): the five warning
+     classes with their algorithms (DFS reachability over-approximation,
+     dead-event counting incl. bare-group semantics, unused-var collection
+     incl. on_error emits, order-dependent pairs, syntactic impossible-guard
+     detection and WHY it is syntactic-only); warnings never block codegen.
+   - **Changing validation rules** (unanchored closing section): developer
+     checklist - add invalid examples FIRST (file-driven suite), update
+     `validate_module`/`module_warnings`, error message shapes are pinned by
+     tests (frontend_test semantic-shape pin + the 24 unit tests in `mod
+     tests`), keep the 13-file invalid corpus failing, docs sync (DESIGN.md
+     section 13, KB.md), training snippets if user-visible.
+   Run `cargo test --test dev_docs_test` after writing; extend
+   `src/validator.rs`'s `//! Docs:` line in the same action.
+2. **Class B card - `docs/llm/validator.md`**: replace the TBD (keep budget
+   header, title, intro, anchor byte-stable): responsibility; key-items table
+   (validate_ir / validate_module / is_valid_version_format /
+   validate_event_pattern / validate_output_expr / type_expr / resolve_path /
+   binary_type + bit_op_type / type_formula / is_safety_formula /
+   bounded_always_error / module_warnings / Env / ExprType); invariants that
+   must not break (all-errors collection never fail-fast; errors block /
+   warnings never do; bindings populated left-to-right and unique;
+   prop/assume shared namespace; message shapes pinned by tests); change-
+   impact pointers (invalid examples first; verify with cargo test --lib
+   validator, cargo test --test examples_test, cargo test --test
+   frontend_test; full table in llm:change-impact at task 13.2); deep-dive
+   links to the four Class A fragments. Total <= 120 lines. Run the gate.
+3. **Verification + bookkeeping**: dev_docs_test 9/9, docs_md_test 5/5,
+   full verification (build/test/clippy/fmt + workspace; counts unchanged:
+   535/535 root, 559/559 workspace); plan row 8.2 -> DONE; check off this
+   subtask's boxes; TASKS.md entry; commit per action.
+
+### Exit criteria (subtask 8.2)
+
+- [x] `docs/dev/validator.md`: all four anchored sections + the unanchored
+      "Changing validation rules" checklist filled, no TBD remains; every
+      technical statement carries a resolving doc-to-code reference; the
+      existing `dev:validator-overview` anchor + heading unchanged; the three
+      new fragments anchored AND owned in the same action.
+- [x] `docs/llm/validator.md`: card filled, no TBD, total line count <= 120,
+      links to Class A without restating it.
+- [x] Source edits limited to `src/validator.rs`'s `//! Docs:` line (no code
+      changes); all cargo counts unchanged from the task-8.1 tree.
+- [x] Full verification green: dev_docs_test 9/9, docs_md_test 5/5, cargo
+      build/test/clippy/fmt (+ --workspace).
+- [x] Plan row 8.2 marked DONE; this subtask's boxes checked; TASKS.md entry
+      appended.
+
+### Non-goals (subtask 8.2)
+
+- No validator behavior changes of any kind; no new dependencies.
+- No restatement of ALGORITHMS L2 invariant lists or DEPENDENCIES graph
+  content (link only); no edits to other docs (ir_json_rw deep dive = task
+  8.3; START.md/KB.md/BUILD.md pointer sync = task 14).
+- No DESIGN.md edits; no new example `.rfs` files.
+
 ## Task corrections
 
 | Correction | Description + rationale |
 |------------|-------------------------|
+| Subtask 8.2 added to this task file at execution (2026-10-30) | The file was initially written for plan row 8.1 only (user request "prepare to execute task8, subtask 8.1"); plan rows 8.1-8.3 are the group-8 deep dives and the user's model is one task file per plan group ("task 8.2" = subtask of task file 8). The 8.2 section above was appended after 8.1 completed, following template 2.4 internally; the frozen 8.1 sections are kept as the historical record. |

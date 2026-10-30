@@ -587,6 +587,204 @@ Code: `src/ref_mc.rs::bnode_key`, `src/ref_mc.rs::match_effect`,
 `src/smt_emit.rs::emit_c_spec`,
 `src/backends/rust_mc.rs::SMT_ENGINE_RUST`
 
+<a id="dev:algorithms-monitor-compile"></a>
 ## Monitor compilation (PSL translation)
 
-TBD (task 6.4). Fragment anchor added in task 6.4.
+The monitor compiler (`src/monitor.rs`) is a language-agnostic PSL-to-monitor
+translator: it compiles property/assumption formulas from the Phase 3 subset
+into a `MonitorPlan` - a tree of check nodes that every backend renders with
+identical semantics (backend parity principle). The plan is the single source
+of truth: Rust and C codegen render the same tree, so both backends step
+monitors identically on the same input sequence. Compilation runs at codegen
+time; the resulting plan is baked into every generated artifact (production
+FSM, MC engine state layout, test harness), so all of them agree by
+construction. Semantics are pinned by D-P3-3 (DECISIONS.md): samples carry
+post-step values, sample 0 is the initial configuration, and an obligation's
+violation is confirmed at its deadline sample. Formulas outside the R1-R4
+monitor subset still parse and validate; codegen in every backend emits the
+identical "outside the monitor subset; skipped" warning and generates no
+monitor for them.
+
+### L1 - Abstract view
+
+**Compile.** `compile_formula` wraps one recursive pass, `compile_check`, over
+the formula structure with two threading parameters: an anchor range (the
+samples at which the check applies) and an `in_temporal` flag (whether a
+temporal ancestor exists). Temporal-operator-free subformulas are lowered by
+`compile_signal` into per-sample boolean signals. The result is a
+`MonitorPlan { label, is_assumption, root }`; compilation failure (`Err`)
+means the formula is outside the monitor subset - no monitor is generated and
+every backend warns with identical text.
+
+**Node tree.** Five node kinds cover the whole subset: `RangeCheck` (a
+per-sample expression that must hold at every sample in an anchor range),
+`DelayedCheck` (a one-sample delay register implementing `p -> next q`),
+`Obligation` (a bounded-eventually countdown with a pending model), and the
+boolean connectives `And` / `Or`. Every node carries a sticky `failed` flag;
+the property is violated when the root fails, and the first failing sample
+wins.
+
+**Reference interpreter.** `ReferenceMonitor` steps a compiled plan sample by
+sample with the exact algorithm the backends render - the same pending model,
+the same deadline confirmation - so tests and differential suites pin the same
+observable behavior (violation sample + trigger step) as generated code.
+
+Code: `src/monitor.rs::compile_formula`, `src/monitor.rs::MonitorPlan`,
+`src/monitor.rs::MonNode`, `src/monitor.rs::ReferenceMonitor`
+
+### L2 - Key data structures and invariants
+
+**Per-sample signals (`SignalExpr` / `SignalAtom`).** A signal is a
+temporal-operator-free subformula: atoms are a boolean RFS expression over
+variables and the post-step state (`VarExpr`), an input pattern just taken
+(`InputIs`), an output pattern emitted (`OutputHas`), or the constant `true`
+(trigger of bare obligations); combined with `Not` / `And` / `Or`.
+`compile_signal` returns `Option`, not `Result`: `None` when a temporal
+operator is present, and callers decide whether that is an error (the R1-R4
+messages) or a different shape. The public wrapper `formula_to_signal` is what
+the Phase 4 liveness engine and the test planner use to render obligation
+bodies / safety leaves as per-sample evaluators.
+
+**Anchor ranges (`AnchorRange`).** A check applies at samples `[from, to]`
+with `to = None` unbounded; `all()` is the top-level range `[0, inf)`,
+`shifted()` adds one (the effect of `next`). Invariant: a bare signal compiles
+to a `RangeCheck` over the FULL range - an invariant, not a one-shot. Sample 0
+has no input/outputs, so a one-shot reading would make I/O atoms vacuously
+false and assumptions like `assume a : input_is(Tick)` would prune every
+trace.
+
+**Node invariants (`MonNode`).**
+- `DelayedCheck { antecedent, consequent, range }`: `antecedent(i) ->
+  consequent(i + 1)` for every anchor i; checked at sample s = i + 1 with a
+  one-sample delay register holding the antecedent evaluated at s - 1. The
+  register starts false, so the first checkable sample is vacuous (D-P3-3).
+  Stateless apart from the register; no trigger step.
+- `RangeCheck { expr, range }`: stateless - evaluated against the current
+  sample index on every step; violation at the first failing sample inside the
+  range.
+- `Obligation { bound, trigger, body, range }`: for every anchor i in `range`
+  where `trigger(i)` holds, `body` must hold at some j with i <= j <= i +
+  bound - 1 (bound >= 1); for bound == 0 the body must hold at i itself. State
+  is the D-P3-3 pending model (`pending`, `remaining`, sticky
+  `trigger_step`); a re-trigger while pending is ignored - safe because the
+  pending obligation has the earliest deadline and the monitor stops at the
+  first confirmed violation.
+- `And`: fails when ANY child has failed; `Or`: fails when ALL children have
+  failed (each child's failure is witnessed at a definite sample, so the
+  conjunction of failures is confirmed when the last child fails).
+
+**D-P3-3 semantics invariants.** Samples carry post-step values; sample 0 is
+the initial configuration (`input_is` / `output_has` are false there). An
+obligation triggered at sample i with bound N requires its body to hold at
+some j in [i, i + N - 1]; the violation is CONFIRMED at the deadline sample
+i + N - 1 (the countdown reaches 0) - not one sample past.
+`bounded_eventually[0]` means "the body must hold at the trigger sample
+itself" (violation confirmed at the trigger sample). `always[N] p`: p must
+hold at samples 0..N-1. `next p`: p must hold one sample later, vacuous when
+the trace ends.
+
+**Monitor-compilability restrictions (R1-R4).** Enforced by
+`compile_formula`; formulas outside still parse and validate, but every
+backend emits the identical skip warning (`property '<name>' is outside the
+monitor subset; skipped` / `assume '<name>' ...`) and generates no monitor:
+- **R1:** no `bounded_eventually` under negation (directly or indirectly) -
+  it would be unbounded liveness.
+- **R2:** a `bounded_eventually[N] b` node requires `b` temporal-operator-free
+  and may appear (a) at top level, or (b) inside an `always` / `always[N]`
+  body - except under another `bounded_eventually` and not under `next`; its
+  trigger is the implication antecedent when it is directly the consequent of
+  `->`, else the constant `true`.
+- **R3:** `always[N]` only at top level or under boolean connectives - never
+  under another temporal operator.
+- **R4:** `next` requires a temporal-operator-free body.
+
+Liveness operators (`eventually` / `until`, D-P4-8) are outside the subset
+entirely: they need unbounded future analysis that a per-sample monitor cannot
+express (MC-only).
+
+**Reference-interpreter invariants.** `MonState` mirrors what backends
+generate, node for node. `step_node` returns the node's CURRENT-SAMPLE failure
+status ("now failing"): a per-sample check fails while its expression holds
+false; an obligation fails only once its deadline has been confirmed
+(terminal); And/Or combine their children's current statuses. The sticky
+`failed` flag is set when `now` is true and stays set - it is what the root
+reports as the property violation. Using per-sample (not sticky) child status
+for Or/And composition is essential: disjuncts may fail at different samples
+and recover, so a disjunction fails only while ALL of its children fail at the
+SAME sample.
+
+Code: `src/monitor.rs::SignalExpr`, `src/monitor.rs::SignalAtom`,
+`src/monitor.rs::AnchorRange`, `src/monitor.rs::MonNode`,
+`src/monitor.rs::compile_check`, `src/monitor.rs::compile_signal`,
+`src/monitor.rs::formula_to_signal`, `src/monitor.rs::MonState`
+
+### L3 - Implementation details (important ones emphasized)
+
+1. **The pending model is the most important semantic detail.** The exact
+   algorithm both backends render (sample s, trigger signal a, body signal b,
+   bound N >= 1):
+
+   ```text
+   a = in_range(s) && eval(trigger at s)
+   b = eval(body at s)
+   if not pending and a:      pending = true; remaining = N; trigger_step = s
+   if pending:
+       if b:                  pending = false
+       else:                  remaining -= 1
+                               if remaining == 0: VIOLATION confirmed at sample s
+   ```
+
+   The violation is confirmed at the deadline sample i + N - 1 (D-P3-3), not
+   one past - tighter counterexamples, matching the countdown. `bound == 0` is
+   special-cased: the body must hold at the trigger sample itself, violation
+   confirmed there. A re-trigger while pending is ignored (the pending
+   obligation has the earliest deadline; the monitor stops at the first
+   confirmed violation). Pinned by the fin_ack tests: violation at the exact
+   deadline, same-step satisfaction, deadline-sample satisfaction, and
+   one-past-deadline is a violation.
+2. **Per-sample vs sticky composition (essential for Or/And).** `step_node`
+   returns current-sample status; And fails when any child is now failing, Or
+   fails only when ALL children are now failing at the same sample. Disjuncts
+   may fail at different samples and recover - using sticky child flags would
+   falsely report a violation (pinned by
+   `disjunction_of_invariants_children_fail_at_different_samples`: `fin || ack`
+   with each failing on alternating samples never violates).
+3. **Self-anchoring of bounded constructs (the R2/R3 interplay).** A top-level
+   bare `be[N]` or a top-level implication with a `be[N]` consequent is
+   ONE-SHOT: the anchor range is `{0}` only - `p(0)` starts the countdown and
+   `p(i)` for i > 0 never triggers it. Under `always` / `always[N]` the anchors
+   are that operator's range (all samples / `0..=N-1`) - the recurring reactive
+   "whenever p, then f within N" form. The `in_temporal` flag threaded through
+   `compile_check` drives this choice.
+4. **The delay register for `p -> next q`.** A one-sample delay register holds
+   the antecedent evaluated at s - 1; checked at the shifted range (s >= 1).
+   The register starts false, so no check fires before the first antecedent
+   evaluation (vacuous at sample 0). Stateless apart from the register; no
+   trigger step.
+5. **Signal-level implication desugaring.** `l -> r` with both sides
+   temporal-operator-free compiles to a `RangeCheck` of `!l || r` - a
+   per-sample check, NOT a `DelayedCheck`. Only `p -> next q` and
+   `p -> be[N] b` get dedicated node kinds.
+6. **`compile_signal` returns Option, not Result.** `None` when a temporal
+   operator is present; callers decide whether that is an error (the R1-R4
+   messages) or a different shape. The public wrapper `formula_to_signal` is
+   what the Phase 4 liveness engine and the test planner use to render
+   obligation bodies / safety leaves as per-sample evaluators.
+7. **The reference interpreter pins generated code.**
+   `ReferenceMonitor::step` returns true when the failure is NEWLY confirmed at
+   this sample; `trigger_step` is propagated via `min_trigger_at` (the earliest
+   trigger step among the currently failing children, -1 for a pure per-sample
+   check failure). Used by the monitor-compiler tests and the differential
+   suites to pin the same observable behavior (violation sample + trigger step)
+   as generated code.
+8. **Out-of-subset handling is uniform.** `compile_formula` returns
+   `Err(msg)`; the backends emit the identical warning text and generate no
+   monitor, and `src/mc_plan.rs::monitor_layouts` skips them in the MC state
+   layout (no monitor, no state). The `info` command reports the same R1-R4
+   status (`monitored` / `skipped: <reason>`) so it never disagrees with
+   generated code. Liveness operators are a separate rejection (D-P4-8) -
+   MC-only, not monitorable.
+
+Code: `src/monitor.rs::step_node`, `src/monitor.rs::min_trigger_at`,
+`src/backends/rust_fsm.rs::emit_monitors`,
+`src/backends/c_fsm.rs::emit_monitors`, `src/mc_plan.rs::monitor_layouts`

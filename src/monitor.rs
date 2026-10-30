@@ -23,7 +23,7 @@
 //! [`compile_formula`]): formulas outside the subset still parse and validate;
 //! codegen in every backend emits the same "outside monitor subset; skipped"
 //! warning and generates no monitor for them.
-//! Docs: dev:monitor-compiler-overview, llm:monitor-compiler, dev:deps-fn-monitor
+//! Docs: dev:monitor-compiler-overview, dev:algorithms-monitor-compile, llm:monitor-compiler, dev:deps-fn-monitor
 
 use crate::ir::{EventPattern, Expr, Formula, OutputPattern};
 

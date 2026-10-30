@@ -240,13 +240,13 @@ interpreter semantics (pending model, deadline confirmation). Read
       `src/validator.rs`; no TBD in that section; gate green.
 - [x] 6.2: IR+codegen section filled the same way; no TBD; gate green.
 - [x] 6.3: MC engine section filled the same way; no TBD; gate green.
-- [ ] 6.4: monitor compilation section filled the same way; no TBD anywhere
+- [x] 6.4: monitor compilation section filled the same way; no TBD anywhere
       in ALGORITHMS.md; full gate green (dev_docs_test + docs_md_test).
-- [ ] Every doc-to-code reference resolves (gate check 1); each new fragment
+- [x] Every doc-to-code reference resolves (gate check 1); each new fragment
       owned (no orphans); source edits limited to `//! Docs:` lines.
-- [ ] Plan rows 6.1-6.4 marked DONE; this file's boxes checked; one git
+- [x] Plan rows 6.1-6.4 marked DONE; this file's boxes checked; one git
       commit per subtask; `TASKS.md` entry appended after 6.4.
-- [ ] Full verification green at task end: cargo build/test/clippy/fmt
+- [x] Full verification green at task end: cargo build/test/clippy/fmt
       (+ --workspace).
 
 ## Non-goals

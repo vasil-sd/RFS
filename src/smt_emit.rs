@@ -16,7 +16,7 @@
 //! `fld_<i>_<g>`). The C builders receive them as pointers; the Rust builders
 //! recreate them by name - z3 hash-consing returns the SAME node, so both
 //! backends build structurally identical formulas.
-//! Docs: dev:mc-engine-overview, llm:mc-engine
+//! Docs: dev:mc-engine-overview, dev:algorithms-mc-engine, llm:mc-engine
 
 use crate::smt_plan::{se_type, Sb, Se, SeType, Sf, SmtSpec};
 

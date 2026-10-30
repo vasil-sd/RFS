@@ -27,15 +27,17 @@ translation (6.4).
   6.1 uses `dev:algorithms-parser-validation` with owners `src/parser.rs`
   and `src/validator.rs` (the files whose changes make the fragment stale).
   For 6.2-6.4 pick the ID + owners at execution time the same way (candidates:
-  6.3 `dev:algorithms-mc-engine` owned by `src/mc_plan.rs` + `src/ref_mc.rs`
-  + `src/smt_plan.rs`; 6.4 `dev:algorithms-monitor-compile` owned by
-  `src/monitor.rs`). DECIDED at 6.2 execution: `dev:algorithms-ir-codegen`
-  is owned by ALL SEVEN area files - `src/ir.rs`, `src/json_rw.rs`,
-  `src/spec_hash.rs` (IR trio) + `src/codegen.rs`, `src/codegen_fsm.rs`,
-  `src/codegen_mc.rs`, `src/codegen_test.rs` (codegen quartet) - matching
-  the area-fragment pattern of `dev:ir-json-rw-overview` and
-  `dev:codegen-core-overview`: every file whose change could stale the
-  fragment names it.
+  6.4 `dev:algorithms-monitor-compile` owned by `src/monitor.rs`).
+  DECIDED at 6.3 execution: `dev:algorithms-mc-engine` is owned by ALL FOUR
+  area files - `src/mc_plan.rs`, `src/ref_mc.rs`, `src/smt_plan.rs`,
+  `src/smt_emit.rs` (smt_emit joined the candidate list: its leaf-variable
+  convention is part of the fragment's content).
+  DECIDED at 6.2 execution: `dev:algorithms-ir-codegen` is owned by ALL
+  SEVEN area files - `src/ir.rs`, `src/json_rw.rs`, `src/spec_hash.rs`
+  (IR trio) + `src/codegen.rs`, `src/codegen_fsm.rs`, `src/codegen_mc.rs`,
+  `src/codegen_test.rs` (codegen quartet) - matching the area-fragment
+  pattern of `dev:ir-json-rw-overview` and `dev:codegen-core-overview`:
+  every file whose change could stale the fragment names it.
 - **PLAN WORDING CORRECTION (recorded in Task corrections)**: plan line 6.1
   says "parser construction (LL(1)/chumsky)". The shipped parser is NOT
   chumsky - it is a hand-written recursive-descent parser on nom 8
@@ -237,7 +239,7 @@ interpreter semantics (pending model, deadline confirmation). Read
       Code: line); anchor added; fragment owned by `src/parser.rs` +
       `src/validator.rs`; no TBD in that section; gate green.
 - [x] 6.2: IR+codegen section filled the same way; no TBD; gate green.
-- [ ] 6.3: MC engine section filled the same way; no TBD; gate green.
+- [x] 6.3: MC engine section filled the same way; no TBD; gate green.
 - [ ] 6.4: monitor compilation section filled the same way; no TBD anywhere
       in ALGORITHMS.md; full gate green (dev_docs_test + docs_md_test).
 - [ ] Every doc-to-code reference resolves (gate check 1); each new fragment

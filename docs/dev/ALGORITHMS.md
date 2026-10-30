@@ -408,9 +408,184 @@ Code: `src/ir.rs::to_json`, `src/ir.rs::from_json`,
 `src/codegen_mc.rs::exact_summary_line`,
 `src/codegen_mc.rs::CounterexampleFormat`
 
+<a id="dev:algorithms-mc-engine"></a>
 ## MC engine - exact / liveness / SMT paths
 
-TBD (task 6.3). Fragment anchor added in task 6.3.
+The model-checking subsystem has three engines over one codegen-time plan:
+the generated EXACT engine (Rust and C binaries rendered from `McPlan`),
+an INDEPENDENT reference checker (`src/ref_mc.rs`, ground truth for
+differential testing and the `rfs mc-ref` command), and an optional SMT
+BOUNDED path (z3 k-step unrolling). All three report through the shared
+status taxonomy and report formats of `src/codegen_mc.rs` (section above),
+so their outputs are directly comparable - byte-for-byte where
+deterministic.
+
+### L1 - Abstract view
+
+**Exact.** Breadth-first search over reachable configurations from the
+initial configuration, where a configuration is (state, variable values,
+monitor persistent states). Transition firing is deterministic first-
+match in effective-priority order; every enabled input is tried at every
+configuration - seedless exhaustive search, not random. Safety violations
+are detected online by monitors while stepping successors; deadlock is a
+configuration with no successor at all; liveness properties are checked
+AFTER the BFS on the completed graph.
+
+**Liveness.** Properties containing `eventually` / `until` are decomposed
+into obligations plus a boolean skeleton, then checked by SCC analysis of
+a product graph (position x automaton state); a violation yields a lasso
+witness (prefix + one cycle iteration).
+
+**SMT bounded.** k-step unrolling over z3 bitvectors: first-match firing
+is encoded as prefix-OR constraints, properties are asserted per live
+step. Sound FAIL within the bound; PASS is always incomplete ("pass-
+within-bound"); solver-inconclusive is a distinct unknown status.
+
+**Reference MC.** A deliberate reimplementation with different data
+structures and algorithms (structured configuration keys instead of bit-
+packing, its own evaluator / monitor compiler / input enumeration /
+SCC), sharing ONLY the report data types and formatting helpers - so it
+can confirm or refute the generated engines' verdicts independently.
+
+Code: `src/mc_plan.rs::McPlan`, `src/ref_mc.rs::run`,
+`src/smt_plan.rs::build_smt_spec`, `src/codegen_mc.rs::ExactStatus`
+
+### L2 - Key data structures and invariants
+
+**The shared plan (D-P4-1).** `McPlan::compute` is a PURE function of the
+validated module + assumption selection - no environment reads, no
+randomness - computed once in the tool and embedded as constants/tables
+in both generated binaries, so the Rust and C engines are identical by
+construction. It has three parts:
+- **Input abstraction (D-P4-3).** Per event variant, per field: CONCRETE
+  (enumerate the full canonical domain) iff the field is referenced by any
+  transition guard, output payload expression, variable update expression,
+  or property/assumption formula (`input_is` field values count); otherwise
+  ABSTRACTED to a single representative value. Value order is canonical:
+  bool false < true, bit<N> ascending, enum in declaration order.
+- **Configuration encoding (D-P4-2).** config = (state index, packed
+  variables, monitor transition states), bit-packed little-endian into
+  `total_bytes` - the buffer BOTH engines hash for the visited set, so
+  they must pack identically. Only monitor nodes with persistent state
+  appear; the sticky failed/trigger flags are deliberately excluded
+  (invariant on all live configurations - a safety failure terminates the
+  search before enqueue).
+- **Traversal spec (D-P4-2).** Canonical input order (events in
+  declaration order, fields in declaration order, values ascending) and
+  per-state firing order = effective priority (`priority N` descending,
+  declaration order for ties) - the same order det mode uses for first-
+  match and nondet mode uses to enumerate successors.
+
+**Exact-engine invariants (SEMANTICS.md).** Level-synchronous BFS with
+visited-at-enqueue; a safety failure terminates the search with a
+counterexample before enqueue; unexpected inputs terminate that path
+(counted as terminations, never successors); assumption-violating
+successors are PRUNED and never reported as property violations
+(assumptions step first at every sample); deadlock = no successor at all;
+liveness is checked only when no safety failure / deadlock was found; a
+liveness witness inside a truncated subgraph is SOUND (all its edges are
+real).
+
+**Liveness decomposition invariants (D-P4-9).** An obligation is
+`eventually p` or `p until q` whose operands are BOOLEAN over atomic
+propositions (no temporal operators inside); the skeleton is the top-
+level boolean structure with obligations replaced by indices. Uncheckable
+shapes (deeper nesting, non-boolean operands, temporal safety parts)
+yield codegen diagnostics - never parse errors.
+
+**SMT spec invariants (D-P4-12).** `build_smt_spec` renders a backend-
+neutral encoding (`Se`/`Sb`/`Sf` over resolved indices) from the module +
+the SAME `McPlan` (reusing its input abstraction): transitions in firing
+order (same as exact first-match), concrete fields become free z3
+variables per unrolled step, abstracted fields are substituted as their
+representative literals. v1 scope is rejected at codegen with shared
+errors: no assumptions, no on_error; top-level `always(phi)` /
+`eventually(phi)` only with phi boolean over state/vars; bit<N>/bool vars
+only; concrete payload fields N <= 64.
+
+**Report invariants.** All paths report through the shared status
+taxonomy (exit codes 0/1/2) and the parity-pinned summary line; SMT adds
+mode=smt-bounded with statuses pass-within-bound / fail / unknown.
+
+Code: `src/mc_plan.rs::InputAbstraction`,
+`src/mc_plan.rs::ConfigEncoding`, `src/mc_plan.rs::TraversalSpec`,
+`src/mc_plan.rs::LivenessDecomposition`,
+`src/mc_plan.rs::boolean_over_atoms`, `src/ref_mc.rs::RefResult`,
+`src/smt_plan.rs::SmtSpec`, `src/codegen_mc.rs::exact_summary_line`
+
+### L3 - Implementation details (important ones emphasized)
+
+**Exact + reference.**
+
+1. **Independence by construction (the most important reference-MC
+   design decision).** `ref_mc` reimplements everything: structured
+   configuration-key tuples instead of bit-packing, its own expression
+   evaluator and its own online monitor compiler (same documented
+   semantics as `src/monitor.rs`, different code), its own representative-
+   input rule (SEMANTICS 9.3, not imported from `src/mc_plan.rs`), and
+   iterative Tarjan SCC instead of the generated engine's BFS + stay-edge
+   subgraph + Kosaraju construction. It imports only std, the IR types,
+   and the shared report data types / formatting helpers - enforced by
+   the independence-import-audit test.
+2. **Level-synchronous BFS with fine-grained deadline.** Frontier /
+   next-frontier iteration; the wall-clock check runs PER CONFIGURATION
+   (one level can exceed the budget on its own); the state cap yields
+   UnknownStateLimit; parent / depth / adjacency are recorded for EVERY
+   success (including edges to already-visited nodes) so the graph is
+   complete for liveness analysis.
+3. **Monitor stepping order at every sample.** Assumptions FIRST (a
+   pruned successor is never reported as a property violation), then
+   properties; sample 0 is stepped before the BFS starts (assumption
+   violated at the initial configuration -> clean error; property
+   violated -> FAIL with the empty trace).
+4. **Liveness via product-graph SCC.** A position graph (position 0 =
+   initial sample, one position per explored edge - edge-based labeling),
+   a mixed-radix automaton state (radix 2 for safety/eventually leaves,
+   radix 3 for until leaves), product reachability BFS over (position,
+   state) pairs, iterative Tarjan SCC, on-cycle pairs = non-trivial SCC
+   members + self-loop singletons; the falsifying limit vector is searched
+   in ascending state order - a liveness property is violated iff some
+   reachable cycle's limit falsifies the skeleton.
+5. **Deadlock carries monitor state.** The result records the persistent
+   monitor projection of the deadlocked terminal configuration, because
+   the "no surviving successor" judgment depends on assumption-pruning
+   state that is not printed in the report - an external verifier needs it
+   to re-derive the deadlock verdict.
+6. **Counterexample verification.** `verify_counterexample` replays a
+   generated engine's JSON counterexample through ref_mc's independent
+   evaluators (Ok = a valid execution that genuinely exhibits the claimed
+   violation at the claimed step); `step_trace` drives a fixed input
+   sequence with first-match firing + on_error fallback (the production-
+   parity tests' driver).
+
+**SMT bounded.**
+
+7. **First-match encoded as prefix-OR.** At each unrolled step, fires[t]
+   = enabled[t] AND NOT(enabled[0] OR ... OR enabled[t-1]) in firing
+   order - the same order the exact engine uses; alive[i+1] = alive[i] AND
+   any-fire, so deadlock paths die within the unrolling.
+8. **Property encoding.** `always(phi)`: violation = OR over live steps of
+   NOT phi(i). `eventually(phi)`: never = AND over live steps of NOT
+   (alive AND phi), PLUS a repeated-configuration constraint (some pair of
+   equal configurations - a cycle that can be iterated forever), so "never
+   within k" becomes a genuine liveness violation; SAT yields the first
+   violating step / first repeated pair (the lasso).
+9. **PASS is always incomplete.** All checks UNSAT -> "PASS WITHIN BOUND k
+   (incomplete - no completeness claim)" with status pass-within-bound
+   and exit 0; solver-inconclusive -> status unknown, exit 2. Sound FAIL
+   within the bound, clearly labeled.
+10. **Parity-critical leaf-variable convention.** Step variables are z3
+    CONSTANTS with fixed names (s_<i>, v_<i>_<j>, ev_<i>, fld_<i>_<g>);
+    the C builders receive them as pointers, the Rust builders recreate
+    them by name - z3 hash-consing returns the SAME node, so both
+    backends build structurally identical formulas.
+
+Code: `src/ref_mc.rs::bnode_key`, `src/ref_mc.rs::match_effect`,
+`src/ref_mc.rs::mon_step`, `src/ref_mc.rs::liv_analyze`,
+`src/ref_mc.rs::verify_counterexample`, `src/ref_mc.rs::step_trace`,
+`src/smt_plan.rs::SmtTrans`, `src/smt_emit.rs::emit_rust_spec`,
+`src/smt_emit.rs::emit_c_spec`,
+`src/backends/rust_mc.rs::SMT_ENGINE_RUST`
 
 ## Monitor compilation (PSL translation)
 

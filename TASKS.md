@@ -1317,3 +1317,19 @@ Per PHASE_5_TASK_16.md: run the complete BUILD.md §5 checklist (+ Phase 5 addit
 - Changed: `docs/roadmap/PHASE_8_PLAN.md` - plan rows 7.1-7.2 marked DONE.
 - Verification: after each subtask dev_docs_test 9/9 + docs_md_test 5/5 (gate runtime ~184s, baseline). Final full verification on the completed tree: cargo build OK; cargo test 535/535 root (unchanged - docs-only changes); cargo clippy --all-targets 0 errors (pre-existing warnings only); cargo fmt --check clean; cargo test --workspace 559/559.
 - Commits: 53933f1 (7.1); the 7.2 commit is the one carrying this entry.
+
+## 2026-10-30 17:46 — Phase 8 task 8.1 (complete): parser deep dive docs/dev/parser.md + Class B card docs/llm/parser.md
+
+### Interpretation & plan
+
+- Requested: confirm the card-scope correction (each deep-dive task fills BOTH its Class A doc and matching Class B card), then execute Phase 8 subtask 8.1 per `docs/roadmap/PHASE_8_TASK_8.md`.
+- Plan: record the scope decision as PHASE_8_PLAN.md Corrections entry 3; fill `docs/dev/parser.md` (5 anchored sections + unanchored change checklist, one mermaid flowchart); fill `docs/llm/parser.md` card within its 120-line budget; extend the two `//! Docs:` owner lines only; full verification + bookkeeping.
+
+### Report
+
+- PHASE_8_PLAN.md: Corrections entry 3 (Class B cards filled by matching deep-dive tasks 8.1-12.3; line 13.3 remains the final verification/budget pass - user confirmed 2026-10-30); row 8.1 PENDING -> DONE.
+- docs/dev/parser.md (13 -> 343 lines): Overview (one-pass parse+IR assembly, entry points, cross-links to dev:algorithms-parser-validation / dev:deps-fn-parser / dev:code-map-frontend / dev:references-theory); Entry points and error model (new fragment dev:parser-entry-error + mermaid flowchart of the parse_source pipeline, offset-preserving strip_comments, two-tier syntax_err/semantic_err table per construct, offset computation, dedicated eventually diagnostic); Module and declaration parsing (dev:parser-grammar: 9 declaration kinds, constructor-group merging worked example, build_module invariants, event patterns, deliberate list leniency); Expression and formula ladders (dev:parser-expressions: 12-level expr + 7-level formula lists with entry fns, multi-char operator guards, the primary_formula -> non_boolean_expr equality-level fallthrough subtlety, KEYWORDS triple pinning); EBNF grammar model (dev:parser-ebnf-model: RuleNode const-constructibility, GRAMMAR_RULES 61 rules, RULE_NOTES, four renderers, sync tests in tests/info_format_test.rs, rfs info format spec-rfs consumer); unanchored "Changing the grammar" developer checklist.
+- docs/llm/parser.md (10 -> 53 lines, budget 120): responsibility, 16-row key-items table, 5 invariants, change-impact pointers, deep-dive links.
+- src/parser.rs + src/ebnf_grammar.rs: `//! Docs:` lines extended with the four new fragment IDs (doc comments only, no code).
+- Environment fix (pre-existing, unrelated to this task): mmdc's chrome-headless-shell was missing from the session-local puppeteer cache (/opt/unsloth-studio/sandbox/__LOCALID_sl97vOJ/.cache/puppeteer absent) - frontend_test e2e_diagram_render_mmd_real_tool + diagram_mmd_negative_control_parse_error failed on the PRISTINE tree too (verified via git stash); installed chrome-headless-shell@156.0.8078.47 via `npx @puppeteer/browsers@2.4.0 install ... --path <cache>` (latest @puppeteer/browsers needs Node 20; env has Node 18) - both tests pass again.
+- Verification: dev_docs_test 9/9, docs_md_test 5/5 (gate runtime 185.5s ~ baseline; new flowchart renders through the full mermaid-rs-renderer pipeline), cargo build OK, cargo test 535/535 root (unchanged - docs-only changes), clippy --all-targets 0 errors, fmt clean, cargo test --workspace 559/559.

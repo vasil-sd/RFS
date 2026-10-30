@@ -45,6 +45,7 @@ fine-grained (subtasks) so each one fits a single working session's context.
 | 6.2 | `docs/dev/ALGORITHMS.md`: IR normalization + codegen pipeline (same L1/L2/L3 structure) | change: `docs/dev/ALGORITHMS.md` | 1.5 | DONE |
 | 6.3 | `docs/dev/ALGORITHMS.md`: MC engine - exact / liveness / SMT paths | change: `docs/dev/ALGORITHMS.md` | 1.8 | DONE |
 | 6.4 | `docs/dev/ALGORITHMS.md`: monitor compilation (PSL translation) | change: `docs/dev/ALGORITHMS.md` | 1.8 | DONE |
+| 6.5 | `docs/dev/ALGORITHMS.md`: L1 algorithm flowcharts (mermaid) - one per section (extra subtask, user request 2026-10-30; see PHASE_8_TASK_6.md correction 2) | change: `docs/dev/ALGORITHMS.md` | 6.4 | DONE |
 | 7.1 | `docs/dev/REFERENCES.md`: entries for parsing theory, automata theory, compiler construction (one-line annotation + which RFS component uses it); wire links from ALGORITHMS parser/validation/codegen sections | change: `docs/dev/REFERENCES.md`, `docs/dev/ALGORITHMS.md` | 6.2 | PENDING |
 | 7.2 | `docs/dev/REFERENCES.md`: entries for model checking, SMT/SAT solving; wire links from ALGORITHMS MC/monitor sections | change: `docs/dev/REFERENCES.md`, `docs/dev/ALGORITHMS.md` | 6.4 | PENDING |
 | 8.1 | Deep dive: `docs/dev/parser.md` (full content) | change: `docs/dev/parser.md` | 1.3 | PENDING |

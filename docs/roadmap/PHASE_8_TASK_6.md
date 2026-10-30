@@ -233,6 +233,33 @@ interpreter semantics (pending model, deadline confirmation). Read
 `src/monitor.rs` first. Owner: `src/monitor.rs`. Run the full gate
 (dev_docs_test + docs_md_test).
 
+### Action 6.5: L1 algorithm diagrams (extra subtask - user request 2026-10-30, see Task corrections #2)
+
+Add ONE mermaid flowchart per section (four total), each placed at the end of
+the section's L1 subsection (before its `Code:` line), depicting the abstract
+high-level algorithm the L1 prose describes - no new content beyond what L1
+already says:
+- Parser + validation: source -> comment stripping -> one-pass module parse ->
+  whole-input check -> all-errors validation -> errors block / independent
+  warning pass.
+- IR + codegen: input -> validated Ir -> canonical rendering -> spec hash ->
+  standard dispatch (hash stamp, first module) -> per-command-kind planning ->
+  backend plugin table -> Rust/C rendering -> artifact with hash header.
+- MC engine: module + selection -> McPlan::compute -> engine branch (exact and
+  reference MC share the same abstract flow; SMT bounded is a separate path)
+  -> BFS outcomes (safety FAIL / deadlock / frontier exhausted) -> post-BFS
+  liveness SCC -> verdict; SMT branch -> solver verdict (SAT / UNSAT /
+  inconclusive).
+- Monitor compilation: formula -> R1-R4 subset gate -> compile_check recursion
+  with signal lowering -> MonitorPlan tree -> identical rendering in every
+  backend -> per-sample stepping.
+
+Mermaid house style (proven to render in this repo): `flowchart TD`, quoted
+node labels, unquoted diamond decision nodes without parentheses,
+`-->|label|` edge labels, no `<br/>`. Run the full gate (dev_docs_test +
+docs_md_test - the latter runs every mermaid block through
+mermaid-rs-renderer's full pipeline).
+
 ## Task exit criteria
 
 - [x] 6.1: parser+validation section filled (L1/L2/L3, every level with a
@@ -242,6 +269,10 @@ interpreter semantics (pending model, deadline confirmation). Read
 - [x] 6.3: MC engine section filled the same way; no TBD; gate green.
 - [x] 6.4: monitor compilation section filled the same way; no TBD anywhere
       in ALGORITHMS.md; full gate green (dev_docs_test + docs_md_test).
+- [x] 6.5: one L1 algorithm flowchart per section (four total), each at the end
+      of its L1 subsection before the Code: line, faithful to the L1 prose;
+      every diagram renders through the docs_md_test mermaid pipeline; full
+      gate green.
 - [x] Every doc-to-code reference resolves (gate check 1); each new fragment
       owned (no orphans); source edits limited to `//! Docs:` lines.
 - [x] Plan rows 6.1-6.4 marked DONE; this file's boxes checked; one git
@@ -261,3 +292,4 @@ interpreter semantics (pending model, deadline confirmation). Read
 | Correction | Description + rationale |
 |------------|-------------------------|
 | 1 | Plan line 6.1 parenthetical "(LL(1)/chumsky)" is stale: the shipped parser is a nom-based hand-written recursive-descent parser, not chumsky; documented as LL(1)-style single-lookahead recursive descent on nom 8 combinators | The implementation (`src/parser.rs` module doc "RFS v0 source parser (nom-based)", `Cargo.toml` `nom = "8.0.0"`) predates the plan wording; ALGORITHMS.md must describe what is shipped, and the LL(1) characterization holds for the decision points |
+| 2 | EXTRA SUBTASK 6.5 (user request 2026-10-30, after 6.4 completed): add diagrams of the abstract high-level (L1) algorithms to ALGORITHMS.md - plantuml activity diagrams, or mermaid flow-charts if the algorithms can be expressed with sufficient expressiveness using mermaid. DECIDED: mermaid flowcharts | The L1 algorithms are control-flow pipelines with decisions and loops - exactly what flowcharts express; plantuml activity diagrams' extra machinery (swimlanes/partitions, fork/join bars) is not needed at the L1 abstract level. Mermaid blocks are FULLY validated by `docs_md_test` (mermaid-rs-renderer's complete pipeline: validator + parse + layout + SVG render - exactly what mdr does), while a plantuml fence in a .md would be an inert code block no gate renders or checks; mermaid flowcharts are already the established diagram format in docs/dev/ (ARCHITECTURE.md, DEPENDENCIES.md). This supersedes the non-goal "No mermaid diagrams in 6.1" |

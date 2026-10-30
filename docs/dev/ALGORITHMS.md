@@ -39,6 +39,19 @@ fail-fast. A second, independent pass computes non-fatal warnings
 guard pairs, impossible guards). Errors block code generation;
 warnings never do.
 
+```mermaid
+flowchart TD
+    SRC[".rfs source text"] --> STRIP["strip comments - offsets preserved"]
+    STRIP --> PARSE["one pass: zero or more modules, each a sequence of nine declaration kinds, assembled into the Ir document"]
+    PARSE --> TRAIL{whole input consumed?}
+    TRAIL -->|no| PERR["parse error at the first unconsumed byte"]
+    TRAIL -->|yes| VAL["validate each module: collect ALL fatal errors - never fail-fast"]
+    VAL --> HASERR{any fatal errors?}
+    HASERR -->|yes| BLOCK["errors block codegen - all of them reported"]
+    HASERR -->|no| WARN["independent warning pass - non-fatal diagnostics only"]
+    WARN --> DONE["validated IR to codegen - warnings never block"]
+```
+
 Code: `src/parser.rs::parse_source`, `src/validator.rs::validate_ir`,
 `src/validator.rs::module_warnings`,
 `src/frontend.rs::validate_one_with_warnings`
@@ -256,6 +269,24 @@ concepts and report formats (`src/codegen_mc.rs`) - and backends render
 that data into target syntax. Parity principle: one plan, rendered
 identically in Rust and C.
 
+```mermaid
+flowchart TD
+    IN[".rfs source or .json IR input"] --> IR["validated Ir document - the single normalized form: versioned, pinned wire format, no intermediate on-disk stage"]
+    IR --> HASH["canonical whole-file rendering -> spec hash - first 16 hex of SHA-256"]
+    HASH --> DISPATCH["standard dispatch: stamp the hash into a shared options bag, generate for the FIRST module of the file"]
+    DISPATCH --> KIND{command kind?}
+    KIND -->|production FSM source| P1["plan: variant flattening + representative values"]
+    KIND -->|unit tests| P2["plan: static unit-test plan - data, never code"]
+    KIND -->|model checker| P3["plan: run concepts + report formats"]
+    P1 --> RENDER{backend from the static plugin table?}
+    P2 --> RENDER
+    P3 --> RENDER
+    RENDER -->|Rust| RUST["render the plan into Rust source"]
+    RENDER -->|C| C["render the plan into C source"]
+    RUST --> OUT["artifact with the spec hash in its line-1 header - one plan, rendered identically in both backends"]
+    C --> OUT
+```
+
 Code: `src/ir.rs::Ir`, `src/ir.rs::IR_VERSION`,
 `src/spec_hash.rs::spec_hash16`, `src/codegen.rs::Backend`,
 `src/codegen.rs::BACKENDS`, `src/codegen.rs::CodegenCommandKind`
@@ -447,6 +478,28 @@ packing, its own evaluator / monitor compiler / input enumeration /
 SCC), sharing ONLY the report data types and formatting helpers - so it
 can confirm or refute the generated engines' verdicts independently.
 
+```mermaid
+flowchart TD
+    SPEC["validated module + assumption selection"] --> PLAN["McPlan::compute - pure function of module + selection: input abstraction, configuration encoding, traversal spec"]
+    PLAN --> WHICH{engine?}
+    WHICH -->|SMT bounded| SMT["k-step unrolling over z3 bitvectors: first-match as prefix-OR, properties asserted per live step"]
+    SMT --> SMTR{solver verdict?}
+    SMTR -->|SAT| BFAIL["sound FAIL within bound k"]
+    SMTR -->|UNSAT| BPASS["pass-within-bound - always incomplete"]
+    SMTR -->|inconclusive| BUNK["status unknown"]
+    WHICH -->|exact - generated engine| BFS["level-synchronous BFS from the initial configuration: config = state + vars + monitor persistent states, deterministic first-match firing, monitors step online"]
+    WHICH -->|reference MC - independent reimplementation of the same flow| BFS
+    BFS --> OUTCOME{outcome?}
+    OUTCOME -->|safety violation| FAIL["FAIL with counterexample - search terminates"]
+    OUTCOME -->|no successor at all| DEAD["DEADLOCK"]
+    OUTCOME -->|frontier exhausted| LIVQ{liveness properties present?}
+    LIVQ -->|yes| SCC["decompose into obligations + boolean skeleton; SCC on the product graph - position x automaton state"]
+    LIVQ -->|no| PASS["PASS"]
+    SCC --> LVQ{a reachable cycle falsifies the skeleton?}
+    LVQ -->|yes| LFAIL["liveness FAIL with lasso witness"]
+    LVQ -->|no| PASS
+```
+
 Code: `src/mc_plan.rs::McPlan`, `src/ref_mc.rs::run`,
 `src/smt_plan.rs::build_smt_spec`, `src/codegen_mc.rs::ExactStatus`
 
@@ -628,6 +681,17 @@ wins.
 sample with the exact algorithm the backends render - the same pending model,
 the same deadline confirmation - so tests and differential suites pin the same
 observable behavior (violation sample + trigger step) as generated code.
+
+```mermaid
+flowchart TD
+    F["property or assumption formula"] --> CF["compile_formula - the R1-R4 subset gate"]
+    CF --> SUB{inside the monitor subset?}
+    SUB -->|no| SKIP["Err: no monitor generated; identical skip warning in every backend"]
+    SUB -->|yes| CC["compile_check recursion - anchor range + in_temporal threaded down; temporal-operator-free parts lowered by compile_signal to per-sample signals"]
+    CC --> PLAN["MonitorPlan tree: RangeCheck / DelayedCheck / Obligation / And / Or - sticky failed flag per node, root failure = property violation"]
+    PLAN --> RENDER["every backend renders the same tree identically: production FSM, MC state layout, test harness"]
+    RENDER --> STEP["step per sample with the D-P3-3 algorithm; first failing sample wins"]
+```
 
 Code: `src/monitor.rs::compile_formula`, `src/monitor.rs::MonitorPlan`,
 `src/monitor.rs::MonNode`, `src/monitor.rs::ReferenceMonitor`

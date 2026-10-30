@@ -7,7 +7,7 @@
 //! terminal here. This module is the single source of truth for what
 //! `rfs info format spec-rfs` prints; if the parser language changes, update
 //! DESIGN.md section 6 and this table together (the sync test fails otherwise).
-//! Docs: dev:parser-overview, llm:parser
+//! Docs: dev:parser-overview, dev:parser-ebnf-model, llm:parser
 
 /// One node of an EBNF rule body.
 ///

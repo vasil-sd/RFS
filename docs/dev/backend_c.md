@@ -349,17 +349,187 @@ Code: `src/backends/c_fsm.rs::generate_production`,
 <a id="dev:backend-c-mc"></a>
 ## Model-checker executable generation (`src/backends/c_mc.rs`)
 
-TBD (task 10.2): entry shapes (exact/fuzz core + standalone SMT binary), the
-embedded plan tables, EXACT_ENGINE_C / LIV_ENGINE_C / JSON_WRITER_C /
-EXACT_RUN_C / MAIN_DISPATCH_C / SMT_ENGINE_C, and the parity notes vs the Rust
-checker.
+**Entry point.** generate_model_checker rejects no_std and
+--with-protocol-fsm with the pinned constants (`src/codegen.rs::NO_STD_
+PRODUCTION_ONLY_ERROR`, `src/codegen.rs::PROTOCOL_FSM_MC_ERROR`). Three shapes:
+
+- SmtBounded mode: a standalone libz3 binary - v1.0 header + the shared spec
+  section rendered by `src/smt_emit.rs::emit_c_spec` from
+  `src/smt_plan.rs::build_smt_spec` over `src/mc_plan.rs::McPlan` +
+  SMT_ENGINE_C with {BOUND} <- mc_smt_bound; no FSM core, no exact/fuzz
+  runtimes. Both backends build identical constraints from the shared plan
+  (parity by construction, D-P4-12);
+- exact / fuzz mode: the FSM core via `src/backends/c_fsm.rs::generate_core`
+  (Always - D-P3-6) + shared_printers + exact_codegen_c + fuzz_runtime +
+  MAIN_DISPATCH_C. Warnings = production warnings + liveness decomposition
+  diagnostics (D-P4-9).
+
+**Shared printers.** shared_printers generates C functions that reproduce
+byte-for-byte the Rust MC binary's Debug-based counterexample format (D-P4-4):
+per-enum name lookup functions ONLY for enums actually referenced by vars/
+input/output fields (an unused static would trip gcc -Wall); state_name_c
+returns ref_mc's prefixed form "State::Variant" (Rust Debug variant names),
+shared by the text trace and the JSON report; print_vars_debug renders `Vars {
+ f: v, ... }` in declaration order with no trailing newline; print_input_debug
+renders `Input::Variant { ... }`; print_outputs_debug renders `[Output::X,
+...]`; print_trace emits the pinned "counterexample trace:" format. All names
+go through `src/backends/rust.rs::rust_ident` - the same name source as the
+JSON renderers, so text and JSON carry identical data.
+
+**Plan tables (exact_codegen_c).** Codegen-time defaults embedded as runtime-
+overridable constants (D-P4-7): DEFAULT_MODE / MAX_STATES / NONDET /
+TIMEOUT_SEC / THREADS / COUNTEREXAMPLE_FORMAT + CONFIG_TOTAL_BYTES /
+MONITORS_BITS / STATE_BITS from plan.encoding; N_TOTAL_INPUTS = product of the
+concrete field domain sizes; MC_MAX_EFFECTS = max transitions per state +
+on_error. all_inputs() is the canonical enumeration (D-P4-2): variants in
+declaration order, concrete fields nested in declaration order over their
+domains (bool 0/1, int 0..=max, enum variant index via _dom_k tables),
+abstracted fields at representatives (`src/codegen_fsm.rs::RepValue` -
+EnumEmpty/EnumUnknown have no C rendering and are an error). put_bits +
+config_bytes: state index bits, var slots (bool 1/0, bit as u64, enum variant
+index), monitor node bits with remaining packed ONLY while pending = ref_mc's
+CfgKey byte-for-byte. Then render_mc_step_all_c, EXACT_ENGINE_C,
+JSON_WRITER_C + json_renderers_c, LIV_ENGINE_C + the per-property leaf
+evaluators (liv_p<i>_l<j>[b] via
+`src/backends/c_fsm.rs::render_liv_sample_evaluator_c`; Safety kind 0 /
+Eventually 1 / Until 2 with eval_b) + flatten_skeleton_c first-appearance re-
+indexing to liv_p<i>_skel + the LIV_PROPS table (a dummy entry when there are
+no liveness properties), EXACT_RUN_C.
+
+**EXACT_ENGINE_C.** mc_node_t {state, vars, prop, assume}; mc_step_successor at depth+1 - 0 success / 1 pruned by an active assumption / 2 property violation. Two-phase parallel expansion (task 10B): phase A workers over disjoint config ranges compute per-(input, effect) outcomes into per-config lists (pure with respect to the shared engine state); phase B commits them SEQUENTIALLY in canonical order - visited insert at enqueue, parent/depth/adj pushes, first violation, deadlock check - so results are a pure function of the spec: byte-identical to --threads 1 for any N. The visited set is a sorted vector of config byte strings + binary search with a parallel node-index array (needed by the liveness graph edge recording) - behavior must not depend on this container (D-P4-2). mc_fill_path walks the parent pointers; mc_replay rebuilds the Phase 3 trace format on a fresh Fsm (nondet picks the effect with the recorded transition_id else the first; -1 = on_error); mc_report_property emits the pinned property report.
+
+**LIV_ENGINE_C.** Mirror of the Rust LIV_ENGINE: per-leaf progress automata (safety 0=ok/1=bad, eventually 0=wait/1=done, until 0=ok/1=sat/2=bad; all one-way, so every state sequence on an infinite path is eventually constant = limit vector); EDGE-based labels - position 0 is the initial configuration sample, position k the sample of step k; liv_bits_at cached per edge position in a PER-PROPERTY cache (a shared cache would mislabel edges from the second property on - found and fixed in Phase 4 task 7); liv_delta mixed-radix transition; liv_good good sets. liv_analyze: product BFS from (start_q, config 0) over the explored graph; per-q stay-edge subgraph (edges whose label keeps the limit vector); nondet STRONGLY FAIR filter (D-P4-11) - each cycle state has exactly one explored successor and was fully expanded when truncated; iterative Kosaraju SCCs over ascending config ids (the SCC partition is independent of DFS start order, so this reproduces the Rust engine's results); cyclic = component size > 1 or a stay self-loop; smallest id = canonical anchor. When the limit vector falsifies the skeleton, liv_build_lasso reconstructs the witness: product path from (start_q, 0) to (q, cstar) + stay-edge cycle through cstar = lasso (prefix + one cycle iteration); liv_note writes the human-facing explanation of which leaves are falsified.
+
+**JSON_WRITER_C.** Embedded port of the toolchain's compact writer (src/json_rw.rs): mjb_* buffer functions; escape contract - `"` `\` `b` `t` `n` `f` `r` escapes, other control chars as \u00XX lowercase hex, everything else raw UTF-8; integers are unsigned long long (every value in this document is non-negative and bit<64> fields reach 2^64-1). mc_peak_rss_kb self-reports via getrusage(RUSAGE_SELF) ru_maxrss - INFORMATIONAL, machine-dependent, normalized to 0 in cross-backend byte comparisons, 0 on failure. mc_json_doc_head key order is the byte-parity contract: status, metrics{states, transitions, max_depth}, [reason, label, step on fail], statistics{unexpected_terminations, monitor_size_bits, memory_estimate_bytes, peak_rss_kb}; counterexample kinds trace / lasso{prefix, cycle, cycle_length} / deadlock-config{depth, state, vars}; ce_steps is ALWAYS the last key. json_renderers_c emits the module-specific mc_json_input / mc_json_output / mc_json_vars - names via rust_ident (the same name source as the text printers), bool true/false, bit unsigned long long decimal, enum variant name via the shared lookup.
+
+**EXACT_RUN_C.** run_exact() -> exit code; runtime flags over codegen-time defaults (D-P4-7): --max-states / --nondet / --timeout-sec / --threads / --fast / --counterexample-format / --assumes. Sample 0 via fsm_new - an assumption violated at sample 0 aborts, a property violation is reported immediately (JSON or text with the pinned summary line + dedicated sample-0 report). Level-synchronous BFS (D-P4-2): visited checked at ENQUEUE time, parent pointers, depth, adj edges recorded for every Success including to already-visited configs, complete flag. Status 0 running / 1 pass-complete / 2 state limit / 3 timeout / 4 fail; exit codes 0/1/2. Parallel level expansion (task 10B): phase A pthread workers (up to 64) over disjoint frontier chunks call the pure mc_expand_range, phase B is a SEQUENTIAL canonical commit - byte-identical to --threads 1 for any N; if pthread_create fails, that range runs inline (results stay canonical). --fast is a non-parity early abort: which configs were expanded before the abort is race-dependent (states/transitions/label may vary between runs), never a false pass. Unexpected = path terminates (D-P4-5) counted in statistics, transitions untouched; Pruned counts as a transition; deadlock = no successor at all -> FAIL reason=deadlock label=- step=depth. SEMANTICS 9.5 stop-at-first-violation/state-limit: the check happens AFTER the per-level loop, matching the Rust engine's status == 0 guard. Liveness runs only when BFS ended without a safety failure or deadlock; on a truncated graph this is a TRUNCATED analysis - a witness found inside the explored part is sound (all its edges are real transitions), otherwise the UNKNOWN status stands: never a false pass-complete. Report: JSON one compact document, or text PASS (complete) / FAIL / UNKNOWN (state limit reached[, timeout after Ns]) + pinned summary line + statistics block.
+
+**MAIN_DISPATCH_C + fuzz_runtime.** main dispatches --mode fuzz -> run_fuzz else run_exact. The fuzz runtime keeps the Phase 3 wire format: LCG state = state * 6364136223846793005 + 1442695040888963407 wrapping, top-53-bit double mapping - SAME constants as `src/codegen_test.rs::Lcg` and the Rust MC; ViolationSpec wire format label:prob:percent% defaults 1.0/100.0 (the label is truncated at the first ':' to match the Rust parser); assume selection all/none/labels filtered against ASSUME_LABELS. run_fuzz flags --bound 5 / --runs 20 / --seed 12345 / --assumes / --violate / --unexpected-prob = `src/codegen_mc.rs::McConfig` defaults. Per step: phase 1 forced violation injection (trial-step ALL_INPUTS for the target label), phase 2 optional unexpected injection, phase 3 allowed representative inputs - property-violating inputs are allowed on purpose (the model checker wants to find violations). Property violations terminate immediately with exit 1, so the property_violations counter is always 0 (the field stays for a stable summary format); summary line "model-check summary: runs={} bound={} completed={} unexpected={} assumption_stops={} property_violations={}".
+
+**SMT_ENGINE_C.** C mirror of SMT_ENGINE_RUST: DEFAULT_BOUND <- {BOUND}. Parity-critical: step variables are z3 constants with FIXED names in fixed order s_i / v_i_j / ev_i / fld_i_g, constraints asserted in fixed order, queries in fixed order safety-then-liveness declaration order; two-arg Z3_mk_and/Z3_mk_or over 2-element arrays (the C counterpart of the Rust b_and/b_or wrappers - identical constraint trees). Unrolling: enabled_t = state match and class match and guard (firing order); fire_t = enabled and no earlier transition enabled (first match, prefix-OR chain); alive_i = alive_{i-1} and any_fire; next state/vars via ITE chains. Safety query viol_p = exists i<k: alive_i and not phi_p(i) -> FAIL + pinned summary line exit 1. Liveness query never_p (phi holds at no alive step) and cycle (exists a<b: identical (state, vars)) -> FAIL reason=liveness-violation + cycle length exit 1. Unknown -> UNKNOWN (solver inconclusive within bound {k}) + status=unknown exit 2. All Unsat -> PASS WITHIN BOUND {k} (incomplete - no completeness claim) + status=pass-within-bound exit 0. smt_print_trace emits the pinned witness format. Targets the z3 5.3.1 API surface (Z3_L_UNDEF, no Z3_del_solver, Z3_model_eval bool + out-ast) - one solver build shared with the Rust backend.
+
+**Embedded-copy rule.** Because the generated binary cannot depend on this crate, c_mc.rs embeds its own copies of the plan tables, parsing helpers, and JSON writer. The formats in `src/codegen_mc.rs` / `src/mc_plan.rs` are the SOURCE OF TRUTH - when a wire format changes, update both backends' emitters in the same change and extend the tests (CODEGEN.md section 9).
+
+Code: `src/backends/c_mc.rs::generate_model_checker`,
+`src/backends/c_mc.rs::shared_printers`,
+`src/backends/c_mc.rs::print_value_c`,
+`src/backends/c_mc.rs::domain_loop`,
+`src/backends/c_mc.rs::rep_value_c`,
+`src/backends/c_mc.rs::domain_size`,
+`src/backends/c_mc.rs::rep_inputs`,
+`src/backends/c_mc.rs::rep_input_c`,
+`src/backends/c_mc.rs::exact_codegen_c`,
+`src/backends/c_mc.rs::json_renderers_c`,
+`src/backends/c_mc.rs::json_value_c`,
+`src/backends/c_mc.rs::flatten_skeleton_c`,
+`src/backends/c_mc.rs::c_string_literal`,
+`src/backends/c_mc.rs::var_value_c`,
+`src/backends/c_mc.rs::EXACT_ENGINE_C`,
+`src/backends/c_mc.rs::LIV_ENGINE_C`,
+`src/backends/c_mc.rs::JSON_WRITER_C`,
+`src/backends/c_mc.rs::EXACT_RUN_C`,
+`src/backends/c_mc.rs::MAIN_DISPATCH_C`,
+`src/backends/c_mc.rs::fuzz_runtime`,
+`src/backends/c_mc.rs::SMT_ENGINE_C`,
+`src/codegen.rs::NO_STD_PRODUCTION_ONLY_ERROR`,
+`src/codegen.rs::PROTOCOL_FSM_MC_ERROR`,
+`src/mc_plan.rs::McPlan`, `src/mc_plan.rs::LivenessDecomposition`,
+`src/smt_plan.rs::build_smt_spec`, `src/smt_emit.rs::emit_c_spec`,
+`src/codegen_fsm.rs::RepValue`, `src/codegen_test.rs::Lcg`,
+`src/codegen_mc.rs::McConfig`, `src/printer.rs::print_formula`,
+`src/backends/rust.rs::rust_ident`, `src/json_rw.rs`
 
 <a id="dev:backend-c-test"></a>
 ## Unit-test + fuzz-target generation (`src/backends/c_test.rs`)
 
-TBD (task 10.2): the five stable test classes rendered as a table-driven
-main(), literal rendering + partial-assert fallback, and the separate
-fuzz_target.c single-exit decode skeleton.
+**Entry point.** generate_unit_tests rejects no_std with the pinned `src/codegen.rs::NO_STD_PRODUCTION_ONLY_ERROR`; it renders the production core via `src/backends/c_fsm.rs::generate_core` with Always (D-P3-6 - a spec that violates its own property fails its generated tests) plus `src/codegen_test.rs::build_test_plan`(variants, module, steps), and appends the separate fuzz_target.c as an ExtraFile.
+
+**Harness.** Plain-assert harness (no framework): rfs_test_failures counter + CHECK macro - failures are counted, not aborting, so one run reports every broken check; stop_handler / cont_handler (cont_handler is emitted only when at least one test uses it - modules without transitions/monitor drives must stay warning-free under -Wall); clone_fsm deep-copies the trace buffer for trial steps; ALL_INPUTS = one representative per variant (rep_input_c: bool false, zero integers, first declared enum variant) + N_ALL_INPUTS; EXPECT_PROGRESS from plan.expect_progress.
+
+**Module-level tests.** initial_state_is_correct; positive_sequence_runs - greedy trial-clone drive up to K steps with stop_handler, CHECK(steps > 0 || !EXPECT_PROGRESS || N_ALL_INPUTS == 0); negative_unexpected_input_search (render_negative_c) in three shapes: has_on_error -> search for the on_error landing state (asserts found when definite_unexpected, else a comment), definite_unexpected without on_error -> asserts an RFS_UNEXPECTED_EVENT is found, else an empty test with a comment.
+
+**Per-transition tests.** render_transition_test_c: name t<id>_<state>_on_<event> (+ _not_taken) - the same stable names as the Rust renderer. Taken asserts on the RECORDED trace step (last->to + outputs) - robust against property-violation halts. Not-taken is STRICT: render_signature_compare_c computes same_sig (state + full outputs) and CHECK(!same_sig); it refuses to emit a toothless test when the signature's outputs are not fully evaluable (error "not-taken signature has un-evaluable output args").
+
+**Literal rendering.** var_value_literal_c (bool true/false, int decimal, enum ENUM_VARIANT constant); vars_initializer_c panics "planner must cover variable" - a contract violation; input_case_expr_c checks field names + counts; resolve_output_variant_c resolves a bare emit to the group's single variant (multi-variant groups are rejected by production codegen, so this cannot fail for a generated spec); render_outputs_assert_c renders a full assert or a per-output partial match - variant + statically known fields only, the documented planner fallback when an arg is not evaluable.
+
+**Invariant tests.** render_invariant_test_c: name invariant_<label>; reuses the shared signal machinery with prefix rfs_inv_<label> (`src/backends/c_fsm.rs::collect_liv_signal_patterns` + input/output helpers + `src/backends/c_fsm.rs::render_signal_expr_c` -> rfs_inv_check_<label>(s)); drives the positive trace (same greedy policy as positive_sequence_runs) and re-evaluates the property's per-sample atom at every recorded sample, failing with the step index; bounded checks cover samples < N only.
+
+**Monitor tests.** render_monitor_test_c: name monitor_<label>_fires_on_violation; case 1 - the initial configuration already violates, fsm_new records it at sample 0; case 2 - one planned drive step from the planned state/vars/input; asserts the sticky property-violation record holds the target label (the planner guarantees no other monitored property records first).
+
+**Random-trace test.** render_random_trace_test_c: name random_trace_seed<seed>_steps<K>; precomputed LCG index table RT_IDX[] over ALL_INPUTS - same constants as the fuzz wire format, seed + indices fixed at plan time; stop_handler; prints ONE deterministic coverage line "random_trace seed={} steps={} ok={} unexpected={} assumption={} property={} states_visited={}" - the same line as Rust.
+
+**main().** Table-driven: one function per test, one line per test (PASS <name> / FAIL <name>) keeps the wire format comparable to the Rust harness (the parity suite normalizes both); exit 0 + "all generated C tests passed" or exit 1 + failure count.
+
+**Fuzz skeleton.** emit_fuzz_target_c: a SEPARATE file - building it needs a libFuzzer-enabled clang, which the plain gcc -Wall test artifact must not require (the CLI writes it next to --out; stdout mode is refused). Same v1.0 header + wiring recipe in its header comment. LLVMFuzzerTestOneInput decodes per `src/codegen_test.rs::build_fuzz_decode`: first byte variant selector (byte % n_variants), bool = one non-zero byte, bit<W> = ceil(W/8) little-endian bytes masked to W bits (payload_byte_count), enum = constant representative. SINGLE-EXIT decode (Phase 5 task 16 close-out fix): a truncated field run or an unknown variant sets done and breaks out of the loop so the trailing fsm_free always runs - mirroring the Rust skeleton's break + scope-drop, which keeps per-input allocations from accumulating. The loop steps the FSM with fuzz_stop_handler until the input is exhausted.
+
+Code: `src/backends/c_test.rs::generate_unit_tests`,
+`src/backends/c_test.rs::rep_input_c`,
+`src/backends/c_test.rs::var_value_literal_c`,
+`src/backends/c_test.rs::vars_initializer_c`,
+`src/backends/c_test.rs::input_case_expr_c`,
+`src/backends/c_test.rs::resolve_output_variant_c`,
+`src/backends/c_test.rs::render_outputs_assert_c`,
+`src/backends/c_test.rs::render_signature_compare_c`,
+`src/backends/c_test.rs::render_transition_test_c`,
+`src/backends/c_test.rs::render_invariant_test_c`,
+`src/backends/c_test.rs::render_monitor_test_c`,
+`src/backends/c_test.rs::render_random_trace_test_c`,
+`src/backends/c_test.rs::payload_byte_count`,
+`src/backends/c_test.rs::emit_fuzz_target_c`,
+`src/backends/c_test.rs::render_negative_c`,
+`src/codegen_fsm.rs::build_variants`,
+`src/codegen_test.rs::build_test_plan`,
+`src/codegen_test.rs::build_fuzz_decode`
+
+## Parity notes vs the Rust backend
+
+One plan, two renderings: both backends consume the same codegen plans
+(`src/codegen_fsm.rs::build_variants`, `src/codegen_test.rs::build_test_plan`,
+`src/mc_plan.rs::McPlan`, `src/mc_plan.rs::LivenessDecomposition`, the shared
+SMT spec) - differences are target syntax only (placement rule: CODEGEN.md
+section 2). The Rust twin of each file is src/backends/rust*.rs (deep dive:
+docs/dev/backend_rust.md).
+
+- Type mapping: D8 widths {8, 16, 32, 64} vs Rust u8..u128 (any width up to
+  128); enum E_t typedef vs Rust enum; tagged unions vs algebraic enums.
+- Expression lowering: C uint64 intermediates + masks vs Rust u128 wrapping +
+  mask - the same modular result for every C-legal width; shifts: C runtime
+  guard vs Rust if-else - the same saturation (amount >= width -> 0). Pinned by
+  tests/wide_ops_parity_test.rs.
+- Monitors: identical MonitorPlan rendering (DFS pre-order / post-order, same
+  field sets and step semantics); label naming via the shared
+  `src/backends/rust.rs::snake` so mon_<label> names match; out-of-subset
+  warning text identical in every backend (D-P3-5).
+- Firing order: both render descending effective priority then source order -
+  it mirrors generated fsm_step AND the planner's static analysis.
+- MC engine: same embedded plan tables; C sorted-vector visited set vs Rust -
+  behavior must not depend on the container (D-P4-2); two-phase parallel
+  expansion byte-identical to --threads 1 in both; pinned summary line +
+  statistics block identical; JSON key ordering + escape contract identical
+  (embedded copies of the same writer); lasso / deadlock / trace
+  counterexample fields byte-identical.
+- SMT: same shared spec section (`src/smt_plan.rs::build_smt_spec` /
+  `src/smt_emit.rs::emit_c_spec`), fixed variable names / constraint order /
+  query order, one libz3 build (5.3.1).
+- Fuzz runtime: same LCG constants + seed defaults + phase-ordered input
+  selection; same summary line.
+- Tests: same stable test names + random-trace coverage line; C plain-assert
+  table-driven main() vs Rust #[test] module - the parity suite normalizes
+  both outputs.
+
+Pinned by: tests/backend_parity_test.rs (cross-backend differential parity),
+tests/prod_parity_test.rs (production random-input stdout parity over all
+valid examples, D-P6-6), tests/wide_ops_parity_test.rs (wide-op lowering),
+tests/liveness_mc_test.rs (lasso fields + truncated-mode soundness),
+tests/benchmark_mc_test.rs (performance).
+
+Code: `src/codegen_fsm.rs::build_variants`,
+`src/codegen_test.rs::build_test_plan`, `src/mc_plan.rs::McPlan`,
+`src/mc_plan.rs::LivenessDecomposition`,
+`src/smt_plan.rs::build_smt_spec`, `src/smt_emit.rs::emit_c_spec`,
+`src/backends/rust.rs::snake`, `tests/backend_parity_test.rs`,
+`tests/prod_parity_test.rs`, `tests/wide_ops_parity_test.rs`,
+`tests/liveness_mc_test.rs`, `tests/benchmark_mc_test.rs`
 
 ## Changing the C backend
 

@@ -51,7 +51,7 @@ fine-grained (subtasks) so each one fits a single working session's context.
 | 8.1 | Deep dive: `docs/dev/parser.md` (full content) | change: `docs/dev/parser.md` | 1.3 | DONE |
 | 8.2 | Deep dive: `docs/dev/validator.md` (full content) | change: `docs/dev/validator.md` | 1.4 | DONE |
 | 8.3 | Deep dive: `docs/dev/ir_json_rw.md` (IR + `json_rw` + `json_schema` + `spec_hash`) | change: `docs/dev/ir_json_rw.md` | 1.4 | DONE |
-| 9.1 | Deep dive: `docs/dev/codegen_core.md` (`codegen.rs`, `codegen_fsm.rs`, `codegen_mc.rs`, `codegen_test.rs`, plugin API) - backend parity 1/2a | change: `docs/dev/codegen_core.md` | 1.5 | PENDING |
+| 9.1 | Deep dive: `docs/dev/codegen_core.md` (`codegen.rs`, `codegen_fsm.rs`, `codegen_mc.rs`, `codegen_test.rs`, plugin API) - backend parity 1/2a | change: `docs/dev/codegen_core.md` | 1.5 | DONE |
 | 9.2 | Deep dive: `docs/dev/backend_rust.md` (`rust.rs`, `rust_fsm.rs`, `rust_mc.rs`, `rust_test.rs`) - backend parity 1/2b | change: `docs/dev/backend_rust.md` | 1.6 | PENDING |
 | 10.1 | Deep dive: `docs/dev/backend_c.md` - core translation + FSM codegen (`c.rs`, `c_fsm.rs`) - backend parity 2/2a | change: `docs/dev/backend_c.md` | 1.7 | PENDING |
 | 10.2 | `docs/dev/backend_c.md` - MC + test generation (`c_mc.rs`, `c_test.rs`) + parity notes vs the Rust backend - backend parity 2/2b | change: `docs/dev/backend_c.md` | 10.1 | PENDING |

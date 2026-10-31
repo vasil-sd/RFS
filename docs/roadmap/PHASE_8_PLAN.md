@@ -58,7 +58,7 @@ fine-grained (subtasks) so each one fits a single working session's context.
 | 11.1 | Deep dive: `docs/dev/mc_engine.md` - exact + liveness paths (`mc_plan.rs`, `ref_mc.rs`) | change: `docs/dev/mc_engine.md` | 1.8 | DONE |
 | 11.2 | `docs/dev/mc_engine.md` - SMT path (`smt_plan.rs`, `smt_emit.rs`) + diagnostics | change: `docs/dev/mc_engine.md` | 11.1 | DONE |
 | 11.3 | Deep dive: `docs/dev/monitor_compiler.md` (`monitor.rs`, PSL translation) | change: `docs/dev/monitor_compiler.md` | 1.8 | DONE |
-| 12.1 | Deep dive: `docs/dev/cli_commands.md` (all CLI commands + library API surface) | change: `docs/dev/cli_commands.md` | 1.9 | PENDING |
+| 12.1 | Deep dive: `docs/dev/cli_commands.md` (all CLI commands + library API surface) | change: `docs/dev/cli_commands.md` | 1.9 | DONE |
 | 12.2 | Deep dive: `docs/dev/workspace_crates.md` (`rfs-build`, `rfs-adapters`, examples) | change: `docs/dev/workspace_crates.md` | 1.10 | PENDING |
 | 12.3 | Deep dive: `docs/dev/toolchain_fuzz.md` (fuzz targets + toolchain fuzz layer) | change: `docs/dev/toolchain_fuzz.md` | 1.10 | PENDING |
 | 13.1 | Class B: full `docs/llm/TASK_MAP.md` - functionality → files/functions for EVERY CLI command, subsystem, and test suite; "read this fragment for this task" index extending `START.md` section 6 | change: `docs/llm/TASK_MAP.md` | 1.10 | PENDING |

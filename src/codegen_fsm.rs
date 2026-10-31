@@ -13,7 +13,7 @@
 //!
 //! Backends render these structures into their own syntax; identifier
 //! mangling, type mapping, and expression lowering stay in the backend.
-//! Docs: dev:codegen-core-overview, dev:algorithms-ir-codegen, llm:codegen-core
+//! Docs: dev:codegen-core-overview, dev:codegen-fsm-helpers, dev:algorithms-ir-codegen, llm:codegen-core
 
 use crate::ir::*;
 

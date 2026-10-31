@@ -28,7 +28,7 @@
 //! The planner is static and language-agnostic: it emits data (cases,
 //! expected outcomes, labels), never code. Where a case cannot be decided
 //! statically, `TestPlan.notes` records the documented fallback.
-//! Docs: dev:codegen-core-overview, dev:algorithms-ir-codegen, llm:codegen-core
+//! Docs: dev:codegen-core-overview, dev:codegen-test-plan, dev:algorithms-ir-codegen, llm:codegen-core
 
 use crate::codegen_fsm::FsmVariants;
 use crate::ir::*;

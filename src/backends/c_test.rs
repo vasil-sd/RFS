@@ -22,7 +22,7 @@
 //! skeleton decoding inputs per the planner's strategy): building it needs a
 //! libFuzzer-enabled clang, which the plain `gcc -Wall` test artifact must not
 //! require. The CLI writes it next to `--out` (stdout mode is refused).
-//! Docs: dev:backend-c-overview, llm:backend-c
+//! Docs: dev:backend-c-overview, dev:backend-c-test, llm:backend-c
 
 use crate::backends::c::{bit_c_type, c_ident};
 use crate::backends::rust::snake;

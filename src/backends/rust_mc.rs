@@ -15,7 +15,7 @@
 //!
 //! The generated binary is self-contained: it re-parses its own CLI flags and
 //! cannot depend on the RFS toolchain crate.
-//! Docs: dev:backend-rust-overview, llm:backend-rust
+//! Docs: dev:backend-rust-overview, dev:backend-rust-mc, llm:backend-rust
 
 use crate::codegen::{BackendOptions, CodegenOutput, McMode};
 use crate::ir::Module;

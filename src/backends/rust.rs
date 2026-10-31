@@ -9,7 +9,7 @@
 //! - [`rust_mc`]: bounded model-checker executable generation.
 //!
 //! Architecture notes live in `backends/RUST.md`.
-//! Docs: dev:backend-rust-overview, llm:backend-rust
+//! Docs: dev:backend-rust-overview, dev:backend-rust-plugin, llm:backend-rust
 
 use crate::codegen::{Backend, BackendCommandInfo};
 

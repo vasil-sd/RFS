@@ -34,7 +34,7 @@
 //! dependency-free and the aggregate generated-code crate keeps compiling
 //! without external deps. The CLI writes it next to `--out` (stdout mode is
 //! refused - see `main.rs`).
-//! Docs: dev:backend-rust-overview, llm:backend-rust
+//! Docs: dev:backend-rust-overview, dev:backend-rust-test, llm:backend-rust
 
 use crate::backends::rust::{representative_input_expr, rust_ident, snake};
 use crate::codegen::{BackendOptions, CodegenOutput, ExtraFile};

@@ -333,3 +333,152 @@ Code: `src/ref_mc.rs::verify_counterexample`, `src/ref_mc.rs::check_initial`,
 `tests/ref_mc_diff_test.rs`, `tests/ref_mc_sweep_test.rs`,
 `tests/ref_mc_diag_test.rs`, `tests/backend_parity_test.rs`
 
+
+<a id="dev:mc-engine-smt"></a>
+## SMT bounded mode (`src/smt_plan.rs` + `src/smt_emit.rs`)
+
+**Shared spec (D-P4-12).** `src/smt_plan.rs::build_smt_spec`(module, plan) converts a
+validated module + its exact-mode `src/mc_plan.rs::McPlan` into the backend-neutral
+`src/smt_plan.rs::SmtSpec` for k-step unrolling over z3 bitvectors. Both backends
+render this SAME structure with the SAME traversal order and the SAME z3 operations,
+so constraint construction is identical in the Rust and C generated binaries (parity
+by construction). The spec carries:
+
+- states in declaration order + initial_state index + state_bits = max(1, ceil_log2(n))
+  (`src/smt_plan.rs::ceil_log2_pub`);
+- `src/smt_plan.rs::SmtVar`s - bit<N>/bool only (width 1 for bool; is_bool is witness
+  display only: true/false vs 0/1), literal inits only (v1);
+- `src/smt_plan.rs::SmtClass`es from the plan's abstraction table - one canonical input
+  class per event variant, CONCRETE fields only (name, bit width, is_bool); abstracted
+  fields are substituted as their representative literal during expression conversion;
+- `src/smt_plan.rs::SmtTrans`itions in FIRING order (priority desc, declaration order
+  for ties via stable sort - the same order the exact engine uses for first-match
+  selection): state/next_state/class indices, guard Option<Se>, assignments (var index,
+  expr) - vars absent are unchanged;
+- `src/smt_plan.rs::SmtProp`s: top-level always / eventually only
+  (`src/smt_plan.rs::SmtPropKind`), formula in the boolean layer `src/smt_plan.rs::Sf`
+  (Se/Not/And/Or/Implies) over configuration expressions.
+
+**Expression model.** `src/smt_plan.rs::Se` mirrors the IR expression language with
+references already resolved to indices: Lit{value, is_bool} (a bool literal is a z3
+Bool in boolean contexts; an integer literal is lifted by its parent context), State,
+Var(idx), Field{idx, width, is_bool} - class-relative, both captured at conversion
+time so they cannot be recovered from the spec alone -, Not/BitNot/Neg, and Bin over
+the 16-operator `src/smt_plan.rs::Sb` subset of the IR BinOp. `src/smt_plan.rs::convert_expr`
+resolves names in EXACTLY the validator's order (state -> payload bindings -> vars ->
+state variants; `src/smt_plan.rs::ExprCtx`); an abstracted field becomes its
+representative literal (`src/codegen_fsm.rs::RepValue`). `src/smt_plan.rs::convert_formula`
+walks property formulas with NO payload context (an empty variant view).
+
+**Typing.** `src/smt_plan.rs::SeType` (Bool / Bit(w) / IntLit) +
+`src/smt_plan.rs::se_type`: bottom-up typing computed with EXACTLY the validator's
+rules - integer literals default to Bit(8) and are lifted by their parent per the
+binary-op rules (`src/smt_plan.rs::bit_op_type`: (Bit(a), Bit(b)) requires a == b,
+IntLit lifts to the sibling's width, (IntLit, IntLit) -> Bit(8)). The spec is already
+validated, so this never fails; both emitters use it to pick z3 constructors (Bool vs
+bitvector) and to mask literals to the right width.
+
+**v1 scope diagnostics.** `src/smt_plan.rs::build_smt_spec` rejects unsupported
+constructs with a shared error string - IDENTICAL in both backends (codegen behavior
+is parity-safe), surfaced as a codegen error (exit 1): assumptions present; on_error
+blocks; enum-typed variables; non-literal initial values; an init that does not fit
+its width; concrete payload fields wider than 64 bits (the plan's saturated u64::MAX
+domain); non-power-of-two domains (not a bit<N> type); enum-typed payload fields;
+wildcard event patterns over multi-variant groups (a bare group pattern names exactly
+one variant only for single-variant groups); unknown state/next-state/var references;
+properties that are not top-level always/eventually and property formulas beyond
+expr/not/and/or/implies (`src/smt_plan.rs::formula_tag` names the rejected shape);
+enum paths in expressions.
+
+**Shared emitter.** `src/smt_emit.rs::emit_rust_spec` / `src/smt_emit.rs::emit_c_spec`
+render the spec section: constants (STATE_BITS, INITIAL_STATE, STATES,
+VAR_NAMES/WIDTHS/INITS/IS_BOOL, CLASS_NAMES, N_CLASSES, CLS_BITS,
+FIELD_NAMES/WIDTHS/IS_BOOL, FIELD_POS, TRANS = (state, next_state, class) in firing
+order, PROP_NAMES, PROP_KINDS 0=always/1=eventually), one expression-builder function
+per transition guard / assignment / property formula, and function-pointer tables +
+an ASGN_MAP so the spec-independent engine (in the backend files) can loop over them.
+
+**Leaf-variable convention (parity-critical).** Step variables are z3 CONSTANTS with
+fixed names - s_<i> state, v_<i>_<j> vars, ev_<i> input class, fld_<i>_<g> fields; the
+spec's builders reference the s/v/fld leaves. The C builders receive them as
+parameters; the Rust builders recreate them by name - z3 hash-consing returns the
+SAME node, so both backends build structurally identical formulas.
+`src/smt_emit.rs::global_field_index` fixes the global concrete-field ordering (all
+classes in order, fields within a class in order) for the fld arrays.
+
+**Rendering.** Both emitters lower an Se/Sf tree to sequential bindings e0..eN
+(`src/smt_emit.rs::RustRender` / `src/smt_emit.rs::CRender`; `src/smt_emit.rs::render_se_rust`
+/ `src/smt_emit.rs::render_se_c` mirrors; `src/smt_emit.rs::produces_bool` dispatches
+each binary op to the bool or bit path):
+
+- arithmetic/bitwise at the se_type width (bvadd/bvsub/bvmul/bvand/bvor/bvxor;
+  `src/smt_emit.rs::render_bit_bin_rust` / `src/smt_emit.rs::render_bit_bin_c`);
+- comparisons with EXACT-MC FULL-VALUE semantics (`src/smt_emit.rs::cmp_widths_full`):
+  integer literals lift to the sibling's width; if a literal does not fit, BOTH sides
+  widen to hold it and the non-literal side is zero-extended (`src/smt_emit.rs::widen_rust`
+  / `src/smt_emit.rs::widen_c`, concat with zeros) - counter < 256 on a bit<8> is always
+  true; arithmetic ops need no such widening (truncating the literal is equivalent
+  there - ring homomorphism); unsigned bvult/bvule/bvugt/bvuge, plus bool-ordering
+  encodings for comparisons on bools (RFS allows them: Lt = not-a and b, Le =
+  not(a and not-b), Gt = not-b and a, Ge = not(b and not-a);
+  `src/smt_emit.rs::render_bool_bin_rust` / `src/smt_emit.rs::render_bool_bin_c` - the
+  C side uses two-arg Z3_mk_and/Z3_mk_or over 2-element arrays, the counterpart of the
+  Rust b_and/b_or wrappers);
+- shifts with exact-MC semantics amount >= width -> 0 (`src/smt_emit.rs::shift_amt_width`
+  + `src/smt_emit.rs::render_shift_rust` / `src/smt_emit.rs::render_shift_c`):
+  zero-extend the amount to max(amount width, wl) - integer literals lift to at least
+  wl and to enough bits to hold the value (no truncation, so an oversized amount stays
+  detectable), guard bvult(amt, wl), truncate the amount to wl bits (lossless under
+  the guard), ite(shift, 0);
+- Bool results wrapped as BV(1) only where the context requires it - assignment top
+  level, where the target var is a BV (`src/smt_emit.rs::finish_bool_rust` /
+  `src/smt_emit.rs::finish_bool_c`, an ite structurally identical in both backends).
+
+**Warning-free generated code.** `src/smt_emit.rs::se_uses_step` /
+`src/smt_emit.rs::sf_uses_step` decide whether a builder's step-index parameter is used
+(_i otherwise); asgn_dummy fills unused ASGN_MAP slots (never called - the engine
+checks ASGN_MAP first) and is emitted only when some slot needs it. C specifics:
+includes come first; zero-size arrays are invalid in C, so empty VAR_WIDTHS/
+FIELD_NAMES/FIELD_WIDTHS/FIELD_IS_BOOL carry a dummy slot the engine never touches (it
+loops over N_VARS/N_FIELDS).
+
+**Engine + verdicts (link, not restate).** The spec-independent k-step unrolling
+engine lives in the backend files - SMT_ENGINE_RUST (docs/dev/backend_rust.md) and
+SMT_ENGINE_C (docs/dev/backend_c.md): first-match firing as a prefix-OR chain over
+firing order, alive tracking, safety query (exists i < k: alive_i and not phi_p(i))
+and liveness via k-liveness (never + cycle query). Verdicts: SAT -> sound FAIL within
+bound k; all UNSAT -> PASS WITHIN BOUND k (always labeled incomplete - no completeness
+claim); inconclusive -> UNKNOWN; exit codes 0/1/2. One libz3 build (5.3.1,
+TOOLCHAIN.md section 5) is shared by both backends; the mode is feature-gated (smt
+cargo feature), codegen flag --smt-bound N (default 10) overridable at runtime.
+Algorithm views L1-L3: dev:algorithms-mc-engine; external references:
+[model checking, SMT/SAT solving](REFERENCES.md#model-checking-smt-sat-solving).
+
+**Parity pins.** The emitter's own test module pins the width/shift semantics
+(cmp_widths_full_fits_and_widens, shift_amt_width_rules,
+oversized_literal_comparison_widens, shift_rendering_paths) and - the D-P4-12 core
+guarantee - that EVERY builder function renders to the SAME sequence of z3 operations
+in Rust and C: rust_and_c_render_identical_op_sequences normalizes both backends'
+bodies to op tokens (backend syntax stripped; leaves map to the same s/v_j/fld_g
+tokens) and asserts equality.
+
+Code: `src/smt_plan.rs::Se`, `src/smt_plan.rs::Sb`, `src/smt_plan.rs::Sf`,
+`src/smt_plan.rs::SmtVar`, `src/smt_plan.rs::SmtClass`, `src/smt_plan.rs::SmtTrans`,
+`src/smt_plan.rs::SmtPropKind`, `src/smt_plan.rs::SmtProp`, `src/smt_plan.rs::SmtSpec`,
+`src/smt_plan.rs::ExprCtx`, `src/smt_plan.rs::ceil_log2_pub`,
+`src/smt_plan.rs::build_smt_spec`, `src/smt_plan.rs::formula_tag`,
+`src/smt_plan.rs::convert_expr`, `src/smt_plan.rs::convert_formula`,
+`src/smt_plan.rs::SeType`, `src/smt_plan.rs::se_type`, `src/smt_plan.rs::bit_op_type`,
+`src/smt_emit.rs::global_field_index`, `src/smt_emit.rs::se_uses_step`,
+`src/smt_emit.rs::sf_uses_step`, `src/smt_emit.rs::RustRender`,
+`src/smt_emit.rs::CRender`, `src/smt_emit.rs::render_se_rust`,
+`src/smt_emit.rs::render_se_c`, `src/smt_emit.rs::produces_bool`,
+`src/smt_emit.rs::finish_bool_rust`, `src/smt_emit.rs::finish_bool_c`,
+`src/smt_emit.rs::cmp_widths_full`, `src/smt_emit.rs::widen_rust`,
+`src/smt_emit.rs::widen_c`, `src/smt_emit.rs::render_bool_bin_rust`,
+`src/smt_emit.rs::render_bool_bin_c`, `src/smt_emit.rs::render_bit_bin_rust`,
+`src/smt_emit.rs::render_bit_bin_c`, `src/smt_emit.rs::shift_amt_width`,
+`src/smt_emit.rs::render_shift_rust`, `src/smt_emit.rs::render_shift_c`,
+`src/smt_emit.rs::emit_rust_spec`, `src/smt_emit.rs::emit_c_spec`,
+`src/mc_plan.rs::McPlan`, `src/codegen_fsm.rs::RepValue`
+

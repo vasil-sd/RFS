@@ -476,9 +476,199 @@ one-line-role level pointing to this fragment, so no card change is needed here.
 - No DESIGN.md edits; no new example `.rfs` files.
 - No line-number-based anchors anywhere; stable item-name anchors only.
 
+## Subtask 11.3 - Monitor compiler deep dive (added at execution, see Task corrections)
+
+### Goal
+
+Fill in `docs/dev/monitor_compiler.md` (Class A deep dive) for the shared
+PSL-to-monitor compiler (`src/monitor.rs`): the signal layer + anchor ranges,
+the node tree, the compile_formula/compile_check dispatch with the R1-R4 gate
+and its diagnostics, and the tests-only reference interpreter - plus the
+matching Class B card `docs/llm/monitor_compiler.md` (per the confirmed scope
+decision: each deep-dive task fills both files; this card's TBD is assigned to
+11.3).
+
+### Context
+
+- **Doc state**: `docs/dev/monitor_compiler.md` is a 13-line skeleton - one
+  Overview section (`dev:monitor-compiler-overview`) whose TBD (task 11.3)
+  describes the whole module at a high level; no other sections exist yet.
+  `docs/llm/monitor_compiler.md` is a 10-line card skeleton with budget 120
+  and a single TBD (task 11.3).
+- **Fragment structure** (house pattern: one fragment per major `##` section):
+  keep `dev:monitor-compiler-overview` for the Overview; add four new
+  sub-fragments:
+  - `dev:monitor-compiler-signals` (SignalExpr/SignalAtom, compile_signal /
+    formula_to_signal, AnchorRange + the bare-signal-invariant rule),
+  - `dev:monitor-compiler-nodes` (MonNode five kinds + MonitorPlan),
+  - `dev:monitor-compiler-compile` (compile_formula/compile_check dispatch,
+    R1-R4 enforcement points, rejection diagnostics),
+  - `dev:monitor-compiler-reference` (MonState/initial_state/
+    ReferenceMonitor/step_node/min_trigger_at + test pins + consumers).
+- **ORPHAN RULE**: the new IDs go on the owner file's `//! Docs:` line in the
+  same action. Exact target line:
+  - `src/monitor.rs` line 26 becomes:
+    `//! Docs: dev:monitor-compiler-overview, dev:monitor-compiler-signals, dev:monitor-compiler-nodes, dev:monitor-compiler-compile, dev:monitor-compiler-reference, dev:algorithms-monitor-compile, llm:monitor-compiler, dev:deps-fn-monitor`
+    (the four new IDs inserted after the overview ID; single line - the gate
+    parses each //! line as a complete list).
+- **No duplication with existing fragments**: ALGORITHMS.md
+  `dev:algorithms-monitor-compile` owns the L1/L2/L3 algorithm views (link
+  only); DEPENDENCIES.md `dev:deps-fn-monitor` has the function-level call
+  graph; docs/dev/backend_rust.md owns render_monitor/render_node (the Rust
+  rendering of the plan) and docs/dev/backend_c.md the C mirror - this doc
+  describes the SHARED compiler + reference interpreter and links to those for
+  the renderings; dev:mc-engine-plan owns the MC configuration encoding that
+  walks the same tree (MonitorStateLayout/walk_node); dev:mc-engine-exact owns
+  ref_mc's OWN independent monitor compiler (ground truth - different
+  implementation of the same documented semantics); DESIGN.md section 21
+  D-P3-1..6 own the decision record; SEMANTICS.md section 5.5 owns the
+  normative monitor semantics (cite, never restate).
+- **Verified source material (measured 2026-10-31; line numbers for navigation
+  only - doc references use item names)**:
+  - `src/monitor.rs` (1034 lines; mod tests ~605-1034 with 21 tests):
+    SignalExpr (34: Atom/Not/And/Or per-sample signals; no Eq/Hash derive -
+    embedded IR types only implement PartialEq), SignalAtom (45: VarExpr /
+    InputIs / OutputHas / True - the constant true trigger of bare
+    obligations), AnchorRange (59: from + to Option, to=None unbounded;
+    all() 66 = [0,inf) top-level, contains 71, shifted 78 private = +1 the
+    effect of next), MonNode (87: DelayedCheck {antecedent, consequent,
+    range} - antecedent(i) -> consequent(i+1) with one-sample delay register,
+    starts false so first checkable sample vacuous; RangeCheck {expr, range}
+    stateless per-sample; Obligation {bound, trigger, body, range} - D-P3-3
+    pending model, re-trigger while pending ignored (earliest-deadline
+    argument); And fails when ANY child failed; Or fails when ALL children
+    failed), MonitorPlan (129: label/is_assumption/root), formula_to_signal
+    (139: public wrapper over compile_signal - used by the Phase 4 liveness
+    engine + test planner), compile_formula (147: entry, Err = outside subset
+    -> no monitor + identical skip warning in every backend), true_signal
+    (161), compile_check (168: dispatch - BoundedEventually body must be
+    signal (R2) + one-shot [0,0] anchor when NOT in_temporal else threaded
+    range; Implies+be[N] consequent = trigger extraction (R2); Implies+next
+    consequent = DelayedCheck over shifted range; signal-level implies =
+    RangeCheck of !l || r; Always recurses in_temporal=true; BoundedAlways R3
+    reject under temporal + N >= 1 (D-P3-2) + window [0, N-1]; Next R4 body
+    must be signal + range shifted +1; And/Or node trees; Not R1 inner must
+    be signal; Eventually/Until always Err (MC-only D-P4-8); bare signal =
+    RangeCheck over full range), compile_signal (310: Option semantics - None
+    when temporal present, callers decide error vs shape; Implies desugars to
+    Or(Not(l), r)), MonState (346: mirrors backend-generated state node for
+    node; failed() 374 / trigger_step() 383), initial_state (394: delay
+    register false, obligation not pending), ReferenceMonitor (422: new 428,
+    step 438 returns NEWLY-confirmed failure = root failed && !before),
+    step_node (454: CURRENT-SAMPLE "now failing" status - per-sample check
+    fails while expr false, obligation terminal once deadline confirmed,
+    And/Or combine children's current statuses; per-sample not sticky is
+    essential for Or/And composition), min_trigger_at (579: earliest trigger
+    step among currently failing children, -1 when none).
+  - Tests (~605): plan structure pins (bare signal = full-range invariant;
+    mixed conjunction in subset; always/always[N] ranges; next shifts +1;
+    obligation anchors one-shot vs recurring under always/always[N]; R1-R4
+    rejections; liveness-operator rejection) + pinned D-P3-3 semantics (fin_
+    ack violation confirmed at exact deadline i+N-1 with trigger step;
+    same-step satisfaction; deadline-sample satisfaction; one sample past =
+    violation; periodic obligations under always; bounded_always window edge;
+    next vacuous at sample 0; be[0] same-step rule; disjunction of
+    obligations fails when all fail; per-sample Or recovery - children failing
+    at different samples never violate; implication-next delay register;
+    always[3](fin -> next ack) window-edge check; and-under-or recovery;
+    conjunction any-child failure).
+  - Consumers / pins (verified): src/backends/rust_fsm.rs compile_monitors
+    (400: compile_formula per property / selected assumption, out-of-subset
+    skip warning text at 408/425) + render_monitor (497) / render_node (533)
+    [docs/dev/backend_rust.md]; src/backends/c_fsm.rs C mirror [docs/dev/
+    backend_c.md]; src/mc_plan.rs MonitorStateLayout/walk_node preorder node
+    ids matching n{id} naming [dev:mc-engine-plan]; ref_mc.rs own Mon/MonSt
+    compiler [dev:mc-engine-exact]; tests/monitor_integration_test.rs,
+    tests/backend_parity_test.rs, tests/ref_mc_diff_test.rs, tests/
+    monitor_ref_test.rs, tests/psl_translation_test.rs.
+- **Entry format / gate rules / bookkeeping**: same as subtask 11.1 in this
+  file (house style with per-section Code: lines; doc-to-code reference rules
+  - verify every reference against a declaration line; run dev_docs_test
+  after each action, docs_md_test at task end; plan row -> DONE, boxes
+  checked, one TASKS.md entry, commit per action).
+- **Verified doc-to-code references for this subtask** (declaration lines
+  checked 2026-10-31): all items listed above plus `src/backends/rust_fsm.rs::
+  compile_monitors`. Non-reference backticks (safe): SEMANTICS.md, DESIGN.md,
+  shell commands, bare identifiers, test function names without a file-path
+  prefix, generated-code item names (n{id}, render_monitor/render_node as
+  plain text in the consumers paragraph).
+
+### Planned actions
+
+1. **Class A deep dive - `docs/dev/monitor_compiler.md`**: replace the
+   Overview TBD in place (anchor stays byte-stable) and add four new anchored
+   sections:
+   - **Signal layer + anchor ranges** (`dev:monitor-compiler-signals`):
+     SignalExpr/SignalAtom, compile_signal Option semantics + formula_to_
+     signal public wrapper, AnchorRange all/contains/shifted + the bare-
+     signal-invariant rule (sample 0 has no I/O - one-shot reading would
+     prune every trace).
+   - **Node tree** (`dev:monitor-compiler-nodes`): the five MonNode kinds
+     with exact D-P3-3 semantics (delay register vacuity, pending model +
+     re-trigger argument, And/Or failure rules) + MonitorPlan.
+   - **Compilation + R1-R4 gate** (`dev:monitor-compiler-compile`):
+     compile_formula entry; compile_check per-arm dispatch (one-shot vs
+     recurring obligation anchors, implication trigger extraction, next =
+     shifted range, always[N] window, R1-R4 rejection points, liveness
+     operators MC-only); the shared rejection diagnostics.
+   - **Reference interpreter + test pins** (`dev:monitor-compiler-reference`):
+     MonState mirroring backend state, ReferenceMonitor::step newly-confirmed
+     semantics, step_node per-sample vs sticky (essential for Or/And),
+     min_trigger_at; the in-module plan-structure + D-P3-3 semantic pins;
+     consumers (backend renderings, MC config encoding, test planner, ref_mc
+     ground truth).
+   Run `cargo test --test dev_docs_test` after writing.
+2. **Class B card - `docs/llm/monitor_compiler.md`**: fill the TBD in place
+   (budget 120): responsibility, key-items table (compile_formula /
+   compile_check / compile_signal+formula_to_signal / AnchorRange / MonNode /
+   MonitorPlan / ReferenceMonitor+step_node), invariants (D-P3-3 deadline
+   semantics, R1-R4 gate, sticky-failed/first-sample-wins/terminal obligation,
+   parity verification set), change impact + deep-dive pointers.
+3. **Fragment owners**: add the four new IDs to the `//! Docs:` line of
+   `src/monitor.rs` (line 26) in the same action (ORPHAN RULE). Doc comments
+   only.
+4. **Verification + bookkeeping**: dev_docs_test 9/9, docs_md_test 5/5, full
+   verification (build/test/clippy/fmt + workspace; counts unchanged: 535/535
+   root, 559/559 workspace); plan row 11.3 -> DONE; check off this subtask's
+   boxes; TASKS.md entry; commit per action.
+
+### Exit criteria (subtask 11.3)
+
+- [x] `docs/dev/monitor_compiler.md`: Overview TBD replaced in place + four
+      new anchored sections (signals / nodes / compile / reference) with full
+      content; no TBD remains; every technical statement carries a resolving
+      doc-to-code reference (gate check 1); the existing anchor is byte-
+      stable.
+- [x] `docs/llm/monitor_compiler.md`: card filled in place within the 120-line
+      budget, links to Class A without restating it.
+- [x] Fragment owners: the four new IDs on the `//! Docs:` line of
+      src/monitor.rs in the same action as the sections; no orphaned fragment
+      (gate check 4). Source edits limited to that one doc-comment line; all
+      cargo counts unchanged from the task-11.2 tree (535/535 root, 559/559
+      workspace).
+- [x] Full verification green: dev_docs_test 9/9, docs_md_test 5/5, cargo
+      build/test/clippy/fmt (+ --workspace).
+- [x] Plan row 11.3 marked DONE; this subtask's boxes checked; TASKS.md entry
+      appended.
+
+### Non-goals (subtask 11.3)
+
+- No backend behavior changes of any kind; no new dependencies.
+- No backend rendering internals (render_monitor/render_node, C mirror) -
+  that is docs/dev/backend_rust.md + docs/dev/backend_c.md (link only).
+- No restatement of ALGORITHMS.md dev:algorithms-monitor-compile L1-L3 views,
+  DEPENDENCIES call graph, DESIGN.md D-P3-1..6, or SEMANTICS.md section 5.5
+  (link/cite only); no edits to other docs (START.md/KB.md/BUILD.md pointer
+  sync = task 14).
+- No MC engine content (dev:mc-engine-plan owns the config encoding that walks
+  the tree; dev:mc-engine-exact owns ref_mc's own compiler) - linked only.
+- No CLI doc (task 12.1); no DESIGN.md edits; no new example `.rfs` files.
+- No line-number-based anchors anywhere; stable item-name anchors only.
+
 ## Task corrections
 
 | Correction | Description + rationale |
 |------------|-------------------------|
 | Task file created at execution (2026-10-31) for plan group 11 | User model: one task file per plan group ("execute 11.1" = subtask of task file 11). Written for subtask 11.1 only; subtask 11.2 (SMT path + diagnostics) will be appended at execution, following the PHASE_8_TASK_9.md pattern (9.2 appended after 9.1 completed). |
 | Subtask 11.2 appended at execution (2026-10-31) | Per the correction above: subtask sections are written when executed, following the PHASE_8_TASK_9.md pattern (9.2 appended after 9.1 completed). Written with verified source material measured 2026-10-31 (item maps of both SMT files: smt_plan.rs 691 lines no unit tests; smt_emit.rs 1849 lines, mod tests at 1286 with 5 tests), fragment plan with exact owner-line targets (smt_plan.rs line 13, smt_emit.rs line 19), no-duplication rule vs ALGORITHMS.md dev:algorithms-mc-engine + the backend SMT engine sections. |
+| Subtask 11.3 appended at execution (2026-10-31) | Per the correction above: subtask sections are written when executed, following the PHASE_8_TASK_9.md pattern. Written with verified source material measured 2026-10-31 (item map of src/monitor.rs: 1034 lines, mod tests ~605 with 21 tests), fragment plan with exact owner-line target (src/monitor.rs line 26 - four new IDs inserted after the overview ID on the single line), no-duplication rule vs ALGORITHMS.md dev:algorithms-monitor-compile + DEPENDENCIES dev:deps-fn-monitor + the backend rendering sections. |

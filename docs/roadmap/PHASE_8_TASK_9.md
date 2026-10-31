@@ -353,8 +353,436 @@ Action 2+3: card + bookkeeping).
 - No DESIGN.md edits; no new example `.rfs` files.
 - No line-number-based anchors anywhere; stable item-name anchors only.
 
+## Subtask 9.2 - Rust backend deep dive (added at execution, see Task corrections)
+
+### Goal
+
+Fill in `docs/dev/backend_rust.md` (Class A deep dive): full content on the
+Rust target-language backend - plugin registration + shared Rust-specific
+helpers (`src/backends/rust.rs`), production FSM source generation
+(`src/backends/rust_fsm.rs`), unit-test / fuzz-skeleton / aggregate-crate
+generation (`src/backends/rust_test.rs`), and model-checker executable
+generation (`src/backends/rust_mc.rs`) - the parity principle: one plan,
+rendered identically in Rust and C. Also fill in the matching Class B card
+`docs/llm/backend_rust.md` (within its 150-line budget) - per the confirmed
+scope decision (plan Corrections entry 3).
+
+### Context
+
+- **Skeleton state (from task 1.6)**: `docs/dev/backend_rust.md` exists with
+  one anchored fragment `dev:backend-rust-overview` (owner: ALL FIVE backend
+  files - each file's `//! Docs:` line already names it) followed by a TBD
+  line; `docs/llm/backend_rust.md` exists with budget header
+  `<!-- llm-budget: 150 -->`, fragment `llm:backend-rust` (same five owners),
+  and a TBD line. Existing anchor + heading stay byte-stable.
+- **Fragment structure**: keep `dev:backend-rust-overview` for Overview;
+  add four new sub-fragments, one per source file (`src/backends/mod.rs` is
+  module declarations only - covered in the Overview):
+  - `dev:backend-rust-plugin` - Plugin entry + shared Rust helpers (`src/backends/rust.rs`)
+  - `dev:backend-rust-fsm` - Production FSM generation (`src/backends/rust_fsm.rs`)
+  - `dev:backend-rust-test` - Unit-test, fuzz and aggregate-crate generation (`src/backends/rust_test.rs`)
+  - `dev:backend-rust-mc` - Model-checker executable generation (`src/backends/rust_mc.rs`)
+  ORPHAN RULE: the new IDs go on the owner file's `//! Docs:` line in the same
+  action. Exact target lines:
+  - `src/backends/rust.rs` line 12 becomes:
+    `//! Docs: dev:backend-rust-overview, dev:backend-rust-plugin, llm:backend-rust`
+  - `src/backends/rust_fsm.rs` line 9 becomes:
+    `//! Docs: dev:backend-rust-overview, dev:backend-rust-fsm, llm:backend-rust`
+  - `src/backends/rust_test.rs` line 37 becomes:
+    `//! Docs: dev:backend-rust-overview, dev:backend-rust-test, llm:backend-rust`
+  - `src/backends/rust_mc.rs` line 18 becomes:
+    `//! Docs: dev:backend-rust-overview, dev:backend-rust-mc, llm:backend-rust`
+  - `src/backends/mod.rs` line 7 UNCHANGED (owns overview + the card).
+- **No duplication with existing fragments**: CODEGEN.md (repo root) is the
+  EXTENSION guide - plugin API walkthrough, CLI surface, shared-module
+  summaries incl. backend rendering details, adding-a-backend checklist,
+  testing conventions, invariants; `src/backends/RUST.md` is the
+  architecture/design doc of the generated artifacts (file layout, artifact
+  design + anatomy, expression-lowering summary, test classes, MC generation
+  shapes, key design decisions, known limitations); DEPENDENCIES.md
+  `dev:deps-fn-codegen-rust` has the function-level call graph of core + Rust
+  backend; CODE_MAP.md has the file entries; docs/dev/codegen_core.md (task
+  9.1) owns the language-agnostic core - plugin API, planning data, MC
+  concepts. The deep dive goes DEEPER: per-function detail of the emitters
+  (the Gen pipeline order, monitor node rendering with exact field sets and
+  step semantics, pattern-scope binding mangling + reserved sets, simultaneous
+  assignment lowering, gen_expr width semantics), the exact generated-code
+  shapes that are pinned formats (artifact header, test names + random-trace
+  line, fuzz decode wire format, config_bytes layout, summary line, JSON key
+  order + escape contract, SMT variable naming + constraint/query order,
+  witness trace format), invariants (parity, no_std body byte-identity,
+  deterministic bytes, embedded-copy sync, dependency-free artifacts), and
+  change guidance. Cross-link; never restate.
+- **Verified source material (measured 2026-10-31; line numbers for
+  navigation only - doc references use item names)**:
+  - `src/backends/mod.rs` (16 lines): module declarations c, c_fsm, c_mc,
+    c_test, rust, rust_fsm, rust_mc, rust_test; no code.
+  - `src/backends/rust.rs` (215 lines; production 1-181, `mod tests`
+    183-215 with 3 tests): `RUST_KEYWORDS` (17: the 36 keywords requiring
+    r# mangling), `rust_ident` (25), `rust_binding_ident` (41: keyword
+    mangling + rename of bindings colliding with identifiers the generated
+    body uses unqualified to `<name>__rfsb`, further suffixed until unique;
+    Phase 6 task 6 finding - a field named `out` would shadow mc_step_all's
+    effect vector; C has the same bug class via its effect counter `n`; the
+    caller passes its reserved set: {input, handler} in the Fsm impl,
+    {out, state, vars} in mc_step_all), `snake` (60), `bit_rust_type` (84:
+    0..=8 u8 / 9..=16 u16 / 17..=32 u32 / 33..=64 u64 / else u128),
+    `rust_type` (95), `mask_expr` (105: u128::MAX for w >= 128 else
+    ((1u128 << w) - 1u128)), `representative_input_expr` (115: from
+    codegen_fsm::representative_values; EnumEmpty/EnumUnknown to
+    Name::__Empty__/::__Unknown__), `PRODUCTION_INFO` (148) /
+    `TEST_INFO` (157: --out REQUIRED, fuzz skeleton next to it, stdout
+    refused) / `MC_INFO` (165: codegen-time + runtime flags incl. --fast
+    non-parity), `RUST_BACKEND` (173). Tests: identifier_mangling (187),
+    type_mapping (195), backend_registration_shape (209).
+  - `src/backends/rust_fsm.rs` (1896 lines, no unit tests):
+    `generate_production` (26: --with-property-monitors to Gated/Off),
+    `generate_core` (43: re-validate via validator::validate_module, ALL
+    errors returned; shared by all three commands), `Gen` (62: incl.
+    uses_vec_macro - whether any transition or on_error emits an output,
+    gating the no_std vec! macro import), `Gen::new` (82: build_variants +
+    compile_monitors, then fixed emission order prelude -> enums -> Vars ->
+    Input/Output -> renderers -> trace/handlers -> monitors -> Fsm impl ->
+    [ProtocolFsm] -> [tests]), `emit_protocol_fsm_impl` (133: opt-in
+    ProtocolFsm forwarding to the inherent methods explicitly so it cannot
+    recurse; the one documented opt-in linking an artifact to rfs-adapters),
+    `has_prop`/`prop_cfg` (156/162: Gated to #[cfg(debug_assertions)]),
+    `emit_prelude` (176: line 1 = v1.0 unified artifact header D-P6-3,
+    identical text in both backends; #![allow(...)] list; no_std header
+    variant - body BYTE-IDENTICAL to std), `emit_enums` (210), `emit_vars`
+    (221), `emit_input_output` (238: flattened Input/Output enums from
+    FsmVariants unique_names), `emit_renderers` (274: ref_mc-identical value
+    forms; rfs_render_state fixed name / rfs_render_e<i> / rfs_render_input /
+    rfs_render_output / rfs_render_vars; declaration order = deterministic
+    bytes), `emit_trace_and_handlers` (357: TraceStep/Trace/Sample - sample 0
+    = initial config, no input/outputs; AssumptionPolicy Continue/Stop/Panic;
+    StepError incl. cfg-gated PropertyViolation{label, step}),
+    `compile_monitors` (400: monitor::compile_formula per property / selected
+    assumption; out-of-subset skip warning identical in every backend,
+    D-P3-5), `emit_monitors` (432: Mon_* structs assumptions-first then
+    properties, declaration order; PropertyViolation record struct;
+    PROPERTY_LABELS/ASSUME_LABELS/SPEC_VERSION/ALL_INPUTS constants),
+    `render_monitor` (497: nodes numbered DFS pre-order, step body evaluates
+    post-order; step returns self.n0_failed && !before = newly confirmed at
+    this sample; trigger_step from n0_trigger_step), `render_node` (533:
+    RangeCheck now-recomputed/failed-sticky; Obligation bound 0 = be[0] body
+    at trigger sample; bound >= 1 = D-P3-3 pending model, failure terminal;
+    DelayedCheck prev_antecedent register, terminal, no trigger sample;
+    And/Or per-sample over children's _now - conjunction fails while ANY
+    child fails, disjunction only while ALL fail, trigger_step = min),
+    `range_cond` (664), `gen_signal` (676) -> `render_signal_expr` (1323,
+    pub(crate), shared with rust_test invariant re-checks; state = s.to_state,
+    vars from sample), `input_is_sample_expr` (1359) /
+    `output_has_sample_expr` (1441: struct patterns bind by real name +
+    guard - matches! external guards would not compile), `emit_assume_monitors`
+    (681: first newly failed ACTIVE assumption, declaration order),
+    `emit_prop_monitors` (737: first new PropertyViolation{label, step: idx,
+    trigger_step}), `initial_vars_expr` (802: initializers may reference
+    earlier vars), `emit_fsm_impl` (819: Fsm struct; new() steps sample 0 -
+    assumption violated at sample 0 panics, property violation recorded;
+    step -> step_with_handler(PanicAssumptionHandler); transitions grouped by
+    state first-appearance order, within a state sorted by DESCENDING
+    effective priority (stable sort_by_key Reverse(priority.unwrap_or(0))) -
+    mirrors the planner's firing order; commit_step: TraceStep push, Sample,
+    idx = trace.steps.len(), assume monitors -> handler policy, prop check
+    first-violation-wins, state/vars update; group-match helpers
+    input_matches_group_<name> for multi-variant groups), `transition_block`
+    (967: SIMULTANEOUS assignment lowering - all tmp_<var> from pre-step
+    values then applied to a clone of self.vars), `on_error_block` (1055: no
+    state check, no bindings, vars carried over), `pattern_block_open` (1099)
+    / `pattern_block_close` (1245: bare group single-variant direct if let /
+    multi-variant helper; unit variant - error "unit pattern for struct";
+    struct variant - field count check, named bindings via
+    rust_binding_ident recorded in env.binding_idents, unnamed _f<i>, literal
+    fields to additional `if b == value` guards), `output_expr` (1262: bare
+    output -> group's single variant; per-arg expected type for width
+    inference), `ExprCtx` (1482), `gen_expr` (1512: types every subexpression
+    via validator::type_expr; BitNot/Neg + Plus/Minus/Star = u128 wrapping +
+    mask to type width; comparisons cast both sides to u128; shifts saturate
+    to 0 at >= width; bool bitwise ops are LOGICAL), `width_from_type` (1632:
+    expected Bit(w) wins, IntLit -> 8), `render_mc_step_all` (1649,
+    pub(crate): every enabled transition in firing order - deterministic uses
+    first effect only, nondet explores all; on_error fallback appended with
+    transition_id usize::MAX; same helpers as Fsm::step so both paths agree
+    by construction), `render_sample_formula_evaluator` (1835: via
+    monitor::formula_to_signal + gen_signal; error on temporal operators),
+    `enum_renderer_names` (1868: State -> rfs_render_state, others
+    rfs_render_e<i>; shared with the MC JSON renderer), `renderer_arg_rust`
+    (1886).
+  - `src/backends/rust_test.rs` (977 lines, no unit tests - the `mod tests`
+    at line 104 is inside a generated template string): `generate_unit_tests`
+    (52: rejects no_std with NO_STD_PRODUCTION_ONLY_ERROR; generate_core
+    with_tests=true + Always; appends ExtraFile fuzz_target.rs),
+    `emit_test_module` (79: build_test_plan(variants, module, steps);
+    candidate_inputs() = representative per variant; initial_state_is_correct;
+    positive_sequence_runs - greedy trial-clone drive up to K steps with
+    StopAssumptionHandler, EXPECT_PROGRESS from plan.expect_progress;
+    negative_unexpected_input_search - ContinueAssumptionHandler, asserts
+    found when definite_unexpected && !has_on_error, or on_error landing when
+    has_on_error && has_definite_unexpected), `var_value_literal` (228) /
+    `vars_initializer` (242: panics "planner must cover variable" - contract
+    violation) / `input_case_expr` (259) / `resolve_output_variant` (285) /
+    `output_case_full_literal` (307: None when an arg is not statically
+    evaluable) / `render_outputs_assert` (337: full assert_eq! or per-output
+    partial match - variant + known fields only, the documented planner
+    fallback), `render_transition_test` (411: name t<id>_<state>_on_<event>
+    (+ _not_taken); taken asserts on the RECORDED trace step - robust against
+    property-violation halts; not-taken STRICT - refuses to emit a toothless
+    test when the signature's outputs are not fully evaluable),
+    `render_invariant_test` (522: per-sample atom via render_signal_expr at
+    every sample of the positive drive trace; bounded checks samples < N
+    only), `render_monitor_test` (573: case 1 initial config already violates
+    - Fsm::new() records at sample 0; case 2 one planned drive step; asserts
+    the sticky property_violation label recorded first),
+    `render_random_trace_test` (618: precomputed LCG index table over
+    ALL_INPUTS, StopAssumptionHandler; prints ONE deterministic coverage line
+    random_trace seed={} steps={} ok={} unexpected={} assumption={} property={}
+    states_visited={}), `payload_byte_count` (666: ceil(W/8)),
+    `emit_fuzz_target` (674: same v1.0 header; #![no_main] + libfuzzer_sys;
+    decode - first byte variant selector (byte % n_variants), bool = one
+    non-zero byte, bit<W> = ceil(W/8) LE bytes masked to W bits, enum =
+    constant representative (first declared variant else __Unknown__); budget
+    check breaks on short data; loops over Fsm::step until exhausted),
+    `GeneratedCrate` (904), `generate_aggregate_test_crate` (915: one pub mod
+    per module, name m{:03}_<snake(file_stem)>_<snake(module.name)>; whole-
+    file spec hash on a per-file options clone; fuzz skeleton NOT included;
+    manifest carries an empty [workspace] table = own workspace root,
+    Phase 5 task 1), `write_generated_crate` (968: <root>/target/
+    rfs_codegen_tests).
+  - `src/backends/rust_mc.rs` (2034 lines, no unit tests):
+    `generate_model_checker` (25: rejects no_std + with_protocol_fsm with the
+    pinned constants; SmtBounded -> standalone z3 binary = v1.0 header +
+    smt_emit::emit_rust_spec(build_smt_spec(module, McPlan::compute(...))) +
+    SMT_ENGINE_RUST with {BOUND} <- mc_smt_bound; exact/fuzz -> FSM core via
+    generate_core (steps 0, monitors Always, no tests) + exact_codegen +
+    FUZZ_RUNTIME + MAIN_DISPATCH), `exact_codegen` (91: codegen-time defaults
+    embedded as runtime-overridable constants D-P4-7 - DEFAULT_MODE/MAX_STATES/
+    NONDET/TIMEOUT_SEC/THREADS/COUNTEREXAMPLE_FORMAT + CONFIG_TOTAL_BYTES /
+    MONITORS_BITS from plan.encoding; all_inputs() canonical enumeration
+    D-P4-2 - variants declaration order, concrete fields over their domain
+    nested in declaration order, abstracted at representatives; put_bits +
+    config_bytes layout - state index bits, var slots (bool 1/0, bit as u64,
+    enum variant index), monitor node bits with remaining packed ONLY while
+    pending = ref_mc CfgKey byte-for-byte; render_mc_step_all; EXACT_ENGINE;
+    JSON_WRITER_RUST + json_renderers_rust; liveness -
+    LivenessDecomposition::compute diagnostics to codegen warnings D-P4-9,
+    LIV_ENGINE, leaf evaluators liv_p<i>_l<j>[b] (Safety 0 / Eventually 1 /
+    Until 2 with eval_b), flatten_skeleton first-appearance re-indexing to
+    liv_p<i>_skel, LIV_PROPS; EXACT_RUN), `json_renderers_rust` (351: same
+    name source as the text renderers - JSON strings carry ref_mc's prefixed
+    value forms identical to text), `flatten_skeleton` (444), `domain_iter`
+    (474), `rep_expr` (491), `var_value_expr` (509); EXACT_ENGINE (548: Node
+    {state, vars, prop, assume}; StepOutcome Success/Pruned/Violation(label,
+    step, trigger); step_successor at depth+1; path_to parent pointers;
+    replay rebuilds the Phase 3 trace format - nondet picks the effect with
+    the recorded transition_id else first; exact_summary_line pinned D-P4-4
+    "model-check summary: status={} states={} transitions={} max_depth={}" +
+    on fail " reason={} label={} step={}", deadlock label=- depth as step),
+    LIV_ENGINE (621: per-leaf progress automata - safety 0=ok/1=bad,
+    eventually 0=wait/1=done, until 0=ok/1=sat/2=bad, all one-way so every
+    state sequence is eventually constant = limit vector; EDGE-based labels -
+    position 0 initial config sample, position k sample of step k;
+    liv_bits_at cached per edge position; liv_delta mixed-radix; liv_good;
+    liv_analyze product BFS from (start_q, config 0), per-q stay-edge
+    subgraph, nondet STRONGLY FAIR filter D-P4-11 - each cycle state exactly
+    one explored successor and fully expanded when truncated, iterative
+    Kosaraju SCCs, cyclic = comp > 1 or self-loop, limit vector falsifies the
+    skeleton; liv_witness lasso = product path to (q, cstar) + stay-edge
+    cycle through cstar = smallest cyclic config; liv_note human explanation),
+    JSON_WRITER_RUST (983: embedded minimal copy of the toolchain compact
+    writer with u64 integers - all values non-negative, bit<64> reaches
+    2^64-1; escape contract " \ b t n f r + other control chars as \u00XX
+    lowercase hex else raw UTF-8; peak_rss_kb from /proc/self/status VmHWM,
+    0 on failure - INFORMATIONAL, normalized to 0 in cross-backend byte
+    comparisons; build_mc_json_doc key order = byte-parity contract: status,
+    metrics{states, transitions, max_depth}, [reason, label, step],
+    statistics{unexpected_terminations, monitor_size_bits,
+    memory_estimate_bytes, peak_rss_kb}, [counterexample]; ce kinds trace /
+    lasso{prefix, cycle, cycle_length} / deadlock-config{depth, state, vars};
+    ce_steps ALWAYS the last key), EXACT_RUN (1170: run_exact() -> !; runtime
+    flags over codegen-time defaults D-P4-7; Fsm::new sample 0 - assumption
+    violated panics, property violation reported immediately; level-
+    synchronous BFS D-P4-2 - visited at ENQUEUE time, parent pointers, depth,
+    adj edges for every Success incl. to already-visited configs, complete
+    flag; status 0 running / 1 pass-complete / 2 state limit / 3 timeout /
+    4 fail, exit codes 0/1/2; parallel level expansion task 10B - phase A
+    std::thread::scope workers over disjoint frontier chunks calling pure
+    expand_config, phase B SEQUENTIAL canonical commit = byte-identical to
+    --threads 1 for any N; --fast non-parity early abort, never a false pass;
+    Unexpected = path terminates D-P4-5 counted in statistics, transitions
+    untouched; Pruned counts as a transition; deadlock = no successor at all
+    -> FAIL reason=deadlock label=- step=depth; SEMANTICS 9.5 stop at first
+    violation/state limit - check AFTER the per-level loop, matches the C
+    engine's status == 0 guard, Phase 6 task 4 finding correction 4b;
+    liveness only when BFS ended without safety failure/deadlock; truncated
+    analysis sound - witness inside explored part or UNKNOWN stands, never a
+    false pass-complete; JSON one compact document or text PASS (complete) /
+    FAIL / UNKNOWN (state limit reached[, timeout after Ns]) + pinned summary
+    line + statistics block), MAIN_DISPATCH (1553: --mode fuzz -> run_fuzz
+    else run_exact), FUZZ_RUNTIME (1570: Rng LCG state = state *
+    6364136223846793005 + 1442695040888963407 wrapping, top-53-bit double
+    mapping - SAME constants as codegen_test::Lcg; ViolationSpec wire format
+    label:prob:percent% defaults 1.0/100.0; parse_assume_selection all/none/
+    labels filtered against ASSUME_LABELS; print_trace + vars_at via the
+    renderers; run_fuzz flags --bound 5 / --runs 20 / --seed 12345 /
+    --assumes / --violate / --unexpected-prob = McConfig defaults; per step:
+    forced violation injection first (trial-step ALL_INPUTS for the target
+    label), then optional unexpected injection, else allowed representative
+    inputs - property-violating inputs allowed on purpose; property
+    violations terminate immediately exit 1 so property_violations counter is
+    always 0 (field kept for stable format); summary line "model-check
+    summary: runs={} bound={} completed={} unexpected={}
+    assumption_stops={} property_violations={}"), SMT_ENGINE_RUST (1756:
+    DEFAULT_BOUND <- {BOUND}; parity-critical - step variables z3 constants
+    with FIXED names in fixed order s_i/v_i_j/ev_i/fld_i_g, constraints
+    asserted in fixed order, queries in fixed order safety-then-liveness
+    declaration order; b_and/b_or two-arg wrappers over z3 0.21 variadic
+    associated functions - identical to C; unrolling: enabled_t = state match
+    and class match and guard (firing order), fire_t = enabled and no earlier
+    enabled (first match, prefix-OR chain), alive_i = alive_{i-1} and
+    any_fire, next state/vars via ITE chains; safety query viol_p = exists
+    i<k: alive_i and not phi_p(i) -> FAIL + pinned summary line exit 1;
+    liveness query never_p and cycle (exists a<b identical (state, vars)) ->
+    FAIL reason=liveness-violation + cycle length exit 1; Unknown -> UNKNOWN
+    (solver inconclusive within bound {k}) + status=unknown exit 2; all Unsat
+    -> PASS WITHIN BOUND {k} (incomplete - no completeness claim) +
+    status=pass-within-bound exit 0; smt_print_trace pinned witness format).
+  - **Consumers / pins (verified)**: tests/codegen_test.rs (51 tests:
+    registry shape, generation over all valid examples, flag toggles,
+    priority order in generated step, on_error fallback, SPEC_VERSION
+    constant, no_std header pin + body-parity compile sweep over all 50 valid
+    examples x both monitor modes, protocol-fsm emission pin + default
+    unchanged, test-class emission + pinned name convention, fuzz skeleton as
+    separate file + CLI writes next to --out, aggregate crate stays
+    dependency-free); tests/backend_parity_test.rs (11 tests: cross-backend
+    differential parity - exact runs, RE-pinned values, generated test
+    executables, liveness parity incl. truncated-mode soundness, JSON report
+    parity incl. five status/reason cases + golden document pin, forced-
+    violation parity); tests/liveness_mc_test.rs (9 tests),
+    tests/benchmark_mc_test.rs (5 tests); src/backends/RUST.md (artifact
+    design + key decisions + known limitations).
+- **Entry format / gate rules / bookkeeping**: same as subtask 8.1 in
+  PHASE_8_TASK_8.md (house style with per-section Code: lines; doc-to-code
+  reference rules - verify every reference against a declaration line; run
+  dev_docs_test after each action, docs_md_test at task end; plan row ->
+  DONE, boxes checked, one TASKS.md entry, commit per action).
+- **Verified doc-to-code references for this subtask** (declaration lines
+  checked 2026-10-31): all items listed above plus `src/codegen.rs::NO_STD_
+  PRODUCTION_ONLY_ERROR`, `src/codegen.rs::PROTOCOL_FSM_MC_ERROR`,
+  `src/mc_plan.rs::McPlan`, `src/mc_plan.rs::ValueDomain`,
+  `src/mc_plan.rs::LivenessDecomposition`, `src/smt_plan.rs::build_smt_spec`,
+  `src/smt_emit.rs::emit_rust_spec`, `src/monitor.rs::compile_formula`,
+  `src/monitor.rs::formula_to_signal`, `src/spec_hash.rs::spec_hash16`,
+  `src/codegen_fsm.rs::build_variants`,
+  `src/codegen_fsm.rs::representative_values`,
+  `src/codegen_test.rs::build_test_plan`,
+  `src/codegen_test.rs::has_definite_unexpected`,
+  `src/codegen_test.rs::Lcg`, `src/codegen_test.rs::RANDOM_TRACE_SEED`,
+  `src/codegen_test.rs::FuzzDecodePlan`, `src/codegen_mc.rs::McConfig`,
+  `src/validator.rs::validate_module`, `src/validator.rs::type_expr`, file-
+  level `tests/codegen_test.rs`, `tests/backend_parity_test.rs`,
+  `tests/liveness_mc_test.rs`, `tests/benchmark_mc_test.rs`. Non-reference
+  backticks (safe): CODEGEN.md, RUST.md, DESIGN.md, shell commands, bare
+  identifiers, JSON key names, generated-code item names without a file-path
+  prefix.
+
+### Planned actions
+
+1. **Class A deep dive - `docs/dev/backend_rust.md`**: replace the TBD and
+   add the four new sections (anchor line immediately above each heading):
+   - **Overview** (`dev:backend-rust-overview`, existing anchor): the parity
+     principle; file map with line/test counts; position in the pipeline via
+     RUST_BACKEND's fn pointers into generate_core; cross-links to RUST.md,
+     CODEGEN.md, `dev:deps-fn-codegen-rust`, `dev:code-map-codegen`,
+     DECISIONS D-numbers.
+   - **Plugin entry + shared Rust helpers** (`dev:backend-rust-plugin`):
+     registration + descriptor text; the three mangling helpers incl.
+     rust_binding_ident's reserved sets; snake/bit_rust_type/rust_type/
+     mask_expr; representative_input_expr.
+   - **Production FSM generation** (`dev:backend-rust-fsm`): entry points +
+     Gen pipeline order; artifact header + no_std byte-identical body pin;
+     flat Input/Output enums; ref_mc-identical renderers; trace/assumption
+     runtime; monitor rendering (DFS pre-order / post-order, per-node-kind
+     field sets and step semantics); Fsm impl (sample-0 stepping, priority-
+     desc stable firing order, commit_step policy chain); transition blocks
+     with simultaneous assignment lowering; pattern scopes with binding
+     mangling + literal guards; gen_expr width semantics in lockstep with the
+     planner's static evaluator; render_mc_step_all / render_sample_formula_
+     evaluator shared renderers.
+   - **Unit-test, fuzz and aggregate-crate generation** (`dev:backend-rust-
+     test`): the seven stable test classes incl. the STRICT not-taken refusal;
+     literal rendering + partial-assert fallback; the separate fuzz_target.rs
+     decode wire format; aggregate crate with the empty [workspace] table.
+   - **Model-checker executable generation** (`dev:backend-rust-mc`): three
+     entry shapes incl. the standalone SMT binary; exact_codegen plan tables
+     (canonical all_inputs, config_bytes layout matching ref_mc's CfgKey);
+     EXACT_ENGINE/EXACT_RUN (enqueue-time visited, two-phase parallel
+     expansion byte-identical to --threads 1, SEMANTICS 9.5 stop rule,
+     truncated liveness soundness); LIV_ENGINE (limit vectors, strong
+     fairness, lasso witness); JSON_WRITER_RUST (key-order byte-parity
+     contract, escape contract, peak_rss_kb normalization); FUZZ_RUNTIME (LCG
+     constants, phase-ordered input selection); SMT_ENGINE_RUST (fixed names /
+     constraint order / query order, pinned summary lines); embedded-copy
+     rule.
+   - **Changing the Rust backend** (unanchored closing section): developer
+     checklist - parity first + differential suites; pinned formats list;
+     firing order mirrors fsm_step AND the planner; gen_expr width semantics
+     lockstep; dependency-free deterministic artifacts; no_std body pin;
+     verify commands + docs sync.
+   Run `cargo test --test dev_docs_test` after writing; extend the four
+   `//! Docs:` lines in the same action (mod.rs unchanged).
+2. **Class B card - `docs/llm/backend_rust.md`**: replace the TBD (keep
+   budget header, title, intro, anchor byte-stable): responsibility; key-
+   items table (RUST_BACKEND / rust_ident + rust_binding_ident /
+   bit_rust_type + mask_expr / generate_core / render_monitor + render_node /
+   gen_expr / render_mc_step_all / emit_test_module seven classes /
+   emit_fuzz_target decode wire format / generate_aggregate_test_crate /
+   generate_model_checker three shapes / exact_codegen plan tables / EXACT_
+   ENGINE + EXACT_RUN / LIV_ENGINE / JSON_WRITER_RUST / FUZZ_RUNTIME +
+   SMT_ENGINE_RUST); invariants that must not break (parity, firing order,
+   width-semantics lockstep, pinned formats, dependency-free artifacts, no_std
+   body pin, embedded-copy sync); change-impact pointers (placement rule;
+   verify with codegen_test + backend_parity_test + liveness_mc_test +
+   benchmark_mc_test; full table in llm:change-impact at task 13.2); deep-
+   dive links to the five Class A fragments + RUST.md + CODEGEN.md +
+   codegen_core. Total <= 150 lines. Run the gate.
+3. **Verification + bookkeeping**: dev_docs_test 9/9, docs_md_test 5/5,
+   full verification (build/test/clippy/fmt + workspace; counts unchanged:
+   535/535 root, 559/559 workspace); plan row 9.2 -> DONE; check off this
+   subtask's boxes; TASKS.md entry; commit per action.
+
+### Exit criteria (subtask 9.2)
+
+- [x] `docs/dev/backend_rust.md`: all five anchored sections + the unanchored
+      "Changing the Rust backend" checklist filled, no TBD remains; every
+      technical statement carries a resolving doc-to-code reference (gate
+      check 1); the existing `dev:backend-rust-overview` anchor + heading
+      unchanged; the four new fragments anchored AND owned in the same action.
+- [x] `docs/llm/backend_rust.md`: card filled, no TBD, total line count <=
+      150 (56), links to Class A without restating it.
+- [x] Source edits limited to the four `//! Docs:` lines (no code changes);
+      all cargo counts unchanged from the task-9.1 tree (535/535 root,
+      559/559 workspace).
+- [x] Full verification green: dev_docs_test 9/9, docs_md_test 5/5, cargo
+      build/test/clippy/fmt (+ --workspace).
+- [x] Plan row 9.2 marked DONE; this subtask's boxes checked; TASKS.md entry
+      appended.
+
+### Non-goals (subtask 9.2)
+
+- No backend behavior changes of any kind; no new dependencies.
+- No restatement of CODEGEN.md, src/backends/RUST.md, DEPENDENCIES graph,
+  or codegen_core content (link only); no edits to other docs (backend_c deep
+  dives = tasks 10.1/10.2; START.md/KB.md/BUILD.md pointer sync = task 14).
+- No mc_plan.rs / smt_* deep dives (task 11.1/11.2); no C backend internals
+  (tasks 10.x) - the doc references them, never describes them.
+- No DESIGN.md edits; no new example `.rfs` files.
+- No line-number-based anchors anywhere; stable item-name anchors only.
+
 ## Task corrections
 
 | Correction | Description + rationale |
 |------------|-------------------------|
 | Task file created at execution (2026-10-30) for plan group 9 | User model: one task file per plan group ("execute 9.1" = subtask of task file 9). Written for subtask 9.1 only; subtask 9.2 (backend_rust deep dive) will be appended at execution, following the PHASE_8_TASK_8.md pattern (8.2/8.3 appended after 8.1 completed). |
+| Subtask 9.2 appended at execution (2026-10-31) | Per the correction above: subtask sections are written when executed, following the PHASE_8_TASK_8.md pattern (8.2/8.3). Written with verified source material measured 2026-10-31 (item maps of all five backend files: mod.rs 16 lines no code; rust.rs 215/3 tests; rust_fsm.rs 1896 no unit tests; rust_test.rs 977 no unit tests - its `mod tests` at line 104 is inside a generated template string; rust_mc.rs 2034 no unit tests), fragment plan with exact owner-line targets (mod.rs unchanged), no-duplication rule vs CODEGEN.md + src/backends/RUST.md + DEPENDENCIES + codegen_core, consumers/pins inventory. |
+| TASKS.md link fix during verification (2026-10-31) | The 9.1 completion entry (commit f2838b7) contained an unbackticked bracket-paren formula pattern in quotes, which the mdr-stack quality check parses as a relative markdown link - docs_md_test failed on the pristine tree BEFORE any subtask 9.2 change (the pattern was added after that session's last green gate run). Reworded the 9.1 verification line in TASKS.md to avoid the pattern (same fix class as the one recorded in the 9.1 entry itself); docs_md_test green again (5/5, 185.1s - baseline). |

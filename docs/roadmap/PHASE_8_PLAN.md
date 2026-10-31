@@ -56,7 +56,7 @@ fine-grained (subtasks) so each one fits a single working session's context.
 | 10.1 | Deep dive: `docs/dev/backend_c.md` - core translation + FSM codegen (`c.rs`, `c_fsm.rs`) - backend parity 2/2a | change: `docs/dev/backend_c.md` | 1.7 | DONE |
 | 10.2 | `docs/dev/backend_c.md` - MC + test generation (`c_mc.rs`, `c_test.rs`) + parity notes vs the Rust backend - backend parity 2/2b | change: `docs/dev/backend_c.md` | 10.1 | DONE |
 | 11.1 | Deep dive: `docs/dev/mc_engine.md` - exact + liveness paths (`mc_plan.rs`, `ref_mc.rs`) | change: `docs/dev/mc_engine.md` | 1.8 | DONE |
-| 11.2 | `docs/dev/mc_engine.md` - SMT path (`smt_plan.rs`, `smt_emit.rs`) + diagnostics | change: `docs/dev/mc_engine.md` | 11.1 | PENDING |
+| 11.2 | `docs/dev/mc_engine.md` - SMT path (`smt_plan.rs`, `smt_emit.rs`) + diagnostics | change: `docs/dev/mc_engine.md` | 11.1 | DONE |
 | 11.3 | Deep dive: `docs/dev/monitor_compiler.md` (`monitor.rs`, PSL translation) | change: `docs/dev/monitor_compiler.md` | 1.8 | PENDING |
 | 12.1 | Deep dive: `docs/dev/cli_commands.md` (all CLI commands + library API surface) | change: `docs/dev/cli_commands.md` | 1.9 | PENDING |
 | 12.2 | Deep dive: `docs/dev/workspace_crates.md` (`rfs-build`, `rfs-adapters`, examples) | change: `docs/dev/workspace_crates.md` | 1.10 | PENDING |

@@ -20,7 +20,7 @@
 //! Exit codes MIRROR the generated binaries: 0 pass-complete, 1 fail,
 //! 2 unknown-state-limit; usage/parse/validation errors exit 1 (the existing
 //! command convention).
-//! Docs: dev:cli-commands-overview, llm:cli-commands
+//! Docs: dev:cli-commands-overview, dev:cli-commands-mc-ref-gen-spec, llm:cli-commands
 
 use std::path::Path;
 use std::process::ExitCode;

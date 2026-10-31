@@ -25,7 +25,7 @@
 //! `Script` renders the `--print-script` mode: a deterministic POSIX sh
 //! script (no timestamps, no volatile temp paths) that performs exactly what
 //! the command would have executed.
-//! Docs: dev:cli-commands-overview, llm:cli-commands
+//! Docs: dev:cli-commands-overview, dev:cli-commands-ext-tool, llm:cli-commands
 
 use std::process::ExitStatus;
 

@@ -9,7 +9,7 @@
 //! The pipeline is exposed as lib functions ([`generate_random`],
 //! [`mutate_base`]) so integration tests can call them without spawning the
 //! binary; [`run_cli`] is the thin argument-parsing shell for `main.rs`.
-//! Docs: dev:cli-commands-overview, llm:cli-commands
+//! Docs: dev:cli-commands-overview, dev:cli-commands-mc-ref-gen-spec, llm:cli-commands
 
 use std::path::Path;
 use std::process::ExitCode;

@@ -11,7 +11,7 @@
 //! document rendered by the hand-rolled writer from task 2; stable key order,
 //! all keys always present with null for absent values - a fixed schema for
 //! IDE/tooling consumers).
-//! Docs: dev:cli-commands-overview, llm:cli-commands
+//! Docs: dev:cli-commands-overview, dev:cli-commands-info, llm:cli-commands
 
 use crate::ir::{
     BinOp, Expr, Formula, Ir, Module, OnError, OutputExpr, PatternExpr, PatternVariant, Type,

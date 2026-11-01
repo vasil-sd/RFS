@@ -88,6 +88,8 @@ and [INTEGRATION.md](INTEGRATION.md) to drive it from your own code.
 | [examples/valid/](../../examples/valid/) | 50 valid specs (file-driven suite: drop a file in, it is tested) |
 | [examples/invalid/](../../examples/invalid/) | 13 specs that MUST be rejected |
 | [docs/SEMANTICS.md](../SEMANTICS.md) | normative formal semantics |
+| [docs/dev/](../dev/) | developer deep-dive set (maintainer docs): per-module internals with stable fragment anchors - start from its README index |
+| [docs/llm/](../llm/) | LLM-assistant set (maintainer docs): TASK_MAP + CHANGE_IMPACT + budgeted per-module cards - start from its README index |
 | [ide/README.md](../../ide/README.md) | editor support: TextMate grammar + snippets for `.rfs` |
 | BUILD.md / TOOLCHAIN.md (repo root) | how to build/test/run and where the toolchain lives (maintainer docs) |
 

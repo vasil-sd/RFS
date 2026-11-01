@@ -15,7 +15,7 @@
 //! - The callback driver ([`callback`]) and the no_std-minimal wrapper
 //!   ([`minimal`]) are always available (core-only; they work with the
 //!   `#![no_std]` production artifacts of Phase 5 task 9).
-//! Docs: dev:workspace-crates-overview, llm:workspace-crates
+//! Docs: dev:workspace-crates-overview, dev:workspace-crates-adapters, llm:workspace-crates
 
 #![no_std]
 

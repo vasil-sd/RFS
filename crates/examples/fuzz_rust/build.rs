@@ -1,7 +1,7 @@
 //! Build script (Phase 5 task 12): generate the spec-43 ARQ sender for the
 //! lib crate AND wire the emitted libfuzzer_sys skeleton into the cargo-fuzz
 //! layout.
-//! Docs: dev:workspace-crates-overview, llm:workspace-crates
+//! Docs: dev:workspace-crates-overview, dev:workspace-crates-examples, llm:workspace-crates
 use std::path::Path;
 
 fn main() {

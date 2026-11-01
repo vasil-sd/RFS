@@ -1516,3 +1516,19 @@ Per PHASE_5_TASK_16.md: run the complete BUILD.md §5 checklist (+ Phase 5 addit
 - Source edits: only the //! Docs: owner lines of the 10 in-scope files (fuzz/fuzz_targets x5 -> dev:toolchain-fuzz-targets; src/training.rs + 2 training bins -> dev:toolchain-fuzz-training; 2 code-test bins -> dev:toolchain-fuzz-code-tests). Doc comments only; no code changes. Ownership constraint documented in the task file: tests/toolchain_fuzz_test.rs is not in tests/dev_docs_manifest.txt so it cannot own a fragment - the slow CI suite lives inside dev:toolchain-fuzz-targets owned by the five fuzz target files; no pointer was added to it.
 - Verification: dev_docs_test 9/9 (3 new fragments owned, all refs resolve, no orphans), docs_md_test 5/5, cargo fmt --check clean, clippy --all-targets exit 0, cargo test 535/535 root (unchanged from the 12.2 tree), workspace 559/559.
 - Bookkeeping: plan row 12.3 marked DONE - PLAN GROUP 12 IS NOW FULLY COMPLETE (12.1 + 12.2 + 12.3); subtask section appended with boxes checked + corrections row; commits per action (deep dive + card + owners; bookkeeping).
+
+## 2026-11-01 10:25 - Phase 8 task 13.1 (complete): full functionality-to-source map docs/llm/TASK_MAP.md
+
+### Interpretation & plan
+
+- Requested: "execute 13.1" - plan row 13.1, first subtask of plan group 13 (Class B consolidation). Task file PHASE_8_TASK_13.md created at execution per the established pattern (one file per plan group; 13.2/13.3 appended later).
+- Plan: rewrite docs/llm/TASK_MAP.md from its growing stub into the full map - functionality -> files/functions for every CLI command, subsystem, and test suite with "read this fragment" pointers extending START.md section 6 - while keeping the sync-gate coverage list complete (all manifest files as doc->code references); then full verification + bookkeeping.
+
+### Report
+
+- docs/llm/TASK_MAP.md: 95 -> 192 lines (budget 400; header + llm:task-map anchor byte-stable). New "How to use" intro (map = locator, START.md section 6 stays workflow authority, check llm:change-impact before editing); ## Map with six functionality tables - CLI commands (8 subcommands -> dispatch fn + logic module + read fragment; shared infra ext_tool/cli_log/lib), frontend core (parser/validator/IR+wire format/json_rw/json_schema/printer/errors/spec hash), codegen (registry + 3 shared plan modules + both backends incl. the aggregate-crate entry points), model-checking engines + monitor compiler (mc_plan/ref_mc exact+liveness+verify/smt pair/monitor), workspace crates (rfs-build/adapters/examples), fuzz + training + code-test harness (both D-P6-4 layers, training pipeline, generated-code bins); ## Test suites table (all 24 root test files: what each pins + related fragments); ## Coverage rewritten as "all 71 manifest files" (stub language removed; the 71 one-line-role bullets kept as the gate's coverage list).
+- Gate mechanics verified in tests/dev_docs_test.rs before writing: check_task_map_coverage activates on file existence and requires every tests/dev_docs_manifest.txt path as a doc->code reference; references are backticked spans whose path part contains a slash and ends in .rs/.c/.h (bare filenames are prose). First gate run caught exactly 2 broken refs (tests/adapters.rs, tests/nostd_minimal.rs - missing crates/rfs-adapters/ prefix); fixed, all green.
+- Corrections recorded: skeleton's "72 hand-written files" corrected to 71 (manifest count verified); task file created at execution for plan group 13.
+- Source edits: NONE (docs-only subtask).
+- Verification: dev_docs_test 9/9 (TASK_MAP coverage check now ACTIVE over the full map - all 71 files covered, all refs resolve), docs_md_test 5/5, cargo fmt --check clean, clippy --all-targets exit 0, cargo test 535/535 root (unchanged from the 12.3 tree), workspace 559/559.
+- Bookkeeping: plan row 13.1 marked DONE; task file created with subtask section boxes checked + corrections rows; commits per action (map rewrite; bookkeeping).

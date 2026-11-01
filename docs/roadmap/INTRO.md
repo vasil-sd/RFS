@@ -45,7 +45,7 @@ Phase state (2026-10-28):
 | 5 - Full toolchain and production integration | COMPLETE (close-out 2026-10-23: full verification green, `PHASE_5_STATUS.md`) | `PHASE_5.md`, `PHASE_5_PLAN.md`, `PHASE_5_TASK_{1..17}.md` (+ `_STATUS` files), `PHASE_5_STATUS.md` |
 | 6 - Production hardening and v1.0 | COMPLETE (close-out 2026-10-25: full verification green, tag v1.0.0, `PHASE_6_STATUS.md`) | `PHASE_6.md`, `PHASE_6_PLAN.md`, `PHASE_6_TASK_{1..10}.md` + `PHASE_6_TASK_2A.md` (+ `_STATUS` files), `PHASE_6_STATUS.md` |
 | 7 - Documentation and self-describing formats | COMPLETE (close-out 2026-10-28: full verification green, `PHASE_7_STATUS.md`) | `PHASE_7.md`, `PHASE_7_PLAN.md`, `PHASE_7_TASK_{1..16}.md` (+ `_STATUS` files), `PHASE_7_STATUS.md` |
-| 8 - Detailed developer documentation and code↔doc traceability | NOT PLANNED (description written 2026-10-28; planning-stage trigger: "let's make a plan for Phase 8") | `PHASE_8.md` |
+| 8 - Detailed developer documentation and code↔doc traceability | COMPLETE (close-out 2026-11-01: full verification green, `PHASE_8_STATUS.md`) | `PHASE_8.md`, `PHASE_8_PLAN.md`, `PHASE_8_TASK_{1..15}.md`, `PHASE_8_STATUS.md` |
 
 Keep this table current: update it when a phase is planned, completed, or re-planned.
 Note (2026-10-16): Phase 3 implementation began before the per-task protocol was

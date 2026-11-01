@@ -1594,3 +1594,20 @@ Per PHASE_5_TASK_16.md: run the complete BUILD.md §5 checklist (+ Phase 5 addit
 - Count syncs (scope addition, recorded in the task file): KB.md section 1 LLM-training-set row (267 + Phase 8 note, history chain preserved) + BUILD.md section 4 command row and alias re-verification note + section 5 baseline (267 lines).
 - Verification: dev_docs_test 9/9, docs_md_test 5/5, cargo test-training 5 pass, fmt clean, clippy exit 0, root 535/535, workspace 559/559 (unchanged from the task-14 tree).
 - Bookkeeping: plan row 15 marked DONE; PHASE_8_TASK_15.md created with boxes checked + corrections rows (file created at execution; count syncs added to scope); commits per action (training files + count syncs; bookkeeping).
+
+## 2026-11-01 17:42 - Phase 8 task 16 (complete): full verification + phase close-out — PHASE 8 COMPLETE
+
+### Interpretation & plan
+
+- Requested: "execute task 16" - plan row 16, the final task of Phase 8 (full verification + close-out). Task file PHASE_8_TASK_16.md created at execution per the house pattern.
+- Plan: (1) full verification matrix on the final tree (build; test root/workspace/smt; test-generated-code; examples; training pipeline; dev_docs_test + docs_md_test explicit; clippy --all-targets; fmt --check); (2) fix any phase-introduced issues surfaced; (3) PHASE_8_STATUS.md per template 2.3; (4) INTRO.md row 8 -> COMPLETE + KB.md Tests row re-measured (the task-14 deferral); (5) bookkeeping.
+
+### Report
+
+- Verification: all green on the final tree - build OK; cargo test 535/535 root; --workspace 559/559; --features smt 537/537; test-generated-code 1683/1683 (192 modules); examples_test 3 pass (50 valid + 13 invalid); training pipeline OK (snippets 138+128 unchanged, aggregate 267 lines, test-training 5 pass); dev_docs_test 9/9; docs_md_test 5/5 (renders all 23 new mermaid blocks); fmt clean.
+- Close-out fix: clippy --all-targets surfaced 5 phase-introduced doc_lazy_continuation warnings - the mandatory //! Docs: line directly after an existing bullet list in src/codegen.rs, frontend.rs, json_rw.rs, printer.rs, smt_plan.rs (earlier task reports' "no new clippy warnings" was inaccurate for these five). Fixed with a blank //! separator before the pointer (doc-comment-only; gate + full suite re-verified). Final clippy: exit 0, 46 warning lines / 43 unique, all pre-existing patterns, zero in Phase 8's new files.
+- docs/roadmap/PHASE_8_STATUS.md written per template 2.3: census from the git diff over the Phase 8 range (138 files: 71 .rs doc-comment-only changes, 32 new docs - docs/dev 18 files / 8843 lines / 23 mermaid blocks / 84 dev: fragments + docs/llm 14 files / 921 lines / 14 llm: fragments, 9 roadmap artifacts, gate suite 985 lines + 8 fixtures + 71-entry manifest, 4 pointer docs, training 6->9 entries / aggregate 264->267); all nine exit criteria verified (incl. the required-diagram list mapped to ARCHITECTURE component/data-flow + hierarchy, DEPENDENCIES file+function-level graphs, ALGORITHMS L1 flowcharts).
+- Docs sync: INTRO.md row 8 NOT PLANNED -> COMPLETE (close-out 2026-11-01; files present incl. PHASE_8_TASK_{1..15}.md + PHASE_8_STATUS.md); KB.md section 1 Tests row re-measured at close-out 453/477/455 -> 535/559/537 with dev_docs_test named (the staleness task 14 deferred to this review).
+- Bookkeeping: plan row 16 marked DONE - ALL 51 PLAN ROWS COMPLETE; PHASE_8_TASK_16.md created with boxes checked + corrections rows (task file at execution; KB.md Tests row + clippy fix added to scope); commits per action.
+
+PHASE 8 IS NOW COMPLETE.

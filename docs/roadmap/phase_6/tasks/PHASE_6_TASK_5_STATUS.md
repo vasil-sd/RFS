@@ -38,7 +38,7 @@
 | `.gitignore` | changed | added `fuzz/target`, `fuzz/corpus/`, `fuzz/artifacts/` (libFuzzer runtime state is regenerable; regression inputs are tracked under `fuzz/regression_seeds/`) |
 | `fuzz/regression_seeds/codegen_empty_input` | new | regression seed: empty input (scanner false-positive case, fallback spec seed 0) |
 | `fuzz/regression_seeds/ir_roundtrip_short_rest` | new | regression seed: short-input `copy_from_slice` harness bug |
-| `docs/roadmap/PHASE_6_PLAN.md` | changed | "Plan corrections" table: rows 5a (planner binding keying) + 5b (C MC trigger-step-0 SEGV) appended per the bug-found protocol; "Planned tasks" table untouched |
+| `docs/roadmap/phase_6/PHASE_6_PLAN.md` | changed | "Plan corrections" table: rows 5a (planner binding keying) + 5b (C MC trigger-step-0 SEGV) appended per the bug-found protocol; "Planned tasks" table untouched |
 
 ## Changed functionality
 - Test planner (`src/codegen_test.rs`): emit/guard expressions referencing PATTERN BINDINGS now evaluate to concrete values. Taken tests that previously degraded to partial-match assertions can now carry full literal assertions; not-taken signature outputs are fully evaluable, so `test` codegen is TOTAL over valid specs (previously: hard error on both backends for such specs).

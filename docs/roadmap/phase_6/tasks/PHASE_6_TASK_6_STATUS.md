@@ -34,8 +34,8 @@
 | Name | Type | Description |
 |---|---|
 | `BUILD.md` | changed | New section 7 "Benchmarks in CI" (single command, what it writes/prints, asserted vs informational metric list, GitHub Actions yaml snippet - documented only, no workflow committed); section-3 benchmark row refreshed to the six-spec suite with current pins; examples row corrected to 50 valid / 13 invalid (action 1 consequence); aggregate-crate counts updated (189 modules / 1601 tests - action 1 consequence); trailing paragraph on `tests/benchmark_mc_test.rs` extended. Remaining stale section-3 baseline totals (the "376 pass" cell) stay for task 9 per the plan's file ownership |
-| `docs/roadmap/PHASE_6_TASK_6.md` | changed | Exit criteria checked off 5/5; "Other information" carries the measured 47/48/49 counts (the Pins); new "Task corrections" section (6a/6b/6c + 6d design note) |
-| `docs/roadmap/PHASE_6_PLAN.md` | changed | "Plan corrections" table: rows 6a (binding shadowing), 6b (expect_progress), 6c (spec-48 arm) appended per the bug-found protocol |
+| `docs/roadmap/phase_6/tasks/PHASE_6_TASK_6.md` | changed | Exit criteria checked off 5/5; "Other information" carries the measured 47/48/49 counts (the Pins); new "Task corrections" section (6a/6b/6c + 6d design note) |
+| `docs/roadmap/phase_6/PHASE_6_PLAN.md` | changed | "Plan corrections" table: rows 6a (binding shadowing), 6b (expect_progress), 6c (spec-48 arm) appended per the bug-found protocol |
 
 ## Changed functionality
 - MC JSON report (both generated backends + in-process ref_mc): gains `statistics.peak_rss_kb` (actual peak RSS, self-reported by the binary; 0 on read failure / for ref_mc) and `counterexample.ce_steps` (deterministic counterexample length - a CE QUALITY metric). Key order is part of the byte-parity contract; every cross-backend byte comparison normalizes `peak_rss_kb` to 0.

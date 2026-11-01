@@ -20,8 +20,8 @@ None (fix-only task).
 
 | Name | Type | Description |
 |---|---|---|
-| `docs/roadmap/PHASE_3_TASK_24.md` | changed | "Task corrections" filled: fix decision (Option A variant), rejected alternatives (B, C), scope expansion (training snippets), incidental fmt fix, environmental probe incident. |
-| `docs/roadmap/PHASE_3_TASK_24_STATUS.md` | new | this file. |
+| `docs/roadmap/phase_3/tasks/PHASE_3_TASK_24.md` | changed | "Task corrections" filled: fix decision (Option A variant), rejected alternatives (B, C), scope expansion (training snippets), incidental fmt fix, environmental probe incident. |
+| `docs/roadmap/phase_3/tasks/PHASE_3_TASK_24_STATUS.md` | new | this file. |
 
 ## Other file changes
 

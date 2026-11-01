@@ -12,7 +12,7 @@ Make the DSL usable by teams in real Rust projects.
 - test generation for ALL backends with identical coverage: per-transition unit tests, invariant tests, property monitor debug tests, random trace tests, fuzz target skeleton (Rust `libfuzzer_sys` / C libFuzzer);
 - diagrams: Graphviz DOT, SVG/PNG state diagrams, transition tables, variable/event summaries;
 - IDE support: initial syntax highlighting + CLI diagnostics integration; full LSP later;
-- backend parity maintained (`INTRO.md` principle): every backend-generated deliverable ships for all backends with identical behavior; Rust-ecosystem-only integrations (`rfs-build` crate, futures/no_std adapters) are documented as such, with C-side equivalents where the functionality is language-neutral.
+- backend parity maintained (`PRINCIPLES.md` principle): every backend-generated deliverable ships for all backends with identical behavior; Rust-ecosystem-only integrations (`rfs-build` crate, futures/no_std adapters) are documented as such, with C-side equivalents where the functionality is language-neutral.
 
 ## CLI hardening
 

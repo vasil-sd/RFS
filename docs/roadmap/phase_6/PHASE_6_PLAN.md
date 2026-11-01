@@ -1,7 +1,8 @@
 # Phase 6 - Implementation plan
 
-> Written for a future LLM session: after reading `START.md`,
-> `docs/roadmap/INTRO.md` and this file, the assistant must be able to start
+> Written for a future LLM session: after reading `START.md`, the
+> `docs/roadmap/` set (`INTRO.md` + `PROTOCOL.md` + `FORMATTING.md`) and this file,
+> the assistant must be able to start
 > implementation immediately without re-deriving scope.
 
 ## Context
@@ -156,7 +157,7 @@ get a full entry in `DESIGN.md` section 24 during task 9):
 | 7.6 | User docs index | `docs/user/README.md` (new) | Index linking all user docs + `docs/SEMANTICS.md` + `examples/`. |
 | 8. | Training data update | `training/syntax_semantics/rfs_training.jsonl`, `training/design/rfs_training.jsonl`, `training/model_checking/rfs_training.jsonl`, `training/examples_explain/rfs_training.jsonl`, `training/frontend_cli/rfs_training.jsonl` (change), snippets + `all_rfs_training.jsonl` (regenerated) | The new v1.0 surface needs training coverage (Phase 4/5 precedent): version header + versioning policy/spec hash (`syntax_semantics`, `design`), trustworthy MC reports + forced violations (`model_checking`), the new benchmark specs (`examples_explain`), the two new CLI commands `mc-ref`/`gen-spec` with their flags and exit codes (`frontend_cli`). Established format (think block + verbatim tool-output quotes); regenerate snippets + aggregate; `cargo test-training` green. |
 | 9. | Docs sync to final Phase 6 state | `DESIGN.md` (change - NEW section 24 "Phase 6 production-hardening decisions" D-P6-1..N + cross-references), `KB.md` (change - section 1 state, section 7 limitations resolved/updated, section 8 roadmap, section 12 next work), `BUILD.md` (change - new suites in the test table + the two new CLI commands (`mc-ref`, `gen-spec`) + final baseline counts), `CODEGEN.md` (change - artifact header format + report field), `src/backends/RUST.md` + `src/backends/C.md` (change - header + RSS reporting), `START.md` (change - state snapshot: 8-command CLI + doc map) | Sync ALL design-relevant docs to the shipped Phase 6 state: D-P6 decisions, new test suites + final counts, the two new CLI commands, benchmark CI section, fuzz workspace, user-docs set pointer, semantics document pointer, final baseline. Stale sweep per the established checklist. |
-| 10. | Close-out: full verification + v1.0 tag + status file | `docs/roadmap/PHASE_6_STATUS.md` (new), `docs/roadmap/INTRO.md` (change - row 6 COMPLETE), `TASKS.md` (change) | Full BUILD.md section 5 checklist: `cargo build/test/clippy/fmt`, `--workspace`, `--features smt`, `test-generated-code`, `examples_test`, ALL new Phase 6 suites, gcc -Wall spot checks of new C output, example projects green (re-verifies the "realistic protocol project" exit criterion - record the satisfaction in the status file), benchmark suite run, bounded fuzz smoke runs. Write `PHASE_6_STATUS.md` per template 2.3 with exact final counts; INTRO state-table row 6 -> COMPLETE; TASKS.md entry; git tag `v1.0.0`; single close-out commit, clean tree. |
+| 10. | Close-out: full verification + v1.0 tag + status file | `docs/roadmap/phase_6/PHASE_6_STATUS.md` (new), `docs/roadmap/INTRO.md` (change - row 6 COMPLETE), `TASKS.md` (change) | Full BUILD.md section 5 checklist: `cargo build/test/clippy/fmt`, `--workspace`, `--features smt`, `test-generated-code`, `examples_test`, ALL new Phase 6 suites, gcc -Wall spot checks of new C output, example projects green (re-verifies the "realistic protocol project" exit criterion - record the satisfaction in the status file), benchmark suite run, bounded fuzz smoke runs. Write `PHASE_6_STATUS.md` per FORMATTING.md §4 with exact final counts; INTRO state-table row 6 -> COMPLETE; TASKS.md entry; git tag `v1.0.0`; single close-out commit, clean tree. |
 
 ## Plan corrections (during execution)
 

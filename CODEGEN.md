@@ -504,7 +504,7 @@ checks; keep any such checks aligned with section 4.2 above.
    not diverge in transition semantics.
 4. The core (`codegen*.rs`) contains no target-language syntax; the backends
    contain no IR analysis that belongs to the core (see placement rule).
-5. Backend parity (roadmap principle, `docs/roadmap/INTRO.md`): all registered
+5. Backend parity (roadmap principle, `docs/roadmap/PRINCIPLES.md`): all registered
    backends provide the same commands and deliverables with identical observable
    behavior for the same spec and inputs; new backend features land in every
    backend in the same change and are covered by cross-backend differential

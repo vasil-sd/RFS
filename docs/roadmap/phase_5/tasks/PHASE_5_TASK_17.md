@@ -1,7 +1,8 @@
 # Phase 5, Task 17 - Implementation details
 
-> Written for a future LLM session: after reading `START.md`,
-> `docs/roadmap/INTRO.md` and this file, the assistant must be able to start
+> Written for a future LLM session: after reading `START.md`, the
+> `docs/roadmap/` set (`INTRO.md` + `PROTOCOL.md` + `FORMATTING.md`) and this file,
+> the assistant must be able to start
 > implementation of the task immediately without re-deriving scope.
 >
 > Added by user request (2026-10-22) as task No 17 on top of the planned 16;
@@ -90,7 +91,7 @@ cargo-fuzz/libfuzzer_sys)."
 | `TOOLCHAIN.md` | change | new section (next to the z3 section 5): installing clang + libFuzzer runtime and cargo-fuzz in this environment, verification commands, env-var table entries. |
 | `BUILD.md` | change | env-var/tool table, test counts re-pinned, verification checklist row for the fuzz suite. |
 | `KB.md` | change | 4.5 `rfs test` paragraph (suite selection + fuzz pipelines + exit codes); ext_tool env-var list. |
-| `docs/roadmap/PHASE_5_PLAN.md` | change | plan-corrections row C4 recording the user-requested addition of task 17; execution-order line gains `17 <- 3+5+6+7`. |
+| `docs/roadmap/phase_5/PHASE_5_PLAN.md` | change | plan-corrections row C4 recording the user-requested addition of task 17; execution-order line gains `17 <- 3+5+6+7`. |
 
 ### Affected test files
 
@@ -215,7 +216,7 @@ PHASE_5_TASK_17_STATUS.md, TASKS.md entry.
 
 | File | Operation | Description + rationale |
 |------|-----------|-------------------------|
-| `BUILD.md`, `KB.md`, `docs/roadmap/PHASE_5_PLAN.md` | change | keep the knowledge base and plan consistent with the shipped surface. |
+| `BUILD.md`, `KB.md`, `docs/roadmap/phase_5/PHASE_5_PLAN.md` | change | keep the knowledge base and plan consistent with the shipped surface. |
 
 ## Task deliverables
 - clang + libFuzzer runtime (+ cargo-fuzz) installed in this environment and

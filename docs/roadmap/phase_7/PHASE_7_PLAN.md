@@ -1,8 +1,9 @@
 # Phase 7 - Implementation plan
 
-> Written for future LLM sessions: after reading `START.md`,
-> `docs/roadmap/INTRO.md` and this file, the assistant must be able to start
-> implementation immediately without re-deriving scope.
+> Written for future LLM sessions: after reading `START.md`, the
+> `docs/roadmap/` set (`INTRO.md` + `PROTOCOL.md` + `FORMATTING.md`) and this file,
+> the assistant must be able to start implementation immediately without
+> re-deriving scope.
 
 ## Context
 
@@ -164,7 +165,7 @@ Risks to re-verify at implementation time:
 | 13. | diagram-mmd format entry (md) | `src/info_format.rs` (change), `tests/info_format_test.rs` (change) | Same pattern for the mermaid subset: `stateDiagram-v2`, `[*]` edges, edge label line grammar incl. `[on_error]` prefix and multi-line labels, escaping. Same coverage sync test. Runs after tasks 1-3 since generator adjustments there could change the documented subset. |
 | 14. | artifact-header format entry (md) | `src/info_format.rs` (change), `tests/info_format_test.rs` (change) | Line 1 of every generated artifact: exact stamp format derived from `src/codegen.rs` at implementation time (toolchain version + spec hash; record the precise syntax in the entry). Sync test: compare the documented format against actually generated artifacts for all 50 examples. |
 | 15. | Training-set update | `training/frontend_cli/rfs_training.jsonl` (change), `all_rfs_training.jsonl` (change - regenerated), `training/*/snippets/*` (regenerated) | Category-local entries in the two-message format per KB.md: `rfs diagram --renderer internal\|external` usage incl. the zero-external-deps rationale, and `rfs info format` usage (`--list`, per-format `--output` choices, CI/CD use of JSON schemas). No `.rfs` snippets added (D-P7-11/D-P7-12); regenerate snippets + aggregate anyway per protocol; `cargo test-training` green. |
-| 16. | Phase 7 closeout: docs sync + status | `DESIGN.md` (change), `KB.md` (change), `START.md` (change), `docs/user/README.md` (change), `docs/user/INTEGRATION.md` (change), `docs/user/MIGRATION.md` (change), `docs/roadmap/INTRO.md` (change), `docs/roadmap/PHASE_7_STATUS.md` (new), `TASKS.md` (change) | Full verification matrix from BUILD.md section 5 (build/test/clippy/fmt + workspace, test-generated-code, docs gate, benchmark suite). DESIGN.md new section 25 with D-P7-1..D-P7-13. KB.md sync: section 1 state, section 4.2 source map (+ `info_format.rs`, `ebnf_grammar.rs`, `json_schema.rs`), section 4.5 CLI behaviour (`diagram --renderer`, `info format`). docs/user: README (internal rendering in the pipeline picture), INTEGRATION.md line ~205 (tool-invoking commands no longer include diagram by default), MIGRATION.md v1.1 note (`--render svg` now renders in-process; `--renderer external` restores old behaviour). INTRO.md table row -> COMPLETE with summary; PHASE_7_STATUS.md per template 2.3 (incl. the plantuml-core pinned rev); TASKS.md entry; single commit. |
+| 16. | Phase 7 closeout: docs sync + status | `DESIGN.md` (change), `KB.md` (change), `START.md` (change), `docs/user/README.md` (change), `docs/user/INTEGRATION.md` (change), `docs/user/MIGRATION.md` (change), `docs/roadmap/INTRO.md` (change), `docs/roadmap/phase_7/PHASE_7_STATUS.md` (new), `TASKS.md` (change) | Full verification matrix from BUILD.md section 5 (build/test/clippy/fmt + workspace, test-generated-code, docs gate, benchmark suite). DESIGN.md new section 25 with D-P7-1..D-P7-13. KB.md sync: section 1 state, section 4.2 source map (+ `info_format.rs`, `ebnf_grammar.rs`, `json_schema.rs`), section 4.5 CLI behaviour (`diagram --renderer`, `info format`). docs/user: README (internal rendering in the pipeline picture), INTEGRATION.md line ~205 (tool-invoking commands no longer include diagram by default), MIGRATION.md v1.1 note (`--render svg` now renders in-process; `--renderer external` restores old behaviour). INTRO.md table row -> COMPLETE with summary; PHASE_7_STATUS.md per FORMATTING.md §4 (incl. the plantuml-core pinned rev); TASKS.md entry; single commit. |
 
 ## Plan corrections (during execution)
 

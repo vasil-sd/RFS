@@ -1,7 +1,8 @@
 # Phase 5, Task 6 - Implementation details
 
-> Written for a future LLM session: after reading `START.md`,
-> `docs/roadmap/INTRO.md` and this file, the assistant must be able to start
+> Written for a future LLM session: after reading `START.md`, the
+> `docs/roadmap/` set (`INTRO.md` + `PROTOCOL.md` + `FORMATTING.md`) and this file,
+> the assistant must be able to start
 > implementation of the task immediately without re-deriving scope.
 
 ## Goal
@@ -13,7 +14,7 @@ suite to compare both backends' generated test executables on the new classes.
 
 ## Context
 
-- Parity principle (INTRO.md): backend-generated deliverables ship for ALL
+- Parity principle (PRINCIPLES.md): backend-generated deliverables ship for ALL
   backends with identical behavior. The C renderer consumes the same plan data as task 5 - coverage identity is by construction, verified by the parity
   suite comparing per-test results (names + pass/fail + printed coverage
   counts) of both executables over every property-bearing example.

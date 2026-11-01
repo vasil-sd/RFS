@@ -23,8 +23,8 @@
 
 | Name | Type | Description |
 |---|---|---|
-| `docs/roadmap/PHASE_3_TASK_23.md` | changed | exit criteria checked; "Task corrections" + "Changes in design decisions" sections appended (printer scope expansion, old-shape test updates) |
-| `docs/roadmap/PHASE_3_TASK_23_STATUS.md` | new | this file |
+| `docs/roadmap/phase_3/tasks/PHASE_3_TASK_23.md` | changed | exit criteria checked; "Task corrections" + "Changes in design decisions" sections appended (printer scope expansion, old-shape test updates) |
+| `docs/roadmap/phase_3/tasks/PHASE_3_TASK_23_STATUS.md` | new | this file |
 
 ## Other file changes
 

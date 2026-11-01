@@ -1,7 +1,8 @@
 # Phase 5 - Implementation plan
 
-> Written for a future LLM session: after reading `START.md`,
-> `docs/roadmap/INTRO.md` and this file, the assistant must be able to start
+> Written for a future LLM session: after reading `START.md`, the
+> `docs/roadmap/` set (`INTRO.md` + `PROTOCOL.md` + `FORMATTING.md`) and this file,
+> the assistant must be able to start
 > implementation immediately without re-deriving scope.
 
 ## Context
@@ -107,7 +108,7 @@ after Phase 4 close-out (2026-10-20). Findings that shape this plan:
   JSON-emitting command exists.
 - **Protocol precedent**: phases end with a training-data task, a docs-sync
   task (DESIGN gets a new "Phase N decisions" section), and a close-out task
-  (full verification + PHASE_N_STATUS.md per template 2.3). Tasks 13-15 below.
+  (full verification + PHASE_N_STATUS.md per FORMATTING.md §4). Tasks 13-15 below.
 
 ## Planned tasks
 
@@ -128,7 +129,7 @@ after Phase 4 close-out (2026-10-20). Findings that shape this plan:
 | 13. | IDE support (syntax highlighting + diagnostics integration) | `ide/textmate/rfs.json` + `ide/README.md` (+ snippets) (new), `src/frontend.rs` (change - `validate --json`) | Initial IDE support per PHASE_5.md: TextMate grammar for `.rfs` (keywords, temporal operators incl. Phase 4's eventually/until, comments, strings, numbers) + snippet set, shipped in-repo under `ide/` with install notes for VS Code/Sublime. CLI diagnostics integration: `rfs validate --json` emits structured parse/semantic errors (reusing task 2's JSON plumbing) so editors can ingest them directly. Full LSP stays a non-goal. |
 | 14. | Training data update | `training/frontend_cli/rfs_training.jsonl`, `training/project_tooling/rfs_training.jsonl`, `training/codegen_rust/rfs_training.jsonl` (change), snippets + `all_rfs_training.jsonl` (regenerated) | New user-facing surface needs training coverage (Phase 4 task 12 precedent): new CLI commands (`info`/`test`/`diagram` with options and exit codes), external-tool parameterization (`RFS_RUSTC`/`RFS_GCC`/`RFS_DOT` + `*_ARGS`, `RFS_BIN`, the overriding flags) and `--print-script` mode, rfs-build build.rs usage, ProtocolFsm/adapters, no_std flag, counterexample JSON, diagram output. Follow the established format (think block + verbatim tool-output quotes); regenerate snippets + aggregate; training tests green. |
 | 15. | Docs sync to final Phase 5 state | `DESIGN.md` (change - sections 5/8/9/10 updates + NEW section 23 "Phase 5 toolchain decisions" D-P5-1..N), `KB.md`, `BUILD.md`, `CODEGEN.md`, `src/backends/RUST.md`, `src/backends/C.md`, `START.md` (change) | Sync all design-relevant docs to the shipped Phase 5 state: new CLI surface + option table, workspace layout, external-tool parameterization + `--print-script` semantics (env vars, flags, precedence), rfs-build/adapters/no_std/diagram/JSON decisions as D-P5-x, updated source map, final test counts and baseline. Stale sweep per the established checklist. |
-| 16. | Close-out: full verification + status file | `docs/roadmap/PHASE_5_STATUS.md` (new), `docs/roadmap/INTRO.md` (change - row 5 COMPLETE), `TASKS.md` (change) | Full BUILD.md section 5 checklist (+ gcc -Wall spot checks of new C output, no_std compile sweep, workspace build of all example crates); write PHASE_5_STATUS.md per template 2.3 with exact final counts; INTRO state-table row 5 -> COMPLETE; TASKS.md entry; single close-out commit, clean tree. |
+| 16. | Close-out: full verification + status file | `docs/roadmap/phase_5/PHASE_5_STATUS.md` (new), `docs/roadmap/INTRO.md` (change - row 5 COMPLETE), `TASKS.md` (change) | Full BUILD.md section 5 checklist (+ gcc -Wall spot checks of new C output, no_std compile sweep, workspace build of all example crates); write PHASE_5_STATUS.md per FORMATTING.md §4 with exact final counts; INTRO state-table row 5 -> COMPLETE; TASKS.md entry; single close-out commit, clean tree. |
 
 ## Plan corrections (during execution)
 

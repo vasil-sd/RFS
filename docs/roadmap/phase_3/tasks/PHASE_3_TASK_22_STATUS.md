@@ -16,7 +16,7 @@ None.
 
 | Name | Type | Description |
 |---|---|
-| `docs/roadmap/PHASE_3_STATUS.md` | new | Phase 3 completion report per template 2.3: all sections filled with exact measured counts (170 main / 513 generated / 125+125 snippets / 224 SFT / 42+12 examples), functionality deltas, problems found, findings |
+| `docs/roadmap/phase_3/PHASE_3_STATUS.md` | new | Phase 3 completion report per FORMATTING.md §4: all sections filled with exact measured counts (170 main / 513 generated / 125+125 snippets / 224 SFT / 42+12 examples), functionality deltas, problems found, findings |
 | `docs/roadmap/INTRO.md` | changed | section 1 phase-state table: row 3 IN PROGRESS -> COMPLETE with full file list (`PHASE_3_TASK_{13,15-24}.md` + `_STATUS` files, `PHASE_3_STATUS.md`); table date 2026-10-16 -> 2026-10-17; historical note about pre-task-file execution kept (still accurate) |
 | `START.md` | changed | section 1 snapshot sync per protocol step s (task correction): IMPLEMENTED -> COMPLETE (close-out 2026-10-17), removed "finish the Phase 3 close-out, task 22, first"; snapshot date label kept at 2026-10-17 (machine-local UTC) |
 | `TASKS.md` | changed | appended the Phase 3 close-out entry (first-paragraph template) |

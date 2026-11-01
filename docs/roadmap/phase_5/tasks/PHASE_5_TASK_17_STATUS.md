@@ -6,7 +6,7 @@ Completed 2026-10-22. All exit criteria met; full verification green (see bottom
 
 | File | Description |
 |------|-------------|
-| `docs/roadmap/PHASE_5_TASK_17_STATUS.md` | this file |
+| `docs/roadmap/phase_5/tasks/PHASE_5_TASK_17_STATUS.md` | this file |
 
 ## Changed/removed source files
 

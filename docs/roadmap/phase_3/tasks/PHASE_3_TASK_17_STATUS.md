@@ -20,10 +20,10 @@
 
 | Name | Type | Description |
 |---|---|
-| `docs/roadmap/PHASE_3_TASK_17.md` | changed | exit criteria checked (all four); "Task corrections" section appended (Action 2/3 calibration, violation wire format) |
-| `docs/roadmap/PHASE_3_TASK_17_STATUS.md` | new | this file |
-| `docs/roadmap/PHASE_3_PLAN.md` | changed | plan correction 24: NEW follow-up task (example 13 self-violation under always-on monitors) |
-| `docs/roadmap/PHASE_3_TASK_24.md` | new | follow-up task file per template 2.4 (discovered during this task's execution) |
+| `docs/roadmap/phase_3/tasks/PHASE_3_TASK_17.md` | changed | exit criteria checked (all four); "Task corrections" section appended (Action 2/3 calibration, violation wire format) |
+| `docs/roadmap/phase_3/tasks/PHASE_3_TASK_17_STATUS.md` | new | this file |
+| `docs/roadmap/phase_3/PHASE_3_PLAN.md` | changed | plan correction 24: NEW follow-up task (example 13 self-violation under always-on monitors) |
+| `docs/roadmap/phase_3/tasks/PHASE_3_TASK_24.md` | new | follow-up task file per FORMATTING.md §5 (discovered during this task's execution) |
 
 ## Other file changes
 

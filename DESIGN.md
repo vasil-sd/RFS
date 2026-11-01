@@ -1741,7 +1741,7 @@ working unchanged. The `PROPERTY_LABELS`/`ASSUME_LABELS` constants stay.
 
 | Option | Pros | Cons | Decision |
 |---|---|---|---|
-| Full monitor parity in C: the same `MonitorPlan` rendered in C (task 11), C MC gets online detection + enhanced counterexamples (task 12), cross-backend differential tests verify identical behavior (task 17) | Backend parity principle (INTRO.md): same functionality and exactly the same observable behavior in ALL backends; differential testing is meaningful | C rendering work is real scope; C.md doc update was deferred to this task (correction 11a) | **Chosen** |
+| Full monitor parity in C: the same `MonitorPlan` rendered in C (task 11), C MC gets online detection + enhanced counterexamples (task 12), cross-backend differential tests verify identical behavior (task 17) | Backend parity principle (PRINCIPLES.md): same functionality and exactly the same observable behavior in ALL backends; differential testing is meaningful | C rendering work is real scope; C.md doc update was deferred to this task (correction 11a) | **Chosen** |
 | Rust-only monitors in Phase 3, C later | Less Phase 3 scope | Violates the backend parity principle; C MC would silently skip liveness assumptions and property detection | Rejected |
 
 Monitor-compilability restrictions R1-R4 (enforced by `monitor::compile_formula`,
@@ -1771,7 +1771,7 @@ step }`; C `RFS_PROPERTY_VIOLATION` status in `step_result_t` with
 
 ## 22. Phase 4 model-checking decisions (as shipped)
 
-Record of D-P4-1..D-P4-14 as IMPLEMENTED (plan: `docs/roadmap/PHASE_4_PLAN.md`;
+Record of D-P4-1..D-P4-14 as IMPLEMENTED (plan: `docs/roadmap/phase_4/PHASE_4_PLAN.md`;
 corrections below point at the recorded deviations). Full semantics: section 11.
 
 ### D-P4-1. Architecture: shared codegen-time plan, per-backend generated engines
@@ -1900,7 +1900,7 @@ RNG-driven exploration order) recorded in `PHASE_4_TASK_10B.md`.
 
 ## 23. Phase 5 toolchain decisions (as shipped)
 
-Record of D-P5-1..D-P5-14 as IMPLEMENTED (plan: `docs/roadmap/PHASE_5_PLAN.md`;
+Record of D-P5-1..D-P5-14 as IMPLEMENTED (plan: `docs/roadmap/phase_5/PHASE_5_PLAN.md`;
 corrections below point at the recorded deviations). Full command behavior:
 `KB.md` section 4.5; codegen surface: `CODEGEN.md`; backend internals:
 `src/backends/RUST.md` / `src/backends/C.md`.
@@ -2137,7 +2137,7 @@ C17-1..C17-5 + D17-1 (task 17 - in D-P5-5/D-P5-7).
 
 ## 24. Phase 6 production-hardening decisions (as shipped)
 
-Record of D-P6-1..D-P6-11 as IMPLEMENTED (plan: `docs/roadmap/PHASE_6_PLAN.md`;
+Record of D-P6-1..D-P6-11 as IMPLEMENTED (plan: `docs/roadmap/phase_6/PHASE_6_PLAN.md`;
 its "Plan corrections" table records the deviations found during execution -
 2a/4b/5a/5b/6a/6b/6c - and the 2026-10-25 user rule change is recorded in
 `PHASE_6_TASK_7.md` Task corrections). Normative semantics: `docs/SEMANTICS.md`
@@ -2312,7 +2312,7 @@ toolchain-fuzz suite.
 
 ## 25. Phase 7 documentation and self-describing formats (as shipped)
 
-Record of D-P7-1..D-P7-13 as IMPLEMENTED (plan: `docs/roadmap/PHASE_7_PLAN.md`;
+Record of D-P7-1..D-P7-13 as IMPLEMENTED (plan: `docs/roadmap/phase_7/PHASE_7_PLAN.md`;
 its "Plan corrections" table records the deviations found during execution).
 Phase 7 is a DOCS-ONLY phase: no parser, validator, codegen, or MC changes -
 the shipped surface is in-process SVG rendering for `rfs diagram --render svg`

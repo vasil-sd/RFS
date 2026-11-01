@@ -6,7 +6,7 @@ plan group; task files are created at execution.
 ## Goal
 
 Close out Phase 8: run the full verification suite on the final tree, write
-`docs/roadmap/PHASE_8_STATUS.md`, update the `INTRO.md` phase-state row to
+`docs/roadmap/phase_8/PHASE_8_STATUS.md`, update the `INTRO.md` phase-state row to
 COMPLETE, append the `TASKS.md` entry.
 
 ## Context
@@ -29,7 +29,7 @@ COMPLETE, append the `TASKS.md` entry.
    build + test-training); `dev_docs_test` + `docs_md_test` explicit;
    `clippy --all-targets`; `fmt --check`.
 2. **Close-out fixes** if verification surfaces phase-introduced issues.
-3. **PHASE_8_STATUS.md** per template 2.3 (file census from the git diff over
+3. **PHASE_8_STATUS.md** per FORMATTING.md §4 (file census from the git diff over
    the Phase 8 range + measured counts).
 4. **Docs sync**: INTRO.md row 8 → COMPLETE; KB.md Tests row re-measured (the
    task-14 deferral).
@@ -47,7 +47,7 @@ COMPLETE, append the `TASKS.md` entry.
 - [x] Phase-introduced clippy warnings fixed: 5 `doc_lazy_continuation` on the
       `//! Docs:` lines (codegen/frontend/json_rw/printer/smt_plan) - blank
       `//!` separator, doc-comment-only, re-verified by gate + full suite.
-- [x] `docs/roadmap/PHASE_8_STATUS.md` written per template 2.3.
+- [x] `docs/roadmap/phase_8/PHASE_8_STATUS.md` written per FORMATTING.md §4.
 - [x] INTRO.md phase-state row 8 → COMPLETE (close-out 2026-11-01).
 - [x] KB.md section 1 Tests row re-measured at close-out (453/477/455 →
       535/559/537, dev_docs_test named) - the item task 14 deferred.

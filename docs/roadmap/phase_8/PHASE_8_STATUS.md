@@ -34,7 +34,7 @@ only doc-comment lines and blank lines).
 | `BUILD.md` | changed | section 3 root 526→535 + workspace 550→559 + new doc-sync-gate suite row; section 5 docs-sync checklist bullet (docs/dev/ or docs/llm/ or `//! Docs:` line changes → dev_docs_test; its output IS the update list) + baseline re-dated 2026-11-01 (535/559/537, generated 1683 unchanged, aggregate 267) |
 | `docs/user/README.md` | changed | "Where things live" cross-links to the docs/dev/ + docs/llm/ README indexes |
 | `docs/roadmap/INTRO.md` | changed | phase-state table row 8 → COMPLETE (close-out 2026-11-01) |
-| `docs/roadmap/PHASE_8.md`, `PHASE_8_PLAN.md`, `PHASE_8_TASK_{1..15}.md` | new | two-stage protocol artifacts: frozen phase description; plan with 51 subtask rows + 3 corrections; per-plan-unit task files created at execution (subtask sections with checked exit criteria + corrections tables - Phase 8's house pattern in place of per-task `_STATUS.md` files) |
+| `docs/roadmap/phase_8/PHASE_8.md`, `PHASE_8_PLAN.md`, `PHASE_8_TASK_{1..15}.md` | new | two-stage protocol artifacts: frozen phase description; plan with 51 subtask rows + 3 corrections; per-plan-unit task files created at execution (subtask sections with checked exit criteria + corrections tables - Phase 8's house pattern in place of per-task `_STATUS.md` files) |
 
 ## Other file changes
 

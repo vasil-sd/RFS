@@ -1,14 +1,15 @@
 # Phase 7, Task 16 - Implementation details
 
-> Written for a future LLM session: after reading `START.md`,
-> `docs/roadmap/INTRO.md` and this file, the assistant must be able to start
+> Written for a future LLM session: after reading `START.md`, the
+> `docs/roadmap/` set (`INTRO.md` + `PROTOCOL.md` + `FORMATTING.md`) and this file,
+> the assistant must be able to start
 > implementation of the task immediately without re-deriving scope.
 
 ## Goal
 
 Phase 7 closeout: full verification matrix green on the final tree, docs sync
 (DESIGN.md section 25 with D-P7-1..D-P7-13, KB.md, START.md, docs/user),
-`PHASE_7_STATUS.md` per template 2.3, INTRO.md row -> COMPLETE, TASKS.md entry,
+`PHASE_7_STATUS.md` per FORMATTING.md §4, INTRO.md row -> COMPLETE, TASKS.md entry,
 single commit.
 
 ## Context
@@ -36,7 +37,7 @@ single commit.
   MIGRATION.md v1.1 note (`--render svg` now renders in-process;
   `--renderer external` restores old behaviour).
 - START.md update; INTRO.md table row -> COMPLETE with summary.
-- `PHASE_7_STATUS.md` per template 2.3 (incl. the plantuml-core pinned rev).
+- `PHASE_7_STATUS.md` per FORMATTING.md §4 (incl. the plantuml-core pinned rev).
 - TASKS.md entry; single commit.
 
 ### Out of scope
@@ -57,7 +58,7 @@ single commit.
    by default), MIGRATION.md v1.1 note (`--render svg` now renders in-process;
    `--renderer external` restores old behaviour).
 5. **Bookkeeping**: START.md update; INTRO.md table row -> COMPLETE with
-   summary; `PHASE_7_STATUS.md` per template 2.3 (incl. the plantuml-core
+   summary; `PHASE_7_STATUS.md` per FORMATTING.md §4 (incl. the plantuml-core
    pinned rev); TASKS.md entry; single commit summarizing Phase 7.
 
 #### Affected files
@@ -71,7 +72,7 @@ single commit.
 | `docs/user/INTEGRATION.md` | change - line ~205: tool-invoking commands no longer include diagram by default |
 | `docs/user/MIGRATION.md` | change - v1.1 note: `--render svg` now renders in-process; `--renderer external` restores old behaviour |
 | `docs/roadmap/INTRO.md` | change - table row 7 -> COMPLETE with summary |
-| `docs/roadmap/PHASE_7_STATUS.md` | new - per template 2.3 (incl. the plantuml-core pinned rev) |
+| `docs/roadmap/phase_7/PHASE_7_STATUS.md` | new - per FORMATTING.md §4 (incl. the plantuml-core pinned rev) |
 | `TASKS.md` | change - closeout entry |
 
 ## Task deliverables
@@ -87,7 +88,7 @@ single commit.
 - [ ] KB.md synced (section 1 state, section 4.2 source map, section 4.5 CLI behaviour)
 - [ ] docs/user updated (README pipeline picture, INTEGRATION.md tool-invoking list, MIGRATION.md v1.1 note)
 - [ ] START.md + INTRO.md table row -> COMPLETE with summary
-- [ ] `PHASE_7_STATUS.md` per template 2.3 (incl. the plantuml-core pinned rev `8066f6124a86ed5da59c6d7d570f0568891c378e`)
+- [ ] `PHASE_7_STATUS.md` per FORMATTING.md §4 (incl. the plantuml-core pinned rev `8066f6124a86ed5da59c6d7d570f0568891c378e`)
 - [ ] TASKS.md entry; single commit summarizing Phase 7
 
 ## Non-goals

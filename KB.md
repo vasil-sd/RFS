@@ -18,7 +18,8 @@ Read order for a new assistant:
 
 1. `KB.md`
 2. `DESIGN.md`
-3. `docs/roadmap/INTRO.md` (+ the specific `PHASE_N*.md` file you need)
+3. `docs/roadmap/INTRO.md` (+ `PROTOCOL.md` / `FORMATTING.md` as needed, and the
+   specific `phase_N/` file you need)
 4. `src/ir.rs`
 5. `src/parser.rs`
 6. `examples/valid/`
@@ -35,7 +36,7 @@ Read order for a new assistant:
 | Toolchain | Pinned facts | `TOOLCHAIN.md` - Rust toolchain locations/versions, activation, reinstall. |
 | Design document | Done, maintained | `DESIGN.md` contains the RFS v0 design baseline and parser decision. |
 | Formal semantics | Done (Phase 6 task 1), maintained | `docs/SEMANTICS.md` - NORMATIVE semantics: automaton model, transition relation, deterministic vs nondeterministic modes, property sampling, PSL operator semantics, strong/weak liveness + fairness, assumptions + handler policies, error/deadlock semantics, MC configuration encoding / abstraction rules / status labeling. Verified claim-by-claim against the implementation in Phase 6 task 1; the ref MC (task 3.2) and independent evaluators (tasks 4.x) are coded from it. |
-| Roadmap | Active | `docs/roadmap/` (split from the old `ROADMAP.md` on 2026-10-16): `INTRO.md` + `PHASE_0..8.md`; phase status reports for completed phases 0-7 + per-task files/statuses for phases 3-8. |
+| Roadmap | Active | `docs/roadmap/` (split from the old `ROADMAP.md` on 2026-10-16; per-phase directories since 2026-11-01): `INTRO.md` (index) + `PRINCIPLES.md` / `FORMATTING.md` / `PROTOCOL.md` / `CURRENT_STATE.md` (phase-state table); per phase: `phase_N/PHASE_N.md` (+ `_PLAN` / `_STATUS`) and task files in `phase_N/tasks/`. |
 | Developer docs (Class A) | Done (Phase 8), maintained | `docs/dev/` - 18-file deep-dive set: per-module docs (parser, validator, ir_json_rw, codegen_core, backend_rust/c, mc_engine, monitor_compiler, cli_commands, workspace_crates, toolchain_fuzz) + cross-cutting docs (ARCHITECTURE, CODE_MAP, ALGORITHMS, DEPENDENCIES, DECISIONS, REFERENCES, README index); stable fragment anchors (one per ## section), located via `docs/llm/TASK_MAP.md`. |
 | LLM-assistant docs (Class B) | Done (Phase 8), maintained | `docs/llm/` - TASK_MAP (functionality -> files/functions for every CLI command/subsystem/test suite), CHANGE_IMPACT (change type -> affected files/tests/fragments), README (index + context-budget rules), 11 per-module cards; all with machine-checked line budgets. |
 | Knowledge base | Maintained | This file: design decisions, syntax reference, source map, agent workflow experience. |
@@ -1124,7 +1125,7 @@ These were real bugs or design traps during the nom rewrite:
 When making a design-relevant change:
 
 1. Update `DESIGN.md` if the language or architecture changed.
-2. Update the relevant `docs/roadmap/PHASE_N*.md` file (plan corrections / status report) if phase status or stack changed; keep the phase-state table in `docs/roadmap/INTRO.md` current.
+2. Update the relevant `docs/roadmap/phase_N/*.md` file (plan corrections / status report) if phase status or stack changed; keep the phase-state table in `docs/roadmap/CURRENT_STATE.md` current.
 3. Update `KB.md` if future agents need to know the new state, command, corner case, or limitation.
 4. Add or update examples/tests for the behavior.
 5. Run `cargo test`, `cargo clippy --all-targets`, and `cargo fmt`.
@@ -1167,8 +1168,10 @@ coded against; external users have a self-contained documentation set
 
 ## 8. Updated roadmap
 
-`docs/roadmap/` (INTRO.md + PHASE_N.md files) is the authoritative long-term
-roadmap; per-phase implementation reports live in `docs/roadmap/PHASE_N_STATUS.md`.
+`docs/roadmap/` (INTRO.md index + PRINCIPLES / FORMATTING / PROTOCOL /
+CURRENT_STATE + per-phase `phase_N/` directories) is the authoritative long-term
+roadmap; per-phase implementation reports live in
+`docs/roadmap/phase_N/PHASE_N_STATUS.md`.
 This section is a compact status view for future work.
 
 ### Phase 0: Parser/IR baseline — complete with caveats
@@ -1200,23 +1203,23 @@ for what remains):
 Validator, plugin-based Rust codegen (production/test/mc), bounded model checker,
 and the `rfs parse`/`rfs validate` CLI rework are implemented. The historical
 M1-M6 milestone plan is superseded by the actual outcome recorded in
-`docs/roadmap/PHASE_1_STATUS.md`.
+`docs/roadmap/phase_1/PHASE_1_STATUS.md`.
 
 ### Phase 2: Core DSL and production code generation — complete
 
 Module version headers, `on_error` fallbacks, semantic priorities, validator
 warnings, and the C backend are implemented; details in
-`docs/roadmap/PHASE_2_STATUS.md`.
+`docs/roadmap/phase_2/PHASE_2_STATUS.md`.
 
 ### Phase 3 and later
 
-- **Phase 3 — complete:** PSL-like property subset + monitor codegen + MC integration (`docs/roadmap/PHASE_3_STATUS.md`; decisions in `DESIGN.md` section 21).
-- **Phase 4 — complete:** scalable model checking (exact reachable-state engine, liveness, optional SMT) (`docs/roadmap/PHASE_4_STATUS.md`; decisions in `DESIGN.md` sections 11 + 22).
-- **Phase 5 — COMPLETE (close-out 2026-10-23):** full toolchain and production integration - eight-command CLI (six at the time; `mc-ref`/`gen-spec` arrived in Phase 6), workspace + rfs-build/adapters crates, no_std, MC counterexample JSON, diagrams, IDE support (`docs/roadmap/PHASE_5_PLAN.md` + per-task status files; decisions in `DESIGN.md` section 23).
-- **Phase 6 — COMPLETE (close-out 2026-10-25, tag v1.0.0):** production hardening and v1.0 - formal semantics (`docs/SEMANTICS.md`), versioning surface (D-P6-1..3) + `docs/user/MIGRATION.md`, reference infrastructure (`src/ref_mc.rs`/`src/specgen.rs` -> `rfs mc-ref`/`rfs gen-spec`), differential soundness suites, two-layer toolchain fuzzing, benchmark specs 47/48/49 + report metrics, external user docs (`docs/user/`), training data update. Decisions in `DESIGN.md` section 24; status per `docs/roadmap/PHASE_6_TASK_M_STATUS.md` files.
-- **Phase 7 — COMPLETE (close-out 2026-10-28):** documentation and self-describing formats - in-process SVG rendering for `rfs diagram --render svg` (`--renderer internal|external`, default internal; mmd via mermaid-rs-renderer, puml via rev-pinned plantuml-core git dep, dot via layout-rs), cross-renderer syntax parity suite, new `rfs info format` family (10 registered formats with embedded machine-readable models + sync tests against real tool output), DESIGN.md section 6 ebnf fence re-synced to the actual parser. Docs-only phase: no parser/validator/codegen/MC changes, no new examples. Decisions in `DESIGN.md` section 25; status per `docs/roadmap/PHASE_7_TASK_M_STATUS.md` files.
+- **Phase 3 — complete:** PSL-like property subset + monitor codegen + MC integration (`docs/roadmap/phase_3/PHASE_3_STATUS.md`; decisions in `DESIGN.md` section 21).
+- **Phase 4 — complete:** scalable model checking (exact reachable-state engine, liveness, optional SMT) (`docs/roadmap/phase_4/PHASE_4_STATUS.md`; decisions in `DESIGN.md` sections 11 + 22).
+- **Phase 5 — COMPLETE (close-out 2026-10-23):** full toolchain and production integration - eight-command CLI (six at the time; `mc-ref`/`gen-spec` arrived in Phase 6), workspace + rfs-build/adapters crates, no_std, MC counterexample JSON, diagrams, IDE support (`docs/roadmap/phase_5/PHASE_5_PLAN.md` + per-task status files; decisions in `DESIGN.md` section 23).
+- **Phase 6 — COMPLETE (close-out 2026-10-25, tag v1.0.0):** production hardening and v1.0 - formal semantics (`docs/SEMANTICS.md`), versioning surface (D-P6-1..3) + `docs/user/MIGRATION.md`, reference infrastructure (`src/ref_mc.rs`/`src/specgen.rs` -> `rfs mc-ref`/`rfs gen-spec`), differential soundness suites, two-layer toolchain fuzzing, benchmark specs 47/48/49 + report metrics, external user docs (`docs/user/`), training data update. Decisions in `DESIGN.md` section 24; status per `docs/roadmap/phase_6/tasks/PHASE_6_TASK_M_STATUS.md` files.
+- **Phase 7 — COMPLETE (close-out 2026-10-28):** documentation and self-describing formats - in-process SVG rendering for `rfs diagram --render svg` (`--renderer internal|external`, default internal; mmd via mermaid-rs-renderer, puml via rev-pinned plantuml-core git dep, dot via layout-rs), cross-renderer syntax parity suite, new `rfs info format` family (10 registered formats with embedded machine-readable models + sync tests against real tool output), DESIGN.md section 6 ebnf fence re-synced to the actual parser. Docs-only phase: no parser/validator/codegen/MC changes, no new examples. Decisions in `DESIGN.md` section 25; status per `docs/roadmap/phase_7/tasks/PHASE_7_TASK_M_STATUS.md` files.
 - **Phase 8 — IN PROGRESS (tasks 1-14 done as of 2026-11-01; close-out is task 16):** developer documentation set - `docs/dev/` Class A deep dives (18 files, stable fragment anchors) + `docs/llm/` Class B assistant set (TASK_MAP / CHANGE_IMPACT / README + 11 budgeted per-module cards), machine-checked by the doc sync gate (`tests/dev_docs_test.rs`: code->doc pointers over `tests/dev_docs_manifest.txt`, doc->code reference resolution, fragment ownership, TASK_MAP coverage, Class B line budgets). Docs-only phase: no parser/validator/codegen/MC changes. Plan + per-task files under `docs/roadmap/` (PHASE_8_PLAN.md, PHASE_8_TASK_M.md); status report at close-out.
-- **Post-v1 candidates (non-goals of v1, kept for later):** multi-party composition, real-time timed automata, unbounded integers, arbitrary Rust function calls in transitions, byte-level protocol codecs, full strong unbounded liveness hardening, LSP (a span side-table for semantic/codegen diagnostics is the stepping stone). See `docs/roadmap/INTRO.md` section 5.
+- **Post-v1 candidates (non-goals of v1, kept for later):** multi-party composition, real-time timed automata, unbounded integers, arbitrary Rust function calls in transitions, byte-level protocol codecs, full strong unbounded liveness hardening, LSP (a span side-table for semantic/codegen diagnostics is the stepping stone). See `docs/roadmap/PRINCIPLES.md` section 3.
 
 ---
 
@@ -1485,10 +1488,10 @@ versioning + spec-hash provenance, reference MC/specgen infrastructure,
 differential soundness suites, two-layer toolchain fuzzing, extended benchmark
 suite, external user documentation set).
 Current state: Phase 6 implementation tasks 1-9 done; next is **task 10
-(close-out)** per `docs/roadmap/PHASE_6_PLAN.md` - full verification matrix,
+(close-out)** per `docs/roadmap/phase_6/PHASE_6_PLAN.md` - full verification matrix,
 `PHASE_6_STATUS.md`, INTRO phase-state table row 6 -> COMPLETE, TASKS.md entry,
 git tag `v1.0.0`. After v1.0: the post-v1 candidates listed in section 8 above.
-See the phase state table in `docs/roadmap/INTRO.md` and the session entry
+See the phase state table in `docs/roadmap/CURRENT_STATE.md` and the session entry
 workflow in `START.md`.
 
 ---

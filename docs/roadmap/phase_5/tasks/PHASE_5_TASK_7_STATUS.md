@@ -1,6 +1,6 @@
 # Phase 5, Task 7 - Implementation status
 
-> Written once when all exit criteria of `docs/roadmap/PHASE_5_TASK_7.md` are
+> Written once when all exit criteria of `docs/roadmap/phase_5/tasks/PHASE_5_TASK_7.md` are
 > reached. Not rewritten afterwards; later fixes go into TASKS.md entries and
 > follow-up phase plans.
 

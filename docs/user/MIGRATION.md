@@ -3,7 +3,7 @@
 User-facing compatibility policy for the RFS toolchain, plus the record of
 what changed between released versions and how to migrate. Written as part of
 the v1.0 stabilization (Phase 6, decisions D-P6-1..D-P6-3 in DESIGN.md;
-task files `docs/roadmap/PHASE_6_TASK_2.md` action 6).
+task files `docs/roadmap/phase_6/tasks/PHASE_6_TASK_2.md` action 6).
 
 Companion documents: `docs/SEMANTICS.md` (normative language semantics),
 `DESIGN.md` (toolchain decisions, incl. the D10 IR evolution rule this policy

@@ -20,8 +20,8 @@
 
 | Name | Type | Description |
 |---|---|---|
-| `docs/roadmap/PHASE_3_TASK_15.md` | changed | exit criteria checked (all four); "Task corrections" section appended (off-output marker calibration, observed CLI rejection for mc/test, stale 3-example list) |
-| `docs/roadmap/PHASE_3_TASK_15_STATUS.md` | new | this file |
+| `docs/roadmap/phase_3/tasks/PHASE_3_TASK_15.md` | changed | exit criteria checked (all four); "Task corrections" section appended (off-output marker calibration, observed CLI rejection for mc/test, stale 3-example list) |
+| `docs/roadmap/phase_3/tasks/PHASE_3_TASK_15_STATUS.md` | new | this file |
 
 ## Other file changes
 

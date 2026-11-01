@@ -34,7 +34,7 @@ pipeline by `tests/docs_md_test.rs` as part of plain `cargo test`.
 |---|---|---|
 | `Cargo.toml`, `Cargo.lock` | changed (pre-task prep, 2026-10-25) | dev-deps `comrak = { version = "0.55", default-features = false }` + `mermaid-rs-renderer = { version = "0.3", default-features = false }` - mdr's parser parts at the exact versions mdr 0.6.1 uses (mdr itself is binary-only and cannot be a library dependency); see the task file's Task corrections |
 | `tests/docs_md_test.rs` | new (pre-task prep, 2026-10-25) | the mdr-stack doc-quality suite (5 tests): comrak parse under mdr's GFM extension set, fenced-block closing, full-pipeline mermaid rendering of every ```mermaid block, relative-link resolution - now covering all seven new docs |
-| `docs/roadmap/PHASE_6_TASK_7.md` | changed | Task corrections section (2026-10-25 rule change) + Other information updates (mdr findings, verified mermaid syntax notes, verified-runnable sample list) |
+| `docs/roadmap/phase_6/tasks/PHASE_6_TASK_7.md` | changed | Task corrections section (2026-10-25 rule change) + Other information updates (mdr findings, verified mermaid syntax notes, verified-runnable sample list) |
 
 ## Changed functionality
 

@@ -1611,3 +1611,19 @@ Per PHASE_5_TASK_16.md: run the complete BUILD.md §5 checklist (+ Phase 5 addit
 - Bookkeeping: plan row 16 marked DONE - ALL 51 PLAN ROWS COMPLETE; PHASE_8_TASK_16.md created with boxes checked + corrections rows (task file at execution; KB.md Tests row + clippy fix added to scope); commits per action.
 
 PHASE 8 IS NOW COMPLETE.
+
+## 2026-11-01 21:00 — Roadmap process restructure: INTRO.md split into PRINCIPLES/FORMATTING/PROTOCOL/CURRENT_STATE + per-phase directories
+
+### Interpretation & plan
+
+- Requested: tweak work/planning process for robustness + efficiency as the project grows - (a) split docs/roadmap/INTRO.md into PRINCIPLES.md (project-wide principles/invariants), FORMATTING.md (templates), PROTOCOL.md (work protocol), CURRENT_STATE.md (phase-state table); (b) each phase into its own directory docs/roadmap/phase_N/ with task files PHASE_N_TASK_M* in phase_N/tasks/; (c) update the "File set and naming" section accordingly; (d) fix all links/refs across every *.md in the project.
+- Plan: (1) map every reference (INTRO.md mentions, template 2.N refs, full paths, markdown links, gate behavior); (2) create the four split files with renumbered sections + cross-refs; (3) rewrite INTRO.md as a short index; (4) git mv all 9 phases into directories; (5) mechanical reference sweep + manual pass over content pointers; (6) verify both doc gates + full suite; (7) TASKS.md entry + commits.
+
+### Report
+
+- New files: docs/roadmap/PRINCIPLES.md (§1 guiding principles incl. backend parity, §2 document-set rules, §3 recommended v1 scope, §4 implementation stack - old INTRO §4-6), FORMATTING.md (§1 general rules, §2-§6 templates = old 2.1-2.5, subforms 6.1/6.2 = old 2.5.1/2.5.2), PROTOCOL.md (§1 two stages, §2 planning = old 3.1, §3 implementation = old 3.2; step letters unchanged), CURRENT_STATE.md (phase-state table + layout note). INTRO.md rewritten as a 39-line index: overview + split-file table + updated "File set and naming" (incl. the phase_N/ + tasks/ layout and an old-numbering mapping note).
+- Moves (git mv, history preserved): all 177 phase files into docs/roadmap/phase_{0..8}/ (PHASE_N.md/_PLAN/_STATUS at dir root) and phase_N/tasks/ (all PHASE_N_TASK_M*.md incl. _STATUS); phases 0-2 have no tasks/ dir (no task files existed).
+- Reference sweep (128 .md + 2 .rs): full paths docs/roadmap/PHASE_N* -> new locations; "template 2.N" -> FORMATTING.md §(N+1) (48 refs); boilerplate headers "after reading START.md, INTRO.md and this file" -> the docs/roadmap/ set (86 files); content pointers in living docs (START.md doc-map + task->read rows incl. fixing stale "Phases 0-7" -> 0-8, KB.md roadmap row + section 8 + post-v1 pointer INTRO §5 -> PRINCIPLES §3 + state-table pointers -> CURRENT_STATE.md, CODEGEN/DESIGN/docs/dev parity-principle refs -> PRINCIPLES.md); historical files: principle/scope/section pointers updated (PHASE_3/5/6 .md + PLANs, PHASE_5_TASK_6, PHASE_6_TASK_2A, PHASE_4_TASK_13_STATUS glob), one boilerplate variant (PHASE_7_PLAN.md). .rs comment refs updated: src/monitor.rs (parity principle -> PRINCIPLES.md; PHASE_3_PLAN path), tests/integration_example_test.rs (PHASE_2 path) - comments only, no code change.
+- Deliberately NOT rewritten: TASKS.md history entries (append-only contract - pre-split paths are historically accurate; the INTRO.md index note documents the mapping); historical "files changed" table rows naming docs/roadmap/INTRO.md as the file edited at the time (true records; INTRO.md still exists as the index).
+- Verification: dev_docs_test 9/9, docs_md_test 5/5 (all .md incl. the 4 new files pass quality + mermaid + link checks), cargo test 535/535 root (unchanged); grep sweep confirms zero stale full paths / template refs / old boilerplate outside TASKS.md.
+- Commits: split + moves; reference sweep + TASKS.md entry.

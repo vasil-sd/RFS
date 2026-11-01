@@ -1,7 +1,8 @@
 # Phase 3, Task 24 - Implementation details
 
-> Written for a future LLM session: after reading `START.md`,
-> `docs/roadmap/INTRO.md` and this file, the assistant must be able to start
+> Written for a future LLM session: after reading `START.md`, the
+> `docs/roadmap/` set (`INTRO.md` + `PROTOCOL.md` + `FORMATTING.md`) and this file,
+> the assistant must be able to start
 > implementation of the task immediately without re-deriving scope.
 
 ## Goal
@@ -126,7 +127,7 @@ changed, with the reason recorded. Run `cargo run -- validate --input rfs exampl
   `test` executable passes in both backends.
 - Updated pins in `tests/backend_parity_test.rs` (empty failing set; any re-pinned MC
   values with documented reasons).
-- `docs/roadmap/PHASE_3_TASK_24_STATUS.md` per template 2.5, including the fix decision
+- `docs/roadmap/phase_3/tasks/PHASE_3_TASK_24_STATUS.md` per FORMATTING.md §6, including the fix decision
   and rejected alternatives.
 
 ## Task exit criteria

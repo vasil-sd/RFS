@@ -126,4 +126,4 @@ Provide:
 ## Non-goals
 
 - multi-party composition, real-time timed automata, unbounded integers, arbitrary Rust function calls in transitions, byte-level protocol codecs (v1 exclusions; post-v1 candidates);
-- full strong unbounded liveness unless implementation goes smoothly (see "Recommended v1 scope" in `INTRO.md`).
+- full strong unbounded liveness unless implementation goes smoothly (see "Recommended v1 scope" in `PRINCIPLES.md` section 3).

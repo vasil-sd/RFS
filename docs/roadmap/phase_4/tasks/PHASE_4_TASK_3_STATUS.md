@@ -22,7 +22,7 @@
 
 | Name | Type | Description |
 |---|---|---|
-| `docs/roadmap/PHASE_4_TASK_3.md` | changed | "Task corrections" section appended (4 entries: c_fsm.rs addition, pre-existing gcc -Wall fix, parity-suite bar note, shared-printers move). |
+| `docs/roadmap/phase_4/tasks/PHASE_4_TASK_3.md` | changed | "Task corrections" section appended (4 entries: c_fsm.rs addition, pre-existing gcc -Wall fix, parity-suite bar note, shared-printers move). |
 
 ## Other file changes
 

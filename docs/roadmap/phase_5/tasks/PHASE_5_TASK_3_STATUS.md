@@ -23,7 +23,7 @@
 | Name | Type | Description |
 |---|---|---|
 | `BUILD.md` | changed | Section 1: workspace note carried over from task 1 unchanged. Section 3: counts actualized to the post-task-3 state (273 root / 280 workspace; stale "part of the 230" line fixed). Section 4: new `rfs info` command row. |
-| `docs/roadmap/PHASE_5_TASK_3.md` | changed | Task corrections T3-1 (stale 230 baseline in exit criteria) + T3-2 (ext_tool unit tests inline in lib, not frontend_test). |
+| `docs/roadmap/phase_5/tasks/PHASE_5_TASK_3.md` | changed | Task corrections T3-1 (stale 230 baseline in exit criteria) + T3-2 (ext_tool unit tests inline in lib, not frontend_test). |
 
 ## Other file changes
 

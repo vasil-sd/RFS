@@ -43,8 +43,8 @@
 | `src/backends/RUST.md` | changed | section 2.1 anatomy (Sample, debug-gated StepError::PropertyViolation, post-hoc functions gone); NEW section 2.3 online monitors; section 4 MC online detection + counterexample format; R1-R4 wording |
 | `src/backends/C.md` | changed | section 4 full monitor-parity description (`mon_*` structs, `rfs_sample_t`, `#ifdef` gating, `RFS_PROPERTY_VIOLATION` fields); section 5 online detection + same counterexample fields |
 | `START.md` | changed | section 1 snapshot: Phase 3 IMPLEMENTED -> COMPLETE (close-out), next work Phase 4; counts 170/513/42/12/224 |
-| `docs/roadmap/PHASE_3_PLAN.md` | changed | "Plan corrections" table appended during execution (4a, 4b, 6, 10a, 11a, 13a + new tasks 23, 24); initial planned-tasks table untouched |
-| `docs/roadmap/PHASE_3_TASK_{13,15-24}.md` (+ `_STATUS.md`) | new | per-task implementation-detail files + completion reports per the two-stage protocol (tasks 1-12 predate the protocol; task 14 was executed without a dedicated file - see findings) |
+| `docs/roadmap/phase_3/PHASE_3_PLAN.md` | changed | "Plan corrections" table appended during execution (4a, 4b, 6, 10a, 11a, 13a + new tasks 23, 24); initial planned-tasks table untouched |
+| `docs/roadmap/phase_3/tasks/PHASE_3_TASK_{13,15-24}.md` (+ `_STATUS.md`) | new | per-task implementation-detail files + completion reports per the two-stage protocol (tasks 1-12 predate the protocol; task 14 was executed without a dedicated file - see findings) |
 
 ## Other file changes
 
@@ -119,4 +119,4 @@
 - Parser constraint workaround documented in KB: the task-23 grammar fix SUPERSEDES the earlier example-42 workaround (plan correction 13a); pure-expression conjunctions in properties now parse as `Formula::And(Expr, Expr)` instead of `Expr(Binary(LogicAnd))` - additive for JSON (old IR still deserializes), no `IR_VERSION` bump.
 - Generated C production code carries a pre-existing `-Wmaybe-uninitialized` warning on the `outs` array in `fsm_step` (3 sites for example 41) - present identically with and without monitors, i.e. not introduced by Phase 3; monitor code itself compiles warning-free under `gcc -Wall`.
 - Commit grouping: Phase 3 implementation was committed incrementally per task (protocol step t): commits `e0bc3cb`..`752702a` cover tasks 13/14/15-24 and 18-21; the close-out commit covers only the bookkeeping files (this status file, task-22 status, INTRO.md table, START.md snapshot, TASKS.md entry).
-- Next phase entry point: `docs/roadmap/PHASE_4.md` (Scalable model checking); planning-stage trigger: "let's make a plan for Phase 4".
+- Next phase entry point: `docs/roadmap/phase_4/PHASE_4.md` (Scalable model checking); planning-stage trigger: "let's make a plan for Phase 4".

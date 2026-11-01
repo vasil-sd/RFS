@@ -1,7 +1,7 @@
 # Phase 2 - Implementation status
 
 > Source: "Current status" (Phase 2 bullets) of the former `ROADMAP.md` plus the
-> 2026-10-15 `TASKS.md` entry, reorganized on 2026-10-16 into template 2.3 format
+> 2026-10-15 `TASKS.md` entry, reorganized on 2026-10-16 into FORMATTING.md §4 format
 > during the docs split.
 
 ## Added source files

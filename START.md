@@ -18,8 +18,9 @@ model-checkable (no unbounded data, floats, or arbitrary functions in the core).
 2. Never load whole large documents into context. For `KB.md` / `DESIGN.md` use
    `grep -n "^## \|^### " <file>` to get current line numbers, then
    `sed -n '<a>,<b>p'` for just the needed section. Roadmap files in
-   `docs/roadmap/` are small by design: read `INTRO.md` once per phase task and
-   only the specific `PHASE_N*.md` file you need (never all of them).
+   `docs/roadmap/` are small by design: read `INTRO.md` (+ `PROTOCOL.md` /
+   `FORMATTING.md` as needed) once per phase task and only the specific
+   `phase_N/` file you need (never all of them).
 3. Toolchain: do not search for cargo/rustc. Use the activation block in section 4.
    If a build fails with a lock-file or version error, read `TOOLCHAIN.md` (it is
    short) and follow it - do not try other toolchains first.
@@ -39,8 +40,9 @@ model-checkable (no unbounded data, floats, or arbitrary functions in the core).
    example an important math equation or an essential diagram). When in doubt: no
    image at all.
 8. Phase work (planning or implementing any project phase) follows the two-stage
-   protocol in `docs/roadmap/INTRO.md`: the planning stage ends with a written
-   `PHASE_N_PLAN.md` plus per-task `PHASE_N_TASK_M.md` files, each followed by a stop
+   protocol in `docs/roadmap/PROTOCOL.md`: the planning stage ends with a written
+   `phase_N/PHASE_N_PLAN.md` plus per-task `phase_N/tasks/PHASE_N_TASK_M.md` files,
+   each followed by a stop
    for user review; the implementation stage requires that plan file to exist before
    any code is touched and executes tasks one at a time - every task starts only
    after explicit user confirmation.
@@ -69,7 +71,7 @@ model-checkable (no unbounded data, floats, or arbitrary functions in the core).
   D-P5-1..D-P5-14: `DESIGN.md` section 23.
 - Phase 6 (production hardening and v1.0) is COMPLETE (close-out
   2026-10-25: full verification green, tag v1.0.0) per
-  `docs/roadmap/PHASE_6_PLAN.md`. Phase 6 added:
+  `docs/roadmap/phase_6/PHASE_6_PLAN.md`. Phase 6 added:
   the NORMATIVE formal semantics document (`docs/SEMANTICS.md`), the v1.0
   versioning surface (formalized `version "X.Y[.Z]"` header with validator
   format check, `IR_VERSION = 1` with {0,1} read policy, spec hash +
@@ -95,7 +97,7 @@ model-checkable (no unbounded data, floats, or arbitrary functions in the core).
   section 24.
 - Phase 7 (documentation and self-describing formats) is COMPLETE (close-out
   2026-10-28: full verification green, `PHASE_7_STATUS.md`) per
-  `docs/roadmap/PHASE_7_PLAN.md`. Docs-only phase - no parser/validator/
+  `docs/roadmap/phase_7/PHASE_7_PLAN.md`. Docs-only phase - no parser/validator/
   codegen/MC changes. Phase 7 added: in-process SVG rendering for
   `rfs diagram --render svg` (new `--renderer internal|external` flag,
   default **internal** - zero external binaries; mmd via mermaid-rs-renderer,
@@ -132,8 +134,8 @@ model-checkable (no unbounded data, floats, or arbitrary functions in the core).
 | `docs/user/` | External user documentation set (Phase 6 tasks 2.4/7): README index, LANGUAGE, PROPERTIES, MODEL_CHECKING, INTEGRATION, EXAMPLES, FAQ + MIGRATION.md - self-contained for people who have never seen this repo; mermaid diagrams throughout; machine-checked by `tests/docs_md_test.rs` (mdr parser stack) | When answering user-facing how-to questions or writing external docs | Fully (each file is short) |
 | `docs/dev/` | Developer deep-dive set (Class A, Phase 8): 18 files - per-module deep dives (parser, validator, ir_json_rw, codegen_core, backend_rust/c, mc_engine, monitor_compiler, cli_commands, workspace_crates, toolchain_fuzz) + cross-cutting docs (ARCHITECTURE, CODE_MAP, ALGORITHMS, DEPENDENCIES, DECISIONS, REFERENCES, README index); stable fragment anchors, one per ## section | When you need subsystem internals beyond the one-line roles in KB.md section 4.2; for "how is X built" questions | **Never fully** - locate fragments via `docs/llm/TASK_MAP.md`; `grep -n 'id="dev:' <file>` + sed ranges |
 | `docs/llm/` | LLM-assistant set (Class B, Phase 8): TASK_MAP (functionality -> files/functions for every command/subsystem/test suite), CHANGE_IMPACT (change type -> affected files/tests/fragments), README (index + context-budget rules), 11 per-module cards - all with machine-checked line budgets | At the start of ANY task: locate code via TASK_MAP, check impact via CHANGE_IMPACT, read exactly one card/fragment at a time | Read only the fragment(s) you need (budgets + pointers enforced by `tests/dev_docs_test.rs`) |
-| `docs/roadmap/INTRO.md` | Roadmap overview, phase-state table, formatting templates, two-stage planning/implementation protocol | When scoping, planning, or implementing any phase; checking next priorities | Fully (short) |
-| `docs/roadmap/PHASE_N.md` / `PHASE_N_PLAN.md` / `PHASE_N_TASK_M.md` / `PHASE_N_*_STATUS.md` | Phase N description (goal/scope/deliverables/exit criteria/non-goals) / implementation plan / per-task implementation details / phase or task completion status report | Description: when working on phase N. Plan: fully, before implementing. Task file: fully, before executing that task. Status: for completed phases/tasks | Fully (each is short by design) |
+| `docs/roadmap/INTRO.md` (+ `PRINCIPLES.md`, `FORMATTING.md`, `PROTOCOL.md`, `CURRENT_STATE.md`) | Roadmap index + project principles/invariants / document templates / two-stage planning-implementation protocol / phase-state table | When scoping, planning, or implementing any phase; checking next priorities | Fully (all short) |
+| `docs/roadmap/phase_N/PHASE_N.md` / `PHASE_N_PLAN.md` / `phase_N/tasks/PHASE_N_TASK_M.md` / `*_STATUS.md` | Phase N description (goal/scope/deliverables/exit criteria/non-goals) / implementation plan / per-task implementation details / phase or task completion status report | Description: when working on phase N. Plan: fully, before implementing. Task file: fully, before executing that task. Status: for completed phases/tasks | Fully (each is short by design) |
 | `CODEGEN.md` | Codegen backend plugin API, registry, how to add a new target language, testing conventions | When touching `src/codegen.rs`, `src/backends/*`, or adding a backend | Fully (~280 lines, safe) |
 | `src/backends/RUST.md` / `src/backends/C.md` | Backend internals: module split, type mapping, value representation, MC wire format | When changing generated-code output for that language | Fully (~90-150 lines, safe) |
 | `TASKS.md` | Append-only history of LLM-assisted tasks (interpretation + report per task) | To recall how a similar task was done: `grep -n "<keyword>" TASKS.md` then read that section; to append: read ONLY its first paragraph (template + rules) | Never fully |
@@ -216,10 +218,12 @@ then `sed -n '<start>,<end>p'`. Sections:
   24 Phase 6 production-hardening decisions (D-P6-1..11) /
   25 Phase 7 documentation and self-describing formats (D-P7-1..13).
 - **docs/roadmap/**: split roadmap (replaces the old `ROADMAP.md`, removed
-  2026-10-16): `INTRO.md` (overview + templates + protocol), `PHASE_0..7.md`
-  (phase descriptions), `PHASE_N_PLAN.md` / `PHASE_N_STATUS.md` where they exist
-  (status exists for completed phases 0-6). All small: read the specific file you
-  need, fully.
+  2026-10-16; per-phase directories since 2026-11-01): `INTRO.md` (index),
+  `PRINCIPLES.md` / `FORMATTING.md` / `PROTOCOL.md` / `CURRENT_STATE.md`
+  (principles, templates, protocol, phase-state table), and per phase
+  `phase_N/PHASE_N.md` (+ `PHASE_N_PLAN.md` / `PHASE_N_STATUS.md` where they
+  exist; status exists for completed phases 0-8) with task files in
+  `phase_N/tasks/`. All small: read the specific file you need, fully.
 
 ## 6. Task -> read / do / verify table (lazy loading protocol)
 
@@ -229,7 +233,7 @@ then `sed -n '<start>,<end>p'`. Sections:
 | Change RFS syntax/grammar | `DESIGN.md` sections 5-6 + `KB.md` sections 3, 6.5; add examples FIRST | Update parser/validator | Full checklist (`BUILD.md` section 5) + update DESIGN/KB |
 | Change the IR | `DESIGN.md` section 7 + `to_json`/`from_json` in `src/ir.rs` (hand-rolled, D-P5-2) | Decide backward compat; bump `IR_VERSION` if needed | JSON round-trip tests + full checklist |
 | Add a codegen backend language | `CODEGEN.md` fully + `src/backends/RUST.md` / `src/backends/C.md` as references | Implement 3 command fns in `src/backends/<lang>*.rs`, register static in `BACKENDS` | per-command generation tests (see CODEGEN section 8) |
-| Phase implementation (Phases 0-7 COMPLETE; next phase to be planned) | `docs/roadmap/INTRO.md` fully + `docs/roadmap/PHASE_N.md`; phase-specific docs (`DESIGN.md` sections 22-25 for the shipped MC/toolchain/docs decisions, `KB.md` section 2.6 for properties) | Two-stage protocol from INTRO.md: planning stage writes `PHASE_N_PLAN.md`, then stops for user review; implementation stage executes the plan, tracks corrections, writes `PHASE_N_STATUS.md` at exit criteria | Full checklist + docs sync + TASKS.md entry |
+| Phase implementation (Phases 0-8 COMPLETE; next phase to be planned) | `docs/roadmap/INTRO.md` + `PROTOCOL.md` + `FORMATTING.md` fully + `docs/roadmap/phase_N/PHASE_N.md`; phase-specific docs (`DESIGN.md` sections 22-25 for the shipped MC/toolchain/docs decisions, `KB.md` section 2.6 for properties) | Two-stage protocol from PROTOCOL.md: planning stage writes `phase_N/PHASE_N_PLAN.md`, then stops for user review; implementation stage executes the plan, tracks corrections, writes `phase_N/PHASE_N_STATUS.md` at exit criteria | Full checklist + docs sync + TASKS.md entry |
 | Improve validator/codegen checks | `DESIGN.md` sections 19-20 (decision tables D1-D10) + `KB.md` section 7 | Implement checks, add invalid examples first | Full checklist |
 | Training-set work | `KB.md` section 4.6 (format rules: 2 messages, `< think> ... < /think>` assistant, snippets auto-extracted) | Edit `training/<cat>/rfs_training.jsonl` | `cargo extract-training-snippets && cargo build-training && cargo test-training` |
 | LLM training run (GPU) | `head -60 training.py` (docstring only) + `BUILD.md` last command row | `python training.py --stage both` | `--dry-run` first for CPU-only data/reward validation |
@@ -265,7 +269,7 @@ Expected results and every command/alias: `BUILD.md` sections 3-4.
 
 Before changing language syntax:
 
-1. Search `DESIGN.md`, the relevant `docs/roadmap/PHASE_N.md`, and `KB.md` for the
+1. Search `DESIGN.md`, the relevant `docs/roadmap/phase_N/PHASE_N.md`, and `KB.md` for the
    affected decision.
 2. Add valid and invalid examples first if possible.
 3. Update parser or validator.

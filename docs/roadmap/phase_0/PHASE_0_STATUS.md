@@ -1,7 +1,7 @@
 # Phase 0 - Implementation status
 
 > Reconstructed on 2026-10-16 from the "Current status" section of the former
-> `ROADMAP.md` during the docs split (template 2.3); per-file phase attributions
+> `ROADMAP.md` during the docs split (FORMATTING.md §4); per-file phase attributions
 > follow that section.
 
 ## Added source files

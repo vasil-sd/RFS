@@ -20,8 +20,8 @@
 
 | Name | Type | Description |
 |---|---|---|
-| `docs/roadmap/PHASE_3_TASK_16.md` | changed | exit criteria checked (all five); "Task corrections" section appended (Action 1 output-format calibration, Action 2 bound selection) |
-| `docs/roadmap/PHASE_3_TASK_16_STATUS.md` | new | this file |
+| `docs/roadmap/phase_3/tasks/PHASE_3_TASK_16.md` | changed | exit criteria checked (all five); "Task corrections" section appended (Action 1 output-format calibration, Action 2 bound selection) |
+| `docs/roadmap/phase_3/tasks/PHASE_3_TASK_16_STATUS.md` | new | this file |
 
 ## Other file changes
 

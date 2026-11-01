@@ -2,7 +2,7 @@
 
 > Source: "Current Phase 1 implementation status" of the former `ROADMAP.md`,
 > including the two 2026-10-14 preparation/training bullets listed there,
-> reorganized on 2026-10-16 into template 2.3 format during the docs split.
+> reorganized on 2026-10-16 into FORMATTING.md §4 format during the docs split.
 
 ## Added source files
 

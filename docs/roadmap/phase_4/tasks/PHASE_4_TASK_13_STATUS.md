@@ -67,7 +67,7 @@
 
 ## Found problems/issues/mismatches
 
-- Stale sweep found exactly ONE live stale description: KB §13.4 presented the fuzz runtime options (`--bound/--runs/--seed/--violate/...`) as the current MC CLI - fixed with a superseded note pointing at DESIGN.md §11 + CODEGEN.md §5.3. All other fuzz/same-seed/`--violate` mentions live in FROZEN historical phase files (`docs/roadmap/PHASE_3*`, `PHASE_4.md` planning text) which are not rewritten per protocol.
+- Stale sweep found exactly ONE live stale description: KB §13.4 presented the fuzz runtime options (`--bound/--runs/--seed/--violate/...`) as the current MC CLI - fixed with a superseded note pointing at DESIGN.md §11 + CODEGEN.md §5.3. All other fuzz/same-seed/`--violate` mentions live in FROZEN historical phase files (`docs/roadmap/phase_3/*`, `phase_4/PHASE_4.md` planning text) which are not rewritten per protocol.
 - No "z3 not installed" claims anywhere; TOOLCHAIN.md §5 (z3 5.3.1 installed + verified) and BUILD.md SMT notes already agree.
 
 ## Other important findings/information

@@ -23,7 +23,7 @@ None (all changes to existing files).
 ## Other file changes
 
 None. NOTE: the TASKS.md entry for task 10 was never recorded (protocol gap -
-see the protocol-violation report); `docs/roadmap/PHASE_7_PLAN.md` carries the
+see the protocol-violation report); `docs/roadmap/phase_7/PHASE_7_PLAN.md` carries the
 correction instead.
 
 ## Changed functionality

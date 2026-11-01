@@ -1,7 +1,8 @@
 # Phase 3, Task 21 - Implementation details
 
-> Written for a future LLM session: after reading `START.md`,
-> `docs/roadmap/INTRO.md` and this file, the assistant must be able to start
+> Written for a future LLM session: after reading `START.md`, the
+> `docs/roadmap/` set (`INTRO.md` + `PROTOCOL.md` + `FORMATTING.md`) and this file,
+> the assistant must be able to start
 > implementation of the task immediately without re-deriving scope.
 
 ## Goal
@@ -12,7 +13,7 @@ grammar from task 23.
 
 ## Context
 
-- Decisions + R1-R4 source of truth: `docs/roadmap/PHASE_3_PLAN.md` section
+- Decisions + R1-R4 source of truth: `docs/roadmap/phase_3/PHASE_3_PLAN.md` section
   "Other information" (D-P3-1..D-P3-6, monitor-compilability restrictions, exact
   D-P3-3 deadline semantics with worked example). DESIGN.md section 20 shows the
   decision-table style to copy (comparison tables, D-numbering).
@@ -118,7 +119,7 @@ the Rust rendering, `RFS_PROPERTY_VIOLATION` status + `prop_label`/`prop_step`/
 
 Update section 1: Phase 3 COMPLETE with final counts (tests, examples incl. 41/42 +
 invalid_always_zero_bound, training), "Next work: Phase 4" pointer to
-`docs/roadmap/PHASE_4.md`. Keep it short (token-economy file).
+`docs/roadmap/phase_4/PHASE_4.md`. Keep it short (token-economy file).
 
 #### Affected files
 

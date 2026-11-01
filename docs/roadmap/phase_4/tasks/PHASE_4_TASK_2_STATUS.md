@@ -27,7 +27,7 @@
 
 | Name | Type | Description |
 |---|---|---|
-| `docs/roadmap/PHASE_4_TASK_2.md` | changed | "Task corrections" section appended (6 entries: rust_fsm.rs addition, fuzz pinning of Phase 3 suites, struct-update ripple, pinned deadlock/timeout semantics, config-offset bug, clippy sandbox workaround). |
+| `docs/roadmap/phase_4/tasks/PHASE_4_TASK_2.md` | changed | "Task corrections" section appended (6 entries: rust_fsm.rs addition, fuzz pinning of Phase 3 suites, struct-update ripple, pinned deadlock/timeout semantics, config-offset bug, clippy sandbox workaround). |
 
 ## Other file changes
 

@@ -1,12 +1,13 @@
 # Phase 4, Task 14 - Implementation details
 
-> Written for a future LLM session: after reading `START.md`,
-> `docs/roadmap/INTRO.md` and this file, the assistant must be able to start
+> Written for a future LLM session: after reading `START.md`, the
+> `docs/roadmap/` set (`INTRO.md` + `PROTOCOL.md` + `FORMATTING.md`) and this file,
+> the assistant must be able to start
 > implementation of the task immediately without re-deriving scope.
 
 ## Goal
 Close out Phase 4: full verification per BUILD.md section 5 (+ `gcc -Wall` spot
-check of the NEW C MC output), write `docs/roadmap/PHASE_4_STATUS.md` per template
+check of the NEW C MC output), write `docs/roadmap/phase_4/PHASE_4_STATUS.md` per template
 2.3 with exact counts, set INTRO.md state-table row 4 -> COMPLETE, add the TASKS.md
 entry, single commit, clean tree.
 
@@ -43,7 +44,7 @@ entry, single commit, clean tree.
   after Phase 3)" line (170/170, 513/513, "same-seed" wording) - missed by the
   task 13 sweep because it is dated as history. Actualize it in place during this
   task and record it in PHASE_4_STATUS.md under found problems.
-- `PHASE_4_STATUS.md` per INTRO.md template 2.3: brief explanation, influenced /
+- `PHASE_4_STATUS.md` per FORMATTING.md §4: brief explanation, influenced /
   affected tasks, added/changed/removed files (source/docs/other), changed/removed/
   new functionality, tests add/change/remove, tests run status (exact counts),
   found problems/issues/mismatches.
@@ -64,7 +65,7 @@ entry, single commit, clean tree.
 
 | File | Operation | Brief description |
 |------|-----------|-------------------|
-| `docs/roadmap/PHASE_4_STATUS.md` | new | phase status per template 2.3 with exact counts |
+| `docs/roadmap/phase_4/PHASE_4_STATUS.md` | new | phase status per FORMATTING.md §4 with exact counts |
 | `docs/roadmap/INTRO.md` | change | state table row 4 -> COMPLETE |
 | `TASKS.md` | change | one entry per the template in its first paragraph |
 
@@ -82,14 +83,14 @@ its source (never by weakening a test); re-run until green.
 | (fixes at their source, if any) | change | verification failures resolved properly |
 
 ### Action 2: PHASE_4_STATUS.md
-Write the status file per template 2.3 with EXACT counts from this task's runs
+Write the status file per FORMATTING.md §4 with EXACT counts from this task's runs
 (main tests, generated tests, examples valid/invalid, benchmark suite results,
 training counts) and the collected per-task data (Context).
 
 #### Affected files
 | File | Operation | Description + rationale |
 |------|-----------|-------------------------|
-| `docs/roadmap/PHASE_4_STATUS.md` | new | phase close-out record |
+| `docs/roadmap/phase_4/PHASE_4_STATUS.md` | new | phase close-out record |
 
 ### Action 3: Bookkeeping
 INTRO.md state-table row 4 -> COMPLETE (with the one-line Phase 4 summary); TASKS.md
@@ -122,7 +123,7 @@ committed individually per protocol step t); `git status` clean.
 - [ ] `cargo test --features smt` green (z3 env per TOOLCHAIN.md 5.2).
 - [ ] `gcc -Wall` spot check of the new C MC output clean.
 - [ ] BUILD.md section 5 baseline line actualized to the final Phase 4 numbers.
-- [ ] `PHASE_4_STATUS.md` complete per template 2.3 (all sections, exact numbers).
+- [ ] `PHASE_4_STATUS.md` complete per FORMATTING.md §4 (all sections, exact numbers).
 - [ ] INTRO.md state-table row 4 COMPLETE; TASKS.md entry added.
 - [ ] Single close-out commit; `git status` clean.
 

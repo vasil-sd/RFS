@@ -16,8 +16,8 @@ None (close-out task - verification + docs only).
 
 | Name | Type | Description |
 |---|---|---|
-| `docs/roadmap/PHASE_7_STATUS.md` | new | phase status per template 2.3: file lists, functionality deltas, pointer to D-P7-1..D-P7-13 (DESIGN.md section 25), full verification matrix results, pinned plantuml-core rev |
-| `docs/roadmap/PHASE_7_TASK_16_STATUS.md` | new | this file |
+| `docs/roadmap/phase_7/PHASE_7_STATUS.md` | new | phase status per FORMATTING.md §4: file lists, functionality deltas, pointer to D-P7-1..D-P7-13 (DESIGN.md section 25), full verification matrix results, pinned plantuml-core rev |
+| `docs/roadmap/phase_7/tasks/PHASE_7_TASK_16_STATUS.md` | new | this file |
 | `BUILD.md` | changed | section 5 baseline re-measured at close-out (2026-10-28): training aggregate 261 -> 264, clippy warning breakdown (46 lines / 35 unique), date/phase reference updated; section 3 suite rows already current from tasks 4-14 |
 | `KB.md` | changed | lint/format line fixed: 36 -> 46 warning lines / 35 unique with the exact file distribution |
 | `START.md` | changed | Phase 7 completion summary + known-good baseline re-measured at close-out (2026-10-28) |

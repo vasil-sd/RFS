@@ -29,7 +29,7 @@
 |---|---|---|
 | `TOOLCHAIN.md` | changed | New section 6: install commands (apt graphviz/plantuml, npm mermaid-cli) with verified versions, parameterization table (env vars + CLI overrides), by-hand invocations per tool, gotchas (mmdc --no-sandbox as root + -o extension restriction; plantuml exit-200 + error-SVG quirk; NO concurrent mmdc in this container). |
 | `BUILD.md` | changed | Section 3 counts actualized (299 root / 306 workspace, frontend suite note incl. the diagram tests); section 4 new `rfs diagram` command row. |
-| `docs/roadmap/PHASE_5_TASK_8.md` | changed | Extended plan per user requirement (plugin architecture, 5 formats, strict render errors) - see TASKS.md entry for the decision record. |
+| `docs/roadmap/phase_5/tasks/PHASE_5_TASK_8.md` | changed | Extended plan per user requirement (plugin architecture, 5 formats, strict render errors) - see TASKS.md entry for the decision record. |
 
 ## Other file changes
 

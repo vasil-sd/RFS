@@ -16,8 +16,8 @@ None - all checks passed without touching code or examples.
 
 | Name | Type | Description |
 |---|---|---|
-| `docs/roadmap/PHASE_3_TASK_13.md` | changed | exit criteria checked (all four) |
-| `docs/roadmap/PHASE_3_TASK_13_STATUS.md` | new | this file |
+| `docs/roadmap/phase_3/tasks/PHASE_3_TASK_13.md` | changed | exit criteria checked (all four) |
+| `docs/roadmap/phase_3/tasks/PHASE_3_TASK_13_STATUS.md` | new | this file |
 
 ## Other file changes
 

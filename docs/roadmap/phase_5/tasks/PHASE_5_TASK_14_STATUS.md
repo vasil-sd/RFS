@@ -6,7 +6,7 @@ Completed 2026-10-23. Training data for the Phase 5 user-facing surface: 13 new 
 
 | File | Description |
 |---|---|
-| `docs/roadmap/PHASE_5_TASK_14_STATUS.md` | this file |
+| `docs/roadmap/phase_5/tasks/PHASE_5_TASK_14_STATUS.md` | this file |
 
 ## Changed/removed source files
 

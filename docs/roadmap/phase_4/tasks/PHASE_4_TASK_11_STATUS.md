@@ -13,7 +13,7 @@ PASSED. z3 **5.3.1** verified at `/workspace/host/z3` (`z3 --version` + sanity q
 - `src/backends/rust_mc.rs` (changed): `--mode smt-bounded` branch in `generate_model_checker` + `SMT_ENGINE_RUST` runtime (step variables with fixed names, k-step unrolling, first-match firing, ITE next-state/next-var chains, alive predicate, safety/liveness queries, pinned summary lines, exit codes 0/1/2).
 - `src/backends/c_mc.rs` (changed): mirror branch + `SMT_ENGINE_C` - same constraint construction order and z3 operations in the C API; compiles warning-free under `gcc -Wall`.
 - `tests/smt_bounded_test.rs` (new, feature-gated): e2e parity gate - 3 inline wide-bitvector specs (safety FAIL at step 0 / liveness cycle / PASS) x both backends: gcc -Wall compile (zero warnings), offline scratch-cargo Rust build under `target/`, byte-identical stdout + exit codes, pinned summary lines; plus runtime `--bound` override check.
-- `docs/roadmap/PHASE_4_TASK_11_STATUS.md` (new): this file.
+- `docs/roadmap/phase_4/tasks/PHASE_4_TASK_11_STATUS.md` (new): this file.
 
 ## Design notes / deviations
 - **Parity by construction (D-P4-12):** both backends render the SAME `SmtSpec` with the SAME traversal and the SAME z3 operations; step variables are z3 CONSTANTS with fixed names (`s_<i>`, `v_<i>_<j>`, `ev_<i>`, `fld_<i>_<g>`) - Rust builders recreate them by name (hash-consing returns the same node), C builders receive them as pointers. The unit test normalizes every builder function to an op-token sequence and asserts Rust == C.

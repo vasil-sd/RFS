@@ -1,14 +1,15 @@
 # Phase 5, Task 16 - Implementation details
 
-> Written for a future LLM session: after reading `START.md`,
-> `docs/roadmap/INTRO.md` and this file, the assistant must be able to start
+> Written for a future LLM session: after reading `START.md`, the
+> `docs/roadmap/` set (`INTRO.md` + `PROTOCOL.md` + `FORMATTING.md`) and this file,
+> the assistant must be able to start
 > implementation of the task immediately without re-deriving scope.
 
 ## Goal
 Close out Phase 5: full verification per BUILD.md section 5 (+ Phase 5
 additions: gcc -Wall spot checks of new C output, no_std compile sweep,
-workspace build of all example crates), write `docs/roadmap/PHASE_5_STATUS.md`
-per template 2.3 with exact counts, set INTRO.md state-table row 5 -> COMPLETE,
+workspace build of all example crates), write `docs/roadmap/phase_5/PHASE_5_STATUS.md`
+per FORMATTING.md §4 with exact counts, set INTRO.md state-table row 5 -> COMPLETE,
 add the TASKS.md entry, single commit, clean tree.
 
 ## Context
@@ -32,7 +33,7 @@ add the TASKS.md entry, single commit, clean tree.
   examples, training aggregate 231 lines. Expected growth: new frontend/info/
   diagram/ext_tool tests, grown aggregate crate (tasks 5/6), grown training
   aggregate (task 13) - record the FINAL exact numbers from this task's runs.
-- `PHASE_5_STATUS.md` per INTRO.md template 2.3: added/changed/removed files
+- `PHASE_5_STATUS.md` per FORMATTING.md §4: added/changed/removed files
   (source/docs/other), changed/removed/new functionality, tests add/change/
   remove, tests run status (exact counts), found problems/issues/mismatches.
 - Collect from the per-task STATUS files: workspace/alias record (task 1),
@@ -53,7 +54,7 @@ add the TASKS.md entry, single commit, clean tree.
 
 | File | Operation | Brief description |
 |------|-----------|-------------------|
-| `docs/roadmap/PHASE_5_STATUS.md` | new | phase status per template 2.3 with exact counts |
+| `docs/roadmap/phase_5/PHASE_5_STATUS.md` | new | phase status per FORMATTING.md §4 with exact counts |
 | `docs/roadmap/INTRO.md` | change | state table row 5 -> COMPLETE |
 | `TASKS.md` | change | one entry per the template in its first paragraph |
 
@@ -73,7 +74,7 @@ commit without recording them.
 | (fixes at their source, if any) | change | verification failures resolved properly |
 
 ### Action 2: PHASE_5_STATUS.md
-Write the status file per template 2.3 with EXACT counts from this task's runs
+Write the status file per FORMATTING.md §4 with EXACT counts from this task's runs
 (main tests, generated tests + module count, examples valid/invalid, training
 counts, suite results) and the collected per-task data (Context).
 
@@ -81,7 +82,7 @@ counts, suite results) and the collected per-task data (Context).
 
 | File | Operation | Description + rationale |
 |------|-----------|-------------------------|
-| `docs/roadmap/PHASE_5_STATUS.md` | new | phase close-out record |
+| `docs/roadmap/phase_5/PHASE_5_STATUS.md` | new | phase close-out record |
 
 ### Action 3: Bookkeeping
 INTRO.md state-table row 5 -> COMPLETE (with the one-line Phase 5 summary +
@@ -117,7 +118,7 @@ committed individually per protocol step t); `git status` clean.
 - [ ] Workspace build of all example crates green; gcc -Wall spot checks of new C output clean; no_std sweep green.
 - [ ] `cargo test --features smt` still green (Phase 4 optional mode unbroken).
 - [ ] `--print-script` smoke: `rfs test --print-script` and `rfs diagram --format svg --print-script` emit scripts without executing.
-- [ ] `PHASE_5_STATUS.md` complete per template 2.3 (all sections, exact numbers).
+- [ ] `PHASE_5_STATUS.md` complete per FORMATTING.md §4 (all sections, exact numbers).
 - [ ] INTRO.md state-table row 5 COMPLETE; TASKS.md entry added.
 - [ ] Single close-out commit; `git status` clean.
 

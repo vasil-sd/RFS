@@ -101,7 +101,7 @@ No source files were removed (`git diff --diff-filter=D` empty over the whole ph
 | `TOOLCHAIN.md` | changed | Section 7.5 root-level fuzz workspace conventions (task 5); clang/libclang-rt install notes current. |
 | `CODEGEN.md`, `src/backends/{C,RUST}.md` | changed | Generated-artifact contract updated: line-1 header, wide-op well-definedness, report fields (tasks 2/3/6, synced in 9). |
 | `START.md` | changed | File-set rows + reading guidance for the new docs/suites; dev-deps note (task 9). |
-| `docs/roadmap/PHASE_6_PLAN.md`, `PHASE_6_TASK_{1..10}.md` (+ `_STATUS` files) | new | Two-stage protocol artifacts: plan D-P6-1..D-P6-11 with corrections 2a/4b/5a/5b/6a/6b/6c/6d, per-task specs + status reports. |
+| `docs/roadmap/phase_6/PHASE_6_PLAN.md`, `PHASE_6_TASK_{1..10}.md` (+ `_STATUS` files) | new | Two-stage protocol artifacts: plan D-P6-1..D-P6-11 with corrections 2a/4b/5a/5b/6a/6b/6c/6d, per-task specs + status reports. |
 
 ## Other file changes
 

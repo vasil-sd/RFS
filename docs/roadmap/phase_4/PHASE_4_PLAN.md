@@ -1,7 +1,8 @@
 # Phase 4 - Implementation plan
 
-> Written for a future LLM session: after reading `START.md`,
-> `docs/roadmap/INTRO.md` and this file, the assistant must be able to start
+> Written for a future LLM session: after reading `START.md`, the
+> `docs/roadmap/` set (`INTRO.md` + `PROTOCOL.md` + `FORMATTING.md`) and this file,
+> the assistant must be able to start
 > implementation immediately without re-deriving scope.
 
 ## Context
@@ -161,7 +162,7 @@
 | 11. | SMT bounded mode (OPTIONAL) | `Cargo.toml` (change - z3 dep, feature-gated); `src/backends/rust_mc.rs` or `src/backends/rust_smt.rs` (new/change); `src/backends/c_mc.rs` (change); `TOOLCHAIN.md` (change - section 5 status line only if reinstall/version bump needed); docs per task 13 | Step 0: verify z3 install per `TOOLCHAIN.md` section 5 (installed during planning; reinstall if missing). Feasibility gate: scratch build of the `z3` crate 0.21.x against `/workspace/host/z3` (env vars per section 5.2); if it fails -> plan correction deferring to Phase 5/6 with rationale (D-P4-12). If proceeding: `--mode smt-bounded`, k-liveness for liveness, results clearly labeled incomplete, identical CLI semantics + results in both backends (same libz3 in Rust and C). |
 | 12. | Training data update | `training/properties_temporal_logic/rfs_training.jsonl` (change); `training/model_checking_properties/rfs_training.jsonl` (change); `training/<cat>/snippets/**` + `all_rfs_training.jsonl` (regenerate) | SFT examples: `eventually`/`until` syntax + weak-until semantics, exact MC statuses (`pass-complete`/`fail`/`unknown-state-limit`), input abstraction, liveness counterexamples; regenerate snippets + aggregate; `cargo test-training` green. |
 | 13. | Docs sync | `DESIGN.md` (change - sections 5/6/7, section 11 REWRITTEN for the exact engine, section 12 subset table, NEW section 22 "Phase 4 model-checking decisions" D-P4-1..N); `KB.md` (change); `BUILD.md` (change); `CODEGEN.md` (change); `src/backends/RUST.md` (change); `src/backends/C.md` (change); `START.md` (change - section 1 snapshot) | Sync all design-relevant docs to the final Phase 4 state: exact engine architecture, statuses, liveness algorithm + fairness policy, input-abstraction soundness, SMT outcome (implemented or deferred), benchmark suite. |
-| 14. | Close-out | `docs/roadmap/PHASE_4_STATUS.md` (new); `docs/roadmap/INTRO.md` (change - state table row 4); `TASKS.md` (change) | Full verification per BUILD.md section 5 + `gcc -Wall` spot check of the NEW C MC output; `PHASE_4_STATUS.md` per template 2.3 with exact counts; state-table row 4 -> COMPLETE; TASKS.md entry; single commit; clean tree. |
+| 14. | Close-out | `docs/roadmap/phase_4/PHASE_4_STATUS.md` (new); `docs/roadmap/INTRO.md` (change - state table row 4); `TASKS.md` (change) | Full verification per BUILD.md section 5 + `gcc -Wall` spot check of the NEW C MC output; `PHASE_4_STATUS.md` per FORMATTING.md §4 with exact counts; state-table row 4 -> COMPLETE; TASKS.md entry; single commit; clean tree. |
 
 ## Plan corrections (during execution)
 

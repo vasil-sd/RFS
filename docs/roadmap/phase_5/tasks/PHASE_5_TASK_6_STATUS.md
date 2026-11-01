@@ -1,6 +1,6 @@
 # Phase 5, Task 6 - Implementation status
 
-> Written once when all exit criteria of `docs/roadmap/PHASE_5_TASK_6.md` are
+> Written once when all exit criteria of `docs/roadmap/phase_5/tasks/PHASE_5_TASK_6.md` are
 > reached. Not rewritten afterwards; later fixes go into TASKS.md entries and
 > follow-up phase plans.
 
@@ -32,7 +32,7 @@
 ## Other file changes
 
 - `TASKS.md`: one new entry (2026-10-22).
-- `docs/roadmap/PHASE_5_TASK_6.md`: "Task corrections" section appended (C6-1 zero-warning bar extended to all artifacts, C6-2 negative-test handler mirrored to Rust, C6-3 per-test PASS/FAIL lines introduced for ALL tests).
+- `docs/roadmap/phase_5/tasks/PHASE_5_TASK_6.md`: "Task corrections" section appended (C6-1 zero-warning bar extended to all artifacts, C6-2 negative-test handler mirrored to Rust, C6-3 per-test PASS/FAIL lines introduced for ALL tests).
 
 ## Changed functionality
 

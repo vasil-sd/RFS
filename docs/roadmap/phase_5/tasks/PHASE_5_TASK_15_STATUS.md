@@ -6,7 +6,7 @@ Completed 2026-10-23. All design-relevant documentation synced to the FINAL Phas
 
 | File | Description |
 |---|---|
-| `docs/roadmap/PHASE_5_TASK_15_STATUS.md` | this file |
+| `docs/roadmap/phase_5/tasks/PHASE_5_TASK_15_STATUS.md` | this file |
 
 ## Changed/removed source files
 

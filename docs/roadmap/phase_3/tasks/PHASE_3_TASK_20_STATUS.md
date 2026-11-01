@@ -17,7 +17,7 @@ None.
 | Name | Type | Description |
 |---|---|---|
 | `BUILD.md` | changed | section 4 counts updated to regenerated actuals: aggregate codegen test crate 162 -> **171 modules**, generated unit tests 492 -> **513**, snippets 120 valid / 125 invalid -> **125 valid / 125 invalid**, aggregate 219 -> **224 examples**. (Section 3's main-test count line and section 5's dated Phase 2 baseline are left for task 21's broader BUILD.md sync.) |
-| `docs/roadmap/PHASE_3_TASK_20_STATUS.md` | new | this file. |
+| `docs/roadmap/phase_3/tasks/PHASE_3_TASK_20_STATUS.md` | new | this file. |
 
 ## Other file changes
 

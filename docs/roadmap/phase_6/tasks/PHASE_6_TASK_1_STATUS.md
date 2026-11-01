@@ -29,10 +29,10 @@
 
 | Name | Operation | Description |
 |---|---|---|
-| `docs/roadmap/PHASE_6_PLAN.md` | changed | "Plan corrections" table: row 2a (new task - C expression lowering fix, found in this task's cross-check) + row 6.1 (change - final examples_test count re-pin becomes 50/13 because task 2a adds example 50 first). The "Planned tasks" table is untouched. |
-| `docs/roadmap/PHASE_6_TASK_2A.md` | new | task file for the correction-added task (C guarded shifts + uint64-wide multiplication, example 50_wide_ops.rfs, targeted cross-backend parity test, one re-pin sweep) |
-| `docs/roadmap/PHASE_6_TASK_6.md` | changed | count mentions 49/13 -> 50/13 (4 places) per plan correction 6.1; no other content touched |
-| `docs/roadmap/PHASE_6_TASK_1.md` | changed | "Other information": cross-check pass results appended (sources checked table + 6 findings with resolutions); planned sections untouched |
+| `docs/roadmap/phase_6/PHASE_6_PLAN.md` | changed | "Plan corrections" table: row 2a (new task - C expression lowering fix, found in this task's cross-check) + row 6.1 (change - final examples_test count re-pin becomes 50/13 because task 2a adds example 50 first). The "Planned tasks" table is untouched. |
+| `docs/roadmap/phase_6/tasks/PHASE_6_TASK_2A.md` | new | task file for the correction-added task (C guarded shifts + uint64-wide multiplication, example 50_wide_ops.rfs, targeted cross-backend parity test, one re-pin sweep) |
+| `docs/roadmap/phase_6/tasks/PHASE_6_TASK_6.md` | changed | count mentions 49/13 -> 50/13 (4 places) per plan correction 6.1; no other content touched |
+| `docs/roadmap/phase_6/tasks/PHASE_6_TASK_1.md` | changed | "Other information": cross-check pass results appended (sources checked table + 6 findings with resolutions); planned sections untouched |
 
 ## Changed functionality
 

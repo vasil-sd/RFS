@@ -403,7 +403,7 @@ inside a bounded-eventually body) are enforced by the shared monitor compiler,
 identical in every backend. Formulas outside R1-R4 parse + validate succeed;
 codegen in EVERY backend emits the same skip warning and generates no monitor
 for that label.
-**Why:** the backend parity principle (INTRO.md) - same functionality and
+**Why:** the backend parity principle (PRINCIPLES.md) - same functionality and
 exactly the same observable behavior in ALL backends, with differential
 testing meaningful; Rust-only monitors would leave C MC silently skipping
 liveness assumptions and property detection.
@@ -430,9 +430,9 @@ Table: DESIGN.md section 21, D-P3-6 - Code: `src/codegen.rs::PropertyMonitorMode
 ## Phase 4 (D-P4-1..14) + Phase 5 (D-P5-1..14)
 
 Phase 4 shipped scalable model checking as implemented (plan:
-`docs/roadmap/PHASE_4_PLAN.md`; full semantics: DESIGN.md section 11). Phase 5
+`docs/roadmap/phase_4/PHASE_4_PLAN.md`; full semantics: DESIGN.md section 11). Phase 5
 shipped the full toolchain and production integration (plan:
-`docs/roadmap/PHASE_5_PLAN.md`; full command behavior: KB.md section 4.5).
+`docs/roadmap/phase_5/PHASE_5_PLAN.md`; full command behavior: KB.md section 4.5).
 Each entry below summarizes the shipped decision with its rationale and links
 to the implementing code.
 
@@ -929,11 +929,11 @@ Table: DESIGN.md section 23, D-P5-14 - Code:
 ## Phase 6 (D-P6-1..11) + Phase 7 (D-P7-1..13)
 
 Phase 6 shipped production hardening and v1.0 (plan:
-`docs/roadmap/PHASE_6_PLAN.md`; normative semantics: `docs/SEMANTICS.md`).
+`docs/roadmap/phase_6/PHASE_6_PLAN.md`; normative semantics: `docs/SEMANTICS.md`).
 Phase 7 is a DOCS-ONLY phase: in-process SVG rendering for `rfs diagram
 --render svg` plus the new `rfs info format` family with embedded
 machine-readable models and sync tests that keep the documentation pinned to
-the code (plan: `docs/roadmap/PHASE_7_PLAN.md`). Each entry below summarizes
+the code (plan: `docs/roadmap/phase_7/PHASE_7_PLAN.md`). Each entry below summarizes
 the shipped decision with its rationale and links to the implementing code.
 
 ### D-P6-1. The v1.0 syntax version header is the EXISTING `version "..."` mechanism, formalized (task 2.1)

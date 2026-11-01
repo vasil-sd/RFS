@@ -1,12 +1,13 @@
 # Phase 3, Task 22 - Implementation details
 
-> Written for a future LLM session: after reading `START.md`,
-> `docs/roadmap/INTRO.md` and this file, the assistant must be able to start
+> Written for a future LLM session: after reading `START.md`, the
+> `docs/roadmap/` set (`INTRO.md` + `PROTOCOL.md` + `FORMATTING.md`) and this file,
+> the assistant must be able to start
 > implementation of the task immediately without re-deriving scope.
 
 ## Goal
 Planned task 22: full verification per the BUILD.md checklist, write
-`docs/roadmap/PHASE_3_STATUS.md` (template 2.3), update the INTRO.md phase-state table,
+`docs/roadmap/phase_3/PHASE_3_STATUS.md` (FORMATTING.md §4), update the INTRO.md phase-state table,
 append the TASKS.md entry, and commit - closing Phase 3.
 
 ## Context
@@ -43,7 +44,7 @@ append the TASKS.md entry, and commit - closing Phase 3.
 
 | File | Operation | Brief description |
 |------|-----------|-------------------|
-| `docs/roadmap/PHASE_3_STATUS.md` | new | phase completion report per template 2.3 |
+| `docs/roadmap/phase_3/PHASE_3_STATUS.md` | new | phase completion report per FORMATTING.md §4 |
 | `docs/roadmap/INTRO.md` | change | section 1 phase-state table row 3 -> COMPLETE + file list |
 | `TASKS.md` | change | append the Phase 3 close-out entry (first-paragraph template) |
 
@@ -63,9 +64,9 @@ clean.
 |------|-----------|-------------------------|
 | (none - verification only) | - | results recorded in PHASE_3_STATUS.md "Tests run status" |
 
-### Action 2: Write PHASE_3_STATUS.md per template 2.3
+### Action 2: Write PHASE_3_STATUS.md per FORMATTING.md §4
 
-Fill ALL sections of template 2.3: added source files (`src/monitor.rs`),
+Fill ALL sections of FORMATTING.md §4: added source files (`src/monitor.rs`),
 changed/removed source files (parser, ir, printer, validator, codegen, main,
 backends rust/c x fsm/test/mc, bins, tests), documentation files (all task-21 files +
 C.md/RUST.md), other file changes (examples 41/42 + invalid_always_zero_bound + example
@@ -84,7 +85,7 @@ both fixed), other findings (parser constraint workaround documented in KB).
 
 | File | Operation | Description + rationale |
 |------|-----------|-------------------------|
-| `docs/roadmap/PHASE_3_STATUS.md` | new | the phase completion report (written once, never rewritten) |
+| `docs/roadmap/phase_3/PHASE_3_STATUS.md` | new | the phase completion report (written once, never rewritten) |
 
 ### Action 3: Update INTRO.md phase-state table
 
@@ -117,7 +118,7 @@ clean working tree.
 
 ## Task exit criteria
 - [ ] All checklist commands exit 0 (build, test, clippy, fmt, generated aggregate, validate examples/valid, gcc -Wall spot check).
-- [ ] `PHASE_3_STATUS.md` exists and follows template 2.3 with exact counts.
+- [ ] `PHASE_3_STATUS.md` exists and follows FORMATTING.md §4 with exact counts.
 - [ ] INTRO.md state table row 3 = COMPLETE with full file list.
 - [ ] TASKS.md entry appended; single commit made; `git status` clean.
 
@@ -136,5 +137,5 @@ clean working tree.
 
 - Commit grouping: everything Phase 3-related in one commit (the protocol-change commit
   8707574 is already separate and stays as-is).
-- After the commit, the next phase entry point is `docs/roadmap/PHASE_4.md` + planning
+- After the commit, the next phase entry point is `docs/roadmap/phase_4/PHASE_4.md` + planning
   stage trigger "let's make a plan for Phase 4".

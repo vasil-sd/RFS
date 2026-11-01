@@ -1,7 +1,8 @@
 # Phase 6, Task 2a - Implementation details
 
-> Written for a future LLM session: after reading `START.md`,
-> `docs/roadmap/INTRO.md` and this file, the assistant must be able to start
+> Written for a future LLM session: after reading `START.md`, the
+> `docs/roadmap/` set (`INTRO.md` + `PROTOCOL.md` + `FORMATTING.md`) and this file,
+> the assistant must be able to start
 > implementation of the task immediately without re-deriving scope.
 >
 > Added by plan correction (Phase 6 task 1 cross-check finding; see
@@ -48,7 +49,7 @@ that exercise both cases.
   `(l op r) mod 2^w`; shift: `amount >= w -> 0`, logical (unsigned) shifts
   only. The Rust backend is the reference; the SMT encoder already implements
   `amount >= width -> 0` faithfully (DESIGN section 11, D-P4-12).
-- **Parity principle** (INTRO.md): same observable behavior in ALL backends -
+- **Parity principle** (PRINCIPLES.md): same observable behavior in ALL backends -
   UB violates this contract and Phase 6's "no invalid target-language code
   from valid specs" goal.
 - Example numbering: 47/48/49 are reserved by task 6.1; this task uses

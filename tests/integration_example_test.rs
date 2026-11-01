@@ -1,7 +1,7 @@
 //! Phase 2 integration example: a realistic endpoint-protocol spec is compiled
 //! to production Rust, and a driver reads events from an mpsc channel, steps
 //! the generated FSM, and asserts on the emitted outputs. This proves the
-//! Phase 2 exit criteria (docs/roadmap/PHASE_2.md): "a realistic endpoint
+//! Phase 2 exit criteria (docs/roadmap/phase_2/PHASE_2.md): "a realistic endpoint
 //! protocol spec compiles to production Rust" and "generated code is
 //! deterministic and testable".
 

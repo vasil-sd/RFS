@@ -1,7 +1,8 @@
 # Phase 3 - Implementation plan
 
-> Written for a future LLM session: after reading `START.md`, `docs/roadmap/INTRO.md`
-> and this file, the assistant must be able to start implementation immediately
+> Written for a future LLM session: after reading `START.md`, the
+> `docs/roadmap/` set (`INTRO.md` + `PROTOCOL.md` + `FORMATTING.md`) and this file,
+> the assistant must be able to start implementation immediately
 > without re-deriving scope. Planning stage completed 2026-10-16; revised
 > 2026-10-16 per user roadmap change - backend parity principle (all backends:
 > same functionality, identical behavior, cross-tested); awaiting user review.
@@ -54,7 +55,7 @@
 | 19. | Training-set update | `training/properties_temporal_logic/rfs_training.jsonl` (change); `training/model_checking_properties/rfs_training.jsonl` (change) | Add 2-3 SFT examples on `always[N]` syntax/semantics, the monitor-compilation concept, and restrictions R1-R4; add 1-2 on online monitors in MC, assumption pruning, and enhanced counterexamples. Keep the 2-message format with `< think> ... < /think>` assistant content per KB section 4.6; rfs code blocks become snippets automatically. |
 | 20. | Regenerate snippets + aggregate + training tests | `training/<cat>/snippets/**` (change); `all_rfs_training.jsonl` (change) | `cargo extract-training-snippets && cargo build-training && cargo test-training`; update expected snippet/aggregate counts in BUILD.md sections 3-4 if they changed. |
 | 21. | Docs sync | `DESIGN.md` (change: section 5.10 add `always[N]` + monitor semantics, section 7 IR note for the additive variant, section 12 mark implemented subset, new section 21 "Phase 3 property/monitor decisions" with D-P3-1..D-P3-6 tables in the D1-D10 style); `KB.md` (change: sections 2.6, 3.9, 4.2 add src/monitor.rs, 1 state table, 7 limitations incl. replacing the post-hoc assumption-check note with online monitors in both backends); `BUILD.md` (change: `--with-property-monitors` row, updated test counts, parity suite row); `CODEGEN.md` (change: BackendOptions field, monitor conventions, testing conventions incl. cross-backend parity tests); `src/backends/RUST.md` (change: Sample, monitor structs, StepError variant, debug hooks, post-hoc check removal); `START.md` (change: section 1 snapshot counts + next work -> Phase 4) | Keeps docs synchronized with design-relevant changes (KB section 6.6 / START section 8). Decision tables follow the style of DESIGN section 20. (`src/backends/C.md` is updated in task 11, not here.) |
-| 22. | Roadmap state update + full verification + phase close-out | `docs/roadmap/INTRO.md` (change: phase-state table row 3 -> COMPLETE with PHASE_3_STATUS.md listed); all suites | Update the phase-state table per INTRO section 4; run the BUILD.md section 5 checklist (`cargo build && cargo test && cargo clippy --all-targets && cargo fmt --check` - includes the new parity + integration suites), `cargo generate-code-tests && cargo test-generated-code`, `cargo run -- validate --input rfs examples/valid` (exit 0), and a `gcc -Wall` spot check of the NEW C monitor output. Then write `docs/roadmap/PHASE_3_STATUS.md` per template 2.3, append the TASKS.md entry, and commit (protocol 3.2 g-i). |
+| 22. | Roadmap state update + full verification + phase close-out | `docs/roadmap/INTRO.md` (change: phase-state table row 3 -> COMPLETE with PHASE_3_STATUS.md listed); all suites | Update the phase-state table per PRINCIPLES.md section 2; run the BUILD.md section 5 checklist (`cargo build && cargo test && cargo clippy --all-targets && cargo fmt --check` - includes the new parity + integration suites), `cargo generate-code-tests && cargo test-generated-code`, `cargo run -- validate --input rfs examples/valid` (exit 0), and a `gcc -Wall` spot check of the NEW C monitor output. Then write `docs/roadmap/phase_3/PHASE_3_STATUS.md` per FORMATTING.md §4, append the TASKS.md entry, and commit (PROTOCOL.md §3 steps g-i). |
 
 ## Plan corrections (during execution)
 
@@ -118,7 +119,7 @@ renumbered (old 16-20 -> 18-22), exit-criteria mapping updated.
   (trial-step forced violations, `--assumes`, integration tests) keep working unchanged.
   `PROPERTY_LABELS`/`ASSUME_LABELS` constants stay.
 - **D-P3-5 (C backend - REVISED 2026-10-16 per user roadmap change):** full monitor
-  parity in Phase 3. The backend parity principle (`INTRO.md`) requires all backends
+  parity in Phase 3. The backend parity principle (`PRINCIPLES.md`) requires all backends
   to have the same functionality and exactly the same behavior: the C backend renders
   the same `MonitorPlan` (task 11), its MC runtime gets online detection + enhanced
   counterexamples (task 12), and cross-backend differential tests (task 17) verify

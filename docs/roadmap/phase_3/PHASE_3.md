@@ -5,7 +5,7 @@
 Add the requested PSL-like temporal property language in a monitor-friendly form.
 All codegen backends (Rust and C, and any later backend) generate functionally
 identical monitors with exactly the same behavior - per the backend parity
-principle in `INTRO.md`.
+principle in `PRINCIPLES.md`.
 
 ## Scope
 

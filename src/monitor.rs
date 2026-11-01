@@ -6,7 +6,7 @@
 //! the single source of truth: Rust and C codegen render the same tree, so
 //! both backends step monitors identically on the same input sequence.
 //!
-//! Semantics are pinned by D-P3-3 (`docs/roadmap/PHASE_3_PLAN.md`):
+//! Semantics are pinned by D-P3-3 (`docs/roadmap/phase_3/PHASE_3_PLAN.md`):
 //! - samples carry post-step values; sample 0 is the initial configuration
 //!   (no input/outputs, so `input_is`/`output_has` are false there);
 //! - a formula is evaluated over the trace starting at position 0: temporal

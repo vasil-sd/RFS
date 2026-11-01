@@ -1,7 +1,8 @@
 # Phase 8, Task 8 - Implementation details
 
-> Written for a future LLM session: after reading `START.md`,
-> `docs/roadmap/INTRO.md` and this file, the assistant must be able to start
+> Written for a future LLM session: after reading `START.md`, the
+> `docs/roadmap/` set (`INTRO.md` + `PROTOCOL.md` + `FORMATTING.md`) and this file,
+> the assistant must be able to start
 > implementation of the task immediately without re-deriving scope.
 
 ## Goal
@@ -848,5 +849,5 @@ scope decision (plan Corrections entry 3).
 
 | Correction | Description + rationale |
 |------------|-------------------------|
-| Subtask 8.2 added to this task file at execution (2026-10-30) | The file was initially written for plan row 8.1 only (user request "prepare to execute task8, subtask 8.1"); plan rows 8.1-8.3 are the group-8 deep dives and the user's model is one task file per plan group ("task 8.2" = subtask of task file 8). The 8.2 section above was appended after 8.1 completed, following template 2.4 internally; the frozen 8.1 sections are kept as the historical record. |
-| Subtask 8.3 added to this task file at execution (2026-10-30) | Same scheme as 8.2: plan rows 8.1-8.3 are the group-8 deep dives, one task file per plan group; the 8.3 section above was appended after 8.2 completed, following template 2.4 internally; the frozen 8.1/8.2 sections are kept as the historical record. |
+| Subtask 8.2 added to this task file at execution (2026-10-30) | The file was initially written for plan row 8.1 only (user request "prepare to execute task8, subtask 8.1"); plan rows 8.1-8.3 are the group-8 deep dives and the user's model is one task file per plan group ("task 8.2" = subtask of task file 8). The 8.2 section above was appended after 8.1 completed, following FORMATTING.md §5 internally; the frozen 8.1 sections are kept as the historical record. |
+| Subtask 8.3 added to this task file at execution (2026-10-30) | Same scheme as 8.2: plan rows 8.1-8.3 are the group-8 deep dives, one task file per plan group; the 8.3 section above was appended after 8.2 completed, following FORMATTING.md §5 internally; the frozen 8.1/8.2 sections are kept as the historical record. |

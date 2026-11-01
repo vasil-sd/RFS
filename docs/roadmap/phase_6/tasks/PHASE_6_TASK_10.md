@@ -1,7 +1,8 @@
 # Phase 6, Task 10 - Implementation details
 
-> Written for a future LLM session: after reading `START.md`,
-> `docs/roadmap/INTRO.md` and this file, the assistant must be able to start
+> Written for a future LLM session: after reading `START.md`, the
+> `docs/roadmap/` set (`INTRO.md` + `PROTOCOL.md` + `FORMATTING.md`) and this file,
+> the assistant must be able to start
 > implementation of the task immediately without re-deriving scope.
 
 ## Goal
@@ -53,7 +54,7 @@ the release `v1.0.0`.
   - benchmark suite run: `target/mc_benchmarks.json` written + table printed
   - bounded fuzz smoke: C-side libFuzzer targets (`-max_total_time 10`); Rust-
     side if nightly available (task 5's recorded path)
-- **Status file**: `docs/roadmap/PHASE_6_STATUS.md` per template 2.3 - every
+- **Status file**: `docs/roadmap/phase_6/PHASE_6_STATUS.md` per FORMATTING.md §4 - every
   section filled: added source files (spec_hash/specgen/ref_mc/mc_ref_cmd/
   gen_spec_cmd + fuzz/ workspace), changed/removed, documentation (SEMANTICS,
   docs/user/*, MIGRATION, all synced docs), other file changes (new examples,
@@ -87,7 +88,7 @@ the release `v1.0.0`.
 
 | File | Operation | Brief description |
 |------|-----------|-------------------|
-| `docs/roadmap/PHASE_6_STATUS.md` | new | phase completion report (template 2.3) |
+| `docs/roadmap/phase_6/PHASE_6_STATUS.md` | new | phase completion report (FORMATTING.md §4) |
 | `docs/roadmap/INTRO.md` | change | phase-state table row 6 -> COMPLETE |
 | `TASKS.md` | change | close-out entry (first-paragraph template) |
 
@@ -113,7 +114,7 @@ the task records; write the evidence lines into the status file draft.
 
 | File | Operation | Description + rationale |
 |------|-----------|-------------------------|
-| `docs/roadmap/PHASE_6_STATUS.md` | new | exit-criteria evidence section content |
+| `docs/roadmap/phase_6/PHASE_6_STATUS.md` | new | exit-criteria evidence section content |
 
 ### Action 3: status file + INTRO + TASKS.md
 Finish `PHASE_6_STATUS.md` (all template sections, exact counts); update the
@@ -123,7 +124,7 @@ INTRO.md row; append the TASKS.md entry.
 
 | File | Operation | Description + rationale |
 |------|-----------|-------------------------|
-| `docs/roadmap/PHASE_6_STATUS.md` | new | the full report |
+| `docs/roadmap/phase_6/PHASE_6_STATUS.md` | new | the full report |
 | `docs/roadmap/INTRO.md` | change | row 6 COMPLETE |
 | `TASKS.md` | change | close-out entry |
 
@@ -138,14 +139,14 @@ Single close-out commit (clean tree verified) + annotated tag `v1.0.0`.
 
 ## Task deliverables
 - Full verification matrix results with exact counts.
-- `docs/roadmap/PHASE_6_STATUS.md` (complete, template 2.3).
+- `docs/roadmap/phase_6/PHASE_6_STATUS.md` (complete, FORMATTING.md §4).
 - INTRO.md phase-state row 6 COMPLETE; TASKS.md entry.
 - Git tag `v1.0.0` on a clean close-out commit.
 
 ## Task exit criteria
 - [x] Every suite in the verification matrix green with exact counts recorded (or failures resolved via plan corrections first).
 - [x] All six PHASE_6.md exit criteria checked verbatim with evidence in the status file - including the explicit "realistic protocol project" satisfaction record.
-- [x] `PHASE_6_STATUS.md` complete per template 2.3 (all sections, no placeholders).
+- [x] `PHASE_6_STATUS.md` complete per FORMATTING.md §4 (all sections, no placeholders).
 - [x] INTRO.md row 6 COMPLETE; TASKS.md entry appended.
 - [x] Tag `v1.0.0` exists on the close-out commit; working tree clean.
 

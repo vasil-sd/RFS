@@ -16,7 +16,7 @@ None.
 
 | Name | Type | Description |
 |---|---|---|
-| `docs/roadmap/PHASE_3_TASK_18_STATUS.md` | new | this file; records the codegen-side baseline counts for task 22. |
+| `docs/roadmap/phase_3/tasks/PHASE_3_TASK_18_STATUS.md` | new | this file; records the codegen-side baseline counts for task 22. |
 
 ## Other file changes
 

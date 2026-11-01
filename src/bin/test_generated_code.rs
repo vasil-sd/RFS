@@ -1,5 +1,5 @@
 //! CLI entry point: compile and run the generated code tests.
-//! Docs: dev:toolchain-fuzz-overview, llm:toolchain-fuzz
+//! Docs: dev:toolchain-fuzz-overview, dev:toolchain-fuzz-code-tests, llm:toolchain-fuzz
 
 use rfs::{backends::rust_test, codegen, collect_rfs_files};
 use std::process::{Command, ExitCode};

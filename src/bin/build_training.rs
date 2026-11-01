@@ -1,5 +1,5 @@
 //! CLI entry point: build the RFS training dataset.
-//! Docs: dev:toolchain-fuzz-overview, llm:toolchain-fuzz
+//! Docs: dev:toolchain-fuzz-overview, dev:toolchain-fuzz-training, llm:toolchain-fuzz
 
 use std::path::PathBuf;
 

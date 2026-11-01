@@ -5,7 +5,7 @@
 //!   * random VALID IRs (specgen-backed) -> `validate_ir` must not panic;
 //!   * arbitrary raw bytes as JSON text -> `Ir::from_json` returns Err (or Ok),
 //!     never panics.
-//! Docs: dev:toolchain-fuzz-overview, llm:toolchain-fuzz
+//! Docs: dev:toolchain-fuzz-overview, dev:toolchain-fuzz-targets, llm:toolchain-fuzz
 
 #![no_main]
 

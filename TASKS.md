@@ -1532,3 +1532,18 @@ Per PHASE_5_TASK_16.md: run the complete BUILD.md §5 checklist (+ Phase 5 addit
 - Source edits: NONE (docs-only subtask).
 - Verification: dev_docs_test 9/9 (TASK_MAP coverage check now ACTIVE over the full map - all 71 files covered, all refs resolve), docs_md_test 5/5, cargo fmt --check clean, clippy --all-targets exit 0, cargo test 535/535 root (unchanged from the 12.3 tree), workspace 559/559.
 - Bookkeeping: plan row 13.1 marked DONE; task file created with subtask section boxes checked + corrections rows; commits per action (map rewrite; bookkeeping).
+
+## 2026-11-01 11:02 - Phase 8 task 13.2 (complete): docs/llm/CHANGE_IMPACT.md impact table + finalized docs/llm/README.md budget rules
+
+### Interpretation & plan
+
+- Requested: "execute 13.2" - plan row 13.2, second subtask of plan group 13 (Class B consolidation). Subtask section appended to PHASE_8_TASK_13.md at execution per the established pattern.
+- Plan: (1) fill docs/llm/CHANGE_IMPACT.md - change type -> affected source files + tests + doc fragments at file granularity, mirroring/extending BUILD.md section 5; (2) finalize docs/llm/README.md context-budget rules (complete file/budget index + full rule set); (3) full verification + bookkeeping.
+
+### Report
+
+- docs/llm/CHANGE_IMPACT.md: 11 -> 36 lines (budget 250; llm:change-impact anchor byte-stable). "How to use" intro (row -> edit files -> run tests -> update fragments; sync gate names the exact ones) + 17-row impact table covering every subsystem in TASK_MAP.md: RFS syntax/grammar (examples FIRST), IR schema/wire format (IR_VERSION bump policy {0,1} + EVERY consumer listed), parser internals, validator checks (invalid examples first), codegen core/plugin API, Rust backend, C backend, MC engine exact/liveness (generated twins must mirror - parity by construction), SMT bounded mode (--features smt + z3 env per TOOLCHAIN.md 5.2), monitor compiler (backends render the SAME plan), CLI command (ORPHAN RULE reminder for new fragments), diagram format, external-tool layer, workspace crates, fuzz/training/code-test harness, spec generation, and the UNIVERSAL row (full BUILD.md section 5 checklist + dev_docs_test + TASKS.md entry). Each row carries concrete test commands mirroring BUILD.md section 5.
+- docs/llm/README.md: 29 -> 39 lines (budget 70). Index finalized with a Budget column + all 11 module cards named with their budgets (parser/validator/monitor_compiler 120; ir_json_rw/codegen_core/backend_rust/backend_c/mc_engine 150; cli_commands/workspace_crates/toolchain_fuzz 200); rule set completed: budget header format, fragment location via grep on the anchor ID, no Class A duplication, and the TASK_MAP manifest-coverage duty (extend tests/dev_docs_manifest.txt + the //! Docs: line when adding a tracked .rs file).
+- Source edits: NONE (docs-only subtask).
+- Verification: dev_docs_test 9/9, docs_md_test 5/5, cargo fmt --check clean, clippy --all-targets exit 0, cargo test 535/535 root (unchanged from the 13.1 tree), workspace 559/559.
+- Bookkeeping: plan row 13.2 marked DONE; subtask section appended with boxes checked + corrections row; commits per action (both docs; bookkeeping).

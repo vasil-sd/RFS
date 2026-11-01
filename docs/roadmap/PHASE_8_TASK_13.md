@@ -96,9 +96,95 @@ functionality map while keeping full coverage.
 - No source or test changes of any kind; no new dependencies.
 - No line-number-based anchors anywhere; stable item-name references only.
 
+## Subtask 13.2 - CHANGE_IMPACT.md + README budget rules (added at execution, see Task corrections)
+
+### Goal
+
+Fill in `docs/llm/CHANGE_IMPACT.md` (Class B): change type -> affected source
+files + tests + doc fragments at file granularity, mirroring and extending the
+BUILD.md section 5 checklist - and finalize `docs/llm/README.md`'s context-
+budget rules (complete file/budget index for all 14 Class B files + the full
+machine-checked rule set).
+
+### Context
+
+- **Doc state**: `docs/llm/CHANGE_IMPACT.md` was an 11-line skeleton with
+  budget 250 - intro + `llm:change-impact` anchor + a `## Impact table`
+  section whose TBD (task 13.2) named the change-type rows (grammar, IR
+  schema, codegen, backends, MC engine, monitor, CLI, diagrams, tooling).
+  `docs/llm/README.md` was a 29-line file with budget 70: a 3-row index that
+  said "per-module cards (11 files)" without naming them, the 4-step workflow,
+  and a 3-item rule list.
+- **Source of truth for the rows** (verified 2026-11-01): BUILD.md section 5
+  (the conditional-check checklist + known-good baseline), START.md section 6
+  (task -> read/do/verify conventions: examples-first for grammar/validator
+  changes, alias commands), the 87 dev + 12 llm fragment inventory (every
+  "fragments to update" pointer checked against it), and the per-module deep
+  dives completed in tasks 2-12 (parity-by-construction facts: MC engine
+  twins, monitor plan rendering, backend wire formats).
+- **Class B file/budget census** (measured): README 70, TASK_MAP 400,
+  CHANGE_IMPACT 250, and the 11 module cards - parser 120, validator 120,
+  ir_json_rw 150, codegen_core 150, backend_rust 150, backend_c 150,
+  mc_engine 150, monitor_compiler 120, cli_commands 200, workspace_crates
+  200, toolchain_fuzz 200.
+- **Gate mechanics**: check_llm_budgets enforces the header-within-first-10-
+  lines + within-budget rules for every docs/llm/*.md; no other gate reads
+  these two files' content (the llm:change-impact anchor already existed and
+  is referenced by TASK_MAP.md + the module cards - it stays byte-stable).
+
+### Planned actions
+
+1. **`docs/llm/CHANGE_IMPACT.md`**: replace the Impact-table TBD in place
+   (anchor stays byte-stable) with a "How to use" intro + a 17-row table:
+   RFS syntax/grammar, IR schema/wire format, parser internals, validator
+   checks, codegen core/plugin API, Rust backend, C backend, MC engine
+   (exact/liveness), SMT bounded mode, monitor compiler, CLI command,
+   diagram format, external-tool layer, workspace crates, fuzz/training/code-
+   test harness, spec generation, and the UNIVERSAL row (full checklist +
+   dev_docs_test + TASKS.md entry). Each row: affected source files at file
+   granularity, concrete test commands (mirroring BUILD.md section 5), doc
+   fragments to update (Class A + Class B + repo-root docs where content must
+   move).
+2. **`docs/llm/README.md`**: finalize the index - add a Budget column, name
+   all 11 module cards with their budgets; complete the rule set - budget
+   header format, fragment location via grep on the anchor ID, no Class A
+   duplication, and the TASK_MAP manifest-coverage duty (extend
+   tests/dev_docs_manifest.txt + the //! Docs: line when adding a tracked
+   .rs file).
+3. **Verification + bookkeeping**: dev_docs_test 9/9, docs_md_test 5/5, full
+   verification (fmt/clippy/build/test root + workspace; counts unchanged:
+   535/535 root, 559/559 workspace); plan row 13.2 -> DONE; check off this
+   subtask's boxes; TASKS.md entry; commit per action.
+
+### Exit criteria (subtask 13.2)
+
+- [x] `docs/llm/CHANGE_IMPACT.md`: Impact-table TBD replaced in place with the
+      full 17-row change-type table at file granularity (anchor byte-stable);
+      no TBD remains; within the 250-line budget (final: 36 lines).
+- [x] `docs/llm/README.md`: index finalized (all 14 Class B files with
+      budgets) + rule set completed (budget header format, fragment location,
+      no duplication, manifest-coverage duty); within the 70-line budget
+      (final: 39 lines).
+- [x] No source edits at all (docs-only subtask); all cargo counts unchanged
+      from the task-13.1 tree (535/535 root, 559/559 workspace).
+- [x] Full verification green: dev_docs_test 9/9, docs_md_test 5/5, cargo
+      fmt --check clean, clippy --all-targets exit 0, cargo test (+
+      --workspace).
+- [x] Plan row 13.2 marked DONE; this subtask's boxes checked; TASKS.md entry
+      appended.
+
+### Non-goals (subtask 13.2)
+
+- No per-module card rewrites (task 13.3's final budget pass).
+- No START.md / KB.md / BUILD.md edits (pointer sync = task 14); no DESIGN.md
+  edits.
+- No source or test changes of any kind; no new dependencies.
+- No line-number-based anchors anywhere; stable item-name references only.
+
 ## Task corrections
 
 | Correction | Description + rationale |
 |------------|-------------------------|
+| Subtask 13.2 appended at execution (2026-11-01) | Per the correction above: subtask sections are written when executed, following the PHASE_8_TASK_9.md / PHASE_8_TASK_11.md pattern. Written with verified source material measured 2026-11-01 (BUILD.md section 5 checklist rows, START.md section 6 conventions, the 87+12 fragment inventory, and the full Class B file/budget census), row plan covering the TBD's nine named change types plus seven more (parser internals, SMT, external-tool layer, workspace crates, fuzz/training/harness, spec generation, universal) to reach every subsystem in TASK_MAP.md. |
 | Task file created at execution (2026-11-01) for plan group 13 | User model: one task file per plan group ("execute 13.1" = subtask of task file 13). Written for subtask 13.1 only; subtasks 13.2 (CHANGE_IMPACT + README budget rules) and 13.3 (final card budget pass) will be appended at execution, following the PHASE_8_TASK_9.md / PHASE_8_TASK_11.md pattern. |
 | Skeleton's "72 hand-written files" corrected to 71 | tests/dev_docs_manifest.txt holds exactly 71 entries (verified by count); the new Coverage header states 71. The skeleton's number was an approximation from task 1.x. |

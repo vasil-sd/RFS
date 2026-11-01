@@ -121,7 +121,7 @@ RSS informational - section 7).
 | Generate aggregate generated-code test crate (192 modules) | `cargo generate-code-tests [--test-steps N] [--assumes ...]` |
 | Generate + compile + run all generated unit tests (1683) | `cargo test-generated-code` |
 | Extract training snippets from `training/*/rfs_training.jsonl` | `cargo extract-training-snippets` -> 138 valid / 128 invalid snippets |
-| Aggregate training JSONL | `cargo build-training` -> writes `all_rfs_training.jsonl` (264 examples) |
+| Aggregate training JSONL | `cargo build-training` -> writes `all_rfs_training.jsonl` (267 examples) |
 | Run training tests | `cargo test-training` (= `cargo test training`; matches 5 tests: 4 dedicated + the codegen aggregate test whose name contains "training") |
 | Train Qwen3.8-27B on RFS data (SFT then GRPO, needs GPU) | `python training.py --stage both` (`--dry-run` = CPU-only data/reward validation) |
 
@@ -130,7 +130,7 @@ repo root, all working unchanged - no alias needed a `-p rfs` qualifier): `cargo
 (default-run `rfs`), `cargo parse --help`, `cargo validate --input rfs <file>`,
 `cargo codegen --list`, `cargo generate-code-tests`, `cargo test-generated-code` (1683
 pass - required the generated-crate `[workspace]` fix, see section 1),
-`cargo extract-training-snippets` (138/128), `cargo build-training` (264 aggregate),
+`cargo extract-training-snippets` (138/128), `cargo build-training` (267 aggregate),
 `cargo test-training` (5 pass).
 
 CLI behavior rules (file/dir handling, exit codes): `KB.md` section 4.5. Codegen
@@ -179,7 +179,7 @@ supersedes the 2026-10-28 Phase 7 close-out numbers): **535/535** main tests
 (`cargo test`; per-suite rows in section 3), **559** with `--workspace`, **537**
 with `--features smt` (z3 env per TOOLCHAIN.md section 5.2), **1683/1683**
 generated tests (192 modules), 50 valid + 13 invalid examples, training
-aggregate **264** lines (snippets 138 valid + 128 invalid), clippy without
+aggregate **267** lines (snippets 138 valid + 128 invalid), clippy without
 errors (46 warning lines / 35 unique - dead-code in the shared test modules
 `tests/common/{prod_driver,mc_json,fail_variants}.rs` (helpers unused by each
 test binary that does not use them all) + pre-existing patterns: `src/backends/c_fsm.rs`

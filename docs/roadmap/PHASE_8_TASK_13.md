@@ -181,10 +181,93 @@ machine-checked rule set).
 - No source or test changes of any kind; no new dependencies.
 - No line-number-based anchors anywhere; stable item-name references only.
 
+## Subtask 13.3 - Final verification/budget pass over the 11 cards (added at execution, see Task corrections)
+
+### Goal
+
+Per the plan correction (2026-10-30): the 11 per-module Class B cards were
+filled by their matching deep-dive tasks (8.1-12.3), so 13.3 is the FINAL
+verification/budget pass over all of them now that tasks 2-12 are complete -
+confirm every card stays within its line budget, matches the final Class A
+content (one-line roles, key items, invariants, deep-dive pointers), and
+carries no stale forward-references to since-completed tasks.
+
+### Context
+
+- **Card census (measured 2026-11-01)**: parser.md 53/120, validator.md
+  43/120, ir_json_rw.md 56/150, codegen_core.md 47/150, backend_rust.md
+  56/150, backend_c.md 58/150, mc_engine.md 56/150, monitor_compiler.md
+  54/120, cli_commands.md 77/200, workspace_crates.md 77/200,
+  toolchain_fuzz.md 78/200 - all within budget (the gate enforces this;
+  check_llm_budgets passed).
+- **Pass design**: each card was written in the SAME task as its deep dive,
+  so content drift can only come from (a) forward-references to tasks that
+  were pending when the card was written but are now complete, and (b)
+  pointers/counts that later tasks invalidated. The pass therefore: (1)
+  audits every dev:/llm: fragment token in the whole Class B set against the
+  defined-anchor inventory; (2) verifies each card's Deep-dive section names
+  exactly its doc's fragments; (3) checks cited test suites + cargo aliases
+  exist; (4) scans for stale numeric claims.
+
+### Planned actions
+
+1. **Fragment-pointer audit** over all 14 Class B files: every referenced
+   dev:/llm: token must resolve to a defined anchor; cross-doc references
+   must point at the right home doc.
+2. **Deep-dive section completeness**: each card's Deep-dive paragraph must
+   name exactly the fragments defined in its Class A doc (no omissions, no
+   stale IDs).
+3. **Stale forward-reference sweep**: remove "(task N.N)" annotations on
+   pointers to now-completed tasks (11.2, 12.3, 13.2); keep none - all plan
+   groups 8-13 are done except 14/15/16 which no card references.
+4. **Cited-command audit**: every tests/*.rs suite and cargo alias named in
+   the cards must exist (tests dir + .cargo/config.toml).
+5. **Verification + bookkeeping**: dev_docs_test 9/9, docs_md_test 5/5, full
+   verification (fmt/clippy/build/test root + workspace; counts unchanged:
+   535/535 root, 559/559 workspace); plan row 13.3 -> DONE; check off this
+   subtask's boxes; TASKS.md entry; commit per action.
+
+### Exit criteria (subtask 13.3)
+
+- [x] All 11 cards verified within their line budgets (gate: check_llm_budgets
+      green; census recorded above).
+- [x] Fragment-pointer audit clean: every referenced dev:/llm: token resolves
+      to a defined anchor (82 distinct tokens across the Class B set; the one
+      wildcard, dev:cli-commands-* in CHANGE_IMPACT.md, is intentional);
+      17 cross-doc references all point at the correct home doc.
+- [x] Every card's Deep-dive section names exactly its Class A doc's fragments
+      (11/11 complete).
+- [x] Stale forward-references removed: 14 annotations across 11 cards -
+      "llm:change-impact (task 13.2)" x11, "dev:mc-engine-smt (task 11.2)"
+      x2 (mc_engine.md), "dev:toolchain-fuzz-overview (task 12.3)" x1
+      (workspace_crates.md). No other task annotations remain in the Class B
+      set.
+- [x] Cited-command audit clean: all named test suites exist (the three
+      crate-level ones - adapters/integration/nostd_minimal - are cited with
+      full paths); all cargo aliases exist in .cargo/config.toml; no stale
+      numeric claims in any card.
+- [x] Full verification green after the fixes: dev_docs_test 9/9, docs_md_test
+      5/5, cargo fmt --check clean, clippy --all-targets exit 0, cargo test
+      (+ --workspace) - 535/535 root, 559/559 workspace (unchanged from the
+      13.2 tree).
+- [x] Plan row 13.3 marked DONE; this subtask's boxes checked; TASKS.md entry
+      appended.
+
+### Non-goals (subtask 13.3)
+
+- No card content rewrites beyond the stale-reference fixes - the cards match
+  their final Class A deep dives by construction (written in the same task);
+  the pass found no factual drift, only the forward-reference annotations.
+- No START.md / KB.md / BUILD.md edits (pointer sync = task 14); no DESIGN.md
+  edits.
+- No source or test changes of any kind; no new dependencies.
+- No budget changes to any Class B file.
+
 ## Task corrections
 
 | Correction | Description + rationale |
 |------------|-------------------------|
+| Subtask 13.3 appended at execution (2026-11-01) | Per the correction above: subtask sections are written when executed, following the PHASE_8_TASK_9.md / PHASE_8_TASK_11.md pattern. Executed as the verification/budget pass per the 2026-10-30 plan correction (cards filled by their deep-dive tasks); found and fixed exactly one drift class - 14 stale "(task N.N)" forward-references to now-completed tasks across all 11 cards. |
 | Subtask 13.2 appended at execution (2026-11-01) | Per the correction above: subtask sections are written when executed, following the PHASE_8_TASK_9.md / PHASE_8_TASK_11.md pattern. Written with verified source material measured 2026-11-01 (BUILD.md section 5 checklist rows, START.md section 6 conventions, the 87+12 fragment inventory, and the full Class B file/budget census), row plan covering the TBD's nine named change types plus seven more (parser internals, SMT, external-tool layer, workspace crates, fuzz/training/harness, spec generation, universal) to reach every subsystem in TASK_MAP.md. |
 | Task file created at execution (2026-11-01) for plan group 13 | User model: one task file per plan group ("execute 13.1" = subtask of task file 13). Written for subtask 13.1 only; subtasks 13.2 (CHANGE_IMPACT + README budget rules) and 13.3 (final card budget pass) will be appended at execution, following the PHASE_8_TASK_9.md / PHASE_8_TASK_11.md pattern. |
 | Skeleton's "72 hand-written files" corrected to 71 | tests/dev_docs_manifest.txt holds exactly 71 entries (verified by count); the new Coverage header states 71. The skeleton's number was an approximation from task 1.x. |

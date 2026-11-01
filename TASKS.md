@@ -1547,3 +1547,18 @@ Per PHASE_5_TASK_16.md: run the complete BUILD.md §5 checklist (+ Phase 5 addit
 - Source edits: NONE (docs-only subtask).
 - Verification: dev_docs_test 9/9, docs_md_test 5/5, cargo fmt --check clean, clippy --all-targets exit 0, cargo test 535/535 root (unchanged from the 13.1 tree), workspace 559/559.
 - Bookkeeping: plan row 13.2 marked DONE; subtask section appended with boxes checked + corrections row; commits per action (both docs; bookkeeping).
+
+## 2026-11-01 13:09 - Phase 8 task 13.3 (complete): final verification/budget pass over the 11 Class B cards — plan group 13 now fully DONE
+
+### Interpretation & plan
+
+- Requested: "execute 13.3" - plan row 13.3, third (final) subtask of plan group 13. Per the 2026-10-30 plan correction, the cards were filled by their matching deep-dive tasks (8.1-12.3); 13.3 is the final verification/budget pass over all 11 now that tasks 2-12 are complete. Subtask section appended to PHASE_8_TASK_13.md at execution per the established pattern.
+- Plan: (1) audit every dev:/llm: fragment pointer across the Class B set against the defined-anchor inventory; (2) verify each card's Deep-dive section names exactly its Class A doc's fragments; (3) sweep stale "(task N.N)" forward-references to now-completed tasks; (4) audit cited test suites + cargo aliases; (5) full verification + bookkeeping.
+
+### Report
+
+- Pass results: all 11 cards within budget (census: parser 53/120, validator 43/120, ir_json_rw 56/150, codegen_core 47/150, backend_rust 56/150, backend_c 58/150, mc_engine 56/150, monitor_compiler 54/120, cli_commands 77/200, workspace_crates 77/200, toolchain_fuzz 78/200); fragment-pointer audit clean (82 distinct tokens resolve; the single wildcard dev:cli-commands-* in CHANGE_IMPACT.md is intentional; all 17 cross-doc references point at the correct home doc); every card's Deep-dive section names exactly its doc's fragments (11/11); cited test suites + cargo aliases all exist; no stale numeric claims.
+- Fixes applied: 14 stale forward-reference annotations removed across all 11 cards - "llm:change-impact (task 13.2)" x11, "dev:mc-engine-smt (task 11.2)" x2 (mc_engine.md), "dev:toolchain-fuzz-overview (task 12.3)" x1 (workspace_crates.md). One was line-wrapped and missed by the first mechanical sweep; caught by the count check and fixed individually. No other drift found - the cards match their final Class A deep dives by construction (written in the same task).
+- Source edits: NONE outside docs/llm/ (11 card files, annotation removals only; no budget or content changes).
+- Verification: dev_docs_test 9/9, docs_md_test 5/5, cargo fmt --check clean, clippy --all-targets exit 0, cargo test 535/535 root (unchanged from the 13.2 tree), workspace 559/559.
+- Bookkeeping: plan row 13.3 marked DONE - PLAN GROUP 13 IS NOW FULLY COMPLETE (13.1 + 13.2 + 13.3); subtask section appended with boxes checked + corrections row; commits per action (card fixes; bookkeeping).

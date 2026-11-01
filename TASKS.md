@@ -1580,3 +1580,17 @@ Per PHASE_5_TASK_16.md: run the complete BUILD.md §5 checklist (+ Phase 5 addit
 - Source edits: NONE (docs-only task).
 - Verification: dev_docs_test 9/9, docs_md_test 5/5 (all edited .md parse under the mdr stack), cargo fmt --check clean, clippy --all-targets exit 0, cargo test 535/535 root (unchanged from the 13.3 tree), workspace 559/559.
 - Bookkeeping: plan row 14 marked DONE; task file created with boxes checked + corrections row (incl. the byte-identical-cell note for the BUILD.md line-specific edit); commits per action (four pointer docs; bookkeeping).
+
+## 2026-11-01 15:54 - Phase 8 task 15 (complete): training-set update for the Phase 8 documentation layout
+
+### Interpretation & plan
+
+- Requested: "execute task 15" - plan row 15 (single-line task, depends on 14): add project_tooling entries on the new documentation layout + Class B usage workflow (TASK_MAP -> locate code -> CHANGE_IMPACT -> doc updates; sync-gate behavior), regenerate snippets, rebuild the aggregate.
+- Plan: (1) append three fence-free JSONL entries to training/project_tooling/rfs_training.jsonl in the pinned format (2 messages, `< think> ... < /think>` assistant); (2) cargo extract-training-snippets + cargo build-training; (3) sync the documented 264 aggregate count (KB.md section 1 + BUILD.md sections 4/5 - Phase 7 task 15 precedent); (4) full verification + bookkeeping.
+### Report
+
+- training/project_tooling/rfs_training.jsonl: 6 -> 9 entries - (a) the two documentation sets (docs/dev Class A 18 files with stable fragment anchors, never-fully; docs/llm Class B TASK_MAP/CHANGE_IMPACT/README + 11 budgeted cards; link-only relationship), (b) the LLM-session workflow (TASK_MAP -> read exactly the named fragments via grep anchor + sed range -> CHANGE_IMPACT before editing -> listed tests + dev_docs_test after doc-affecting edits; budget discipline), (c) the sync gate (five checks incl. no-orphan ownership + TASK_MAP coverage + Class B budgets; failure output IS the update list; rules of thumb for new fragments / new tracked files / reference shape). All fence-free by design - project_tooling has no rfs snippets and none were added.
+- Regeneration: cargo extract-training-snippets -> 138 valid + 128 invalid (unchanged); cargo build-training -> all_rfs_training.jsonl 264 -> 267 lines; freshness test passes.
+- Count syncs (scope addition, recorded in the task file): KB.md section 1 LLM-training-set row (267 + Phase 8 note, history chain preserved) + BUILD.md section 4 command row and alias re-verification note + section 5 baseline (267 lines).
+- Verification: dev_docs_test 9/9, docs_md_test 5/5, cargo test-training 5 pass, fmt clean, clippy exit 0, root 535/535, workspace 559/559 (unchanged from the task-14 tree).
+- Bookkeeping: plan row 15 marked DONE; PHASE_8_TASK_15.md created with boxes checked + corrections rows (file created at execution; count syncs added to scope); commits per action (training files + count syncs; bookkeeping).

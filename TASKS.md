@@ -1562,3 +1562,21 @@ Per PHASE_5_TASK_16.md: run the complete BUILD.md §5 checklist (+ Phase 5 addit
 - Source edits: NONE outside docs/llm/ (11 card files, annotation removals only; no budget or content changes).
 - Verification: dev_docs_test 9/9, docs_md_test 5/5, cargo fmt --check clean, clippy --all-targets exit 0, cargo test 535/535 root (unchanged from the 13.2 tree), workspace 559/559.
 - Bookkeeping: plan row 13.3 marked DONE - PLAN GROUP 13 IS NOW FULLY COMPLETE (13.1 + 13.2 + 13.3); subtask section appended with boxes checked + corrections row; commits per action (card fixes; bookkeeping).
+
+## 2026-11-01 14:39 - Phase 8 task 14 (complete): pointer/doc sync - START.md, KB.md, BUILD.md, docs/user/README.md
+
+### Interpretation & plan
+
+- Requested: "execute task 14" - plan row 14 (single-line task, no subtasks): sync the repo-root pointer docs + the external user-doc cross-link with the new documentation layout. Task file PHASE_8_TASK_14.md created at execution per the one-file-per-plan-unit pattern.
+- Plan: (1) START.md section 2 doc-map rows for docs/dev/ + docs/llm/ and three section 6 task->read rows; (2) KB.md section 1 doc-map rows + Roadmap row refresh + section 8 Phase 8 bullet; (3) BUILD.md section 3 counts + new dev_docs_test suite row, section 5 checklist bullet + re-dated baseline with re-measured counts; (4) docs/user/README.md "Where things live" cross-links; (5) full verification + bookkeeping.
+
+### Report
+
+- START.md: section 2 gained `docs/dev/` (18-file Class A set, never-fully rule, TASK_MAP locator) + `docs/llm/` (Class B set, machine-checked budgets) rows; section 6 gained three rows - locate a feature (TASK_MAP), before editing source (CHANGE_IMPACT + dev_docs_test verify), deep-dive a subsystem (docs/dev fragments).
+- KB.md: section 1 Roadmap row refreshed (PHASE_0..8.md; status reports 0-7; per-task files 3-8) + Developer-docs (Class A) + LLM-assistant docs (Class B) rows; section 8 gained the Phase 8 IN PROGRESS bullet (tasks 1-14 done as of 2026-11-01, close-out is task 16).
+- BUILD.md: section 3 root row 526 -> 535 (dev_docs_test breakdown appended to the cell), workspace row 550 -> 559 ("the 535 above"), new "Doc sync gate - developer + LLM doc sets" suite row (9 pass, full gate description); section 5 gained the docs-sync checklist bullet (docs/dev/ or docs/llm/ or //! Docs: line changes -> dev_docs_test; its output IS the update list) and the baseline was re-dated 2026-11-01 with re-measured counts: 535/535 main, 559 workspace, 537 smt (was 526/550/528), 1683/1683 generated unchanged.
+- docs/user/README.md: "Where things live" gained docs/dev/ + docs/llm/ rows (maintainer-docs framing, each pointing at its README index).
+- Scope note recorded in the task file: KB.md section 1's "Tests" row still carries Phase 6 counts (453/477/455) - pre-existing staleness, out of this task's scope (BUILD.md is the authoritative count source); left to task 16's close-out review.
+- Source edits: NONE (docs-only task).
+- Verification: dev_docs_test 9/9, docs_md_test 5/5 (all edited .md parse under the mdr stack), cargo fmt --check clean, clippy --all-targets exit 0, cargo test 535/535 root (unchanged from the 13.3 tree), workspace 559/559.
+- Bookkeeping: plan row 14 marked DONE; task file created with boxes checked + corrections row (incl. the byte-identical-cell note for the BUILD.md line-specific edit); commits per action (four pointer docs; bookkeeping).

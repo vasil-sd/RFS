@@ -43,7 +43,7 @@ harness) in both backends at once.
 **Change impact.** Placement rule first (CODEGEN.md section 2); verify with
 cargo test --lib (in-module pins) + monitor_integration_test +
 backend_parity_test, then the full BUILD.md section 5 checklist. Full table:
-llm:change-impact (task 13.2).
+llm:change-impact.
 
 **Deep dive.** dev:monitor-compiler-overview + dev:monitor-compiler-signals /
 dev:monitor-compiler-nodes / dev:monitor-compiler-compile /

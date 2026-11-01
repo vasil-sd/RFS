@@ -48,7 +48,7 @@ rendered identically in Rust and C.
 **Change impact.** Placement rule first (CODEGEN.md section 2); verify with
 cargo test --test codegen_test + backend_parity_test + prod_parity_test +
 wide_ops_parity_test, then the full BUILD.md section 5 checklist. Full table:
-llm:change-impact (task 13.2).
+llm:change-impact.
 
 **Deep dive.** dev:backend-c-overview + dev:backend-c-plugin /
 dev:backend-c-fsm in docs/dev/backend_c.md (dev:backend-c-mc /

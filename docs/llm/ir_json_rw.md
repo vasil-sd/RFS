@@ -49,7 +49,7 @@ property + version-policy test in tests/frontend_test.rs to fire; json_rw
 formatting changes also hit cross-backend byte parity (generated MC engines
 embed writer copies). Verify: cargo test --lib json_rw, cargo test --test
 frontend_test, cargo test --test info_format_test. Full table:
-llm:change-impact (task 13.2).
+llm:change-impact.
 
 **Deep dive.** dev:ir-json-rw-overview + dev:ir-model / dev:ir-wire-format /
 dev:json-rw / dev:json-schema / dev:spec-hash in docs/dev/ir_json_rw.md;

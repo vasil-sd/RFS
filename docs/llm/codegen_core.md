@@ -42,6 +42,6 @@ critical constraint: one plan, rendered identically in Rust and C.
 - Generated binaries embed their own copies of MC parsing helpers + JSON writer - format changes must update both backends' emitters in the same change.
 - Core contains no target-language syntax; backends contain no core-level IR analysis (placement rule, CODEGEN.md section 2).
 
-**Change impact.** Placement rule first (CODEGEN.md section 2); new backend = registry entry only (section 6 checklist). Verify: cargo test --test codegen_test, cargo test --test backend_parity_test, then the full BUILD.md section 5 checklist. Full table: llm:change-impact (task 13.2).
+**Change impact.** Placement rule first (CODEGEN.md section 2); new backend = registry entry only (section 6 checklist). Verify: cargo test --test codegen_test, cargo test --test backend_parity_test, then the full BUILD.md section 5 checklist. Full table: llm:change-impact.
 
 **Deep dive.** dev:codegen-core-overview + dev:codegen-plugin-api / dev:codegen-fsm-helpers / dev:codegen-test-plan / dev:codegen-mc-concepts in docs/dev/codegen_core.md; extension guide: CODEGEN.md (repo root); algorithm levels: dev:algorithms-ir-codegen; call graph: dev:deps-fn-codegen-rust.

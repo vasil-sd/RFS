@@ -68,7 +68,7 @@ cargo fuzz build (nightly) or at minimum cargo check in the detached workspace.
 A training-format change must update validate_training_line +
 tests/training_test.rs together. Verify with cargo test --workspace (559
 baseline - includes toolchain_fuzz_test + training_test), then the full
-BUILD.md section 5 checklist. Full table: llm:change-impact (task 13.2).
+BUILD.md section 5 checklist. Full table: llm:change-impact.
 
 **Deep dive.** dev:toolchain-fuzz-overview + dev:toolchain-fuzz-targets /
 dev:toolchain-fuzz-training / dev:toolchain-fuzz-code-tests in

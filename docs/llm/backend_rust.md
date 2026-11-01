@@ -47,7 +47,7 @@ one plan, rendered identically in Rust and C.
 **Change impact.** Placement rule first (CODEGEN.md section 2); verify with
 cargo test --test codegen_test + backend_parity_test + liveness_mc_test +
 benchmark_mc_test, then the full BUILD.md section 5 checklist. Full table:
-llm:change-impact (task 13.2).
+llm:change-impact.
 
 **Deep dive.** dev:backend-rust-overview + dev:backend-rust-plugin /
 dev:backend-rust-fsm / dev:backend-rust-test / dev:backend-rust-mc in

@@ -29,8 +29,8 @@ constraint.
 | `src/ref_mc.rs::liv_analyze` | liveness: position graph with EDGE-based labels, product automaton reachability, iterative Tarjan SCCs, falsifying limit vector search (q ascending, discovery order), lasso witness with GLOBAL visited pruning (path-only pruning spins on diamond subgraphs) |
 | `src/ref_mc.rs::render_text` / `to_json_report` | pinned report formats - byte-identical to the generated exact-mode binaries (text: status line + shared summary line + statistics block + "counterexample trace:"; JSON: same key order, ce_steps last) |
 | `src/ref_mc.rs::verify_counterexample` / `minimal_violation_labels` | ground-truth CE verifier (replay + per-kind checks; first-confirmation rule; lasso acceptance = liv_analyze's end-component condition) + two-phase minimal-step label collection - the differential suite's oracle |
-| `src/smt_plan.rs::build_smt_spec` | backend-neutral SMT spec from the shared plan (step variables, constraints, queries) - detail: dev:mc-engine-smt (task 11.2) |
-| `src/smt_emit.rs::emit_rust_spec` / `emit_c_spec` | shared emitter rendering the spec for Rust and C - parity by construction; one libz3 build (5.3.1) - detail: dev:mc-engine-smt (task 11.2) |
+| `src/smt_plan.rs::build_smt_spec` | backend-neutral SMT spec from the shared plan (step variables, constraints, queries) - detail: dev:mc-engine-smt |
+| `src/smt_emit.rs::emit_rust_spec` / `emit_c_spec` | shared emitter rendering the spec for Rust and C - parity by construction; one libz3 build (5.3.1) - detail: dev:mc-engine-smt |
 
 **Invariants that must not break.**
 
@@ -43,8 +43,7 @@ constraint.
 
 **Change impact.** Placement rule first (CODEGEN.md section 2); verify with
 cargo test --test ref_mc_diff_test + ref_mc_sweep_test + backend_parity_test,
-then the full BUILD.md section 5 checklist. Full table: llm:change-impact
-(task 13.2).
+then the full BUILD.md section 5 checklist. Full table: llm:change-impact.
 
 **Deep dive.** dev:mc-engine-overview + dev:mc-engine-plan /
 dev:mc-engine-exact / dev:mc-engine-liveness / dev:mc-engine-verify in

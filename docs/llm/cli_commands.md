@@ -66,7 +66,7 @@ this card's map + a dev-doc fragment with //! Docs: owners (ORPHAN RULE -
 dev_docs_test fails on unowned fragments). A new diagram format = one module
 + DIAGRAMS line + byte-pins. Verify with cargo test --test dev_docs_test +
 --test docs_md_test + tests/frontend_test.rs, then the full BUILD.md section
-5 checklist. Full table: llm:change-impact (task 13.2).
+5 checklist. Full table: llm:change-impact.
 
 **Deep dive.** dev:cli-commands-overview + dev:cli-commands-dispatch /
 dev:cli-commands-library / dev:cli-commands-frontend / dev:cli-commands-info

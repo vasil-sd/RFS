@@ -45,7 +45,7 @@ parsing. Two files: `src/parser.rs` (grammar + entry points) and
 `src/parser.rs` (+ unit tests in its mod tests),
 `src/ebnf_grammar.rs::GRAMMAR_RULES`, DESIGN.md section 6 fence; verify with
 cargo test --lib parser, cargo test --test examples_test,
-cargo test --test info_format_test. Full table: llm:change-impact (task 13.2).
+cargo test --test info_format_test. Full table: llm:change-impact.
 
 **Deep dive.** dev:parser-overview + dev:parser-entry-error /
 dev:parser-grammar / dev:parser-expressions / dev:parser-ebnf-model in

@@ -68,10 +68,10 @@ std/futures + mock-FSM tests in tests/adapters.rs. A new example = crate dir
 + workspace member line (root Cargo.toml) + build.rs following the shared
 pattern + a pin in tests/example_projects_test.rs. Verify with cargo test
 --workspace (559 baseline) - the integration + example tests run the real
-toolchain. Full table: llm:change-impact (task 13.2).
+toolchain. Full table: llm:change-impact.
 
 **Deep dive.** dev:workspace-crates-overview + dev:workspace-crates-build /
 dev:workspace-crates-adapters / dev:workspace-crates-examples in
 docs/dev/workspace_crates.md; file-level entries: dev:code-map-workspace;
 codegen commands used by the examples: docs/dev/codegen_core.md; toolchain
-fuzz targets (root fuzz/): dev:toolchain-fuzz-overview (task 12.3).
+fuzz targets (root fuzz/): dev:toolchain-fuzz-overview.

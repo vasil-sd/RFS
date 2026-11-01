@@ -185,9 +185,179 @@ one per command family + dispatch + library + ext-tool.
 - No DESIGN.md edits; no new example `.rfs` files.
 - No line-number-based anchors anywhere; stable item-name anchors only.
 
+## Subtask 12.2 - Workspace crates deep dive (added at execution, see Task corrections)
+
+### Goal
+
+Fill in `docs/dev/workspace_crates.md` (Class A deep dive) for the cargo
+workspace members: `crates/rfs-build` (the build.rs helper API),
+`crates/rfs-adapters` (ProtocolFsm trait + four adapters), and the example
+projects under `crates/examples/` (three Rust workspace members + two
+Makefile-driven C projects) - plus the Class B card
+`docs/llm/workspace_crates.md` (its TBD is assigned to 12.2; per the
+confirmed scope decision each deep-dive task fills both files). The dev doc
+keeps its existing Overview anchor byte-stable and gains three new anchored
+sections, one per member family.
+
+### Context
+
+- **Doc state**: `docs/dev/workspace_crates.md` was a 15-line skeleton - one
+  Overview section (`dev:workspace-crates-overview`) whose TBD (task 12.2)
+  described the three members at a high level; no other sections existed.
+  `docs/llm/workspace_crates.md` was a 12-line card skeleton with budget 200
+  and a single TBD (task 12.2) naming "the 17 tracked crate files" - verified
+  exact: git ls-files shows 17 tracked .rs files under crates/ (rfs-build 2,
+  rfs-adapters 7, sync_handler 3, async_handler 3, fuzz_rust 2; the generated
+  fuzz/fuzz_targets/arq.rs is git-ignored).
+- **Fragment structure** (house pattern: one fragment per major `##` section):
+  keep `dev:workspace-crates-overview`; add three new sub-fragments:
+  `dev:workspace-crates-build` (rfs-build), `dev:workspace-crates-adapters`
+  (rfs-adapters), `dev:workspace-crates-examples` (all example projects).
+- **No duplication with existing fragments**: docs/dev/CODE_MAP.md
+  dev:code-map-workspace owns the file-level entries for all 23 workspace +
+  fuzz files (one-line roles - this doc goes deeper: contracts, invariants,
+  test strategy); docs/dev/codegen_core.md owns the codegen commands the
+  examples invoke (production/test, --with-protocol-fsm, --no-std - linked,
+  not restated); dev:toolchain-fuzz-overview (task 12.3) owns the ROOT fuzz/
+  targets - the example fuzz projects are described here at CLI level with a
+  forward pointer; KB.md section 4.x owns toolchain behavior rules.
+- **Verified source material (measured 2026-11-01; line numbers for
+  navigation only - doc references use item names)**:
+  - Root Cargo.toml: workspace members = EXPLICIT list of five (rfs-build,
+    rfs-adapters, sync_handler, async_handler, fuzz_rust); crates/examples has
+    no manifest; the C projects are Makefile-driven and NOT members.
+  - `crates/rfs-build/src/lib.rs` (621 lines): RfsBuildError{message};
+    resolve_rfs_bin (RFS_BIN preferred - empty/whitespace = unset, nonexistent
+    file = error; else bare PATH - documented rebuild limitation); RfsBuild
+    builder { spec, backend (default rust), command (default production),
+    with_property_monitors, no_std, with_protocol_fsm } with new/backend/
+    production/test_command/with_property_monitors/no_std/with_protocol_fsm/
+    spec; compile (validation BEFORE environment: backend in {rust,c}, ext
+    .rfs/.json, spec exists, OUT_DIR set; artifact = OUT_DIR/<stem>.<rs|c>;
+    cargo directives via pure cargo_directives - rerun-if-changed spec + env
+    RFS_BIN + bin when pinned + cargo:include; PATH note line; invokes rfs
+    codegen <backend> <command> <spec> --out + optional flags; failure = exit
+    code + stderr (+ stdout when non-empty); success without artifact =
+    error). In-module hermetic tests (stub rfs script records argv, honors
+    --out, fails on RFS_STUB_FAIL; ENV_LOCK serializes env-mutating tests;
+    cargo_directives_pinned).
+  - `crates/rfs-build/tests/integration.rs` (112 lines): the one REAL end-to-
+    end check - real spec + workspace rfs binary; rust artifact must COMPILE,
+    c backend generates a .c file.
+  - `crates/rfs-adapters/src/lib.rs` (54 lines): #![no_std] + alloc;
+    ProtocolFsm trait { type Input/Output/Error, new(), step() ->
+    Result<Vec<Output>, Error> } - mirrors every generated Rust FSM; codegen
+    emits the impl opt-in via --with-protocol-fsm (mechanical forward to the
+    inherent Fsm methods). Features: std (default) / async = ["std",
+    "dep:futures"] (futures 0.3 optional - the crate's only external dep);
+    dev-dep on root rfs (test-only, no_std generation check).
+  - `crates/rfs-adapters/src/minimal.rs` (50): Minimal<F>(pub F) - new/step/
+    into_inner; itself a ProtocolFsm so adapters compose.
+  - `crates/rfs-adapters/src/callback.rs` (64): drive(fsm, decide, max_steps)
+    -> CallbackResult { Completed(steps), Failed(e, steps done), StepLimit(
+    steps) }; closure gets the PREVIOUS step's outputs (empty first).
+  - `crates/rfs-adapters/src/channel.rs` (97): ChannelFsm<F> spawn/
+    send_input/recv_outcome - FSM on its own thread, std mpsc FIFO; failed
+    step does NOT stop the thread; dropping the handle does not stop it (exits
+    when the input channel closes / receiver drops); ChannelOutcome { Outputs,
+    Error } with manual Debug/PartialEq bounded on the ASSOCIATED types (the
+    generated Fsm derives neither).
+  - `crates/rfs-adapters/src/async_adapter.rs` (107): AsyncFsm<F> new/
+    submit/close; Stream impl steps SYNCHRONOUSLY in poll_next (generated step
+    does no I/O - any executor works, no tokio); one queued input per poll,
+    Pending until close then Ready(None); Unpin bounds keep it unsafe-free;
+    AsyncOutcome { Outputs, Error }.
+  - `crates/rfs-adapters/tests/adapters.rs` (234): in-crate MOCK FSM (no
+    generated code needed) - minimal forwards + is itself a ProtocolFsm;
+    callback stops/errors/limits; channel_tests + async_tests modules.
+  - `crates/rfs-adapters/tests/nostd_minimal.rs` (168): no_std exit criterion
+    - core-only adapters compile inside #![no_std] crates, with a hand-written
+    mock AND against a REAL task-9 no_std generated FSM (opt-in ProtocolFsm
+    impl); gated on rustc availability, generation unconditional.
+  - Example build.rs files (42/42/61 lines): shared pattern - RFS_BIN >
+    workspace target/debug/rfs (set_var when not pinned; cold checkout needs
+    cargo build first) > PATH; spec = examples/valid/43_sliding_window.rfs;
+    strip `#!` lines from the artifact (include! cannot carry inner
+    attributes), byte-identical body to OUT_DIR/43_sliding_window_body.rs;
+    module-level #[allow(dead_code, unused_variables, unused_mut,
+    unused_parens, irrefutable_let_patterns, non_camel_case_types,
+    clippy::all)] mirrors the artifact header exactly; body outside the source
+    tree so cargo fmt never sees generated code. sync/async_handler use
+    --with-protocol-fsm; fuzz_rust additionally runs the TEST command and
+    adapts the emitted skeleton (`use crate::{` -> `use fuzz_rust::{`,
+    asserted) into fuzz/fuzz_targets/arq.rs (git-ignored build artifact).
+  - Example libs/mains: sync_handler run() = ChannelFsm::<Fsm>::spawn() +
+    scripted peer (wake tick, ticks until all 8 frames sent+acked, out-of-band
+    Ack every third tick must be dropped) -> ArqReport { frames_sent,
+    acks_received, out_of_band_acks_dropped, ticks, max_window }; async_handler
+    run() = the SAME scenario over AsyncFsm with futures::executor::block_on
+    (no tokio); fuzz_rust lib = include! body + pub use arq::* at the root.
+  - C projects: c_sync_handler (Makefile: rfs codegen c production ->
+    build/arq_fsm.c; handler.c #includes it DIRECTLY - single translation
+    unit, same wiring as the fuzz skeleton; gcc -Wall zero-warning bar; data
+    lines byte-identical to the Rust sync_handler); fuzz_c (generation needs
+    only rfs - production under the exact name the skeleton's #include expects
+    + test-command skeleton in build/ so no -I needed; building needs a
+    libFuzzer-enabled clang: clang -O1 -fsanitize=fuzzer,address over the
+    skeleton only; run = bounded smoke -max_total_time=10).
+  - tests/example_projects_test.rs pins all of it: c_sync_handler wall-clean +
+    Rust scenario parity; fuzz_rust skeleton compiles in its cargo-fuzz layout;
+    fuzz_c generation without clang (build gated on clang availability).
+
+### Planned actions
+
+1. **Class A deep dive - `docs/dev/workspace_crates.md`**: replace the
+   Overview TBD in place (anchor stays byte-stable) and add three new anchored
+   sections (rfs-build / rfs-adapters / examples), each with a Code: line of
+   resolving item references.
+2. **Class B card - `docs/llm/workspace_crates.md`**: fill the TBD in place
+   (budget 200): responsibility, crate-to-file map for the 17 tracked files,
+   key-items table, invariants (build-script contract, dependency hygiene,
+   adapter generics, no_std, example parity, cold checkouts), change impact +
+   deep-dive pointers.
+3. **Fragment owners (ORPHAN RULE)**: add the three new fragment IDs to the
+   `//! Docs:` lines of all 17 tracked crate files - rfs-build x2 (build),
+   rfs-adapters x7 (adapters), examples x8 (examples). Doc comments only.
+4. **Verification + bookkeeping**: dev_docs_test 9/9, docs_md_test 5/5, full
+   verification (fmt/clippy/build/test root + workspace; counts unchanged:
+   535/535 root, 559/559 workspace); plan row 12.2 -> DONE; check off this
+   subtask's boxes; TASKS.md entry; commit per action.
+
+### Exit criteria (subtask 12.2)
+
+- [x] `docs/dev/workspace_crates.md`: Overview TBD replaced in place + three
+      new anchored sections with full content; no TBD remains for 12.2's
+      scope; every technical statement carries a resolving doc-to-code
+      reference (gate check 1); the existing anchor is byte-stable.
+- [x] `docs/llm/workspace_crates.md`: card filled in place within the 200-line
+      budget (crate-to-file map for all 17 tracked files; build-script
+      contract + ProtocolFsm surface as the critical constraints).
+- [x] Source edits limited to the 17 `//! Docs:` owner lines (doc comments
+      only); all cargo counts unchanged from the task-12.1 tree (535/535
+      root, 559/559 workspace).
+- [x] Full verification green: dev_docs_test 9/9, docs_md_test 5/5, cargo
+      fmt --check clean, clippy --all-targets exit 0, cargo test (+
+      --workspace).
+- [x] Plan row 12.2 marked DONE; this subtask's boxes checked; TASKS.md entry
+      appended.
+
+### Non-goals (subtask 12.2)
+
+- No workspace-crate behavior changes of any kind; no new dependencies;
+  no feature-gate changes.
+- No codegen command internals in the dev doc (docs/dev/codegen_core.md owns
+  them - link only); no root fuzz/ target content (task 12.3) - the example
+  fuzz projects are described at CLI level with a forward pointer.
+- No restatement of CODE_MAP file entries, KB.md rules, or SEMANTICS.md
+  content (link only); no edits to other docs (START.md/KB.md/BUILD.md
+  pointer sync = task 14).
+- No DESIGN.md edits; no new example specs or crates.
+- No line-number-based anchors anywhere; stable item-name anchors only.
+
 ## Task corrections
 
 | Correction | Description + rationale |
 |------------|-------------------------|
+| Subtask 12.2 appended at execution (2026-11-01) | Per the correction above: subtask sections are written when executed, following the PHASE_8_TASK_9.md / PHASE_8_TASK_11.md pattern. Written with verified source material measured 2026-11-01 (item maps of all 17 tracked crate files + both C projects' Makefiles/READMEs; git ls-files confirms the card's "17 tracked crate files" count exactly - fuzz/fuzz_targets/arq.rs is a git-ignored build artifact), fragment plan with exact owner-line targets (all 17 files, one new ID each), no-duplication rule vs CODE_MAP dev:code-map-workspace + codegen_core + the upcoming toolchain-fuzz doc. |
 | Task file created at execution (2026-10-31) for plan group 12 | User model: one task file per plan group ("execute 12.1" = subtask of task file 12). Written for subtask 12.1 only; subtasks 12.2 (workspace crates) and 12.3 (toolchain fuzz) will be appended at execution, following the PHASE_8_TASK_9.md / PHASE_8_TASK_11.md pattern. |
 | Class B card in scope for 12.1 | The plan row names only `docs/dev/cli_commands.md`, but the card skeleton's TBD is explicitly assigned to task 12.1 and the confirmed scope decision (task 11) is that each deep-dive task fills both files - so the card was filled in the same action. |

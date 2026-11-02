@@ -111,14 +111,40 @@ model-checkable (no unbounded data, floats, or arbitrary functions in the core).
   embedded models (drift caught in both directions); DESIGN.md section 6's
   ebnf fence re-synced to the actual parser (61 rules). Design decisions
   D-P7-1..D-P7-13: `DESIGN.md` section 25.
-- Known-good baseline (re-measured 2026-10-28, Phase 7 task 16 close-out):
-  526/526 main tests (550 with `--workspace`, 528 with `--features smt`),
+- Phase 8 (detailed developer documentation and code<->doc traceability) is
+  COMPLETE (close-out 2026-11-01: full verification green,
+  `PHASE_8_STATUS.md`) per `docs/roadmap/phase_8/PHASE_8_PLAN.md`. Docs-only
+  phase - the only new Rust file is the sync-gate suite. Phase 8 added: the
+  Class A developer set (`docs/dev/`, 18 files - per-module deep dives +
+  ARCHITECTURE/CODE_MAP/ALGORITHMS/DEPENDENCIES/DECISIONS/REFERENCES, stable
+  `dev:` fragment anchors) and the Class B LLM-assistant set (`docs/llm/` -
+  TASK_MAP functionality->files index, CHANGE_IMPACT change-type->affected-
+  files table, README with context-budget rules, 11 per-module cards within
+  machine-checked line budgets); a `//! Docs:` pointer line in every one of
+  the 71 hand-written `.rs` files; and the bidirectional doc-sync gate
+  `tests/dev_docs_test.rs` (9 tests - code->doc pointers, doc->code reference
+  resolution, fragment ownership, TASK_MAP coverage, Class B budgets +
+  negative controls).
+- Phase 9 (documentation cleanup - structure, deduplication, navigability) is
+  COMPLETE (close-out 2026-11-02: full verification green,
+  `PHASE_9_STATUS.md`) per `docs/roadmap/phase_9/PHASE_9_PLAN.md`. Docs-only
+  phase. Phase 9 made `DESIGN.md` the single source of truth for core language
+  design, semantics, and design decisions (KB.md sections 2.1-2.7 and 3 became
+  reference stubs; DESIGN section 5.9's precedence table re-pinned against the
+  actual parser chain); replaced the outdated root `README.md` with a proper
+  orientation page (principles, pipeline overview, routing to `docs/user/` +
+  `docs/dev/` + `docs/llm/`); converted all 229 cross-document references in
+  `docs/dev/*.md` to clickable relative links; fixed stale cross-references in
+  `docs/SEMANTICS.md`, `docs/dev/DECISIONS.md`, and both toolchain_fuzz docs;
+  removed KB.md's superseded sections (old 8/9/12/13) and renumbered the rest.
+- Known-good baseline (re-measured 2026-11-01, Phase 8 task 14 close-out;
+  preserved through Phase 9's docs-only changes):
+  535/535 main tests (559 with `--workspace`, 537 with `--features smt`),
   1683/1683 generated-code tests (192 modules), clippy without errors
   (46 warning lines / 35 unique - dead-code in shared test modules
   `tests/common/{prod_driver,mc_json,fail_variants}.rs` + pre-existing patterns
-  in `src/backends/c_fsm.rs` etc.; zero in Phase 7's new source files and the
-  two new test suites), fmt clean;
-  50 valid + 13 invalid examples; 11 training categories / 264 aggregated SFT
+  in `src/backends/c_fsm.rs` etc.), fmt clean;
+  50 valid + 13 invalid examples; 11 training categories / 267 aggregated SFT
   examples (138 valid + 128 invalid snippets).
 
 ## 2. Documentation map (what each file is for)
@@ -234,7 +260,7 @@ then `sed -n '<start>,<end>p'`. Sections:
 | Change RFS syntax/grammar | `DESIGN.md` sections 5-6 (the language surface + grammar - KB.md section 3 is a pointer stub to them) + `KB.md` section 6.5 (parser findings); add examples FIRST | Update parser/validator | Full checklist (`BUILD.md` section 5) + update DESIGN/KB |
 | Change the IR | `DESIGN.md` section 7 + `to_json`/`from_json` in `src/ir.rs` (hand-rolled, D-P5-2) | Decide backward compat; bump `IR_VERSION` if needed | JSON round-trip tests + full checklist |
 | Add a codegen backend language | `CODEGEN.md` fully + `src/backends/RUST.md` / `src/backends/C.md` as references | Implement 3 command fns in `src/backends/<lang>*.rs`, register static in `BACKENDS` | per-command generation tests (see CODEGEN section 8) |
-| Phase implementation (Phases 0-8 COMPLETE; next phase to be planned) | `docs/roadmap/INTRO.md` + `PROTOCOL.md` + `FORMATTING.md` fully + `docs/roadmap/phase_N/PHASE_N.md`; phase-specific docs (`DESIGN.md` sections 22-25 for the shipped MC/toolchain/docs decisions, `DESIGN.md` sections 12 + 5.10 for properties - KB.md section 2.6 is a pointer stub to them) | Two-stage protocol from PROTOCOL.md: planning stage writes `phase_N/PHASE_N_PLAN.md`, then stops for user review; implementation stage executes the plan, tracks corrections, writes `phase_N/PHASE_N_STATUS.md` at exit criteria | Full checklist + docs sync + TASKS.md entry |
+| Phase implementation (Phases 0-9 COMPLETE; next phase to be planned) | `docs/roadmap/INTRO.md` + `PROTOCOL.md` + `FORMATTING.md` fully + `docs/roadmap/phase_N/PHASE_N.md`; phase-specific docs (`DESIGN.md` sections 22-25 for the shipped MC/toolchain/docs decisions, `DESIGN.md` sections 12 + 5.10 for properties - KB.md section 2.6 is a pointer stub to them) | Two-stage protocol from PROTOCOL.md: planning stage writes `phase_N/PHASE_N_PLAN.md`, then stops for user review; implementation stage executes the plan, tracks corrections, writes `phase_N/PHASE_N_STATUS.md` at exit criteria | Full checklist + docs sync + TASKS.md entry |
 | Improve validator/codegen checks | `DESIGN.md` sections 19-20 (decision tables D1-D10) + `KB.md` section 7 | Implement checks, add invalid examples first | Full checklist |
 | Training-set work | `KB.md` section 4.6 (format rules: 2 messages, `< think> ... < /think>` assistant, snippets auto-extracted) | Edit `training/<cat>/rfs_training.jsonl` | `cargo extract-training-snippets && cargo build-training && cargo test-training` |
 | LLM training run (GPU) | `head -60 training.py` (docstring only) + `BUILD.md` last command row | `python training.py --stage both` | `--dry-run` first for CPU-only data/reward validation |

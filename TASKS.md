@@ -1648,3 +1648,17 @@ PHASE 8 IS NOW COMPLETE.
 - Close-out: PHASE_9_STATUS.md written, CURRENT_STATE.md row 9 -> COMPLETE (2026-11-02), this entry.
 - Verification: cargo build OK; cargo test 535/535 (exactly the known-good baseline, incl. docs_md_test 5/5 + dev_docs_test 9/9); clippy without errors (documented 46-line/35-unique warning baseline unchanged); fmt clean. Environmental note: this sandbox's puppeteer cache lacked chrome-headless-shell - PUPPETEER_CACHE_DIR pointed at an existing session's cache (exact version 156.0.8078.47) restores diagram_render_parity 13/13.
 - Plan integrity: the "Planned tasks" table was never modified; 3 corrections recorded (CJK-artifact assignment to task 8, illustrative-link wrapping lesson, root-doc link depth). DESIGN.md section numbering unchanged (1-25) - all actualization in place, so every existing "DESIGN.md section N" reference still resolves.
+
+## 2026-11-02 21:22 — Synced START.md + KB.md to Phase 9 completion (Phases 0-9 all COMPLETE)
+
+### Interpretation & plan
+
+- Request: after checking `docs/roadmap/CURRENT_STATE.md` (which shows Phases 0-9 all COMPLETE, Phase 9 close-out 2026-11-02), sync the three stale spots found in the previous turn and commit.
+- Plan: (1) read `PHASE_8_STATUS.md` / `PHASE_9_STATUS.md` for exact close-out facts; (2) add Phase 8 + Phase 9 entries to START.md section 1 and re-date its baseline from the stale Phase 7 numbers to the current one; (3) update the START.md section 6 phase row to "Phases 0-9 COMPLETE"; (4) add the missing Phase 9 row to KB.md section 1; (5) run the doc gates, commit.
+
+### Report
+
+- `START.md` section 1: added Phase 8 completion entry (docs/dev Class A 18 files + docs/llm Class B with TASK_MAP/CHANGE_IMPACT/budgeted cards, `//! Docs:` pointer lines in all 71 hand-written .rs files, `tests/dev_docs_test.rs` sync gate) and Phase 9 completion entry (DESIGN.md as single source of truth for core design with KB 2.1-2.7/3 as reference stubs, section 5.9 precedence re-pinned against the parser, root README replacement, 229 clickable docs/dev cross-doc links, stale cross-reference fixes in SEMANTICS/DECISIONS/toolchain_fuzz, superseded KB sections removed + renumbered); baseline bullet re-dated from 2026-10-28 Phase 7 numbers (526/526 main, 550 workspace, 528 smt, aggregate 264) to the 2026-11-01 Phase 8 close-out baseline (535/535 main, 559 workspace, 537 smt, 1683 generated / 192 modules, aggregate 267), noted as preserved through Phase 9's docs-only changes.
+- `START.md` section 6: phase-implementation row "Phases 0-8 COMPLETE" -> "Phases 0-9 COMPLETE".
+- `KB.md` section 1: added the Phase 9 row after the Phase 7 row (Phase 8 is already represented by the Class A / Class B doc-set rows).
+- Verification: docs_md_test 5/5, dev_docs_test 9/9; committed as one commit (2 files + this entry, tree clean afterwards).

@@ -1427,6 +1427,33 @@ restrictions R1-R4 - including ANY formula containing `eventually`/`until`
 warning in every backend; the liveness operators are checked by the model
 checker only (section 11).
 
+### Formula-level operators and precedence corner cases
+
+Formula-level boolean operators (task 23 grammar fix): `&&` and `||` are
+operators at the FORMULA level (`and_formula`/`or_formula`), not only inside
+expressions. A formula operand that is not a keyword atom or parenthesized
+formula falls through to the NON-BOOLEAN expression level (`non_boolean_expr =
+equality_expr`) - never to the full `expr` ladder, whose logic levels would
+mis-consume identifier-looking formula atoms. This is why mixed atom kinds like
+`state == S && output_has(O)` parse: each operand of the formula-level `&&` is
+parsed independently via `primary_formula`, so `output_has(...)` reaches its
+keyword branch. Pinned by parser unit tests.
+
+Known precedence corner case:
+
+```rfs
+a || b -> c
+```
+
+currently parses as `a || (b -> c)`, because the right-hand side of `||` is
+parsed with implication included. For clarity, future specs should
+parenthesize implications: `(a || b) -> c` (or `always ((a || b) -> c)`).
+
+Liveness-operator precedence and scope (`!` binds tighter than `until`;
+top-level obligations over boolean subformulas; deeper nesting -> codegen
+diagnostic + skip): D-P4-8/D-P4-9 in section 22 and the Liveness part of
+section 11.
+
 ### Planned full subset
 
 ```rfs

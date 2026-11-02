@@ -100,93 +100,9 @@ section 8.5.
 
 ### 2.6 Property language decisions
 
-RFS uses a PSL-like temporal subset.
-
-Supported formula forms in Phase 0:
-
-```rfs
-prop name : formula ;
-assume name : formula ;
-```
-
-Formula atoms:
-
-```rfs
-input_is(EventPattern)
-output_has(OutputPattern)
-<expression>
-```
-
-Temporal/boolean operators:
-
-```rfs
-! f
-f && g
-f || g
-f -> g
-next (f)
-always (f)
-always[N] (f)          # Phase 3: body must hold at samples 0..N-1, N >= 1
-bounded_eventually[N] (f)
-eventually (f)         # Phase 4: unbounded liveness; parens mandatory; MC-only
-p until q              # Phase 4: WEAK until; infix, left-associative; MC-only
-```
-
-Phase 4 liveness operators (D-P4-8/D-P4-9, `DESIGN.md` sections 11 + 22):
-
-- Precedence: `!` binds TIGHTER than `until` (`!a until b` = `(!a) until b`);
-  `&&`/`||`/`->` bind looser (`a && b until c` = `a && (b until c)`); compound
-  operands need parentheses: `(a && b) until c`.
-- `until` is WEAK: satisfied if `q` holds at some step with `p` holding before
-  it, OR if `q` never holds and `p` holds forever. Strong until =
-  `p until q && eventually q`.
-- Scope: top-level obligations `eventually p` / `p until q` over BOOLEAN
-  subformulas (no temporal operators inside); combinable at top level with
-  `&&`/`||`/`!`/`->`. Deeper nesting -> codegen diagnostic + property skipped.
-- ANY formula containing them is outside the online monitor subset: production/
-  test codegen skips it with the identical warning in both backends; only the
-  model checker checks it (exact engine, lasso counterexamples).
-
-Conventions:
-
-- `state` is an ordinary path expression by convention, usually referring to the current control state.
-- `input_is(...)` and `output_has(...)` are formula atoms recognized by the parser.
-- Assumptions describe environment guarantees; properties describe system obligations.
-- Phase 3: every in-subset prop/assume compiles to a per-label ONLINE monitor (shared MonitorPlan, rendered identically in both backends); exact deadline semantics and restrictions R1-R4 are in `DESIGN.md` section 21.
-
-Formula-level boolean operators (task 23 grammar fix): `&&` and `||` are
-operators at the FORMULA level (`and_formula`/`or_formula`), not only inside
-expressions. A formula operand that is not a keyword atom or parenthesized
-formula falls through to the NON-BOOLEAN expression level (comparisons and
-below, `non_boolean_expr = equality_expr`) - never to the full `expr` ladder,
-whose logic levels would mis-consume identifier-looking formula atoms. This is
-why mixed atom kinds like `state == S && output_has(O)` parse: each operand of
-the formula-level `&&` is parsed independently via `primary_formula`, so
-`output_has(...)` reaches its keyword branch. Pinned by parser unit tests.
-
-Known precedence corner case:
-
-```rfs
-a || b -> c
-```
-
-currently parses as:
-
-```rfs
-a || (b -> c)
-```
-
-because the right-hand side of `||` is parsed with implication included. For clarity, future specs should parenthesize implications:
-
-```rfs
-(a || b) -> c
-```
-
-or:
-
-```rfs
-always ((a || b) -> c)
-```
+The property language subset, monitor semantics, and formula-level operator
+rules live in [DESIGN.md](DESIGN.md) sections 5.10 + 12 (single source of
+truth); normative operator semantics: `docs/SEMANTICS.md`.
 
 ### 2.7 Code generation architecture (implemented)
 

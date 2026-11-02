@@ -106,42 +106,12 @@ truth); normative operator semantics: `docs/SEMANTICS.md`.
 
 ### 2.7 Code generation architecture (implemented)
 
-Codegen is a **plugin system**: `src/codegen.rs` defines a target-language-
-agnostic core (the `Backend` plugin API, the `BACKENDS` registry, CLI request
-parsing for `rfs codegen`, help rendering), and each target language lives in a
-self-contained module under `src/backends/`. The Rust backend (`rust`, with
-`production` / `test` / `mc` commands) is the only registered backend so far;
-C is planned next.
-
-Shared, language-agnostic analysis lives in `src/codegen_fsm.rs` (variant
-flattening, representative values, property-subset analysis),
-`src/codegen_test.rs` (unit-test planning), and `src/codegen_mc.rs`
-(model-checker configuration, violation specs, run phases/outcomes).
-
-The generated Rust shape is one self-contained file per command:
-`enum State/Input/Output`, `struct Vars`, trace runtime,
-`AssumptionHandler` trait with policy enum, `StepError`, and
-`Fsm::new() / Fsm::step(input) -> Result<Vec<Output>, StepError>`.
-
-Design intent (all implemented):
-
-- generated production code is deterministic or explicitly priority-ordered;
-- variable updates are simultaneous;
-- model checker and production code consume the same IR (the MC is literally
-  the production core plus a runtime);
-- adding a backend = new module under `src/backends/` + one registry entry.
-
-Full API documentation for backend authors: `CODEGEN.md`. Rust backend
-architecture: `src/backends/RUST.md`.
-- bitvectors should map to fixed-width Rust primitives where practical.
-
-Phase 6 production-hardening decisions (D-P6-1..D-P6-11 as shipped): see
-`DESIGN.md` section 24 - versioning surface (version header formalization,
-IR_VERSION 0 -> 1, spec hash + toolchain version in artifact headers), the
-independent reference infrastructure (`src/ref_mc.rs` / `src/specgen.rs`,
-exposed as `rfs mc-ref` / `rfs gen-spec`), two-layer toolchain fuzzing,
-differential soundness suites, benchmark-suite CI policy. The NORMATIVE
-semantics all of these implement and test against: `docs/SEMANTICS.md`.
+The codegen plugin architecture (core registry, shared analysis, per-language
+backends - Rust AND C, both shipped and parity-pinned) is documented in
+[DESIGN.md](DESIGN.md) section 2; the emitted production shape is specified in
+its section 10. The backend-author API reference is `CODEGEN.md`; backend
+internals: `src/backends/RUST.md` / `src/backends/C.md`. Phase 6
+production-hardening decisions (D-P6-1..D-P6-11): DESIGN.md section 24.
 
 ---
 

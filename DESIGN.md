@@ -116,7 +116,7 @@ Phase 2), so code generation is built as a plugin system:
 
 - **Core (`src/codegen.rs`)**: target-language-agnostic. Defines the `Backend` value (name, description, per-command help descriptors, and one function pointer per command kind: production FSM, unit tests, bounded model checker), the compile-time registry `BACKENDS`, CLI request parsing for `rfs codegen`, and help rendering. Adding a backend means appending one static to `BACKENDS`; listing, help, and dispatch pick it up automatically.
 - **Shared analysis (`src/codegen_fsm.rs`, `codegen_test.rs`, `codegen_mc.rs`)**: IR-level logic any backend reuses — variant flattening with collision-free names, representative input values, unit-test planning (positive runs / static unexpected-input detection), model-checker configuration and run-phase/outcome taxonomy. No target-language syntax lives here.
-- **Backends (`src/backends/<lang>*.rs`)**: everything language-specific — identifier mangling, type mapping, expression lowering, and the rendering of the three commands. The Rust backend is documented in `src/backends/RUST.md`; the plugin API reference for authors (including LLM assistants) is `CODEGEN.md`.
+- **Backends (`src/backends/<lang>*.rs`)**: everything language-specific — identifier mangling, type mapping, expression lowering, and the rendering of the three commands. The Rust backend is documented in `src/backends/RUST.md`, the C backend in `src/backends/C.md`; the plugin API reference for authors (including LLM assistants) is `CODEGEN.md`. The emitted production shape (flattened enums, `Vars`, trace + assumption runtimes, `Fsm::step` signature, `--no-std` / `--with-protocol-fsm` extensions) is specified in section 10.
 
 Design decisions:
 

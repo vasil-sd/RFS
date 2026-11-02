@@ -1,13 +1,13 @@
 # RFS Design Decisions - Rationale Index
 
-Every decision entry in `DESIGN.md` (section 9 subsections 9.1-9.11, section
+Every decision entry in [DESIGN.md](../../DESIGN.md) (section 9 subsections 9.1-9.11, section
 19 bullets, sections 20-25 D-numbered decisions) with a 2-4 line "why"
 summary + link to the full table and to the implementing code.
 
 <a id="dev:decisions-early"></a>
 ## Phase 0-2 decisions (section 9 + section 19)
 
-The eleven major design choices of `DESIGN.md` section 9 (each a comparison
+The eleven major design choices of [DESIGN.md](../../DESIGN.md) section 9 (each a comparison
 table with a marked Decision column) and the eight Phase 1 code-generation
 bullets of section 19. Each entry states the chosen option, summarizes the
 rationale in 2-4 lines, and links to the full table and the implementing code.
@@ -21,7 +21,7 @@ diagnostics and lets one IR feed multiple targets; embedding the DSL in Rust
 macros would constrain the syntax to the macro system and degrade error
 quality, while data formats are too weak for guarded transitions and temporal
 properties.
-Table: DESIGN.md section 9.1 - Code: `src/parser.rs::parse_source`,
+Table: [DESIGN.md](../../DESIGN.md) section 9.1 - Code: `src/parser.rs::parse_source`,
 `src/ir.rs::Ir`.
 
 ### 9.2 FSM authoring style - Rust-like pattern-matching transition blocks
@@ -31,7 +31,7 @@ rejected as primary; diagrams are generated only; statecharts not in v0.
 **Why:** the style is familiar to Rust users, maps directly onto `match` in
 generated code, and supports bindings/guards/actions in one construct; it
 requires clear priority semantics, which 9.4 provides.
-Table: DESIGN.md section 9.2 - Code: `src/backends/rust_fsm.rs::transition_block`,
+Table: [DESIGN.md](../../DESIGN.md) section 9.2 - Code: `src/backends/rust_fsm.rs::transition_block`,
 `src/backends/c_fsm.rs::transition_block_c`.
 
 ### 9.3 Data model - fixed-width finite types (`bool`, enums, `bit<N>`)
@@ -43,7 +43,7 @@ don't-care later.
 complete for small systems, and fixed-width types map directly onto primitive
 integers in both backends; unbounded or side-effecting types would make MC
 impossible or unsound.
-Table: DESIGN.md section 9.3 - Code: `src/validator.rs::type_expr`,
+Table: [DESIGN.md](../../DESIGN.md) section 9.3 - Code: `src/validator.rs::type_expr`,
 `src/backends/rust.rs::rust_type`, `src/backends/c.rs::c_type`.
 
 ### 9.4 Determinism and transition selection - explicit priorities + disjointness validation
@@ -56,7 +56,7 @@ recommended later.
 behavior, and hidden source-order semantics would be fragile; explicit
 priorities give precise control with good diagnostics for duplicates and
 overlapping guards.
-Table: DESIGN.md section 9.4 - Code: `src/validator.rs::validate_module`.
+Table: [DESIGN.md](../../DESIGN.md) section 9.4 - Code: `src/validator.rs::validate_module`.
 
 ### 9.5 Time and timeouts - explicit `Tick` event plus timer variables
 
@@ -66,7 +66,7 @@ real-time clocks in v0; implicit `after N` delays are sugar maybe later.
 trivially sound, at the cost of the user modeling ticks explicitly -
 acceptable for protocol timeouts. `Tick` is a plain declared event name (no
 parser special-casing), as in examples/valid/03_timeout_retry.rfs.
-Table: DESIGN.md section 9.5 - Code: `src/parser.rs::parse_source`.
+Table: [DESIGN.md](../../DESIGN.md) section 9.5 - Code: `src/parser.rs::parse_source`.
 
 ### 9.6 Property language - PSL-like subset
 
@@ -75,7 +75,7 @@ naming avoided; Rust closures rejected for core properties.
 **Why:** the requested style is practical for bounded protocol event sequences
 and compiles to online monitors; pure LTL is less practical for bounded
 patterns, and arbitrary closures are not automatically model-checkable.
-Table: DESIGN.md section 9.6 - Code: `src/parser.rs::primary_formula`,
+Table: [DESIGN.md](../../DESIGN.md) section 9.6 - Code: `src/parser.rs::primary_formula`,
 `src/monitor.rs::compile_formula`.
 
 ### 9.7 Model-checking engine strategy - exhaustive reachable-state search (exact mode)
@@ -83,13 +83,13 @@ Table: DESIGN.md section 9.6 - Code: `src/parser.rs::primary_formula`,
 Exhaustive reachable-state BFS with state caching is the core exact mode;
 brute-force input enumeration was the Phase 1 MVP only; symbolic BDD/bitset,
 SMT-based bounded MC, and k-liveness are later optional.
-The shipped exact engine reports the three-status taxonomy of DESIGN.md
+The shipped exact engine reports the three-status taxonomy of [DESIGN.md](../../DESIGN.md)
 section 11 (D-P4-4): `pass-complete` / `fail` / `unknown-state-limit`, exit
 codes 0/1/2 - so bounded runs are never presented as full proof.
 **Why:** complete for small finite systems and yields counterexamples, which
 is the right core guarantee; symbolic approaches handle larger state spaces
 but add significant implementation complexity, so they stay optional.
-Table: DESIGN.md section 9.7 - Code: `src/mc_plan.rs::McPlan`,
+Table: [DESIGN.md](../../DESIGN.md) section 9.7 - Code: `src/mc_plan.rs::McPlan`,
 `src/backends/rust_mc.rs::exact_codegen`, `src/ref_mc.rs::run`.
 
 ### 9.8 Production integration style - pure `step` function + trait adapters
@@ -101,7 +101,7 @@ e.g. tokio-only rejected.
 **Why:** a pure step function is simple, testable, and has no runtime
 coupling; the adapter layer adds sync/async composability without tying the
 toolchain to any executor - the async adapter works on ANY executor.
-Table: DESIGN.md section 9.8 - Code: `src/backends/rust_fsm.rs::generate_production`,
+Table: [DESIGN.md](../../DESIGN.md) section 9.8 - Code: `src/backends/rust_fsm.rs::generate_production`,
 `crates/rfs-adapters/src/lib.rs::ProtocolFsm`.
 
 ### 9.9 Error handling in production code - `Result`-based, recoverable
@@ -113,7 +113,7 @@ or default transition is supported later.
 protocol handlers need; panicking on an unexpected event is unsafe for
 long-running services. The generated fallback path (declared `on_error` or the
 default `Err`) is emitted per backend.
-Table: DESIGN.md section 9.9 - Code: `src/backends/rust_fsm.rs::on_error_block`,
+Table: [DESIGN.md](../../DESIGN.md) section 9.9 - Code: `src/backends/rust_fsm.rs::on_error_block`,
 `src/backends/c_fsm.rs::emit_fsm_impl`.
 
 ### 9.10 Assumptions about the environment - PSL-like `assume` properties
@@ -124,7 +124,7 @@ extension.
 **Why:** assumptions in the same property language are concise and integrate
 directly into MC (they prune exploration), while staying optional so
 stronger, assumption-free verification remains available.
-Table: DESIGN.md section 9.10 - Code: `src/codegen.rs::AssumptionSelection`,
+Table: [DESIGN.md](../../DESIGN.md) section 9.10 - Code: `src/codegen.rs::AssumptionSelection`,
 `src/mc_plan.rs::McPlan`.
 
 ### 9.11 Composition - single endpoint FSM (v0/v1)
@@ -135,12 +135,12 @@ intermediate step.
 **Why:** a single endpoint keeps MC/codegen simple and the v1 scope
 manageable; multi-party composition brings state explosion and codegen
 complexity that are deliberately deferred.
-Table: DESIGN.md section 9.11 - Code: `src/ir.rs::Module`.
+Table: [DESIGN.md](../../DESIGN.md) section 9.11 - Code: `src/ir.rs::Module`.
 
 ### Section 19 - Phase 1 code-generation decisions
 
-The eight bullets of DESIGN.md section 19 (full text there; recorded in detail
-in the Phase 1 status report, `docs/roadmap/phase_1/PHASE_1_STATUS.md`):
+The eight bullets of [DESIGN.md](../../DESIGN.md) section 19 (full text there; recorded in detail
+in the Phase 1 status report, [PHASE_1_STATUS.md](../roadmap/phase_1/PHASE_1_STATUS.md)):
 
 - **Code generation consumes the validated IR, not parser text.** Why: one
   normalized form guarantees every target sees identical semantics and lets
@@ -202,7 +202,7 @@ rejected.
 **Why:** matches the "priority 10 beats priority 5" intuition and is easy to
 explain in specs; the inverted convention would leave authors wondering whether
 1 is top or bottom.
-Table: DESIGN.md section 20, D1 - Code: `src/backends/rust_fsm.rs::emit_fsm_impl`,
+Table: [DESIGN.md](../../DESIGN.md) section 20, D1 - Code: `src/backends/rust_fsm.rs::emit_fsm_impl`,
 `src/backends/c_fsm.rs::emit_fsm_impl`.
 
 ### D2. Ambiguity and duplicate detection (same state, identical event pattern)
@@ -220,7 +220,7 @@ they are not; provably dead transitions must fail, unorderable ties must fail,
 and legal if/else chains stay valid but get told to pin intent - the "at least
 syntactically" level required by the roadmap, with bounded checking left to
 Phase 4.
-Table: DESIGN.md section 20, D2 - Code: `src/validator.rs::validate_module`.
+Table: [DESIGN.md](../../DESIGN.md) section 20, D2 - Code: `src/validator.rs::validate_module`.
 
 ### D3. Duplicate-priority scope - unique per (state, pattern)
 
@@ -229,7 +229,7 @@ Priorities must be unique per (state, pattern); per-state uniqueness rejected.
 the minimal constraint; per-state uniqueness forces a global numbering scheme
 even for patterns that cannot conflict - it was rejected after it broke a
 natural spec during implementation.
-Table: DESIGN.md section 20, D3 - Code: `src/validator.rs::validate_module`.
+Table: [DESIGN.md](../../DESIGN.md) section 20, D3 - Code: `src/validator.rs::validate_module`.
 
 ### D4. Severity of reachability/usage diagnostics - warnings only
 
@@ -241,7 +241,7 @@ to two different integer literals in one top-level conjunction) are all
 with defensive states must not fail, and the existing valid examples had to
 keep passing; warnings are printed by `rfs validate` and surfaced through
 codegen output warnings.
-Table: DESIGN.md section 20, D4 - Code: `src/validator.rs::module_warnings`,
+Table: [DESIGN.md](../../DESIGN.md) section 20, D4 - Code: `src/validator.rs::module_warnings`,
 `src/frontend.rs::run_validate`.
 
 ### D5. Effective priority default - 0 (lowest)
@@ -254,7 +254,7 @@ group.
 **Why:** specs without priorities generate behaviorally identical code to
 Phase 1 (source order preserved within a state), so the default is invisible
 unless the author opts in.
-Table: DESIGN.md section 20, D5 - Code: `src/backends/rust_fsm.rs::emit_fsm_impl`,
+Table: [DESIGN.md](../../DESIGN.md) section 20, D5 - Code: `src/backends/rust_fsm.rs::emit_fsm_impl`,
 `src/backends/c_fsm.rs::emit_fsm_impl`.
 
 ### D6. Error handling for unexpected inputs - module-level `on_error` block
@@ -270,7 +270,7 @@ behavior is unchanged from Phase 1 (`StepError::UnexpectedEvent` /
 state, and MC-compatible (it is just a fallback arm); the wildcard form would
 clash with the existing `_` field wildcard and be easy to misuse, and an
 "ignore" policy silently drops protocol errors (bad for model checking).
-Table: DESIGN.md section 20, D6 - Code: `src/ir.rs::Module`,
+Table: [DESIGN.md](../../DESIGN.md) section 20, D6 - Code: `src/ir.rs::Module`,
 `src/backends/rust_fsm.rs::on_error_block`, `src/backends/c_fsm.rs::emit_fsm_impl`.
 
 ### D7. Module version header syntax - `module Name version "x.y.z" {`
@@ -283,7 +283,7 @@ optional, skipped when absent), printed by the RFS printer, and emitted as
 **Why:** visible at a glance, one optional token, trivially round-trips; a new
 item kind for what is currently a single value was overkill while no second
 metadata key exists.
-Table: DESIGN.md section 20, D7 - Code: `src/ir.rs::Module`,
+Table: [DESIGN.md](../../DESIGN.md) section 20, D7 - Code: `src/ir.rs::Module`,
 `src/printer.rs::print_ir`, `src/backends/rust_fsm.rs::emit_monitors`,
 `src/backends/c_fsm.rs::emit_monitors`.
 
@@ -311,7 +311,7 @@ observable behavior as Rust for the same spec and inputs; native unsigned
 wrap-around gives bit-identical fixed-width arithmetic without wider types,
 and sharing the MC wire format makes cross-backend differential testing
 meaningful.
-Table: DESIGN.md section 20, D8 - Code: `src/backends/c.rs::c_type`,
+Table: [DESIGN.md](../../DESIGN.md) section 20, D8 - Code: `src/backends/c.rs::c_type`,
 `src/backends/c.rs::bit_c_type`, `src/backends/c_fsm.rs::emit_monitors`,
 `src/backends/c_mc.rs::generate_model_checker`.
 
@@ -326,7 +326,7 @@ D-P3-6); no logging hook (the CLI has `--log-level` instead).
 **Why:** generated code is already dependency-free single files, which keeps
 the door open; shipping flags only when a consumer needs them avoids maintaining
 dead options.
-Table: DESIGN.md section 20, D9 - Code: `src/codegen.rs::BackendOptions`.
+Table: [DESIGN.md](../../DESIGN.md) section 20, D9 - Code: `src/codegen.rs::BackendOptions`.
 
 ### D10. IR evolution rule - additive optional fields do not bump IR_VERSION
 
@@ -338,7 +338,7 @@ shape must bump `IR_VERSION` and update round-trip tests. Phase 2 added
 round-trips unchanged; reserving bumps for breaking changes keeps the version
 meaningful. (Phase 5's hand-rolled JSON reader-writer, D-P5-2, preserves this
 contract with pinned key order.)
-Table: DESIGN.md section 20, D10 - Code: `src/ir.rs::IR_VERSION`,
+Table: [DESIGN.md](../../DESIGN.md) section 20, D10 - Code: `src/ir.rs::IR_VERSION`,
 `src/json_rw.rs`.
 
 ### D-P3-1. IR representation of `always[N]` - additive `BoundedAlways` variant
@@ -347,7 +347,7 @@ An additive `BoundedAlways { bound, inner }` formula variant (wire tag
 `bounded_always`) with no `IR_VERSION` bump; a v1 bump rejected.
 **Why:** old IR JSON round-trips unchanged - purely additive per the D10 rule;
 bumping for an additive change would break all existing IR JSON for no benefit.
-Table: DESIGN.md section 21, D-P3-1 - Code: `src/ir.rs::Formula`.
+Table: [DESIGN.md](../../DESIGN.md) section 21, D-P3-1 - Code: `src/ir.rs::Formula`.
 
 ### D-P3-2. Zero-bound rules - `always[N]` requires N >= 1; `be[0]` stays legal
 
@@ -357,12 +357,12 @@ rejection of both zero bounds rejected.
 **Why:** the new syntax has no compatibility concern, while `be[0]` keeps a
 meaningful degenerate "hold now" form; no existing example used either form
 (verified), so the asymmetric rule costs nothing.
-Table: DESIGN.md section 21, D-P3-2 - Code:
+Table: [DESIGN.md](../../DESIGN.md) section 21, D-P3-2 - Code:
 `src/validator.rs::bounded_always_error`.
 
 ### D-P3-3. Exact monitor semantics - violation confirmed at the deadline sample
 
-Sampling follows DESIGN.md section 11: per-sample values are post-step;
+Sampling follows [DESIGN.md](../../DESIGN.md) section 11: per-sample values are post-step;
 `input_is`/`output_has` refer to the transition just taken; sample 0 is the
 initial configuration (no input/outputs, so both atoms are false there). For an
 obligation triggered at sample i with bound N, the violation is confirmed at
@@ -371,9 +371,9 @@ after the deadline (i + N) rejected.
 **Why:** tighter counterexamples - the violation step is the last allowed
 sample, matching the countdown implementation; the alternative points past the
 last allowed sample and is off-by-one vs the countdown. Pinned by
-monitor-compiler tests before any codegen rendered it (PHASE_3.md's conceptual
+monitor-compiler tests before any codegen rendered it ([PHASE_3.md](../roadmap/phase_3/PHASE_3.md)'s conceptual
 pseudocode had to be reconciled).
-Table: DESIGN.md section 21, D-P3-3 - Code: `src/monitor.rs::compile_check`,
+Table: [DESIGN.md](../../DESIGN.md) section 21, D-P3-3 - Code: `src/monitor.rs::compile_check`,
 `src/monitor.rs::ReferenceMonitor`.
 
 ### D-P3-4. Online monitors replace post-hoc checks
@@ -388,7 +388,7 @@ reported through it), so all MC/test call sites - trial-step forced violations,
 **Why:** a single evaluation path - bounded-liveness obligations become
 monitorable mid-run and assumption pruning works online in MC (incl. liveness
 assumptions); two paths could diverge and would duplicate monitor state.
-Table: DESIGN.md section 21, D-P3-4 - Code:
+Table: [DESIGN.md](../../DESIGN.md) section 21, D-P3-4 - Code:
 `src/backends/rust_fsm.rs::step_with_handler`, `src/monitor.rs::compile_formula`.
 
 ### D-P3-5. C backend: full monitor parity
@@ -403,11 +403,11 @@ inside a bounded-eventually body) are enforced by the shared monitor compiler,
 identical in every backend. Formulas outside R1-R4 parse + validate succeed;
 codegen in EVERY backend emits the same skip warning and generates no monitor
 for that label.
-**Why:** the backend parity principle (PRINCIPLES.md) - same functionality and
+**Why:** the backend parity principle ([PRINCIPLES.md](../roadmap/PRINCIPLES.md)) - same functionality and
 exactly the same observable behavior in ALL backends, with differential
 testing meaningful; Rust-only monitors would leave C MC silently skipping
 liveness assumptions and property detection.
-Table: DESIGN.md section 21, D-P3-5 - Code: `src/monitor.rs::compile_formula`,
+Table: [DESIGN.md](../../DESIGN.md) section 21, D-P3-5 - Code: `src/monitor.rs::compile_formula`,
 `src/backends/c_fsm.rs::emit_monitors`, `tests/backend_parity_test.rs`.
 
 ### D-P3-6. CLI flag and per-language gating - `--with-property-monitors` on production only
@@ -422,7 +422,7 @@ fields.
 **Why:** release production builds pay zero monitor cost; MC/tests never need
 an opt-in flag (violations are the point - MC must not be able to disable
 them); one flag across backends keeps the CLI uniform.
-Table: DESIGN.md section 21, D-P3-6 - Code: `src/codegen.rs::PropertyMonitorMode`,
+Table: [DESIGN.md](../../DESIGN.md) section 21, D-P3-6 - Code: `src/codegen.rs::PropertyMonitorMode`,
 `src/backends/rust_fsm.rs::emit_monitors`,
 `src/backends/c_fsm.rs::render_prop_monitors`.
 
@@ -430,9 +430,9 @@ Table: DESIGN.md section 21, D-P3-6 - Code: `src/codegen.rs::PropertyMonitorMode
 ## Phase 4 (D-P4-1..14) + Phase 5 (D-P5-1..14)
 
 Phase 4 shipped scalable model checking as implemented (plan:
-`docs/roadmap/phase_4/PHASE_4_PLAN.md`; full semantics: DESIGN.md section 11). Phase 5
+[PHASE_4_PLAN.md](../roadmap/phase_4/PHASE_4_PLAN.md); full semantics: [DESIGN.md](../../DESIGN.md) section 11). Phase 5
 shipped the full toolchain and production integration (plan:
-`docs/roadmap/phase_5/PHASE_5_PLAN.md`; full command behavior: KB.md section 4.5).
+[PHASE_5_PLAN.md](../roadmap/phase_5/PHASE_5_PLAN.md); full command behavior: [KB.md](../../KB.md) section 4.5).
 Each entry below summarizes the shipped decision with its rationale and links
 to the implementing code.
 
@@ -445,7 +445,7 @@ behavior is identical by construction. The SMT mode reuses the pattern via
 **Why:** one plan rendered twice makes cross-backend parity a construction
 guarantee rather than a test hope - the differential suites then only need to
 pin rendering, not semantics.
-Table: DESIGN.md section 22, D-P4-1 - Code: `src/mc_plan.rs::McPlan`,
+Table: [DESIGN.md](../../DESIGN.md) section 22, D-P4-1 - Code: `src/mc_plan.rs::McPlan`,
 `src/smt_plan.rs::build_smt_spec`, `src/smt_emit.rs::emit_rust_spec`.
 
 ### D-P4-2. Exact engine: level-synchronous BFS over configurations
@@ -459,7 +459,7 @@ status/counterexample (parity suites pin this).
 reachable-state search: it terminates on finite state spaces, finds the
 SHORTEST counterexample by construction, and canonical ordering makes results
 reproducible across backends and runs.
-Table: DESIGN.md section 22, D-P4-2 - Code: `src/backends/rust_mc.rs::exact_codegen`,
+Table: [DESIGN.md](../../DESIGN.md) section 22, D-P4-2 - Code: `src/backends/rust_mc.rs::exact_codegen`,
 `src/ref_mc.rs::run`, `src/mc_plan.rs::TraversalSpec`.
 
 ### D-P4-3. Input abstraction
@@ -468,11 +468,11 @@ A payload field is abstracted to a single representative value iff no
 transition guard, output payload expression, variable update expression, or
 property/assumption formula references it (`input_is` patterns with field
 values count as references). Soundness arguments for safety and liveness:
-DESIGN.md section 11.
+[DESIGN.md](../../DESIGN.md) section 11.
 **Why:** unreferenced fields cannot influence behavior, so collapsing them to
 one representative value shrinks the state space without losing any reachable
 behavioral distinction - the main scalability win for payload-heavy protocols.
-Table: DESIGN.md section 22, D-P4-3 - Code: `src/mc_plan.rs::InputAbstraction`,
+Table: [DESIGN.md](../../DESIGN.md) section 22, D-P4-3 - Code: `src/mc_plan.rs::InputAbstraction`,
 `src/mc_plan.rs::collect_input_is_refs`.
 
 ### D-P4-4. Statuses and summary line
@@ -485,7 +485,7 @@ Table: DESIGN.md section 22, D-P4-3 - Code: `src/mc_plan.rs::InputAbstraction`,
 **Why:** a three-status taxonomy with distinct exit codes lets CI distinguish
 "proven", "bug found", and "incomplete" - presenting a bounded run as full
 proof would be unsound, so incompleteness is a first-class status.
-Table: DESIGN.md section 22, D-P4-4 - Code: `src/codegen_mc.rs::ExactStatus`,
+Table: [DESIGN.md](../../DESIGN.md) section 22, D-P4-4 - Code: `src/codegen_mc.rs::ExactStatus`,
 `src/codegen_mc.rs::FailReason`.
 
 ### D-P4-5. Deadlock and unexpected-input semantics
@@ -497,7 +497,7 @@ while others are enabled terminate that path and are counted as
 must fail; an unmatched input on a path where other inputs work is an
 environment misbehavior, not a spec bug - counting it keeps the signal visible
 without false failures.
-Table: DESIGN.md section 22, D-P4-5 - Code: `src/backends/rust_mc.rs::exact_codegen`,
+Table: [DESIGN.md](../../DESIGN.md) section 22, D-P4-5 - Code: `src/backends/rust_mc.rs::exact_codegen`,
 `src/codegen_mc.rs`.
 
 ### D-P4-6. Assumptions prune exploration
@@ -507,7 +507,7 @@ explores everything.
 **Why:** assumptions declare environment guarantees; pruning on them verifies
 the protocol under its contract, while the escape hatch keeps
 assumption-free (stress) verification available without spec edits.
-Table: DESIGN.md section 22, D-P4-6 - Code: `src/mc_plan.rs::McPlan`,
+Table: [DESIGN.md](../../DESIGN.md) section 22, D-P4-6 - Code: `src/mc_plan.rs::McPlan`,
 `src/codegen.rs::AssumptionSelection`.
 
 ### D-P4-7. Modes and flags
@@ -523,7 +523,7 @@ document MC flags.
 **Why:** exact is the parity-guaranteed default; fuzz/bounded variants are
 explicit opt-ins with documented non-parity caveats, so a flag can never
 silently change what "pass" means.
-Table: DESIGN.md section 22, D-P4-7 - Code: `src/codegen.rs::McMode`,
+Table: [DESIGN.md](../../DESIGN.md) section 22, D-P4-7 - Code: `src/codegen.rs::McMode`,
 `src/codegen.rs::common_help`.
 
 ### D-P4-8. Liveness language: `eventually (p)` + infix `until` (WEAK until)
@@ -532,12 +532,12 @@ The `until` precedence level sits between `&&` and `!` such that `!` binds
 TIGHTER than `until` (`!a until b` = `(!a) until b`) and `&&`/`||` bind looser
 (`a && b until c` = `a && (b until c)`). The plan's EBNF sketch contradicted
 its own pinned consequence; the implementation follows the pinned consequence
-(standard PSL/CTL), recorded in `PHASE_4_TASK_5.md` "Task corrections". IR:
+(standard PSL/CTL), recorded in [PHASE_4_TASK_5.md](../roadmap/phase_4/tasks/PHASE_4_TASK_5.md) "Task corrections". IR:
 additive `Formula::Eventually` / `Formula::Until`, no version bump.
 **Why:** standard PSL/CTL precedence keeps the language predictable for anyone
 who knows temporal logic; pinning the consequence over the sketch resolved the
 internal contradiction in favor of the conventional reading.
-Table: DESIGN.md section 22, D-P4-8 - Code: `src/parser.rs::primary_formula`,
+Table: [DESIGN.md](../../DESIGN.md) section 22, D-P4-8 - Code: `src/parser.rs::primary_formula`,
 `src/ir.rs::Formula`.
 
 ### D-P4-9. Liveness scope
@@ -552,12 +552,12 @@ warning, MC-only).
 atoms keeps the liveness algorithm (per-leaf progress automata) tractable and
 the monitor/MC split clean - monitors stay online-decidable, liveness stays an
 MC feature.
-Table: DESIGN.md section 22, D-P4-9 - Code: `src/mc_plan.rs::LivenessDecomposition`.
+Table: [DESIGN.md](../../DESIGN.md) section 22, D-P4-9 - Code: `src/mc_plan.rs::LivenessDecomposition`.
 
 ### D-P4-10. Liveness algorithm: per-leaf progress automata on the completed graph
 
 As implemented WITH THE CORRECTED WEAK-UNTIL EQUATION (plan correction in
-DESIGN.md section 11): neg(p until q) = backward reachability, staying in
+[DESIGN.md](../../DESIGN.md) section 11): neg(p until q) = backward reachability, staying in
 {pos: ¬q}, to {pos: ¬p}. Verified against brute-force lasso enumeration (1200
 equation + 2000 full-algorithm checks, 0 mismatches). Bounded mode: truncated
 analysis - sound FAIL if the witness is inside the explored part, else
@@ -567,7 +567,7 @@ with per-leaf progress automata avoids product-construction blowup; the
 corrected weak-until equation was validated against brute force before being
 trusted, and the bounded mode preserves soundness by never claiming
 pass-complete on a truncated analysis.
-Table: DESIGN.md section 22, D-P4-10 - Code:
+Table: [DESIGN.md](../../DESIGN.md) section 22, D-P4-10 - Code:
 `src/mc_plan.rs::LivenessDecomposition`, `src/backends/rust_mc.rs::exact_codegen`,
 `src/ref_mc.rs::run`.
 
@@ -582,26 +582,26 @@ test-pinned (det FAIL vs nondet pass-complete).
 automatic; under `--nondet` an open cycle that merely avoids progress is not a
 liveness violation - strong transition fairness filters exactly those, and the
 discriminator test pins the det/nondet difference.
-Table: DESIGN.md section 22, D-P4-11 - Code:
+Table: [DESIGN.md](../../DESIGN.md) section 22, D-P4-11 - Code:
 `src/backends/rust_mc.rs::exact_codegen`, `src/codegen.rs::McMode`.
 
 ### D-P4-12. SMT bounded mode (optional)
 
 Gate PASSED, IMPLEMENTED in task 11. z3 5.3.1 at `/workspace/host/z3`
-(TOOLCHAIN.md section 5); feature-gated `smt` cargo feature (z3 crate 0.21 /
+([TOOLCHAIN.md](../../TOOLCHAIN.md) section 5); feature-gated `smt` cargo feature (z3 crate 0.21 /
 z3-sys 0.13.1) - default builds unaffected. `--mode smt-bounded`: k-step
 unrolling over bitvectors from the shared plan/emitter (parity by
 construction), k-liveness, exit codes 0/1/2, PASS always labeled incomplete.
 v1 scope rejections: assumptions, on_error blocks, enum-typed vars, property
 formulas beyond top-level always/eventually over boolean combinations of
-expressions. Details: DESIGN.md section 11 + `PHASE_4_TASK_11_STATUS.md`
+expressions. Details: [DESIGN.md](../../DESIGN.md) section 11 + [PHASE_4_TASK_11_STATUS.md](../roadmap/phase_4/tasks/PHASE_4_TASK_11_STATUS.md)
 (incl. semantic bugs found/fixed: shift-amount width mismatch,
 oversized-literal comparison wrap, z3 5.3.1 C API deltas).
 **Why:** SMT unrolling finds bugs beyond the reachable-state budget with wider
 bitvectors, and deriving it from the SAME shared plan keeps Rust/C parity by
 construction; feature-gating keeps the default toolchain dependency-free, and
 labeling every PASS incomplete preserves the soundness discipline of D-P4-4.
-Table: DESIGN.md section 22, D-P4-12 - Code: `src/smt_plan.rs::build_smt_spec`,
+Table: [DESIGN.md](../../DESIGN.md) section 22, D-P4-12 - Code: `src/smt_plan.rs::build_smt_spec`,
 `src/smt_emit.rs::emit_c_spec`.
 
 ### D-P4-13. Benchmarks
@@ -616,7 +616,7 @@ artifact).
 **Why:** real protocol shapes (not toy FSMs) are the only honest sizing data
 for the exact engine, and pinning deterministic metrics as equality bounds
 keeps CI stable while still catching regressions.
-Table: DESIGN.md section 22, D-P4-13 - Code: `tests/benchmark_mc_test.rs`.
+Table: [DESIGN.md](../../DESIGN.md) section 22, D-P4-13 - Code: `tests/benchmark_mc_test.rs`.
 
 ### D-P4-14. Test migration to seedless exact mode
 
@@ -627,7 +627,7 @@ never reported) and 1 new property violation.
 **Why:** exact mode makes parity tests deterministic and complete - the
 migration immediately found real spec deadlocks that seeded random walks had
 missed, proving the stronger mode pays for itself.
-Table: DESIGN.md section 22, D-P4-14 - Code: `tests/backend_parity_test.rs`,
+Table: [DESIGN.md](../../DESIGN.md) section 22, D-P4-14 - Code: `tests/backend_parity_test.rs`,
 `tests/monitor_integration_test.rs`.
 
 ### D-P5-1. Workspace layout (task 1)
@@ -644,7 +644,7 @@ unchanged after the conversion.
 directories, and keeping C projects Makefile-driven avoids forcing a cargo
 manifest on plain-C code; root-package-only default commands preserve every
 existing alias's behavior.
-Table: DESIGN.md section 23, D-P5-1 - Code: `crates/rfs-build/src/lib.rs`,
+Table: [DESIGN.md](../../DESIGN.md) section 23, D-P5-1 - Code: `crates/rfs-build/src/lib.rs`,
 `crates/rfs-adapters/src/lib.rs`.
 
 ### D-P5-2. Hand-rolled JSON reader-writer, ALL sources (task 2)
@@ -666,7 +666,7 @@ valid examples, so no test re-pinning was needed.
 of artifact reproducibility; only owning the serializer guarantees pinned key
 order forever, and a fallible writer turns an unrepresentable value into a
 diagnostic instead of corrupted output.
-Table: DESIGN.md section 23, D-P5-2 - Code: `src/json_rw.rs::parse`,
+Table: [DESIGN.md](../../DESIGN.md) section 23, D-P5-2 - Code: `src/json_rw.rs::parse`,
 `src/ir.rs::to_json`.
 
 ### D-P5-3. rfs-build: build.rs helper (task 1)
@@ -685,7 +685,7 @@ fmt never sees it).
 **Why:** a dependency-free helper with explicit rerun directives makes
 generate-at-build-time correct under cargo's incremental model, and keeping
 generated artifacts in OUT_DIR keeps the source tree (and fmt/clippy) clean.
-Table: DESIGN.md section 23, D-P5-3 - Code:
+Table: [DESIGN.md](../../DESIGN.md) section 23, D-P5-3 - Code:
 `crates/rfs-build/src/lib.rs::RfsBuild`, `crates/rfs-build/src/lib.rs::resolve_rfs_bin`.
 
 ### D-P5-4. rfs info: static spec introspection (task 3)
@@ -700,7 +700,7 @@ reason`). File input only (`.rfs`/`.json` by extension); NO model checking.
 **Why:** cheap static introspection answers "what is in this spec" without
 running anything, and the all-keys-present JSON shape gives tooling a stable
 schema to code against.
-Table: DESIGN.md section 23, D-P5-4 - Code: `src/info.rs::run_info`.
+Table: [DESIGN.md](../../DESIGN.md) section 23, D-P5-4 - Code: `src/info.rs::run_info`.
 
 ### D-P5-5. rfs test: generate + compile + run (tasks 7/17)
 
@@ -733,7 +733,7 @@ before the fix). The `detect_leaks=0` merge stays pinned as defense in depth.
 spec to executed test with no manual steps; strict tool availability (error
 only for the selected suite) keeps the default path dependency-free while CI
 can opt into fuzzing.
-Table: DESIGN.md section 23, D-P5-5 - Code: `src/test_cmd.rs::run_test`.
+Table: [DESIGN.md](../../DESIGN.md) section 23, D-P5-5 - Code: `src/test_cmd.rs::run_test`.
 
 ### D-P5-6. rfs diagram: plugin registry, strict rendering (task 8)
 
@@ -754,7 +754,7 @@ requested or throws; users compose their own fallbacks (e.g. via
 with zero external tools, and strict rendering semantics are a CI/CD
 requirement - silent fallback to a stale or missing diagram would hide broken
 pipelines.
-Table: DESIGN.md section 23, D-P5-6 - Code: `src/diagram.rs::DIAGRAMS`.
+Table: [DESIGN.md](../../DESIGN.md) section 23, D-P5-6 - Code: `src/diagram.rs::DIAGRAMS`.
 
 ### D-P5-7. External-tool parameterization (task 3, extended task 17)
 
@@ -774,7 +774,7 @@ extra args).
 **Why:** one resolver with one documented precedence eliminates per-command
 drift in tool handling, and env-var preference lets CI pin toolchains globally
 while local overrides stay possible per invocation.
-Table: DESIGN.md section 23, D-P5-7 - Code: `src/ext_tool.rs::ExtTool`.
+Table: [DESIGN.md](../../DESIGN.md) section 23, D-P5-7 - Code: `src/ext_tool.rs::ExtTool`.
 
 ### D-P5-8. --print-script: script-generation mode (task 3)
 
@@ -789,7 +789,7 @@ executed with `sh` during tasks 7/8/17 (exit 0 + self-cleanup).
 **Why:** a self-contained script makes every tool invocation reproducible and
 auditable outside rfs (CI debugging, air-gapped machines, custom wrappers)
 while the pinned output keeps the resolver's decisions visible and testable.
-Table: DESIGN.md section 23, D-P5-8 - Code: `src/ext_tool.rs::Script`.
+Table: [DESIGN.md](../../DESIGN.md) section 23, D-P5-8 - Code: `src/ext_tool.rs::Script`.
 
 ### D-P5-9. no_std production codegen (task 9)
 
@@ -804,7 +804,7 @@ comment line.
 **Why:** embedded targets need the same generated FSM without std, and an
 identical API shape means porting a handler is a build-flag change, not a code
 change; rejecting test/mc keeps the flag's contract precise.
-Table: DESIGN.md section 23, D-P5-9 - Code:
+Table: [DESIGN.md](../../DESIGN.md) section 23, D-P5-9 - Code:
 `src/codegen.rs::NO_STD_PRODUCTION_ONLY_ERROR`, `src/codegen.rs::BackendOptions`.
 
 ### D-P5-10. MC counterexample JSON (task 10)
@@ -824,7 +824,7 @@ the byte-parity contract.
 **Why:** tooling (bug trackers, CI dashboards) needs machine-readable
 counterexamples, and byte-identical JSON across backends extends the existing
 parity contract to the structured form without a second source of truth.
-Table: DESIGN.md section 23, D-P5-10 - Code:
+Table: [DESIGN.md](../../DESIGN.md) section 23, D-P5-10 - Code:
 `src/codegen_mc.rs::CounterexampleFormat`.
 
 ### D-P5-11. ProtocolFsm trait + adapters (task 11)
@@ -842,7 +842,7 @@ a ProtocolFsm - composes). Because self-contained generated code is a design
 invariant, the trait CANNOT be linked into generated code: codegen OPTIONALLY
 emits `impl ProtocolFsm for Fsm` behind `--with-protocol-fsm` (OFF by default
 - every byte of default output unchanged; the one documented exception to
-invariant 1 in `CODEGEN.md` section 9), placed after the inherent `impl Fsm`,
+invariant 1 in [CODEGEN.md](../../CODEGEN.md) section 9), placed after the inherent `impl Fsm`,
 before `#[cfg(test)]` in test artifacts, forwarding explicitly so it cannot
 recurse. `mc` rejects the flag (pinned `PROTOCOL_FSM_MC_ERROR`, CLI + library
 level, both backends); the C backend accepts and ignores it byte-identically.
@@ -854,7 +854,7 @@ beyond the root package, never leaking into the toolchain or generated code.
 compose with ANY spec's FSM without the adapter crate depending on generated
 code; opt-in emission keeps the self-contained-code invariant intact by
 default.
-Table: DESIGN.md section 23, D-P5-11 - Code:
+Table: [DESIGN.md](../../DESIGN.md) section 23, D-P5-11 - Code:
 `crates/rfs-adapters/src/lib.rs::ProtocolFsm`,
 `crates/rfs-adapters/src/channel.rs::ChannelFsm`,
 `crates/rfs-adapters/src/async_adapter.rs::AsyncFsm`,
@@ -882,7 +882,7 @@ generated-code crate) stay dependency-free; the CLI writes them next to
 **Why:** one language-agnostic plan rendered twice makes test coverage identical
 across backends by construction, and separating fuzz skeletons keeps the main
 artifact free of fuzzer dependencies.
-Table: DESIGN.md section 23, D-P5-12 - Code:
+Table: [DESIGN.md](../../DESIGN.md) section 23, D-P5-12 - Code:
 `src/codegen_test.rs::build_test_plan`, `src/codegen_test.rs::build_fuzz_decode`.
 
 ### D-P5-13. IDE support + structured diagnostics (task 13)
@@ -903,7 +903,7 @@ unchanged.
 **Why:** editors need machine-readable diagnostics on stdout with stable
 shapes, and making the parser's keyword list the grammar's source of truth
 prevents syntax highlighting from drifting from what the parser accepts.
-Table: DESIGN.md section 23, D-P5-13 - Code: `src/parser.rs::KEYWORDS`,
+Table: [DESIGN.md](../../DESIGN.md) section 23, D-P5-13 - Code: `src/parser.rs::KEYWORDS`,
 `src/frontend.rs::run_validate_structured`.
 
 ### D-P5-14. Example-crate matrix (tasks 11/12)
@@ -921,7 +921,7 @@ Fuzzing harness examples for BOTH ecosystems wiring the emitted skeletons:
 **Why:** end-to-end example crates prove the integration story (build.rs +
 adapters + generated FSM) on a real protocol in both ecosystems, with pinned
 scenario values making Rust/C behavioral parity checkable line by line.
-Table: DESIGN.md section 23, D-P5-14 - Code:
+Table: [DESIGN.md](../../DESIGN.md) section 23, D-P5-14 - Code:
 `crates/examples/sync_handler/src/lib.rs`,
 `crates/examples/async_handler/src/lib.rs`.
 
@@ -929,11 +929,11 @@ Table: DESIGN.md section 23, D-P5-14 - Code:
 ## Phase 6 (D-P6-1..11) + Phase 7 (D-P7-1..13)
 
 Phase 6 shipped production hardening and v1.0 (plan:
-`docs/roadmap/phase_6/PHASE_6_PLAN.md`; normative semantics: `docs/SEMANTICS.md`).
+[PHASE_6_PLAN.md](../roadmap/phase_6/PHASE_6_PLAN.md); normative semantics: [SEMANTICS.md](../SEMANTICS.md)).
 Phase 7 is a DOCS-ONLY phase: in-process SVG rendering for `rfs diagram
 --render svg` plus the new `rfs info format` family with embedded
 machine-readable models and sync tests that keep the documentation pinned to
-the code (plan: `docs/roadmap/phase_7/PHASE_7_PLAN.md`). Each entry below summarizes
+the code (plan: [PHASE_7_PLAN.md](../roadmap/phase_7/PHASE_7_PLAN.md)). Each entry below summarizes
 the shipped decision with its rationale and links to the implementing code.
 
 ### D-P6-1. The v1.0 syntax version header is the EXISTING `version "..."` mechanism, formalized (task 2.1)
@@ -941,7 +941,7 @@ the shipped decision with its rationale and links to the implementing code.
 The parser already accepted an optional module-level `version "<string>"`
 header (stored in `Module.version`, round-tripped by the printer, shown by
 `rfs info`). Decision: formalize THAT mechanism as the v1.0 syntax version
-header instead of adding PHASE_6.md's illustrative `# rfs 1.0` comment syntax.
+header instead of adding [PHASE_6.md](../roadmap/phase_6/PHASE_6.md)'s illustrative `# rfs 1.0` comment syntax.
 Shipped: a VALIDATOR format check `^\d+\.\d+(\.\d+)?$` (a malformed header is
 a SEMANTIC error with the pinned message; the parser keeps accepting any
 quoted string so old files still parse); specs without a header are legacy
@@ -951,21 +951,21 @@ v0.x and remain valid. New examples: `46_version_header.rfs` (valid, carries
 authoritative, and the existing one is IR-stored and visible to every tool;
 keeping the parser permissive while validating format preserves old-file
 compatibility.
-Table: DESIGN.md section 24, D-P6-1 - Code:
+Table: [DESIGN.md](../../DESIGN.md) section 24, D-P6-1 - Code:
 `src/validator.rs::is_valid_version_format`, `src/ir.rs::Module`.
 
 ### D-P6-2. IR schema version bump 0 -> 1 with a backward-readable policy (task 2.2)
 
 `IR_VERSION = 1` for v1.0. `from_json` accepts `ir_version` in
 `0..=IR_VERSION` (current + all previous minor versions keep loading - the
-documented evolution rule, MIGRATION.md section 2.3); a HIGHER version is
+documented evolution rule, [MIGRATION.md](../user/MIGRATION.md) section 2.3); a HIGHER version is
 rejected with the pinned error `unsupported IR version {n} at $.ir_version
 (this toolchain reads 0..={IR_VERSION})`. `to_json` writes 1.
 **Why:** the versioned IR is the stability contract between toolchain
 releases; schema evolution must stay backward-readable (additive optional
 fields), and v0 documents keep working - a read policy of {0,1} makes that
 explicit instead of implicit.
-Table: DESIGN.md section 24, D-P6-2 - Code: `src/ir.rs::IR_VERSION`,
+Table: [DESIGN.md](../../DESIGN.md) section 24, D-P6-2 - Code: `src/ir.rs::IR_VERSION`,
 `src/ir.rs::from_json`.
 
 ### D-P6-3. Spec hash + toolchain version in every generated artifact header (task 2.3)
@@ -980,11 +980,11 @@ test vectors) - no new dependencies, consistent with the D-P5-2
 hand-rolled-JSON stance. Crate version bumped 0.1.0 -> 1.0.0 (the
 `--print-script` header picks it up via `CARGO_PKG_VERSION`). Stable contract
 = the three FIELDS are present and correct; the line's wording may move in a
-MINOR bump (MIGRATION.md section 2.5).
+MINOR bump ([MIGRATION.md](../user/MIGRATION.md) section 2.5).
 **Why:** users can now detect spec/toolchain drift in checked-in artifacts by
 regeneration + diff, and a hand-rolled SHA-256 keeps the dependency-free
 stance of D-P5-2 while giving every artifact a verifiable provenance stamp.
-Table: DESIGN.md section 24, D-P6-3 - Code: `src/spec_hash.rs::spec_hash16`,
+Table: [DESIGN.md](../../DESIGN.md) section 24, D-P6-3 - Code: `src/spec_hash.rs::spec_hash16`,
 `src/spec_hash.rs::sha256_hex`, `src/codegen.rs::run`.
 
 ### D-P6-4. Toolchain fuzzing is TWO layers: fast libFuzzer targets + slow seeded CI suite (tasks 5.1/5.2)
@@ -996,7 +996,7 @@ malformed-but-parseable input; on success validate + IR round-trip),
 (to_json/from_json/to_json byte-stable), `codegen` (3 commands x 2 backends
 generate without error + structural invariants: task-2 header present,
 balanced delimiters, no placeholder tokens). Works OFFLINE (`libfuzzer-sys
-0.4.13` + `arbitrary 1.5.0` cached); Rust-side runs need nightly (TOOLCHAIN.md
+0.4.13` + `arbitrary 1.5.0` cached); Rust-side runs need nightly ([TOOLCHAIN.md](../../TOOLCHAIN.md)
 section 7.5). Slow layer: `tests/toolchain_fuzz_test.rs` in plain `cargo test`
 - pinned seeds x small specgen specs -> all six artifacts generated + compiled
 (rustc / gcc -Wall) + MC runs in exact & fuzz mode vs `ref_mc` ground truth
@@ -1010,13 +1010,13 @@ fuzz-mode OOB read at trigger step 0).
 seeded suite is the CI-runnable layer with ground-truth comparison; validity
 by construction (instead of `Arbitrary` IR) means every fuzz input is a real
 spec, so crashes are always meaningful.
-Table: DESIGN.md section 24, D-P6-4 - Code: `fuzz/fuzz_targets/parser.rs`,
+Table: [DESIGN.md](../../DESIGN.md) section 24, D-P6-4 - Code: `fuzz/fuzz_targets/parser.rs`,
 `tests/toolchain_fuzz_test.rs`, `src/specgen.rs::SpecGen`.
 
 ### D-P6-5. The brute-force reference MC is an independent public lib module (task 3.2)
 
 `src/ref_mc.rs`: naive exhaustive reachable-state exploration implementing
-`docs/SEMANTICS.md` directly with DELIBERATELY different data structures from
+[SEMANTICS.md](../SEMANTICS.md) directly with DELIBERATELY different data structures from
 the generated engines (Vec frontier, plain HashMap configuration keys - NO
 bit-packing) and its own small property evaluator over recorded traces
 (different algorithm from `src/monitor.rs`). Shipped surface: status
@@ -1032,7 +1032,7 @@ generated Rust MC on all eligible examples + pinned specgen seeds.
 **Why:** an independent implementation is what makes the differential results
 meaningful - shared code would share bugs, so the reference deliberately
 re-implements everything with different structures and algorithms.
-Table: DESIGN.md section 24, D-P6-5 - Code: `src/ref_mc.rs::run`,
+Table: [DESIGN.md](../../DESIGN.md) section 24, D-P6-5 - Code: `src/ref_mc.rs::run`,
 `src/ref_mc.rs::step_trace`, `src/ref_mc.rs::verify_counterexample`.
 
 ### D-P6-6. Production-FSM cross-backend parity via thin drivers + identical seeded scripts (task 4.3)
@@ -1046,11 +1046,11 @@ IDENTICAL seeded LCG input scripts (seed 43210, 200 steps). Asserted:
 byte-identical stdout + exit code. Driver contract: ASSUME/PROP stop lines
 echo the recorded sample (recorded but not applied - `commit_step` traces
 before the assumption/property check).
-**Why:** PHASE_6.md's "production FSMs driven by identical random input
+**Why:** [PHASE_6.md](../roadmap/phase_6/PHASE_6.md)'s "production FSMs driven by identical random input
 sequences" - the production path had no cross-backend differential coverage
 before this task, and thin drivers over identical scripts make stdout
 byte-comparability the whole assertion.
-Table: DESIGN.md section 24, D-P6-6 - Code: `tests/prod_parity_test.rs`,
+Table: [DESIGN.md](../../DESIGN.md) section 24, D-P6-6 - Code: `tests/prod_parity_test.rs`,
 `tests/common/prod_driver.rs`.
 
 ### D-P6-7. Monitor references are HAND-WRITTEN independent Rust + C in the test suite (task 4.4)
@@ -1068,22 +1068,22 @@ compared against the generated monitor output in both backends.
 a shared-compiler reference would miss by construction; crafted boundary
 scenarios target exactly the off-by-one and wraparound classes that random
 traces rarely hit.
-Table: DESIGN.md section 24, D-P6-7 - Code: `tests/monitor_ref_test.rs`.
+Table: [DESIGN.md](../../DESIGN.md) section 24, D-P6-7 - Code: `tests/monitor_ref_test.rs`.
 
 ### D-P6-8. PSL translation checks: independent in-repo evaluator + documented external hook (task 4.5)
 
 `tests/psl_translation_test.rs`: an independent second property evaluator -
-direct recursive WINDOW evaluation per `docs/SEMANTICS.md` (own Formula/Expr
+direct recursive WINDOW evaluation per [SEMANTICS.md](../SEMANTICS.md) (own Formula/Expr
 descent, own bit-vector semantics, obligation scanning by window search rather
 than countdown automaton) cross-checked against generated monitor verdicts over
 random traces for ALL property-bearing examples. External-model-checker hook:
 the `RFS_PSL_REF_TOOL` env var names a tool that receives the trace + formula
 and must agree; availability-gated (no external PSL checker exists in this
 environment - documented; z3 is SMT-only, not a trace checker).
-**Why:** PHASE_6.md's "where possible" - satisfied by an independent in-repo
+**Why:** [PHASE_6.md](../roadmap/phase_6/PHASE_6.md)'s "where possible" - satisfied by an independent in-repo
 reference with a deliberately different algorithm (window search vs countdown
 automaton) plus a documented plug-in point for real external checkers.
-Table: DESIGN.md section 24, D-P6-8 - Code: `tests/psl_translation_test.rs`.
+Table: [DESIGN.md](../../DESIGN.md) section 24, D-P6-8 - Code: `tests/psl_translation_test.rs`.
 
 ### D-P6-9. "Benchmark suite runs in CI" = standard pipeline + documented Actions wiring (task 6.3)
 
@@ -1091,7 +1091,7 @@ No `.github/workflows` exists in this environment, so the exit criterion is
 met by: (1) the benchmark MC suite being part of plain `cargo test` (one
 command: `cargo test --test benchmark_mc_test`; writes
 `target/mc_benchmarks.json` + prints per-backend tables) and (2) GitHub
-Actions wiring DOCUMENTED as a snippet in BUILD.md section 7 so any external
+Actions wiring DOCUMENTED as a snippet in [BUILD.md](../../BUILD.md) section 7 so any external
 CI can run it. Wall-clock/timing/RSS values stay INFORMATIONAL (never asserted
 except the order-of-magnitude RSS bound) - CI machines vary; Phase 4
 discipline against flaky gates.
@@ -1099,7 +1099,7 @@ discipline against flaky gates.
 it, and documenting the Actions wiring covers external pipelines without
 committing a workflow file this environment cannot execute; informational-only
 timings keep the gate stable across machines.
-Table: DESIGN.md section 24, D-P6-9 - Code: `tests/benchmark_mc_test.rs`.
+Table: [DESIGN.md](../../DESIGN.md) section 24, D-P6-9 - Code: `tests/benchmark_mc_test.rs`.
 
 ### D-P6-10. `rfs mc-ref`: the reference MC exposed as a CLI with UNIFIED flags and reports (tasks 3.2/3.3)
 
@@ -1122,7 +1122,7 @@ self-reports it, ref_mc reports 0).
 and unified flags + mirrored exit codes + identical report format make its
 output directly comparable to (and cross-checkable against) the generated
 engines.
-Table: DESIGN.md section 24, D-P6-10 - Code: `src/mc_ref_cmd.rs::run_mc_ref`.
+Table: [DESIGN.md](../../DESIGN.md) section 24, D-P6-10 - Code: `src/mc_ref_cmd.rs::run_mc_ref`.
 
 ### D-P6-11. `rfs gen-spec`: random spec generation with incremental base mutation (tasks 3.1/3.4)
 
@@ -1143,7 +1143,7 @@ toolchain-fuzz suite.
 before-write + rollback guarantees the command never emits an invalid spec;
 sharing one generator across CLI/fuzz/CI keeps all random-spec sources
 identical.
-Table: DESIGN.md section 24, D-P6-11 - Code:
+Table: [DESIGN.md](../../DESIGN.md) section 24, D-P6-11 - Code:
 `src/gen_spec_cmd.rs::generate_random`, `src/gen_spec_cmd.rs::mutate_base`,
 `src/specgen.rs::mutate`.
 
@@ -1155,14 +1155,14 @@ binaries. `--renderer external` keeps the pre-Phase-7 behaviour byte-for-byte
 (resolved tool via `src/ext_tool.rs`, strict errors with no fallback - user
 decision 2026-10-21, `--print-script` with the tool invocation). Users who
 want the official renderers (dot/plantuml/mmdc) opt in explicitly. This is a
-v1.1 CLI addition, not a break - documented in `docs/user/MIGRATION.md`.
+v1.1 CLI addition, not a break - documented in [MIGRATION.md](../user/MIGRATION.md).
 Shipped: `Renderer { Internal, External }` option in `src/diagram.rs`, the
 `--renderer` flag in `src/main.rs` (unknown values rejected with a clear
 error).
 **Why:** zero-external-binary rendering makes the default path work anywhere
 (CI containers, air-gapped machines) while the external path stays available
 byte-for-byte for users who want the official renderers.
-Table: DESIGN.md section 25, D-P7-1 - Code: `src/diagram.rs::Renderer`,
+Table: [DESIGN.md](../../DESIGN.md) section 25, D-P7-1 - Code: `src/diagram.rs::Renderer`,
 `src/main.rs::cmd_diagram`.
 
 ### D-P7-2. `DiagramPlugin.internal_render_svg` hook (task 1)
@@ -1181,7 +1181,7 @@ dot->SVG function exists) (task 3).
 pattern uniform - formats without SVG simply stay `None`, and the hook's
 signature (source text -> SVG string) matches what the external path already
 passes to tools.
-Table: DESIGN.md section 25, D-P7-2 - Code: `src/diagram.rs::DiagramPlugin`,
+Table: [DESIGN.md](../../DESIGN.md) section 25, D-P7-2 - Code: `src/diagram.rs::DiagramPlugin`,
 `src/diagrams/mermaid.rs::render_svg_internal`,
 `src/diagrams/plantuml.rs::render_svg_internal`,
 `src/diagrams/dot.rs::render_svg_internal`.
@@ -1191,7 +1191,7 @@ Table: DESIGN.md section 25, D-P7-2 - Code: `src/diagram.rs::DiagramPlugin`,
 `plantuml-core = { git = "https://github.com/askidmobile/PlantUML_RUST",
 rev = "8066f6124a86ed5da59c6d7d570f0568891c378e" }` (plantuml-core 0.2.0) -
 the crate is NOT on crates.io. First build needs network; offline rebuilds
-work via the cargo git cache. Recorded in `TOOLCHAIN.md` section 6.
+work via the cargo git cache. Recorded in [TOOLCHAIN.md](../../TOOLCHAIN.md) section 6.
 Execution notes: plantuml-core's parser REJECTS the position word in
 `note right on link`, so the emitted puml changed to bare `note on link`
 with ONE `note on link : emits X` line per output - the minimal change that
@@ -1202,7 +1202,7 @@ states/edge labels only and documents the gap in-test.
 **Why:** a rev-pinned git dependency is the only way to use an unpublished
 crate with reproducible builds; pinning the exact rev (and documenting the
 repoint procedure) keeps offline rebuilds working from the cargo git cache.
-Table: DESIGN.md section 25, D-P7-3 - Code:
+Table: [DESIGN.md](../../DESIGN.md) section 25, D-P7-3 - Code:
 `src/diagrams/plantuml.rs::render_svg_internal`.
 
 ### D-P7-4. mermaid-rs-renderer promoted to a regular dependency (task 1)
@@ -1214,7 +1214,7 @@ dependency. The docs gate keeps compiling (`render_strict` is core API).
 **Why:** dev-dependencies never link into the built binary, so promoting the
 crate (with features trimmed to SVG-only) is what makes in-process mermaid
 rendering possible at all without adding rendering features nobody uses.
-Table: DESIGN.md section 25, D-P7-4 - Code:
+Table: [DESIGN.md](../../DESIGN.md) section 25, D-P7-4 - Code:
 `src/diagrams/mermaid.rs::render_svg_internal`.
 
 ### D-P7-5. `--print-script` internal variant (task 1)
@@ -1226,7 +1226,7 @@ extra puppeteer-config step for mermaid).
 **Why:** the script must remain an accurate record of what rfs did - in
 internal mode that is "write source, render in-process with crate X vY", and
 the pinned comment keeps the provenance visible without a tool line.
-Table: DESIGN.md section 25, D-P7-5 - Code: `src/ext_tool.rs::Script`.
+Table: [DESIGN.md](../../DESIGN.md) section 25, D-P7-5 - Code: `src/ext_tool.rs::Script`.
 
 ### D-P7-6. `rfs info format` CLI shape (task 5)
 
@@ -1244,7 +1244,7 @@ unsupported `--output` values are clear errors.
 dispatch) reuses the CLI surface, and the static registry pattern mirrors the
 proven BACKENDS/DIAGRAMS registries so adding a format is one entry + one
 module.
-Table: DESIGN.md section 25, D-P7-6 - Code: `src/info_format.rs::FORMATS`,
+Table: [DESIGN.md](../../DESIGN.md) section 25, D-P7-6 - Code: `src/info_format.rs::FORMATS`,
 `src/info_format.rs::FormatInfo`, `src/main.rs::cmd_info`.
 
 ### D-P7-7. EBNF grammar model mirrors the parser (task 5)
@@ -1259,15 +1259,15 @@ suffixes per plantuml.com/en/ebnf "All EBNF Elements"), and `to_svg()` - a
 railroad mapping (Sequence->Seq, Choice->Choice+Alt, Optional->Opt,
 ZeroOrMore->Repeat, OneOrMore->OneOrMore) on a stylesheet diagram
 (`Diagram::new_with_stylesheet`, standalone SVG; `railroad 0.3` with
-default-features = false). The model is the source of truth: DESIGN.md
+default-features = false). The model is the source of truth: [DESIGN.md](../../DESIGN.md)
 section 6's ebnf fence was found STALE and replaced with the canonical text
 of `to_ebnf_text()` (one rule per line, no in-fence comments), and a sync
 test enforces rule-name parity + KEYWORDS terminal coverage.
 **Why:** an in-binary const model verified rule-by-rule against the parser is
-the only way to keep the documented grammar from drifting - DESIGN.md's fence
+the only way to keep the documented grammar from drifting - [DESIGN.md](../../DESIGN.md)'s fence
 was already stale when Phase 7 started, and the sync test makes that class of
 drift a test failure.
-Table: DESIGN.md section 25, D-P7-7 - Code: `src/ebnf_grammar.rs::GRAMMAR_RULES`,
+Table: [DESIGN.md](../../DESIGN.md) section 25, D-P7-7 - Code: `src/ebnf_grammar.rs::GRAMMAR_RULES`,
 `src/ebnf_grammar.rs::RuleNode`, `src/ebnf_grammar.rs::to_ebnf_text`,
 `src/ebnf_grammar.rs::to_svg`.
 
@@ -1294,13 +1294,13 @@ tests over real runs instead.
 and draft-07-compatible, deriving enum values from the wire() methods makes
 schema drift impossible, and modeling fail fields optional (with walk tests
 pinning IFF-fail presence) works within draft-07's lack of if/then.
-Table: DESIGN.md section 25, D-P7-8 - Code: `src/json_schema.rs::SchemaDoc`,
+Table: [DESIGN.md](../../DESIGN.md) section 25, D-P7-8 - Code: `src/json_schema.rs::SchemaDoc`,
 `src/json_schema.rs::emit_schema_pretty`, `src/codegen_mc.rs::JSON_KEY_STATUS`.
 
 ### D-P7-9. Sync tests: the "stays in sync with the code" guarantee (tasks 5-14)
 
 - spec-rfs: every `KEYWORDS` entry appears as a terminal in GRAMMAR_RULES;
-rule names equal the names parsed out of the DESIGN.md section 6 ebnf fence.
+rule names equal the names parsed out of the [DESIGN.md](../../DESIGN.md) section 6 ebnf fence.
 - spec-json / validate-json / info-json: walk EVERY generated JSON document
 (all 50 valid examples via `rfs parse` output, all 13 invalid examples for
 validate-json, real `rfs info --json` documents) and verify (a) every required
@@ -1321,7 +1321,7 @@ skeletons) + hash-variation corpus sanity.
 re-parsing the source) catches documentation drift in both directions - a new
 key in the output or a stale key in the model both fail the suite - without
 coupling the tests to internal code structure.
-Table: DESIGN.md section 25, D-P7-9 - Code: `tests/info_format_test.rs`.
+Table: [DESIGN.md](../../DESIGN.md) section 25, D-P7-9 - Code: `tests/info_format_test.rs`.
 
 ### D-P7-10. Cross-renderer parity = syntax correctness ONLY (task 4)
 
@@ -1337,7 +1337,7 @@ renderers). Comparison is parse/render SUCCESS only - never visual output
 in both renderers proves syntax compatibility without brittle pixel
 comparison, and availability-gating + serialization keeps the suite stable in
 CI (two mmdc processes must not run concurrently in this container).
-Table: DESIGN.md section 25, D-P7-10 - Code:
+Table: [DESIGN.md](../../DESIGN.md) section 25, D-P7-10 - Code:
 `tests/diagram_render_parity_test.rs`.
 
 ### D-P7-11. No new example `.rfs` files
@@ -1347,12 +1347,12 @@ No language or algorithm changes in this phase, so `examples/valid/` (50) and
 **Why:** a docs-only phase has no new language surface to exercise; keeping
 the example corpus frozen means every other suite's pins stay valid without
 re-pinning.
-Table: DESIGN.md section 25, D-P7-11 - Code: `tests/examples_test.rs`.
+Table: [DESIGN.md](../../DESIGN.md) section 25, D-P7-11 - Code: `tests/examples_test.rs`.
 
 ### D-P7-12. Training set: category-local additions (task 15)
 
 Additions to `training/frontend_cli/rfs_training.jsonl` in the two-message
-format per KB.md - `rfs diagram --renderer internal|external` usage incl. the
+format per [KB.md](../../KB.md) - `rfs diagram --renderer internal|external` usage incl. the
 zero-external-deps proof with every tool env var unresolvable + strict
 external semantics + internal-mode `--print-script`, and `rfs info format`
 usage (`--list`, per-format `--output` choices, CI/CD use of the emitted
@@ -1362,9 +1362,9 @@ surface); snippets + aggregate regenerated per protocol; aggregate re-pinned
 261 -> 264.
 **Why:** the training set must teach the NEW CLI surface with verbatim real
 output (the model learns exact command shapes and outputs), and
-category-local additions keep the set organized by task type per the KB.md
+category-local additions keep the set organized by task type per the [KB.md](../../KB.md)
 format rules.
-Table: DESIGN.md section 25, D-P7-12 - Code: `src/training.rs`.
+Table: [DESIGN.md](../../DESIGN.md) section 25, D-P7-12 - Code: `src/training.rs`.
 
 ### D-P7-13. table/md and the `.err` artifact get no `info format` entries
 
@@ -1373,4 +1373,4 @@ docs/user only.
 **Why:** a self-describing plain-text table and a standard error side-file do
 not need machine-readable format documentation - giving them registry entries
 would add surface to maintain without a consumer.
-Table: DESIGN.md section 25, D-P7-13 - Code: `src/info_format.rs::FORMATS`.
+Table: [DESIGN.md](../../DESIGN.md) section 25, D-P7-13 - Code: `src/info_format.rs::FORMATS`.

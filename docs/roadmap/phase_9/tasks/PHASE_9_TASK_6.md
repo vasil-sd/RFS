@@ -121,6 +121,7 @@ None (test run only).
 
 | Correction | Description + rationale |
 |------------|-------------------------|
+| Root-doc link depth | The Context path rules said root docs link as `../DESIGN.md` - wrong: docs/dev/ is two levels below the repo root, so root documents (DESIGN.md, KB.md, BUILD.md, TOOLCHAIN.md, CODEGEN.md) need `../../`. docs/-level targets (`../SEMANTICS.md`, `../user/MIGRATION.md`, `../roadmap/...`) were already correct. docs_md_test caught it on the first run (all 99 root-doc links failed resolution); fixed with a single re-depthing pass, gate then green. Also: 15 of the converted mentions were originally backticked - converting them inside the backticks would have rendered literal link text, so a second pass unwrapped `` `[...](...)` `` -> `[...](...)`. Both corrections are recorded in the plan's corrections table; task 7 inherits the corrected depth. |
 
 ## Other information
 - A mention like "PHASE_4_TASK_5.md" inside a sentence about roadmap history

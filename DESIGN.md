@@ -207,13 +207,19 @@ Phase 0 implements a parser for a constrained v0 subset. The subset is large eno
 
 ### 5.1 Source file
 
-A source file contains zero or more modules. Phase 0 examples usually contain one module.
+A source file contains zero or more modules. Phase 0 examples usually contain one module. The module header optionally carries a version string (Phase 2; D7 in section 20):
 
 ```rfs
 module name {
   ...
 }
+
+module name version "1.2.3" {
+  ...
+}
 ```
+
+The version is a quoted string without escapes; it round-trips through the IR (`Module.version`) and becomes `SPEC_VERSION` in generated code.
 
 Comments:
 
@@ -233,9 +239,27 @@ A module can contain:
 - variable declarations;
 - transitions;
 - properties;
-- assumptions.
+- assumptions;
+- the error fallback `on_error` (Phase 2).
 
 Order is not semantically significant in v0, but examples should declare types before use for readability. Validation may later enforce or relax ordering rules.
+
+Error fallback (`on_error`, Phase 2):
+
+```rfs
+module m {
+  ...
+  on_error {
+    next Safe;           // required: state entered when no transition matches
+    emit Alert(Code(9)); // optional emits, no pattern bindings, no assignments
+  }
+}
+```
+
+- At most one per module; `next` is mandatory (missing `next` is a parse error).
+- Executed in **any** state when no transition matched: the generated `step` performs the fallback instead of returning an unexpected-event error.
+- No pattern bindings are available; variable values carry over unchanged.
+- Without `on_error`, behavior is exactly as without the fallback (`StepError::UnexpectedEvent` / `RFS_UNEXPECTED_EVENT`).
 
 ### 5.3 Enum types and states
 
@@ -301,6 +325,15 @@ EventGroup::Recv {
 
 Event payload fields use finite types.
 
+Important current limitation:
+
+```rfs
+event E(Value(x: bit<8>))   # supported
+event E(x: bit<8>)          # NOT supported in current IR/parser
+```
+
+Payload constructors require a named variant inside the group. Anonymous payload groups are a future IR extension.
+
 ### 5.6 Outputs
 
 Outputs are action constructors and use the same shape as events.
@@ -342,10 +375,11 @@ transition <state> on <event_pattern> where <guard> {
   next <next_state>;
   emit <output_expr>;
   set <var> = <expr>;
+  priority N;   # Phase 2: orders overlapping transitions (larger wins, default 0)
 }
 ```
 
-The `where <guard>` clause is optional.
+The `where <guard>` clause is optional. Rules: exactly one `next` action is required; zero or more `emit` and `set` actions are allowed; each action ends with `;`; duplicate `next`, duplicate `priority`, or duplicate `set var` in one body is rejected.
 
 Example:
 
@@ -356,6 +390,8 @@ transition WaitingAck on Recv(Ack(ack_seq)) where ack_seq == seq {
   set timer = 0;
 }
 ```
+
+Phase 2 priority semantics (section 20, D1-D5): within one state and identical event pattern, arms are checked in descending priority (default 0); equal priorities on the same pattern are a validation error; different patterns may reuse numbers. Without priorities, source order decides (and a warning is emitted for guarded pairs so intent can be pinned).
 
 #### Event patterns
 
@@ -384,10 +420,29 @@ on Recv(Ack(_))
 on Recv(Ack(ack_seq: _))
 ```
 
-Literal patterns may be supported for finite fields, for example:
+Literal patterns are supported for finite fields:
 
 ```rfs
-on Recv(Ack(ack_seq: 0))
+on Cmd(Value(0))
+on Flag(Value(true))
+on Packet(Frame(len, _))
+```
+
+Pattern field forms:
+
+| Pattern | Meaning |
+|---|---|
+| `_` | wildcard |
+| `name` | bind field to `name` |
+| `0`, `1`, `true`, `false` | literal match |
+| `name: expr-pattern` | named pattern match |
+| `name: Enum::Variant` | named enum-variant pattern |
+
+Corner case:
+
+```rfs
+on E(Mode::Normal)       # currently NOT supported as anonymous field pattern
+on E(x: Mode::Normal)    # supported
 ```
 
 #### Guards
@@ -438,23 +493,25 @@ Supported:
 - bitwise operators: `&`, `|`, `^`, `~`;
 - shifts: `<<`, `>>`.
 
-Precedence, from lowest to highest:
+Precedence, from tighter to looser (pinned against the `src/parser.rs` expression chain `expr -> logic_or -> logic_and -> equality -> relational -> bitwise_or -> bitwise_xor -> bitwise_and -> shift -> additive -> multiplicative -> unary_expr -> primary_expr`; there is NO division operator):
 
-```text
-||
-&&
-==  !=
-<  <=  >  >=
-|  ^
-&
-+  -
-*  /   // division may be added later; v0 parser can support token but validation may restrict
-<<  >>
-unary ! ~ -
-primary literal/identifier/parenthesized expression
-```
+| Precedence | Operators | Notes |
+|---:|---|---|
+| 1 | `!`, `~`, unary `-` | Unary operators. |
+| 2 | `*` | Multiplication. Division is not part of the language. |
+| 3 | `+`, `-` | Additive. `-` stops before `->`. |
+| 4 | `<<`, `>>` | Shifts. |
+| 5 | `&` | Bitwise and. Does not consume `&&`. |
+| 6 | `^` | Bitwise xor. |
+| 7 | `|` | Bitwise or. Does not consume `\|\|`. |
+| 8 | `<`, `<=`, `>`, `>=` | Relational. |
+| 9 | `==`, `!=` | Equality. |
+| 10 | `&&` | Logical and. |
+| 11 | `\|\|` | Logical or. |
 
-For Phase 0, the parser accepts the grammar. Semantic type checking is a later validator concern.
+Note: relational operators bind tighter than equality. Use parentheses when mixing comparison/equality in nontrivial ways.
+
+The parser accepts this grammar; semantic type checking is the validator's job (`src/validator.rs`, section 13).
 
 ### 5.10 Properties and assumptions
 

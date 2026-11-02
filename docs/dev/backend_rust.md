@@ -30,21 +30,21 @@ wires `production` to `src/backends/rust_fsm.rs::generate_production`,
 points funnel into `src/backends/rust_fsm.rs::generate_core` (the shared core
 emitter); each command then appends its own runtime. The plugin API, the
 options bag, the dispatch rules, and the shared planning data these generators
-render are documented in docs/dev/codegen_core.md (`dev:codegen-plugin-api`,
+render are documented in [codegen_core.md](codegen_core.md) (`dev:codegen-plugin-api`,
 `dev:codegen-test-plan`, `dev:codegen-mc-concepts`) - this doc covers only
 what is Rust-specific.
 
 Where to go next:
 
-- src/backends/RUST.md - architecture + design decisions of the generated
+- [RUST.md](../../src/backends/RUST.md) - architecture + design decisions of the generated
   artifacts (anatomy, key decisions, known limitations);
-- CODEGEN.md (repo root) - the extension guide: plugin API, CLI surface,
+- [CODEGEN.md](../../CODEGEN.md) (repo root) - the extension guide: plugin API, CLI surface,
   adding-a-backend checklist, invariants;
-- function-level call graph: `dev:deps-fn-codegen-rust` in DEPENDENCIES.md;
-- file entries: `dev:code-map-codegen` in CODE_MAP.md;
+- function-level call graph: `dev:deps-fn-codegen-rust` in [DEPENDENCIES.md](DEPENDENCIES.md);
+- file entries: `dev:code-map-codegen` in [CODE_MAP.md](CODE_MAP.md);
 - decision rationale: D-P3-4/D-P3-5/D-P3-6 (monitors), D-P4-* (MC engine),
   D-P5-10 (JSON report), D-P5-11 (ProtocolFsm), D-P6-3 (artifact header) in
-  DECISIONS.md.
+  [DECISIONS.md](DECISIONS.md).
 
 Code: `src/backends/rust.rs::RUST_BACKEND`,
 `src/backends/rust_fsm.rs::generate_production`,
@@ -578,7 +578,7 @@ event lines).
 crate, rust_mc.rs embeds its own copies of the plan tables, parsing helpers,
 and JSON writer. The formats in `src/codegen_mc.rs` / `src/mc_plan.rs` are
 the SOURCE OF TRUTH - when a wire format changes, update both backends'
-emitters in the same change and extend the tests (CODEGEN.md section 9).
+emitters in the same change and extend the tests ([CODEGEN.md](../../CODEGEN.md) section 9).
 
 Code: `src/backends/rust_mc.rs::generate_model_checker`,
 `src/backends/rust_mc.rs::exact_codegen`,
@@ -595,7 +595,7 @@ Code: `src/backends/rust_mc.rs::generate_model_checker`,
 
 ## Changing the Rust backend
 
-Developer checklist (the placement rule is CODEGEN.md section 2 - core-level
+Developer checklist (the placement rule is [CODEGEN.md](../../CODEGEN.md) section 2 - core-level
 analysis goes to the language-agnostic modules, target syntax stays here):
 
 1. Parity first: a new feature lands in EVERY backend in the same change,
@@ -631,6 +631,6 @@ analysis goes to the language-agnostic modules, target syntax stays here):
    compile sweep pins this over all 50 valid examples x both monitor modes).
 7. Verify: cargo test --test codegen_test, cargo test --test
    backend_parity_test, cargo test --test liveness_mc_test, cargo test
-   --test benchmark_mc_test, then the full BUILD.md section 5 checklist.
-   Docs sync: src/backends/RUST.md (artifact design), CODEGEN.md (if the
-   plugin surface changes), KB.md; training snippets if user-visible.
+   --test benchmark_mc_test, then the full [BUILD.md](../../BUILD.md) section 5 checklist.
+   Docs sync: [RUST.md](../../src/backends/RUST.md) (artifact design), [CODEGEN.md](../../CODEGEN.md) (if the
+   plugin surface changes), [KB.md](../../KB.md); training snippets if user-visible.

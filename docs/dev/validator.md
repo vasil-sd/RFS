@@ -42,15 +42,15 @@ emits match output constructor arity and types; prop/assume names are unique
 across both lists (generated monitor struct names cannot collide, D-P3-4);
 transition IDs are in declaration order (assigned by the parser's
 `src/parser.rs::build_module`). The formal meaning of what a validated spec
-means is specified in `docs/SEMANTICS.md`; the diagnostics plan is
-DESIGN.md section 13.
+means is specified in [SEMANTICS.md](../SEMANTICS.md); the diagnostics plan is
+[DESIGN.md](../../DESIGN.md) section 13.
 
 Where to go next:
 
 - algorithm levels (L1 abstract / L2 structures + invariants / L3 details):
-  `dev:algorithms-parser-validation` in ALGORITHMS.md;
-- function call graph: `dev:deps-fn-validator` in DEPENDENCIES.md;
-- file entries: `dev:code-map-frontend` in CODE_MAP.md.
+  `dev:algorithms-parser-validation` in [ALGORITHMS.md](ALGORITHMS.md);
+- function call graph: `dev:deps-fn-validator` in [DEPENDENCIES.md](DEPENDENCIES.md);
+- file entries: `dev:code-map-frontend` in [CODE_MAP.md](CODE_MAP.md).
 
 Code: `src/validator.rs::validate_ir`, `src/validator.rs::module_warnings`,
 `src/validator.rs::ValidationError`, `src/frontend.rs::validate_one_with_warnings`,
@@ -258,7 +258,7 @@ Checklist for developers changing what the validator accepts or reports:
    warning-only order-dependent pairs, zero-bound rules incl. the nested
    case). The 13-file invalid corpus must keep failing.
 4. Verify: `cargo test --lib validator`, `cargo test --test examples_test`,
-   `cargo test --test frontend_test`, then the full BUILD.md section 5
+   `cargo test --test frontend_test`, then the full [BUILD.md](../../BUILD.md) section 5
    checklist.
-5. Docs sync: DESIGN.md section 13 (diagnostics plan) and KB.md when a rule
+5. Docs sync: [DESIGN.md](../../DESIGN.md) section 13 (diagnostics plan) and [KB.md](../../KB.md) when a rule
    changes; training snippets if the change is user-visible.

@@ -7,7 +7,7 @@ that render the shared codegen plans into self-contained C source.
 ## Overview
 
 The C backend is one of the two target-language backends in
-`src/backends/` (the other is Rust, deep dive docs/dev/backend_rust.md). It
+`src/backends/` (the other is Rust, deep dive [backend_rust.md](backend_rust.md)). It
 renders the language-agnostic codegen plans into self-contained C source -
 one translation unit per command. The governing constraint is PARITY: for the
 same spec and options, the Rust and C artifacts must agree in every pinned
@@ -31,7 +31,7 @@ to the backend's function pointers - `src/backends/c.rs::C_BACKEND` wires
 into `src/backends/c_fsm.rs::generate_core` (the shared core emitter); each
 command then appends its own runtime. The plugin API, the options bag, the
 dispatch rules, and the shared planning data these generators render are
-documented in docs/dev/codegen_core.md (`dev:codegen-plugin-api`,
+documented in [codegen_core.md](codegen_core.md) (`dev:codegen-plugin-api`,
 `dev:codegen-test-plan`, `dev:codegen-mc-concepts`) - this doc covers only
 what is C-specific.
 
@@ -49,15 +49,15 @@ Key differences from the Rust backend (everything else is parity):
 
 Where to go next:
 
-- src/backends/C.md - architecture + design decisions of the generated
+- [C.md](../../src/backends/C.md) - architecture + design decisions of the generated
   artifacts (anatomy, type mapping, value representation, known limitations);
-- CODEGEN.md (repo root) - the extension guide: plugin API, CLI surface,
+- [CODEGEN.md](../../CODEGEN.md) (repo root) - the extension guide: plugin API, CLI surface,
   adding-a-backend checklist, invariants;
-- function-level call graph: `dev:deps-fn-backend-c` in DEPENDENCIES.md;
-- file entries: `dev:code-map-codegen` in CODE_MAP.md;
+- function-level call graph: `dev:deps-fn-backend-c` in [DEPENDENCIES.md](DEPENDENCIES.md);
+- file entries: `dev:code-map-codegen` in [CODE_MAP.md](CODE_MAP.md);
 - decision rationale: D8 (type mapping), D-P3-4/D-P3-5/D-P3-6 (monitors),
   D-P4-* (MC engine), D-P5-10 (JSON report), D-P5-11 (ProtocolFsm), D-P6-3
-  (artifact header) in DECISIONS.md.
+  (artifact header) in [DECISIONS.md](DECISIONS.md).
 
 Code: `src/backends/c.rs::C_BACKEND`,
 `src/backends/c_fsm.rs::generate_production`,
@@ -408,7 +408,7 @@ no liveness properties), EXACT_RUN_C.
 
 **SMT_ENGINE_C.** C mirror of SMT_ENGINE_RUST: DEFAULT_BOUND <- {BOUND}. Parity-critical: step variables are z3 constants with FIXED names in fixed order s_i / v_i_j / ev_i / fld_i_g, constraints asserted in fixed order, queries in fixed order safety-then-liveness declaration order; two-arg Z3_mk_and/Z3_mk_or over 2-element arrays (the C counterpart of the Rust b_and/b_or wrappers - identical constraint trees). Unrolling: enabled_t = state match and class match and guard (firing order); fire_t = enabled and no earlier transition enabled (first match, prefix-OR chain); alive_i = alive_{i-1} and any_fire; next state/vars via ITE chains. Safety query viol_p = exists i<k: alive_i and not phi_p(i) -> FAIL + pinned summary line exit 1. Liveness query never_p (phi holds at no alive step) and cycle (exists a<b: identical (state, vars)) -> FAIL reason=liveness-violation + cycle length exit 1. Unknown -> UNKNOWN (solver inconclusive within bound {k}) + status=unknown exit 2. All Unsat -> PASS WITHIN BOUND {k} (incomplete - no completeness claim) + status=pass-within-bound exit 0. smt_print_trace emits the pinned witness format. Targets the z3 5.3.1 API surface (Z3_L_UNDEF, no Z3_del_solver, Z3_model_eval bool + out-ast) - one solver build shared with the Rust backend.
 
-**Embedded-copy rule.** Because the generated binary cannot depend on this crate, c_mc.rs embeds its own copies of the plan tables, parsing helpers, and JSON writer. The formats in `src/codegen_mc.rs` / `src/mc_plan.rs` are the SOURCE OF TRUTH - when a wire format changes, update both backends' emitters in the same change and extend the tests (CODEGEN.md section 9).
+**Embedded-copy rule.** Because the generated binary cannot depend on this crate, c_mc.rs embeds its own copies of the plan tables, parsing helpers, and JSON writer. The formats in `src/codegen_mc.rs` / `src/mc_plan.rs` are the SOURCE OF TRUTH - when a wire format changes, update both backends' emitters in the same change and extend the tests ([CODEGEN.md](../../CODEGEN.md) section 9).
 
 Code: `src/backends/c_mc.rs::generate_model_checker`,
 `src/backends/c_mc.rs::shared_printers`,
@@ -486,9 +486,9 @@ Code: `src/backends/c_test.rs::generate_unit_tests`,
 One plan, two renderings: both backends consume the same codegen plans
 (`src/codegen_fsm.rs::build_variants`, `src/codegen_test.rs::build_test_plan`,
 `src/mc_plan.rs::McPlan`, `src/mc_plan.rs::LivenessDecomposition`, the shared
-SMT spec) - differences are target syntax only (placement rule: CODEGEN.md
+SMT spec) - differences are target syntax only (placement rule: [CODEGEN.md](../../CODEGEN.md)
 section 2). The Rust twin of each file is src/backends/rust*.rs (deep dive:
-docs/dev/backend_rust.md).
+[backend_rust.md](backend_rust.md)).
 
 - Type mapping: D8 widths {8, 16, 32, 64} vs Rust u8..u128 (any width up to
   128); enum E_t typedef vs Rust enum; tagged unions vs algebraic enums.
@@ -533,7 +533,7 @@ Code: `src/codegen_fsm.rs::build_variants`,
 
 ## Changing the C backend
 
-Developer checklist (the placement rule is CODEGEN.md section 2 - core-level
+Developer checklist (the placement rule is [CODEGEN.md](../../CODEGEN.md) section 2 - core-level
 analysis goes to the language-agnostic modules, target syntax stays here):
 
 1. Parity first: a new feature lands in EVERY backend in the same change,
@@ -542,7 +542,7 @@ analysis goes to the language-agnostic modules, target syntax stays here):
    lowering: tests/wide_ops_parity_test.rs; liveness:
    tests/liveness_mc_test.rs; performance: tests/benchmark_mc_test.rs). The
    Rust twin of each file is src/backends/rust*.rs (deep dive:
-   docs/dev/backend_rust.md).
+   [backend_rust.md](backend_rust.md)).
 2. Pinned formats that break on drift - change them only with the parity
    suite updated in the same commit:
    - the line-1 artifact header (D-P6-3);
@@ -577,6 +577,6 @@ analysis goes to the language-agnostic modules, target syntax stays here):
    mc with the pinned error).
 8. Verify: cargo test --test codegen_test, cargo test --test
    backend_parity_test, cargo test --test prod_parity_test, cargo test --test
-   wide_ops_parity_test, then the full BUILD.md section 5 checklist. Docs
-   sync: src/backends/C.md (artifact design), CODEGEN.md (if the plugin
-   surface changes), KB.md; training snippets if user-visible.
+   wide_ops_parity_test, then the full [BUILD.md](../../BUILD.md) section 5 checklist. Docs
+   sync: [C.md](../../src/backends/C.md) (artifact design), [CODEGEN.md](../../CODEGEN.md) (if the plugin
+   surface changes), [KB.md](../../KB.md); training snippets if user-visible.

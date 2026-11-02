@@ -19,7 +19,7 @@ artifact - production FSM (debug-gated monitors, D-P3-6), MC engine state
 layout (dev:mc-engine-plan), test harness - so all of them agree by
 construction.
 
-Semantics are pinned by D-P3-3 (DESIGN.md section 21): samples carry post-step
+Semantics are pinned by D-P3-3 ([DESIGN.md](../../DESIGN.md) section 21): samples carry post-step
 values; sample 0 is the initial configuration (no input/outputs, so
 `input_is`/`output_has` are false there); an obligation triggered at sample i
 requires its body to hold at some sample j with i <= j <= i + N - 1 (N >= 1),
@@ -35,8 +35,8 @@ generates no monitor for that label. Liveness operators (`eventually` /
 `until`, D-P4-8) are outside the subset entirely - MC-only.
 
 Algorithm views L1-L3: dev:algorithms-monitor-compile; function-level call
-graph: dev:deps-fn-monitor; backend rendering: docs/dev/backend_rust.md +
-docs/dev/backend_c.md; ref_mc's OWN independent monitor compiler (ground
+graph: dev:deps-fn-monitor; backend rendering: [backend_rust.md](backend_rust.md) +
+[backend_c.md](backend_c.md); ref_mc's OWN independent monitor compiler (ground
 truth, not this plan): dev:mc-engine-exact.
 
 Code: `src/monitor.rs::compile_formula`, `src/monitor.rs::MonitorPlan`,
@@ -192,11 +192,11 @@ children failing at different samples never violate; delay-register pairing
 under bounded windows).
 
 **Consumers.** Backends render the plan into generated monitor code (Rust:
-render_monitor / render_node in docs/dev/backend_rust.md - nodes numbered DFS
+render_monitor / render_node in [backend_rust.md](backend_rust.md) - nodes numbered DFS
 preorder, step body evaluated post-order; C: the mirror in
-docs/dev/backend_c.md); the MC engine's configuration encoding walks the same
+[backend_c.md](backend_c.md)); the MC engine's configuration encoding walks the same
 tree (dev:mc-engine-plan); the test planner builds monitor-violation cases
-from it (docs/dev/codegen_core.md). ref_mc carries its OWN independent monitor
+from it ([codegen_core.md](codegen_core.md)). ref_mc carries its OWN independent monitor
 compiler as ground truth - same documented semantics, different implementation
 (dev:mc-engine-exact).
 

@@ -3,7 +3,7 @@
 Main-algorithm write-ups at three levels of detail - L1 abstract high-level
 view, L2 key data structures and invariants, L3 optional implementation
 details (important ones emphasized) - every level linked to the implementing
-code. External references are collected in `REFERENCES.md` and linked from
+code. External references are collected in [REFERENCES.md](REFERENCES.md) and linked from
 the relevant sections.
 
 <a id="dev:algorithms-parser-validation"></a>
@@ -14,7 +14,7 @@ hand-written recursive-descent parser built on nom 8 combinators
 (`src/parser.rs`) followed by whole-module semantic validation and
 expression typing (`src/validator.rs`). The EBNF grammar the parser
 implements is mirrored as data in `src/ebnf_grammar.rs::GRAMMAR_RULES`
-(61 rules, same names and order as DESIGN.md section 6) and pinned to
+(61 rules, same names and order as [DESIGN.md](../../DESIGN.md) section 6) and pinned to
 the parser by sync tests. Pipeline entry:
 `src/frontend.rs::validate_one_with_warnings`.
 
@@ -62,7 +62,7 @@ Code: `src/parser.rs::parse_source`, `src/validator.rs::validate_ir`,
 `IResult<&str, T>`; the entry is `rfs_source = many0(module)`. The
 machine-readable mirror of the same grammar is
 `src/ebnf_grammar.rs::GRAMMAR_RULES`; sync tests enforce that the
-DESIGN.md section 6 fence and the parser's keyword list agree with it.
+[DESIGN.md](../../DESIGN.md) section 6 fence and the parser's keyword list agree with it.
 
 **LL(1)-style decision points.** Every choice in the grammar is decided
 by a single lookahead token: the nine `module_item` alternatives each
@@ -533,7 +533,7 @@ construction. It has three parts:
   declaration order for ties) - the same order det mode uses for first-
   match and nondet mode uses to enumerate successors.
 
-**Exact-engine invariants (SEMANTICS.md).** Level-synchronous BFS with
+**Exact-engine invariants ([SEMANTICS.md](../SEMANTICS.md)).** Level-synchronous BFS with
 visited-at-enqueue; a safety failure terminates the search with a
 counterexample before enqueue; unexpected inputs terminate that path
 (counted as terminations, never successors); assumption-violating
@@ -657,7 +657,7 @@ of truth: Rust and C codegen render the same tree, so both backends step
 monitors identically on the same input sequence. Compilation runs at codegen
 time; the resulting plan is baked into every generated artifact (production
 FSM, MC engine state layout, test harness), so all of them agree by
-construction. Semantics are pinned by D-P3-3 (DECISIONS.md): samples carry
+construction. Semantics are pinned by D-P3-3 ([DECISIONS.md](DECISIONS.md)): samples carry
 post-step values, sample 0 is the initial configuration, and an obligation's
 violation is confirmed at its deadline sample. Formulas outside the R1-R4
 monitor subset still parse and validate; codegen in every backend emits the

@@ -15,12 +15,12 @@ tables, per-module cards with line budgets), see the Class B set in
 
 | File | Content | Filled by |
 |------|---------|-----------|
-| `ARCHITECTURE.md` | pipeline overview, component diagram, functionality hierarchy | tasks 2.1-2.2 |
-| `CODE_MAP.md` | file-by-file map of all 72 hand-written source files | tasks 3.1-3.4 |
-| `DEPENDENCIES.md` | file-level + function-level dependency graphs (mermaid) | tasks 4.1-4.5 |
-| `DECISIONS.md` | rationale index over every decision entry in `DESIGN.md` sections 9, 19-25 | tasks 5.1-5.4 |
-| `ALGORITHMS.md` | main-algorithm write-ups at L1/L2/L3 detail levels | tasks 6.1-6.4 |
-| `REFERENCES.md` | external articles/books/publications index | tasks 7.1-7.2 |
+| [ARCHITECTURE.md](ARCHITECTURE.md) | pipeline overview, component diagram, functionality hierarchy | tasks 2.1-2.2 |
+| [CODE_MAP.md](CODE_MAP.md) | file-by-file map of all 72 hand-written source files | tasks 3.1-3.4 |
+| [DEPENDENCIES.md](DEPENDENCIES.md) | file-level + function-level dependency graphs (mermaid) | tasks 4.1-4.5 |
+| [DECISIONS.md](DECISIONS.md) | rationale index over every decision entry in [DESIGN.md](../../DESIGN.md) sections 9, 19-25 | tasks 5.1-5.4 |
+| [ALGORITHMS.md](ALGORITHMS.md) | main-algorithm write-ups at L1/L2/L3 detail levels | tasks 6.1-6.4 |
+| [REFERENCES.md](REFERENCES.md) | external articles/books/publications index | tasks 7.1-7.2 |
 | per-subsystem deep dives (11 files) | parser, validator, IR, codegen, backends, MC, monitor, CLI, crates, fuzz | tasks 8.1-12.3 |
 
 ## Conventions (machine-checked by the sync gate)

@@ -31,14 +31,14 @@ source), each carrying the line-1 provenance header (see `dev:spec-hash`).
 
 Where to go next:
 
-- CODEGEN.md (repo root) - the extension guide: plugin API walkthrough, CLI
+- [CODEGEN.md](../../CODEGEN.md) (repo root) - the extension guide: plugin API walkthrough, CLI
   surface, shared-module summaries incl. backend rendering details, the
   adding-a-backend checklist, testing conventions, invariants;
-- algorithm levels (L1/L2/L3): `dev:algorithms-ir-codegen` in ALGORITHMS.md;
-- core call graph: `dev:deps-fn-codegen-rust` in DEPENDENCIES.md;
-- file entries: `dev:code-map-codegen` in CODE_MAP.md;
+- algorithm levels (L1/L2/L3): `dev:algorithms-ir-codegen` in [ALGORITHMS.md](ALGORITHMS.md);
+- core call graph: `dev:deps-fn-codegen-rust` in [DEPENDENCIES.md](DEPENDENCIES.md);
+- file entries: `dev:code-map-codegen` in [CODE_MAP.md](CODE_MAP.md);
 - decision rationale: D-P4-7 (MC modes), D-P6-3 (artifact header) in
-  DECISIONS.md.
+  [DECISIONS.md](DECISIONS.md).
 
 Code: `src/codegen.rs::Backend`, `src/codegen.rs::BACKENDS`,
 `src/codegen.rs::CodegenCommandKind`, `src/codegen_fsm.rs::build_variants`,
@@ -55,7 +55,7 @@ option docs per command), and one function pointer per command kind:
 with the exact signature `fn(&Module, &BackendOptions) -> Result<CodegenOutput, Vec<String>>`.
 Adding a target language means adding a module under `crate::backends`
 that defines such a value and appending it to the registry - that is the ONLY
-core change (the full checklist is CODEGEN.md section 6).
+core change (the full checklist is [CODEGEN.md](../../CODEGEN.md) section 6).
 
 **The registry.** `src/codegen.rs::BACKENDS` currently holds the C and Rust
 backends (`ALL_BACKENDS`). `src/codegen.rs::list_backends` feeds
@@ -114,7 +114,7 @@ in stdout mode.
 rejections (`--with-property-monitors` and `--no-std` only for production;
 `--with-protocol-fsm` not for mc), validates numeric options, and rejects
 unknown options/extra arguments. The full option table with defaults is in
-CODEGEN.md section 4.
+[CODEGEN.md](../../CODEGEN.md) section 4.
 
 Code: `src/codegen.rs::Backend`, `src/codegen.rs::BACKENDS`,
 `src/codegen.rs::get_backend`, `src/codegen.rs::CodegenCommandKind`,
@@ -396,7 +396,7 @@ Code: `src/codegen_mc.rs::ExactStatus`, `src/codegen_mc.rs::FailReason`,
 Checklist for developers changing the core (the backends are tasks 9.2/10.x;
 this area is where they share behavior):
 
-1. **Placement rule** (CODEGEN.md section 2): target-language syntax goes in
+1. **Placement rule** ([CODEGEN.md](../../CODEGEN.md) section 2): target-language syntax goes in
    the backend module; pure IR analysis any backend would reuse goes in the
    matching `codegen_*.rs` core module; CLI parsing/help/registry mechanics go
    in `src/codegen.rs`. A new backend touches ONLY the registry table.
@@ -421,7 +421,7 @@ this area is where they share behavior):
    embedded-copy emitters in both backends in the same change.
 6. **Verify**: `cargo test --test codegen_test` (registry, generation over all
    valid examples, option sensitivity, CLI parsing),
-   `cargo test --test backend_parity_test`, then the full BUILD.md section 5
+   `cargo test --test backend_parity_test`, then the full [BUILD.md](../../BUILD.md) section 5
    checklist.
-7. **Docs sync**: CODEGEN.md (the extension guide), KB.md; training snippets
+7. **Docs sync**: [CODEGEN.md](../../CODEGEN.md) (the extension guide), [KB.md](../../KB.md); training snippets
    if the change is user-visible.

@@ -1641,10 +1641,10 @@ omitted). Isolated leaves: `variant_name`, `formula_tag`, `fi_concrete`,
 it compiles formulas from the Phase 3 property subset into a
 `src/monitor.rs::MonitorPlan` - a tree of `src/monitor.rs::MonNode` that
 every backend renders with identical semantics (backend parity principle,
-`docs/roadmap/PRINCIPLES.md`). The plan is the single source of truth: Rust and C
+[PRINCIPLES.md](../roadmap/PRINCIPLES.md)). The plan is the single source of truth: Rust and C
 codegen render the same tree, so both backends step monitors identically on
 the same input sequence. Semantics are pinned by D-P3-3
-(`docs/roadmap/phase_3/PHASE_3_PLAN.md`): samples carry post-step values, an
+([PHASE_3_PLAN.md](../roadmap/phase_3/PHASE_3_PLAN.md)): samples carry post-step values, an
 obligation triggered at sample i requires its body to hold at some sample j
 with i <= j <= i + N - 1 (N >= 1), and the violation is confirmed at sample
 i + N - 1 when the body still fails.

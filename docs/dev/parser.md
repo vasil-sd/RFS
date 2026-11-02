@@ -22,20 +22,20 @@ Entry points:
 The parser is the first stage of the pipeline (input -> parse -> validate,
 see `dev:architecture-pipeline`); its output is the versioned IR
 (`src/ir.rs::Ir`, `src/ir.rs::IR_VERSION`) that every other stage consumes.
-What the IR means semantically is specified in `docs/SEMANTICS.md`.
+What the IR means semantically is specified in [SEMANTICS.md](../SEMANTICS.md).
 
 Companion module: `src/ebnf_grammar.rs` (902 lines) holds the EBNF model of
-the input language - 61 rules mirroring DESIGN.md section 6 rule-for-rule -
+the input language - 61 rules mirroring [DESIGN.md](../../DESIGN.md) section 6 rule-for-rule -
 plus the renderers behind `rfs info format spec-rfs` (`src/info_format.rs`).
 
 Where to go next:
 
 - algorithm levels (L1 abstract / L2 structures + invariants / L3 details):
-  `dev:algorithms-parser-validation` in ALGORITHMS.md;
-- function call graph: `dev:deps-fn-parser` in DEPENDENCIES.md;
-- file entries: `dev:code-map-frontend` in CODE_MAP.md;
+  `dev:algorithms-parser-validation` in [ALGORITHMS.md](ALGORITHMS.md);
+- function call graph: `dev:deps-fn-parser` in [DEPENDENCIES.md](DEPENDENCIES.md);
+- file entries: `dev:code-map-frontend` in [CODE_MAP.md](CODE_MAP.md);
 - external references (Pratt, the EBNF standard, nom, the Dragon Book):
-  `dev:references-theory` in REFERENCES.md.
+  `dev:references-theory` in [REFERENCES.md](REFERENCES.md).
 
 The parser is also a toolchain-fuzz target (`fuzz/fuzz_targets/parser.rs`):
 malformed input must never panic.
@@ -284,7 +284,7 @@ holds the literal text WITHOUT surrounding quotes (the text renderers quote
 it); lexical placeholders (`character`, `a..z`) are terminals too - they name
 a character class rather than a rule.
 
-**GRAMMAR_RULES.** 61 rules mirroring DESIGN.md section 6 EXACTLY - same rule
+**GRAMMAR_RULES.** 61 rules mirroring [DESIGN.md](../../DESIGN.md) section 6 EXACTLY - same rule
 names, same order, same structure. The list spans the source/module/declaration
 rules, event/output patterns and actions, the formula ladder, the expression
 ladder, and the lexical rules (`identifier`, `letter`, `digit`,
@@ -295,7 +295,7 @@ review; the sync test pins names, not prose).
 **Renderers.**
 
 - `to_ebnf_text` - canonical EBNF text, one rule per line; this is EXACTLY
-  what the DESIGN.md section 6 ebnf fence contains;
+  what the [DESIGN.md](../../DESIGN.md) section 6 ebnf fence contains;
 - `to_md` - intro + ebnf code block + rule table + a formula-precedence note
   (what `rfs info format spec-rfs --output md` prints);
 - `to_plantuml_ebnf` - @startebnf/@endebnf wrapper; terminals quoted;
@@ -304,11 +304,11 @@ review; the sync test pins names, not prose).
 - `to_svg` - railroad diagram: Sequence/Choice/Optional/ZeroOrMore/OneOrMore
   mapped onto a stylesheet diagram (the `railroad` crate, standalone SVG).
 
-**Sync tests** (`tests/info_format_test.rs`): the DESIGN.md section 6 fence
+**Sync tests** (`tests/info_format_test.rs`): the [DESIGN.md](../../DESIGN.md) section 6 fence
 parses back to exactly this model's rule names (structural equality, both
 directions, no duplicates); every `parser::KEYWORDS` entry appears as a quoted
 terminal; the md/plantuml/svg outputs are pinned. Consequence: if the parser
-language changes, update DESIGN.md section 6 and `GRAMMAR_RULES` TOGETHER -
+language changes, update [DESIGN.md](../../DESIGN.md) section 6 and `GRAMMAR_RULES` TOGETHER -
 the sync test fails otherwise.
 
 **Consumers.** `rfs info format spec-rfs` (`src/info_format.rs`) prints from
@@ -324,20 +324,20 @@ Code: `src/ebnf_grammar.rs::RuleNode`, `src/ebnf_grammar.rs::GRAMMAR_RULES`,
 
 ## Changing the grammar
 
-Developer checklist for changing the RFS v0 language (see also START.md's
+Developer checklist for changing the RFS v0 language (see also [START.md](../../START.md)'s
 "Before changing language syntax" protocol):
 
 1. Add valid + invalid examples FIRST - the file-driven suite picks them up
    without test-code changes.
 2. Update `src/parser.rs` (+ its unit tests in `mod tests`).
-3. Update `src/ebnf_grammar.rs::GRAMMAR_RULES` and the DESIGN.md section 6
+3. Update `src/ebnf_grammar.rs::GRAMMAR_RULES` and the [DESIGN.md](../../DESIGN.md) section 6
    fence TOGETHER - the sync test enforces rule-name parity both directions.
 4. A new keyword goes into `KEYWORDS` AND `ide/textmate/rfs.json` -
    `keyword_list_matches_parser_sites` pins the list against parser call
    sites, and the IDE grammar sanity test asserts coverage.
 5. Verify: `cargo test --lib` (parser unit tests),
    `cargo test --test examples_test`, `cargo test --test info_format_test`,
-   then the full BUILD.md section 5 checklist.
-6. If the change is language-visible, add training snippets per KB.md
+   then the full [BUILD.md](../../BUILD.md) section 5 checklist.
+6. If the change is language-visible, add training snippets per [KB.md](../../KB.md)
    section 4.6 and regenerate (`cargo extract-training-snippets` +
    `cargo build-training`).

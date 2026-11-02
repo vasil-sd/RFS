@@ -42,10 +42,10 @@ stability on random valid IRs).
 Where to go next:
 
 - algorithm levels (L1 abstract / L2 structures + invariants / L3 details):
-  `dev:algorithms-ir-codegen` in ALGORITHMS.md;
-- file entries: `dev:code-map-frontend` in CODE_MAP.md;
+  `dev:algorithms-ir-codegen` in [ALGORITHMS.md](ALGORITHMS.md);
+- file entries: `dev:code-map-frontend` in [CODE_MAP.md](CODE_MAP.md);
 - decision rationale: D10, D-P5-2, D-P6-2, D-P6-3, D-P7-8, D-P7-9 in
-  DECISIONS.md; the user-facing version policy in docs/user/MIGRATION.md.
+  [DECISIONS.md](DECISIONS.md); the user-facing version policy in [MIGRATION.md](../user/MIGRATION.md).
 
 Code: `src/ir.rs::Ir`, `src/ir.rs::IR_VERSION`, `src/json_rw.rs::Json`,
 `src/json_rw.rs::parse`, `src/json_schema.rs::SchemaDoc`,
@@ -368,7 +368,7 @@ cross-backend parity, and schema sync walks all fail on drift. Checklist:
    NOT bump `src/ir.rs::IR_VERSION` - within one version the schema only
    grows, and an older reader meets a new kind with the pinned unknown-kind
    error. A BREAKING change must bump the constant, update the round-trip
-   tests, and update docs/user/MIGRATION.md (the read policy is D-P6-2).
+   tests, and update [MIGRATION.md](../user/MIGRATION.md) (the read policy is D-P6-2).
 2. **Update the model in lockstep.** Any change to `src/ir.rs` to_json /
    from_json must be mirrored in `src/info_format.rs::spec_json_schema` -
    spec_json_walk_all_valid_examples walks every valid example's parse JSON
@@ -385,7 +385,7 @@ policy test pins the rejection message.
    input that should be rejected): update the scope-limits note in the module
    docs.
 5. **Verify:** `cargo test --lib json_rw`, `cargo test --test frontend_test`,
-   `cargo test --test info_format_test`, then the full BUILD.md section 5
+   `cargo test --test info_format_test`, then the full [BUILD.md](../../BUILD.md) section 5
    checklist.
-6. **Docs sync:** DESIGN.md (D10 / D-P5-2 / D-P6-2), KB.md; training snippets
+6. **Docs sync:** [DESIGN.md](../../DESIGN.md) (D10 / D-P5-2 / D-P6-2), [KB.md](../../KB.md); training snippets
    if the change is user-visible.

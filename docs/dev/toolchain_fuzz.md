@@ -36,7 +36,7 @@ The new fuzz targets found two real bugs during Phase 6, recorded as plan
 corrections 5a (planner binding-name keying - codegen FAIL on a fully valid
 spec; regression seed pinned in the CI suite) and 5b (C MC fuzz-mode OOB read
 at trigger step 0). Current training-set counts (categories, examples,
-valid/invalid snippets) live in KB.md section 1 - this doc describes the
+valid/invalid snippets) live in [KB.md](../../KB.md) section 1 - this doc describes the
 machinery, not the numbers.
 
 Code: `fuzz/fuzz_targets/common.rs::RandSpec`,
@@ -161,7 +161,7 @@ Both resolve the project root from CARGO_MANIFEST_DIR.
 **Pinning.** tests/training_test.rs: categories exist and every JSONL line is
 valid; snippets parse exactly as classified (valid/ parses + validates,
 invalid/ does not); the aggregate matches the sum of its parts. Current
-counts: KB.md section 1.
+counts: [KB.md](../../KB.md) section 1.
 
 Code: `src/training.rs::SnippetCounts`, `src/training.rs::category_dirs`,
 `src/training.rs::validate_training_line`, `src/training.rs::aggregate_training_sets`,
@@ -187,7 +187,7 @@ collection is an error.
 `src/codegen.rs::BackendOptions` and calls
 `src/backends/rust_test.rs::generate_aggregate_test_crate` (the extended shared
 test planner rendered by the Rust test backend - deep dive
-docs/dev/backend_rust.md), then `src/backends/rust_test.rs::write_generated_crate`
+[backend_rust.md](backend_rust.md)), then `src/backends/rust_test.rs::write_generated_crate`
 under target/rfs_codegen_tests. Warnings stream to stderr; codegen errors fail
 the build.
 
@@ -196,7 +196,7 @@ fixed options (steps 4, assumes All), regenerates the crate, then runs
 cargo test --manifest-path target/rfs_codegen_tests/Cargo.toml - the exit code
 mirrors the generated suite's. The aggregate crate is a GENERATED artifact
 under target/ (never checked in); its size grows with spec + valid-snippet
-coverage (current counts: KB.md section 1).
+coverage (current counts: [KB.md](../../KB.md) section 1).
 
 Code: `src/bin/generate_code_tests.rs`, `src/bin/test_generated_code.rs`,
 `src/backends/rust_test.rs::generate_aggregate_test_crate`,

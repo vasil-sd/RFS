@@ -18,10 +18,10 @@ taxonomy:
   (D-P4-2), traversal spec (D-P4-2); plus `src/mc_plan.rs::LivenessDecomposition`
   for liveness properties (D-P4-9).
 - **Exact + liveness runtime**: the brute-force reference checker
-  (`src/ref_mc.rs::run`) is an independent implementation of SEMANTICS.md -
+  (`src/ref_mc.rs::run`) is an independent implementation of [SEMANTICS.md](../SEMANTICS.md) -
   ground truth behind `rfs mc-ref` (`src/mc_ref_cmd.rs::run_mc_ref`, in-process,
   no compilation) and differential testing. Both generated backends mirror its
-  algorithms (Rust: docs/dev/backend_rust.md; C: docs/dev/backend_c.md).
+  algorithms (Rust: [backend_rust.md](backend_rust.md); C: [backend_c.md](backend_c.md)).
 - **SMT bounded mode**: the backend-neutral spec (`src/smt_plan.rs`) rendered
   by the shared emitter (`src/smt_emit.rs::emit_rust_spec`,
   `src/smt_emit.rs::emit_c_spec`) for parity by construction - details in
@@ -132,7 +132,7 @@ intermediates + masks). `src/ref_mc.rs::EvalCtx` carries module + state + vars
 **Own monitor compiler.** ref_mc compiles formulas into its OWN
 `src/ref_mc.rs::Mon` type (Check / Delayed / Obligation / And / Or) - an
 independent implementation of the documented semantics (SEMANTICS 5.5), not the
-shared MonitorPlan (deep dive: docs/dev/monitor_compiler.md, task 11.3).
+shared MonitorPlan (deep dive: [monitor_compiler.md](monitor_compiler.md), task 11.3).
 `src/ref_mc.rs::compile_formula` returns Err for out-of-subset formulas -
 identical classification to the generated engines' compiler;
 `src/ref_mc.rs::mon_step` returns the node's CURRENT-SAMPLE failure status
@@ -443,13 +443,13 @@ FIELD_NAMES/FIELD_WIDTHS/FIELD_IS_BOOL carry a dummy slot the engine never touch
 loops over N_VARS/N_FIELDS).
 
 **Engine + verdicts (link, not restate).** The spec-independent k-step unrolling
-engine lives in the backend files - SMT_ENGINE_RUST (docs/dev/backend_rust.md) and
-SMT_ENGINE_C (docs/dev/backend_c.md): first-match firing as a prefix-OR chain over
+engine lives in the backend files - SMT_ENGINE_RUST ([backend_rust.md](backend_rust.md)) and
+SMT_ENGINE_C ([backend_c.md](backend_c.md)): first-match firing as a prefix-OR chain over
 firing order, alive tracking, safety query (exists i < k: alive_i and not phi_p(i))
 and liveness via k-liveness (never + cycle query). Verdicts: SAT -> sound FAIL within
 bound k; all UNSAT -> PASS WITHIN BOUND k (always labeled incomplete - no completeness
 claim); inconclusive -> UNKNOWN; exit codes 0/1/2. One libz3 build (5.3.1,
-TOOLCHAIN.md section 5) is shared by both backends; the mode is feature-gated (smt
+[TOOLCHAIN.md](../../TOOLCHAIN.md) section 5) is shared by both backends; the mode is feature-gated (smt
 cargo feature), codegen flag --smt-bound N (default 10) overridable at runtime.
 Algorithm views L1-L3: dev:algorithms-mc-engine; external references:
 [model checking, SMT/SAT solving](REFERENCES.md#model-checking-smt-sat-solving).

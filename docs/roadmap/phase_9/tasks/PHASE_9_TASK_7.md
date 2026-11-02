@@ -20,10 +20,17 @@ consistent developer experience.
   across 14 files. Three files have ZERO mentions and stay untouched:
   ARCHITECTURE.md, CODE_MAP.md, workspace_crates.md (verify with grep at
   execution time).
-- **Conventions: exactly task 6's** (path rules from `docs/dev/`, link the
-  filename token only, no `#anchors`, never touch `.rs/.c/.h` doc-to-code
-  spans / fragment anchors / fenced text). Re-read task 6's Context if in
-  doubt - consistency across the set matters more than per-file invention.
+- **Conventions: exactly task 6's, with its corrected root-doc depth** (plan
+  correction for task 6): docs/dev/ is TWO levels below the repo root, so root
+  documents link as `../../DESIGN.md`, `../../KB.md`, `../../BUILD.md`,
+  `../../TOOLCHAIN.md`, `../../CODEGEN.md`; docs/-level targets link one level
+  up: `../SEMANTICS.md`, `../user/MIGRATION.md`, `../roadmap/...`; same-dir
+  siblings as bare `ARCHITECTURE.md`. Link the filename token only, no
+  `#anchors`, never touch `.rs/.c/.h` doc-to-code spans / fragment anchors /
+  fenced text. Also apply task 6's backtick unwrap: a mention originally
+  wrapped in backticks must come out as a REAL link, not `` `[...](...)` ``
+  literal text. Re-read task 6's Context + corrections if in doubt -
+  consistency across the set matters more than per-file invention.
 - **File-specific notes**:
   - `README.md` (the Class A index): its Index table's File column lists
     backticked sibling names (`ARCHITECTURE.md`, `CODE_MAP.md`, ...) - convert

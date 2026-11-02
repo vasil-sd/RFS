@@ -20,7 +20,7 @@ module map:
 | info / info format | `src/info.rs::run_info` / `src/info_format.rs::FORMATS` | dev:cli-commands-info |
 | test | `src/test_cmd.rs::run_test` | dev:cli-commands-test |
 | diagram | `src/diagram.rs::run_diagram` + the plugins in `src/diagrams/` | dev:cli-commands-diagram |
-| codegen | `src/codegen.rs` registry dispatch (via `src/main.rs::cmd_codegen`) | docs/dev/codegen_core.md |
+| codegen | `src/codegen.rs` registry dispatch (via `src/main.rs::cmd_codegen`) | [codegen_core.md](codegen_core.md) |
 | mc-ref | `src/mc_ref_cmd.rs::run_mc_ref` over `src/ref_mc.rs` | dev:cli-commands-mc-ref-gen-spec |
 | gen-spec | `src/gen_spec_cmd.rs::run_cli` over `src/specgen.rs` | dev:cli-commands-mc-ref-gen-spec |
 
@@ -43,9 +43,9 @@ work, and single-module commands run on the FIRST module. Every command that
 invokes external tools goes through the shared resolver (dev:cli-commands-
 ext-tool) and accepts --print-script.
 
-CLI behavior rules at file granularity: KB.md section 4.5; external user
-documentation: docs/user/; codegen plugin API: CODEGEN.md +
-docs/dev/codegen_core.md.
+CLI behavior rules at file granularity: [KB.md](../../KB.md) section 4.5; external user
+documentation: docs/user/; codegen plugin API: [CODEGEN.md](../../CODEGEN.md) +
+[codegen_core.md](codegen_core.md).
 
 Code: `src/main.rs::main`, `src/cli_log.rs::LogLevel`, `src/cli_log.rs::Logger`
 
@@ -138,8 +138,8 @@ Consumers: the integration tests call library functions directly (e.g. the
 info-format walk runs `src/info.rs::run_info` in-process with json=true);
 `crates/rfs-build` invokes the BINARY (RFS_BIN resolution), not the library;
 external tooling goes through IR JSON (hand-rolled `src/json_rw.rs`). Full API
-list: KB.md section 4.3; codegen plugin API: CODEGEN.md +
-docs/dev/codegen_core.md.
+list: [KB.md](../../KB.md) section 4.3; codegen plugin API: [CODEGEN.md](../../CODEGEN.md) +
+[codegen_core.md](codegen_core.md).
 
 Code: `src/lib.rs::collect_rfs_files`, `src/parser.rs::parse_source`,
 `src/printer.rs::print_ir`
@@ -231,7 +231,7 @@ for IDE/tooling reuse.
 in preference order, the first is the default when --output is omitted. The
 static `src/info_format.rs::FORMATS` holds the ten entries: spec-rfs (the RFS
 v0 EBNF grammar in md/plantuml/svg, rendered from the in-binary model in
-`src/ebnf_grammar.rs` - the canonical text of DESIGN.md section 6's fence),
+`src/ebnf_grammar.rs` - the canonical text of [DESIGN.md](../../DESIGN.md) section 6's fence),
 spec-json / ce-trace / mc-report / validate-json / info-json (md + draft-07
 JSON Schema via the shared emitter in `src/json_schema.rs`; schema builders
 `src/info_format.rs::spec_json_schema`, `ce_trace_schema`, `mc_report_schema`,

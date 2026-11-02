@@ -89,38 +89,8 @@ and status-labeling rules: `docs/SEMANTICS.md` section 9.
 
 ### 2.4 IR decisions
 
-The IR is the single source of truth for generators.
-
-Current decisions:
-
-- IR is versioned: `Ir.ir_version`.
-- IR is serialized by the hand-rolled JSON reader-writer (`src/json_rw.rs`, Phase 5 task 2 - serde removed; ordered objects, byte-identical output contract).
-- JSON is the Phase 0 inspection/round-trip format.
-- The parser returns IR directly in Phase 0; there is no separate public AST yet.
-- The IR is intentionally clean: no parser spans are stored in the serializable IR.
-- Future validator/codegen may need an annotated AST or span side-table for better diagnostics.
-
-Important IR types:
-
-| Type | Meaning |
-|---|---|
-| `Ir` | Top-level document with modules. |
-| `Module` | Name, enums, initial state, events, outputs, vars, transitions, properties, assumptions. |
-| `EnumDecl` | Finite enum type. |
-| `Type` | `Bool`, `Bit { width }`, `Enum { name }`. |
-| `ConstructorGroup` | Logical event/output group with named variants. |
-| `ConstructorVariant` | `Unit` or `Struct` variant. |
-| `FieldDecl` | Named field with finite type. |
-| `VarDecl` | Variable name, type, initializer expression. |
-| `Transition` | State, event pattern, guard, next state, emits, assignments, optional priority. |
-| `EventPattern` / `OutputPattern` | Group + optional variant pattern. |
-| `PatternVariant` | Unit or struct pattern. |
-| `PatternField` | Optional binding name + pattern expression. |
-| `PatternExpr` | Wildcard, bind, int, bool, enum variant path. |
-| `OutputExpr` | Output group, optional variant, argument expressions. |
-| `Assignment` | Variable update. |
-| `Property` / `Formula` | Named PSL-like property or assumption. |
-| `Expr` | Pure expression language value. |
+IR versioning, the hand-rolled JSON serialization decision, and the IR type
+inventory live in [DESIGN.md](DESIGN.md) section 7 (single source of truth).
 
 ### 2.5 Parser decisions
 

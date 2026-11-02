@@ -1,39 +1,38 @@
-# RFS User Documentation
+# RFS - Finite-State Protocol Specification Language
 
-Welcome to the RFS user documentation - written for people who have never seen
-this repository. RFS is a **finite-state protocol specification language**:
-you describe one endpoint of a protocol as a finite input/output machine, and
-the toolchain compiles that ONE description to production FSMs (Rust AND C),
-generated test suites, model-checking binaries, diagrams, and static
-introspection - all from the same versioned IR, with cross-backend parity
-checked by differential tests.
+RFS is a constrained domain-specific language for protocol control logic: you
+describe one endpoint of a protocol as a finite input/output machine (states,
+events, outputs, variables, guarded transitions), and the toolchain compiles
+that ONE description to production FSMs in Rust AND C, generated test suites,
+model-checking binaries, state diagrams, and static introspection - all from
+the same versioned IR. The language stays finite (no unbounded data, no
+floats, no arbitrary functions) so that model checking can PROVE properties
+instead of sampling them.
 
-The core principle: **one constrained specification -> one versioned IR ->
-multiple targets.** The language stays finite (no unbounded data, no floats,
-no arbitrary functions) so that model checking can PROVE properties instead of
-sampling them.
+## Main principles
 
-## Which doc for which question?
+- **One constrained specification -> one versioned IR -> multiple targets.**
+  The IR is the single source of truth for every generator: production code,
+  tests, model checkers, and diagrams all consume the same normalized form, so
+  they cannot diverge.
+- **Backend parity.** The Rust and C backends provide the same commands, the
+  same deliverables per command, and exactly the same observable behavior for
+  the same spec and inputs - verified by cross-backend differential tests that
+  compare generated artifacts field by field on every run.
+- **Model-checking cross-checking.** Generated model checkers are
+  soundness-checked against independent infrastructure: an in-process reference
+  MC with deliberately different data structures, hand-written monitor
+  references, an independent PSL evaluator, and two-layer toolchain fuzzing
+  (the full suite list is in `BUILD.md` section 5).
 
-| You want to... | Read |
-|---|---|
-| Write a spec: syntax, states, events, variables, transitions, expressions | [LANGUAGE.md](docs/user/LANGUAGE.md) |
-| Assert properties and environment assumptions; understand monitors and skip warnings | [PROPERTIES.md](docs/user/PROPERTIES.md) |
-| Model-check your spec: modes, every flag, statuses, reading reports | [MODEL_CHECKING.md](docs/user/MODEL_CHECKING.md) |
-| Integrate generated code: build.rs, adapters, C Makefiles, no_std, CI | [INTEGRATION.md](docs/user/INTEGRATION.md) |
-| Learn from concrete protocol examples (with state diagrams + real MC results) | [EXAMPLES.md](docs/user/EXAMPLES.md) |
-| Understand abstraction/assumptions, deadlock failures, limits, migration | [FAQ.md](docs/user/FAQ.md) |
-| Know what is stable across versions and how to migrate | [MIGRATION.md](docs/user/MIGRATION.md) |
-| Read the NORMATIVE formal semantics (what every rule above means precisely) | [docs/SEMANTICS.md](docs/SEMANTICS.md) |
-
-## The toolchain at a glance
+## The RFS pipeline
 
 ```mermaid
 flowchart TB
     subgraph Authoring
         S[.rfs spec files] --> V[rfs validate - parse + semantic checks]
         S --> I[rfs info - static introspection, monitor status]
-        S --> D[rfs diagram - dot/puml/mmd/table/md sources]
+        S --> D[rfs diagram - dot/puml/mmd/table/md sources; SVG rendered in-process by default]
         G[rfs gen-spec - random or base-mutated specs] -.-> S
     end
     subgraph Compilation
@@ -53,49 +52,24 @@ flowchart TB
     end
 ```
 
-Eight stable commands (the v1.0 CLI surface): `parse`, `validate`, `info`,
-`test`, `diagram`, `codegen`, `mc-ref`, `gen-spec`. Run any of them with no
-arguments for its usage text:
+A spec is parsed and validated into one versioned IR; every target - Rust or C
+production FSMs, test suites, model-checking binaries, diagrams - consumes that
+same IR. That single normalization step is what makes backend parity and MC
+cross-checking possible: there is exactly one thing to check, and every
+generator sees it identically.
 
-```sh
-cargo run --            # full usage, including per-command descriptions
-```
+## For users
 
-## A two-minute tour
+The self-contained user documentation set - language reference, properties and
+monitors, model checking, integration (build.rs, adapters, C Makefiles,
+no_std), worked examples, FAQ, migration guide, and the NORMATIVE formal
+semantics - starts at [docs/user/README.md](docs/user/README.md).
 
-```sh
-# validate the smallest example
-cargo run -- validate examples/valid/01_trivial_two_state.rfs
+## For developers
 
-# model-check a real protocol (in-process, no compilation)
-cargo run -- mc-ref examples/valid/43_sliding_window.rfs
-# -> PASS (complete) - 94 states explored, liveness proven under the env_tick assumption
-
-# generate production Rust for it
-cargo run -- codegen rust production examples/valid/43_sliding_window.rfs --out /tmp/arq.rs
-head -1 /tmp/arq.rs
-# -> // Generated by RFS v1.0.0 | spec sha256:... | module sliding_window
-```
-
-Then read [EXAMPLES.md](docs/user/EXAMPLES.md) for the full walkthrough of that protocol,
-and [INTEGRATION.md](docs/user/INTEGRATION.md) to drive it from your own code.
-
-## Where things live
-
-| Path | What |
-|---|---|
-| [examples/valid/](examples/valid/) | 50 valid specs (file-driven suite: drop a file in, it is tested) |
-| [examples/invalid/](examples/invalid/) | 13 specs that MUST be rejected |
-| [docs/SEMANTICS.md](docs/SEMANTICS.md) | normative formal semantics |
-| [ide/README.md](ide/README.md) | editor support: TextMate grammar + snippets for `.rfs` |
-| BUILD.md / TOOLCHAIN.md (repo root) | how to build/test/run and where the toolchain lives (maintainer docs) |
-
-## Conventions of this doc set
-
-- Every command example is copy-paste runnable from the repository root (via
-  `cargo run --`; an installed binary is just `rfs`).
-- Diagrams are plain-text Mermaid blocks - versionable, diffable, and checked
-  by the test suite (`tests/docs_md_test.rs` renders every one of them).
-- Real outputs quoted in these pages were captured from this repository's
-  toolchain (v1.0.0); where a value is machine-dependent (wall-clock times,
-  `peak_rss_kb`) that is said explicitly.
+The developer deep-dive set (Class A) - per-module internals with stable
+fragment anchors, architecture, code map, algorithms, dependencies, and the
+decision rationale index - starts at [docs/dev/README.md](docs/dev/README.md).
+LLM-assisted sessions use the companion Class B set in `docs/llm/` (TASK_MAP,
+CHANGE_IMPACT, budgeted per-module cards) and enter through `START.md`, the
+session entry point carrying the operating protocol.

@@ -75,4 +75,4 @@ dev:toolchain-fuzz-training / dev:toolchain-fuzz-code-tests in
 docs/dev/toolchain_fuzz.md; specgen engine: dev:cli-commands-mc-ref-gen-spec;
 reference MC ground truth: dev:mc-engine-exact; Rust test backend (aggregate
 crate renderer): docs/dev/backend_rust.md; current training counts: KB.md
-section 3.
+section 1.

@@ -140,7 +140,7 @@ Table: DESIGN.md section 9.11 - Code: `src/ir.rs::Module`.
 ### Section 19 - Phase 1 code-generation decisions
 
 The eight bullets of DESIGN.md section 19 (full text there; recorded in detail
-in KB.md section 13):
+in the Phase 1 status report, `docs/roadmap/phase_1/PHASE_1_STATUS.md`):
 
 - **Code generation consumes the validated IR, not parser text.** Why: one
   normalized form guarantees every target sees identical semantics and lets

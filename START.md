@@ -252,7 +252,7 @@ cargo run -- validate --input rfs examples/valid    # quick sanity, exit 0 expec
 
 Expected results and every command/alias: `BUILD.md` sections 3-4.
 
-## 8. Workflow rules (condensed from KB.md section 11)
+## 8. Workflow rules (condensed from KB.md section 10)
 
 - Preserve the core principle: one constrained RFS spec -> one IR -> multiple Rust targets.
 - Keep the DSL finite and model-checkable; no unbounded data, floats, arbitrary

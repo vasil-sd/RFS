@@ -1,29 +1,34 @@
 # RFS Knowledge Base (KB)
 
-Status: **2026-10-13**
+Status: **2026-11-02**
 Project root: `/workspace/host/RFS/`
 Audience: future engineers and LLM assistants continuing RFS development.
 
 This file is the compact handoff knowledge base. It summarizes:
 
 1. current project state;
-2. design decisions;
-3. updated roadmap;
-4. important tooling / agent-workflow findings;
-5. Rust source, build, test, and dependency facts;
-6. known limitations and corner cases;
-7. detailed next R&D plan.
+2. design decisions - short references to `DESIGN.md` (the single source of
+   truth for core language design, semantics, and design decisions);
+3. RFS v0 syntax reference - a reference to `DESIGN.md` section 5;
+4. Rust source code map (dependencies, files, public API, parser internals,
+   CLI behavior, training-set organization, TLA+ adaptation);
+5. build/test/run pointers;
+6. tool-calling and agent-workflow experience;
+7. known limitations and risks (current);
+8. roadmap pointer;
+9. quick-start pointer;
+10. rules for future LLM-assisted work.
 
 Read order for a new assistant:
 
-1. `KB.md`
-2. `DESIGN.md`
-3. `docs/roadmap/INTRO.md` (+ `PROTOCOL.md` / `FORMATTING.md` as needed, and the
+1. `START.md` (session entry point: orientation, lazy-reading protocol,
+   toolchain activation, essential commands, workflow rules)
+2. this file - section 4 (source code map) for "how is X implemented"
+   questions; sections 2-3 route to `DESIGN.md`
+3. `DESIGN.md` for core language design and semantics
+4. `docs/roadmap/INTRO.md` (+ `PROTOCOL.md` / `FORMATTING.md` as needed, and the
    specific `phase_N/` file you need)
-4. `src/ir.rs`
-5. `src/parser.rs`
-6. `examples/valid/`
-7. `tests/`
+5. `src/ir.rs`, `src/parser.rs`, `examples/valid/`, `tests/` as the task requires
 
 ---
 
@@ -636,307 +641,23 @@ coded against; external users have a self-contained documentation set
 | Feature flags | RESOLVED in Phase 5: `--no-std` production codegen (task 9, D-P5-9) and property monitors (Phase 3, debug-gated) both exist; no logging option (the CLI has `--log-level` instead). | Fine for current targets. | - |
 | Error recovery | Parser stops at first error per file. | Less useful IDE experience. | Acceptable; improve later. |
 
-## 8. Updated roadmap
+## 8. Roadmap pointer
 
-`docs/roadmap/` (INTRO.md index + PRINCIPLES / FORMATTING / PROTOCOL /
-CURRENT_STATE + per-phase `phase_N/` directories) is the authoritative long-term
-roadmap; per-phase implementation reports live in
-`docs/roadmap/phase_N/PHASE_N_STATUS.md`.
-This section is a compact status view for future work.
-
-### Phase 0: Parser/IR baseline — complete with caveats
-
-Completed:
-
-- DESIGN and roadmap documents.
-- Cargo project.
-- IR v0 with serde JSON.
-- nom-based parser for RFS v0 subset.
-- CLI parser.
-- 30 valid examples.
-- 4 invalid examples.
-- file-driven example test suite.
-- parser-library comparison: nom chosen, chumsky retained as dev-only smoke test.
-- passing `cargo test`, `cargo clippy`, and `cargo fmt`.
-
-Caveats (as of Phase 0 completion; most were resolved in Phases 1-2 - see section 7
-for what remains):
-
-- No semantic type checking or name resolution.
-- No spans in IR.
-- No code generation.
-- No model checking.
-- Priority is parsed but not semantically used.
-
-### Phase 1: Minimal end-to-end demonstrator — complete
-
-Validator, plugin-based Rust codegen (production/test/mc), bounded model checker,
-and the `rfs parse`/`rfs validate` CLI rework are implemented. The historical
-M1-M6 milestone plan is superseded by the actual outcome recorded in
-`docs/roadmap/phase_1/PHASE_1_STATUS.md`.
-
-### Phase 2: Core DSL and production code generation — complete
-
-Module version headers, `on_error` fallbacks, semantic priorities, validator
-warnings, and the C backend are implemented; details in
-`docs/roadmap/phase_2/PHASE_2_STATUS.md`.
-
-### Phase 3 and later
-
-- **Phase 3 — complete:** PSL-like property subset + monitor codegen + MC integration (`docs/roadmap/phase_3/PHASE_3_STATUS.md`; decisions in `DESIGN.md` section 21).
-- **Phase 4 — complete:** scalable model checking (exact reachable-state engine, liveness, optional SMT) (`docs/roadmap/phase_4/PHASE_4_STATUS.md`; decisions in `DESIGN.md` sections 11 + 22).
-- **Phase 5 — COMPLETE (close-out 2026-10-23):** full toolchain and production integration - eight-command CLI (six at the time; `mc-ref`/`gen-spec` arrived in Phase 6), workspace + rfs-build/adapters crates, no_std, MC counterexample JSON, diagrams, IDE support (`docs/roadmap/phase_5/PHASE_5_PLAN.md` + per-task status files; decisions in `DESIGN.md` section 23).
-- **Phase 6 — COMPLETE (close-out 2026-10-25, tag v1.0.0):** production hardening and v1.0 - formal semantics (`docs/SEMANTICS.md`), versioning surface (D-P6-1..3) + `docs/user/MIGRATION.md`, reference infrastructure (`src/ref_mc.rs`/`src/specgen.rs` -> `rfs mc-ref`/`rfs gen-spec`), differential soundness suites, two-layer toolchain fuzzing, benchmark specs 47/48/49 + report metrics, external user docs (`docs/user/`), training data update. Decisions in `DESIGN.md` section 24; status per `docs/roadmap/phase_6/tasks/PHASE_6_TASK_M_STATUS.md` files.
-- **Phase 7 — COMPLETE (close-out 2026-10-28):** documentation and self-describing formats - in-process SVG rendering for `rfs diagram --render svg` (`--renderer internal|external`, default internal; mmd via mermaid-rs-renderer, puml via rev-pinned plantuml-core git dep, dot via layout-rs), cross-renderer syntax parity suite, new `rfs info format` family (10 registered formats with embedded machine-readable models + sync tests against real tool output), DESIGN.md section 6 ebnf fence re-synced to the actual parser. Docs-only phase: no parser/validator/codegen/MC changes, no new examples. Decisions in `DESIGN.md` section 25; status per `docs/roadmap/phase_7/tasks/PHASE_7_TASK_M_STATUS.md` files.
-- **Phase 8 — IN PROGRESS (tasks 1-14 done as of 2026-11-01; close-out is task 16):** developer documentation set - `docs/dev/` Class A deep dives (18 files, stable fragment anchors) + `docs/llm/` Class B assistant set (TASK_MAP / CHANGE_IMPACT / README + 11 budgeted per-module cards), machine-checked by the doc sync gate (`tests/dev_docs_test.rs`: code->doc pointers over `tests/dev_docs_manifest.txt`, doc->code reference resolution, fragment ownership, TASK_MAP coverage, Class B line budgets). Docs-only phase: no parser/validator/codegen/MC changes. Plan + per-task files under `docs/roadmap/` (PHASE_8_PLAN.md, PHASE_8_TASK_M.md); status report at close-out.
-- **Post-v1 candidates (non-goals of v1, kept for later):** multi-party composition, real-time timed automata, unbounded integers, arbitrary Rust function calls in transitions, byte-level protocol codecs, full strong unbounded liveness hardening, LSP (a span side-table for semantic/codegen diagnostics is the stepping stone). See `docs/roadmap/PRINCIPLES.md` section 3.
+The authoritative long-term roadmap is `docs/roadmap/` - `INTRO.md` (index),
+`CURRENT_STATE.md` (the phase-state table), `PRINCIPLES.md` / `FORMATTING.md` /
+`PROTOCOL.md`, and per-phase `phase_N/` directories with implementation reports
+in `phase_N/PHASE_N_STATUS.md`. Post-v1 candidates (non-goals of v1, kept for
+later): `docs/roadmap/PRINCIPLES.md` section 3.
 
 ---
 
-## 9. Historical R&D plan (Phase 0 -> Phase 1)
-
-> **Superseded:** every item in this section was implemented during Phase 1; the
-> actual architecture differs from the sketches below (see §13 and `CODEGEN.md`
-> for the real plugin-based codegen API). Kept as planning history only — do not
-> treat the code sketches in this section as current interfaces.
-
-### 9.1 Immediate next sprint: semantic validator
-
-Recommended new file:
-
-```text
-src/validator.rs
-```
-
-Public API sketch:
-
-```rust
-pub struct ValidatorError {
-    pub message: String,
-    pub module: Option<String>,
-    pub item: Option<String>,
-}
-
-pub fn validate(ir: &Ir) -> Result<(), Vec<ValidatorError>>;
-```
-
-Initial validator checks:
-
-1. Each module has at most one `State` enum by convention, or decide whether multiple state enums are allowed.
-2. `initial` names a variant of the module's `State` enum.
-3. Every transition `state` and `next_state` names a `State` variant.
-4. Every event pattern group exists in `module.events`.
-5. Every event pattern variant exists in that event group.
-6. Pattern struct field count matches the selected constructor variant field count.
-7. Pattern bindings are unique within a transition.
-8. Guard expressions only reference declared vars and pattern bindings.
-9. `set` targets declared vars.
-10. Output expression groups/variants exist in `module.outputs`.
-11. Output argument count matches the selected output constructor variant.
-12. Variable initializer type matches variable type.
-13. Expression types are checked:
-    - `bit<N>` arithmetic stays `bit<N>` or defined promotion rules;
-    - comparisons produce `bool`;
-    - logical operators require `bool`;
-    - enum equality only for same enum type.
-14. Property/assumption formulas reference only valid states, events, outputs, vars, and bindings where allowed.
-
-Important design decision before implementation:
-
-- Either add spans to an AST so validator errors can point to source locations, or start with name-based errors and improve diagnostics later.
-- Recommended: introduce a lightweight `Spanned<T>` AST in Phase 1 if good error messages are important. Keep serializable IR clean.
-
-Acceptance criteria:
-
-- All valid examples still parse and validate.
-- New invalid examples fail validation with useful messages.
-- `cargo test` passes.
-- No parser behavior regression.
-
-### 9.2 Production code generator MVP
-
-Recommended new file:
-
-```text
-src/codegen.rs
-```
-
-Public API sketch:
-
-```rust
-pub struct CodegenOptions {
-    pub crate_name: String,
-    pub module_name: String,
-}
-
-pub fn generate_module(module: &Module, options: &CodegenOptions) -> Result<String, CodegenError>;
-```
-
-Generated shape:
-
-```rust
-pub enum State { ... }
-pub enum Input { ... }
-pub enum Output { ... }
-pub struct Vars { ... }
-pub struct Fsm { state: State, vars: Vars }
-pub struct UnexpectedEvent;
-
-impl Fsm {
-    pub fn new() -> Self;
-    pub fn step(&mut self, input: Input) -> Result<Vec<Output>, UnexpectedEvent>;
-}
-```
-
-Implementation order:
-
-1. Generate code for specs with only unit events and no vars.
-2. Add variable structs and `set` actions.
-3. Add payload events and pattern matching.
-4. Add guards.
-5. Add outputs with payloads.
-6. Add enum variables.
-7. Add bit-vector arithmetic with masking.
-
-Bit-vector representation options:
-
-| Option | Pros | Cons | Recommendation |
-|---|---|---|---|
-| Native integer types by width (`u8`, `u16`, `u32`, `u64`, `u128`) | Fast, simple, no dependency | Need width dispatch; widths > 128 require custom handling | Best for Phase 1 if v0 limits widths to <= 128. |
-| Fixed `u128` for all bit-vectors | Simple uniform codegen | Wastes space; less explicit | Acceptable for very small MVP. |
-| External bit-vector crate | Uniform arbitrary width | Extra dependency, codegen complexity | Later if needed. |
-| Multiple limbs / custom struct | Arbitrary width | Complex | Not for Phase 1. |
-
-Recommended Phase 1 rule:
-
-- Allow `bit<N>` where `1 <= N <= 128` in generated code.
-- Map to the smallest native integer type that fits.
-- Use wrapping arithmetic and mask results:
-  ```rust
-  const MASK: u32 = (1u32 << WIDTH) - 1;
-  let next = (a.wrapping_add(b)) & MASK;
-  ```
-- For `N == 128`, avoid shifting by 128 in a 128-bit mask; use `u128::MAX`.
-
-Acceptance criteria:
-
-- Generated Rust compiles with `rustc` or a temporary Cargo crate.
-- Generated `Fsm::step` matches hand-written behavior for small examples.
-- Unit tests cover generated code snippets for key constructs.
-
-### 9.3 Model-checker generator MVP
-
-Recommended new file:
-
-```text
-src/modelcheck.rs
-```
-
-Public API sketch:
-
-```rust
-pub struct McOptions {
-    pub depth: usize,
-    pub max_states: usize,
-}
-
-pub fn generate_model_checker(module: &Module, options: &McOptions) -> Result<String, McError>;
-```
-
-Phase 1 strategy:
-
-- Generate a Rust program or test that:
-  1. constructs the FSM;
-  2. enumerates input sequences up to depth `K`;
-  3. records traces as `(input, outputs, state, vars)`;
-  4. evaluates properties over bounded traces;
-  5. prints a counterexample if a property is violated.
-
-Initial property support:
-
-- `always (boolean_expr)`;
-- `always (a -> b)`;
-- `always (input_is(E) -> next p)`;
-- `bounded_eventually[N] p` over bounded traces.
-
-Later property strategy options:
-
-| Option | Pros | Cons | Recommendation |
-|---|---|---|---|
-| Post-hoc trace evaluation | Easiest for MVP | Less scalable, duplicate logic | Use first. |
-| Generated monitor automata | Better separation, reusable | More compiler work | Phase 2. |
-| SMT/BDD/symbolic | Larger state spaces | Heavy dependencies/complexity | Later research. |
-
-Acceptance criteria:
-
-- A correct small spec passes up to chosen depth.
-- An intentionally broken spec produces a counterexample trace.
-- State-space limit is enforced.
-- Model checker runs as a normal Rust executable or test.
-
-### 9.4 Testing strategy
-
-Add layered tests:
-
-| Layer | Purpose |
-|---|---|
-| Parser unit tests | Syntax corner cases. |
-| Validator unit tests | Semantic errors. |
-| IR round-trip tests | Serde stability. |
-| Example suite | End-to-end parse/validate for valid and invalid specs. |
-| Codegen snapshot tests | Stable generated code shape. |
-| Codegen compile tests | Generated Rust actually compiles. |
-| Model-checker behavior tests | Good specs pass, bad specs fail with traces. |
-| Fuzzing later | Random specs and random inputs for parser/codegen robustness. |
-
-Recommended invalid example categories to add:
-
-- unknown state;
-- unknown event group;
-- unknown event variant;
-- wrong pattern field count;
-- duplicate pattern binding;
-- unknown variable in guard;
-- assignment to unknown variable;
-- output with wrong argument count;
-- type mismatch in expression;
-- invalid initial state;
-- property referencing unknown event/output.
-
-### 9.5 Research questions to resolve early
-
-1. **Spans vs clean IR**
-   - Should validator errors use source spans?
-   - If yes, introduce AST or span side-table before codegen.
-
-2. **Bit-vector semantics**
-   - Are all `bit<N>` operations wrapping and masked?
-   - Is comparison signed or unsigned? Recommended: unsigned.
-   - Are shifts logical? Recommended: logical for model checking simplicity.
-
-3. **Formula precedence**
-   - Freeze PSL-like precedence or require parentheses for mixed implication/disjunction.
-
-4. **Priority semantics**
-   - If multiple transitions are enabled, does highest priority win?
-   - Is equal priority a validation error for production targets?
-
-5. **Deadlock semantics**
-   - If no transition matches an input, is that an error state, panic, or ignored input?
-   - Recommended for model checking: explicit unexpected-input error; for production: configurable handler later.
-
-6. **Variable update timing**
-   - Confirm all `set` right-hand sides use old variable values and pattern bindings, not partially updated values.
-
----
-
-## 10. Quick-start for a new agent session
+## 9. Quick-start for a new agent session
 
 Moved to **`START.md`** (session entry point: orientation, lazy-reading protocol,
 toolchain activation, essential commands, workflow rules). Build/test details:
 `BUILD.md`; toolchain details: `TOOLCHAIN.md`.
 
-## 11. Rules for future LLM-assisted work
+## 10. Rules for future LLM-assisted work
 
 - Preserve the core principle: one constrained RFS spec -> one IR -> multiple Rust targets.
 - Keep the DSL finite and model-checkable. Avoid adding unbounded data, floating point, arbitrary functions, or dynamic allocation to the core language.
@@ -950,107 +671,3 @@ toolchain activation, essential commands, workflow rules). Build/test details:
 - When uncertain about semantics, write the open question in `KB.md` and add tests that pin the chosen behavior after the decision is made.
 
 ---
-
-## 12. What to work on next
-
-Obsolete as of Phase 6 task 9 (the v1.0 surface is complete: eight CLI commands,
-versioning + spec-hash provenance, reference MC/specgen infrastructure,
-differential soundness suites, two-layer toolchain fuzzing, extended benchmark
-suite, external user documentation set).
-Current state: Phase 6 implementation tasks 1-9 done; next is **task 10
-(close-out)** per `docs/roadmap/phase_6/PHASE_6_PLAN.md` - full verification matrix,
-`PHASE_6_STATUS.md`, INTRO phase-state table row 6 -> COMPLETE, TASKS.md entry,
-git tag `v1.0.0`. After v1.0: the post-v1 candidates listed in section 8 above.
-See the phase state table in `docs/roadmap/CURRENT_STATE.md` and the session entry
-workflow in `START.md`.
-
----
-
-## 13. Phase 1 code generation and bounded model checking
-
-> **Superseded (Phase 4).** The "bounded model checker" described in 13.4/13.6
-> was the seeded-fuzz engine; it is now LEGACY behind `--mode fuzz`. The current
-> `mc` default is the exact reachable-state engine with liveness - see
-> `DESIGN.md` sections 11 and 22, `CODEGEN.md` section 5.3, and
-> `src/backends/RUST.md`/`C.md` section 4/5. Kept for history.
-
-Phase 1 adds a validator, Rust translator, generated unit tests, assumption-handler API, and an initial bounded model checker. Codegen is organized as a plugin system (see §2.7, `CODEGEN.md`, `src/backends/RUST.md`): `src/codegen.rs` holds the language-agnostic core and backend registry; `src/codegen_fsm.rs` / `codegen_test.rs` / `codegen_mc.rs` hold shared analysis; `src/backends/rust*.rs` implement the Rust target. The user-facing CLI is `rfs codegen <backend> <production|test|mc> <spec> [--out ...]` (see §4.5).
-
-### 13.1 New modules and binaries
-
-- `src/validator.rs`: semantic validation and expression/formula typing.
-- `src/codegen.rs`: plugin API, backend registry, CLI parsing, help rendering.
-- `src/bin/generate_code_tests.rs`: generates the aggregate generated-code test crate.
-- `src/bin/test_generated_code.rs`: generates and runs the aggregate unit tests.
-
-### 13.2 Assumption selection and handler API
-
-The translator option is:
-
-`cargo run -- codegen rust test file.rfs --out out.rs --assumes all|none|label1,label2` (the `test` command generates production code plus unit tests; use `production` for the FSM source only)
-
-Default is `all`. Only safety assumes selected by this option are translated into runtime checks. Liveness formulas containing `bounded_eventually` print a warning and are skipped. Safety formulas outside the current translated subset also print a warning and are skipped. **Phase 3 update:** all in-subset formulas - including `bounded_eventually` liveness - are now online-monitored in both backends; only out-of-subset formulas (R1-R4) print a warning and are skipped. See `DESIGN.md` section 21.
-
-Handler options considered:
-
-| Option | Pros | Cons | Decision |
-|---|---|---|---|
-| Stored closure in Fsm | Easy one-time configuration | Breaks Clone, heap allocation, less testable | Rejected |
-| Return error only | Simple | No panic fallback, caller must remember policy | Rejected |
-| Editable stub function | Minimal API | Not type-safe, hard to test | Rejected |
-| Trait handler passed to step | Fsm stays Clone, deterministic tests, explicit policy | Slightly more boilerplate | Chosen |
-
-Generated API:
-
-- `AssumptionPolicy { Continue, Stop, Panic }`
-- `trait AssumptionHandler { fn on_violation(&mut self, label: &str) -> AssumptionPolicy; }`
-- `PanicAssumptionHandler`, `StopAssumptionHandler`, `ContinueAssumptionHandler`
-- `Fsm::step(input)` uses panic fallback.
-- `Fsm::step_with_handler(input, handler)` uses the supplied handler.
-
-### 13.3 Generated unit tests
-
-`cargo generate-code-tests --test-steps N --assumes ...` generates an aggregate crate under `target/rfs_codegen_tests`. Each RFS module gets a Rust module with:
-
-- initial-state test;
-- positive adaptive sequence test up to `N` steps, default 4;
-- negative unexpected-input search test; if an input variant is unused by all transitions, the test asserts that `UnexpectedEvent` is found;
-- (Phase 5 task 5) per-transition unit tests `t<id>_<state>_on_<event>` - install the planned configuration, drive the concrete input, assert next state + outputs via the recorded trace step; a not-taken variant (`..._not_taken`) asserts no progress or an observably different landing;
-- (Phase 5 task 5) invariant tests `invariant_<label>` - re-check a safety property's per-sample atom at every sample of the positive drive trace, failing with the step index;
-- (Phase 5 task 5) monitor debug tests `monitor_<label>_fires_on_violation` - drive the planned violating trace and assert the sticky `property_violation` record holds the target label;
-- (Phase 5 task 5) a seeded random-trace test `random_trace_seed<seed>_steps<K>` driving the precomputed LCG input sequence (same constants as the fuzz wire format), printing deterministic coverage counts.
-
-The positive and invariant tests use trial clones and `StopAssumptionHandler`, so assumption violations do not panic during test discovery. The command ALSO emits a separate `fuzz_target.rs` next to `--out` (a `#![no_main]` + `libfuzzer_sys::fuzz_target!` skeleton decoding inputs per the planner's strategy - bool = non-zero byte, bit<W> = ceil(W/8) little-endian masked bytes, enum = constant representative). It is a separate file because it depends on `libfuzzer_sys`: the main test artifact and the aggregate crate stay dependency-free. Building/running the fuzz target is wired in Phase 5 task 12.
-
-### 13.4 Bounded model checker
-
-Generate a standalone model checker with:
-
-`cargo run -- codegen rust mc file.rfs --out mc.rs --assumes all`
-
-Compile the generated binary with `rustc --edition 2021 mc.rs -o mc`.
-
-Runtime options:
-
-- `--bound K`: maximum steps per trace, default 5.
-- `--runs N`: number of random bounded runs, default 20.
-- `--seed U64`: deterministic LCG seed, default 12345.
-- `--assumes all|none|labels`: active safety assumes for the run, default all translated assumes.
-- `--violate label:prob:percent,...`: force selected assumptions to violate. Prob defaults to 1; percent defaults to 100.
-- `--unexpected-prob P`: probability of injecting an unexpected representative input at each step, default 0.
-
-By default the sequence generator chooses only enabled inputs that satisfy active safety assumes. It evaluates translated safety properties over the final trace and prints a counterexample trace on violation.
-
-### 13.5 Phase 1 build commands
-
-See `BUILD.md` section 4: `cargo generate-code-tests` (aggregate test crate),
-`cargo test-generated-code` (compile + run the 1683 generated unit tests), and
-`cargo test codegen` (lightweight main-crate codegen tests).
-
-### 13.6 Current Phase 1 limitations
-
-- Generated `step` chooses the first enabled transition in source order; it does not yet explore overlapping nondeterministic transitions as separate branches.
-- Model checker enumerates representative input constructors, not all payload valuations.
-- **Phase 3:** the monitored subset now includes `always[N]` and `bounded_eventually[N]`; all in-subset formulas are online-monitored in both backends, and only out-of-subset formulas (R1-R4) are skipped with a warning (`DESIGN.md` section 21).
-- **Phase 3:** assumption checks are ONLINE monitors stepped per sample (not post-hoc); liveness assumptions like `always(be[5] input_is(Tick))` prune environment branches online in MC.
-- The validator is a semantic precondition for code generation, not a full type checker for all future RFS extensions.

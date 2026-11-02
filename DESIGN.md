@@ -17,17 +17,40 @@ The immediate Phase 0 goal is to freeze the core syntax/semantics boundary, defi
 
 ## 1. Purpose
 
-RFS is a domain-specific language for protocol control logic. It is intentionally constrained so that specifications can be model-checked by translating them into Rust, compiling the result, and executing the generated model checker.
+RFS is a constrained Rust-like DSL for finite-state protocol specifications -
+a domain-specific language for protocol control logic, intentionally
+constrained so that specifications can be model-checked by translating them
+into Rust or C, compiling the result, and executing the generated model
+checker.
 
 The main use cases are:
 
-- endpoint protocol state machines, for example handshake, retry, timeout, close, reset;
+- endpoint protocol state machines, for example handshake, retry, timeout,
+  close, reset;
 - event-driven automata with finite payload fields;
 - PSL-like temporal properties over inputs, outputs, states, and variables;
-- deterministic production Rust code generation;
+- deterministic production Rust AND C code generation (parity-pinned);
 - assumption-based environment constraints for model checking.
 
-RFS is not intended to be a general-purpose programming language. It is a constrained specification language whose core semantics are finite, pure, and translatable to Rust.
+Main goal:
+
+> One constrained specification -> one versioned IR -> multiple targets.
+
+Targets:
+
+- production Rust AND C automata (parity-pinned);
+- model-checking executables (exact engine, text or JSON report);
+- generated tests (extended suite + fuzz skeletons, both backends);
+- state diagrams / transition tables (`rfs diagram`);
+- IDE support: in-repo TextMate grammar + snippets (`ide/`) and structured
+  `rfs validate --json` diagnostics; a full LSP remains an explicit non-goal.
+
+RFS is intentionally not a general-purpose language. It is designed so that
+the same specification can be used for:
+
+1. real protocol handling code;
+2. model checking by generating Rust or C, compiling it, and executing it;
+3. tests and diagnostics.
 
 ---
 
@@ -36,39 +59,45 @@ RFS is not intended to be a general-purpose programming language. It is a constr
 > Normative semantics of the language this pipeline compiles: `docs/SEMANTICS.md` (Phase 6 task 1).
 
 ```text
-protocol.rfs  <----+  rfs parse (format conversion, human review)
-     |             |
-     v             v
-nom parser      IR JSON (hand-rolled json_rw) <---- external tooling via JSON
-(src/parser.rs)    |
-     |             v
-     +------> IR v0 (versioned, serializable)
-                 |
-                 +--> frontend CLI: rfs parse / rfs validate  [Phase 1]
-                 |        RFS<->JSON conversion, semantic validation,
-                 |        .rfs-validation.err reports (text mode) or
-                 |        structured --json diagnostics (Phase 5 task 13)
-                 |
-                 +--> rfs info  [Phase 5 task 3]
-                 |        static spec introspection (text or --json)
-                 |
-                 +--> codegen plugin registry: rfs codegen  [Phase 1]
-                 |        core (src/codegen.rs): Backend API, BACKENDS registry,
-                 |        CLI parsing, help rendering
-                 |        shared analysis: codegen_fsm / codegen_test / codegen_mc /
-                 |        mc_plan / monitor / smt_plan+smt_emit
-                 |        rust backend (src/backends/rust*):
-                 |          production -> enum State/Input/Output/Vars, Fsm::step(...)
-                 |                       (+ --no-std variant, + opt-in ProtocolFsm impl)
-                 |          test       -> extended unit tests + fuzz skeleton extra file
-                 |          mc         -> exact model-checker executable (text|json report)
-                 |        c backend (src/backends/c*): same three commands, parity-pinned
-                 |
-                 +--> rfs test  [Phase 5 tasks 7/17]
-                 |        generate + compile + run unit/fuzz suites in one invocation
-                 |
-                 +--> rfs diagram  [Phase 5 task 8]
-                        state diagrams / transition tables (dot/puml/mmd/table/md)
+RFS source (.rfs)  <----+  rfs parse (format conversion, review)
+      |                 v
+      v          IR JSON (hand-rolled json_rw)  <---- external tooling via JSON
+nom-based parser (src/parser.rs)
+      |
+      v
+IR v0 (src/ir.rs, hand-rolled JSON serialization)
+      |
+      +--> frontend CLI: rfs parse / rfs validate  [Phase 1]
+      |        RFS<->JSON conversion, .rfs-validation.err reports (text mode)
+      |        or structured --json diagnostics (Phase 5 task 13)
+      |
+      +--> rfs info  [Phase 5 task 3]   static introspection (text/--json)
+      |
+      +--> semantic validator (src/validator.rs)  [Phase 1]
+      |
+      +--> codegen plugin registry: rfs codegen  [Phase 1]
+      |        core src/codegen.rs (Backend API, BACKENDS) + shared analysis
+      |        rust backend src/backends/rust*: production / test / mc
+      |        c    backend src/backends/c*:    production / test / mc (parity)
+      |        model checker = production core + runtime executable
+      |
+      +--> rfs test  [Phase 5 tasks 7/17]  generate + compile + run
+      |        unit suite (both backends) + libFuzzer fuzz suites
+      |
+      +--> rfs diagram  [Phase 5 task 8; Phase 7: in-process SVG]
+      |        dot/puml/mmd/table/md plugins; --render svg renders IN-PROCESS
+      |        by default (--renderer internal); --renderer external restores
+      |        the resolved-tool path (strict errors)
+      |
+      +--> rfs info format  [Phase 7 task 5]  self-describing format docs
+      |        10 formats: EBNF grammar (md/plantuml/svg) + draft-07 JSON Schemas
+      |        + generated-subset docs; sync tests pin them to the code
+      |
+      +--> rfs mc-ref  [Phase 6 task 3.3]  in-process reference MC (no compile)
+      |        unified exact-mode flags + reports; exit codes 0/1/2
+      |
+      +--> rfs gen-spec  [Phase 6 task 3.4]  random / base-mutated spec writer
+             always validated before write; deterministic from seed
 ```
 
 Workspace crates around the toolchain (Phase 5): `crates/rfs-build` (build.rs

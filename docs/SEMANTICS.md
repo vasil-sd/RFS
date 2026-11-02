@@ -910,8 +910,8 @@ corrected weak-until equation), 12 (property language plan), 20 (Phase 2
 decisions D1-D10: priorities, on_error, version header, C type mapping), 21
 (Phase 3 monitor decisions D-P3-1..6 incl. R1-R4 and deadline semantics), 22
 (Phase 4 MC decisions D-P4-1..14), 23 (Phase 5 toolchain decisions D-P5-1..14).
-`KB.md` section 2.2 (core semantics), 2.6 (property language decisions), 3
-(RFS v0 syntax reference - the surface this document applies to).
+`DESIGN.md` section 3 (core semantics), 12 (property language plan), 5
+(RFS v0 language subset - the surface this document applies to).
 
 **User documentation (Phase 6 task 7):** `docs/user/LANGUAGE.md`,
 `docs/user/PROPERTIES.md`, `docs/user/MODEL_CHECKING.md` derive their semantics

@@ -62,52 +62,8 @@ Read order for a new assistant:
 | Training snippets | Generated | `training/<category>/snippets/valid/*.rfs` and `snippets/invalid/*.rfs` are extracted from training JSONL, validated, and tested by the parser suite. |
 | Lint/format | Clean (fmt); clippy without errors | `cargo fmt` clean; `cargo clippy --all-targets` no ERRORS - 46 warning lines / 35 unique, all dead-code in the shared test modules (`tests/common/{prod_driver,mc_json,fail_variants}.rs` helpers unused by each test binary that does not use them all) or pre-existing patterns (`src/backends/c_fsm.rs` monitor rendering + `from_str` naming, one each in `src/{codegen,codegen_test,test_cmd,validator}.rs`); zero in Phase 7's new source files and the two new test suites. |
 
-Current high-level state:
-
-```text
-RFS source (.rfs)  <----+  rfs parse (format conversion, review)
-      |                 v
-      v          IR JSON (hand-rolled json_rw)  <---- external tooling via JSON
-nom-based parser (src/parser.rs)
-      |
-      v
-IR v0 (src/ir.rs, hand-rolled JSON serialization)
-      |
-      +--> frontend CLI: rfs parse / rfs validate  [DONE, Phase 1]
-      |        RFS<->JSON conversion, .rfs-validation.err reports (text mode)
-      |        or structured --json diagnostics (Phase 5 task 13)
-      |
-      +--> rfs info  [DONE, Phase 5 task 3]   static introspection (text/--json)
-      |
-      +--> semantic validator (src/validator.rs)  [DONE, Phase 1]
-      |
-      +--> codegen plugin registry: rfs codegen  [DONE, Phase 1]
-      |        core src/codegen.rs (Backend API, BACKENDS) + shared analysis
-      |        rust backend src/backends/rust*: production / test / mc
-      |        c    backend src/backends/c*:    production / test / mc (parity)
-      |        model checker = production core + runtime executable
-      |
-      +--> rfs test  [DONE, Phase 5 tasks 7/17]  generate + compile + run
-      |        unit suite (both backends) + libFuzzer fuzz suites
-      |
-      +--> rfs diagram  [DONE, Phase 5 task 8; Phase 7: in-process SVG]  dot/puml/mmd/table/md plugins
-      |        --render svg renders IN-PROCESS by default (--renderer internal);
-      |        --renderer external restores the resolved-tool path (strict errors)
-      |
-      +--> rfs info format [DONE, Phase 7 task 5]  self-describing format docs
-      |        10 formats: EBNF grammar (md/plantuml/svg) + draft-07 JSON Schemas
-      |        + generated-subset docs; sync tests pin them to the code
-      |
-      +--> rfs mc-ref   [DONE, Phase 6 task 3.3] in-process reference MC (no compile)
-      |        unified exact-mode flags + reports; exit codes 0/1/2
-      |
-      +--> rfs gen-spec [DONE, Phase 6 task 3.4] random / base-mutated spec writer
-             always validated before write; deterministic from seed
-```
-
-Workspace crates around the toolchain (Phase 5): `crates/rfs-build` (build.rs
-helper), `crates/rfs-adapters` (ProtocolFsm + generic adapters), example crates
-under `crates/examples/`; IDE support in-repo under `ide/`.
+Current high-level pipeline diagram: [DESIGN.md](DESIGN.md) section 2 (single
+source of truth - includes the workspace-crate layout around the toolchain).
 
 ---
 
@@ -115,84 +71,21 @@ under `crates/examples/`; IDE support in-repo under `ide/`.
 
 ### 2.1 Purpose of RFS
 
-RFS is a constrained Rust-like DSL for finite-state protocol specifications.
-
-Main goal:
-
-> One constrained specification -> one versioned IR -> multiple Rust targets.
-
-Targets:
-
-- production Rust AND C automata (parity-pinned);
-- model-checking executables (exact engine, text or JSON report);
-- generated tests (extended suite + fuzz skeletons, both backends);
-- state diagrams / transition tables (`rfs diagram`, Phase 5 task 8);
-- IDE support: in-repo TextMate grammar + snippets (`ide/`) and structured
-  `rfs validate --json` diagnostics (Phase 5 task 13); a full LSP remains an
-  explicit non-goal.
-
-RFS is intentionally not a general-purpose language. It is designed so that the same specification can be used for:
-
-1. real protocol handling code;
-2. model checking by generating Rust, compiling it, and executing it;
-3. tests and diagnostics.
+The purpose statement, target list, and framing live in
+[DESIGN.md](DESIGN.md) section 1 (single source of truth). Normative
+semantics: `docs/SEMANTICS.md`.
 
 ### 2.2 Core semantics
 
-An RFS module describes a finite input/output transition system:
-
-```text
-M = (Q, Sigma, V, q0, delta, Lambda)
-```
-
-Where:
-
-- `Q` finite control states;
-- `Sigma` finite input event constructors with finite payloads;
-- `V` finite variable valuations;
-- `q0` initial state;
-- `delta` guarded transition relation;
-- `Lambda` finite output actions.
-
-A step is:
-
-```text
-(state, input_event, current_vars)
-   -->
-(next_state, next_vars, outputs)
-```
-
-Important semantic rules:
-
-- The environment chooses input events.
-- If multiple transitions are enabled, the system is nondeterministic unless priorities are later used to make production behavior deterministic.
-- If no transition is enabled for an input, that is an error/deadlock condition unless explicitly handled later.
-- Variable updates in one transition are simultaneous: all right-hand sides read old variable values.
-- Time is modeled discretely using explicit `Tick` events and timer variables, not real-time clocks.
+The core-semantics statement (automaton model, step form, semantic rules)
+lives in [DESIGN.md](DESIGN.md) section 3; the normative transition relation
+and deterministic vs nondeterministic modes: `docs/SEMANTICS.md` sections 2-4.
 
 ### 2.3 Model-checking constraints
 
-| Aspect | Constraint | Reason |
-|---|---|---|
-| States | Finite enum | Finite state-space search. |
-| Events | Finite constructors with finite fields | Finite input alphabet. |
-| Variables | `bool`, `bit<N>`, finite enums | Finite valuations. |
-| Expressions | Pure, total, bounded | No hidden side effects or divergence. |
-| Transitions | Guarded actions with simultaneous updates | Easy Rust translation and relation generation. |
-| Time | Discrete `Tick` + timers | Avoids continuous real-time complexity. |
-| Properties | PSL-like finite temporal subset | Translatable to monitors/automata. |
-| Assumptions | Separate environment assumptions | Separates system obligations from environment guarantees. |
-
-Deliberately excluded from core v0:
-
-| Excluded | Reason |
-|---|---|
-| Unbounded integers | Breaks finite model checking. |
-| Floating point | Nondeterminism/precision issues. |
-| Strings/maps/vectors as core data | Unbounded or too complex for initial state space. |
-| Dynamic allocation in transitions | Makes generated semantics harder to reason about. |
-| Arbitrary Rust calls in guards/actions | Prevents automatic model checking. |
-| Continuous real-time clocks | Much harder than discrete tick semantics. |
+The constraint table and the deliberately-excluded list live in
+[DESIGN.md](DESIGN.md) section 4; the normative configuration, abstraction,
+and status-labeling rules: `docs/SEMANTICS.md` section 9.
 
 ### 2.4 IR decisions
 

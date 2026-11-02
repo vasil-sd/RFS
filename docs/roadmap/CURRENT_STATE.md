@@ -1,6 +1,6 @@
 # RFS Roadmap - Current State (Phase State)
 
-Phase state (2026-11-01):
+Phase state (2026-11-02):
 
 | Phase | State | Files present |
 |---|---|---|
@@ -13,6 +13,7 @@ Phase state (2026-11-01):
 | 6 - Production hardening and v1.0 | COMPLETE (close-out 2026-10-25: full verification green, tag v1.0.0, `PHASE_6_STATUS.md`) | `PHASE_6.md`, `PHASE_6_PLAN.md`, `PHASE_6_TASK_{1..10}.md` + `PHASE_6_TASK_2A.md` (+ `_STATUS` files), `PHASE_6_STATUS.md` |
 | 7 - Documentation and self-describing formats | COMPLETE (close-out 2026-10-28: full verification green, `PHASE_7_STATUS.md`) | `PHASE_7.md`, `PHASE_7_PLAN.md`, `PHASE_7_TASK_{1..16}.md` (+ `_STATUS` files), `PHASE_7_STATUS.md` |
 | 8 - Detailed developer documentation and code↔doc traceability | COMPLETE (close-out 2026-11-01: full verification green, `PHASE_8_STATUS.md`) | `PHASE_8.md`, `PHASE_8_PLAN.md`, `PHASE_8_TASK_{1..15}.md`, `PHASE_8_STATUS.md` |
+| 9 - Documentation cleanup - structure, deduplication, navigability | COMPLETE (close-out 2026-11-02: full verification green, `PHASE_9_STATUS.md`) | `PHASE_9.md`, `PHASE_9_PLAN.md`, `PHASE_9_TASK_{1..8}.md` (+ `_STATUS` files), `PHASE_9_STATUS.md` |
 
 Keep this table current: update it when a phase is planned, completed, or re-planned.
 Note (2026-10-16): Phase 3 implementation began before the per-task protocol was

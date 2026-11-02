@@ -855,7 +855,7 @@ The JSON schema above is the wire form; the Rust types that carry it are:
 1. The IR must be lossless for the v0 language subset.
 2. The IR must be serializable to JSON and deserializable back to an equivalent structure.
 3. The IR should be stable enough that later code generators can depend on it.
-4. Parser-specific source spans should not污染 the core IR unless a separate annotated AST is used. Phase 0 can keep spans in parser diagnostics and optionally in an extended AST, but the serializable IR should remain clean.
+4. Parser-specific source spans should not pollute the core IR unless a separate annotated AST is used. Phase 0 can keep spans in parser diagnostics and optionally in an extended AST, but the serializable IR should remain clean.
 5. Serialization is the hand-rolled JSON reader-writer `src/json_rw.rs` (Phase 5 task 2 - serde/serde_json removed from the whole toolchain): ordered objects, byte-identical output contract, key order pinned in `to_json`/`from_json`. Additive optional fields stay non-breaking; anything else is an `IR_VERSION` decision (D10, section 20).
 
 ---

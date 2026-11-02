@@ -128,7 +128,7 @@ model-checkable (no unbounded data, floats, or arbitrary functions in the core).
 | `START.md` | This file: orientation + protocol | Always, at session start | Fully (it is short) |
 | `BUILD.md` | Build files, all commands/aliases, test suites, expected results, post-change checklist | Before any build/test/run; when a command or its expected output is needed | Fully (~90 lines, safe) |
 | `TOOLCHAIN.md` | Rust toolchain paths/versions, activation, reinstall, env corner cases | Only when cargo/rustc fails or exact versions are needed | Fully (~70 lines, safe) |
-| `KB.md` | Design decisions, RFS v0 syntax reference, source-code map, CLI behavior, training-set organization, agent workflow experience | For language semantics questions, source layout, CLI rules, "how is X implemented" | **Never fully** - section map in section 5; grep + sed ranges |
+| `KB.md` | Project state; design decisions and syntax reference as short pointers to `DESIGN.md` (the single source of truth for core design); source-code map (CLI behavior, training-set organization, TLA adaptation); build/test/run pointers; agent workflow experience; current limitations; roadmap pointer | For source layout, CLI rules, "how is X implemented", project state - language semantics questions route to `DESIGN.md` / `docs/SEMANTICS.md` first | **Never fully** - section map in section 5; grep + sed ranges |
 | `DESIGN.md` | RFS v0 design: architecture, core semantics, EBNF grammar, IR schema, parser/codegen/MC/PSL plans, design-choice tables | When changing language semantics, grammar, IR, or codegen/MC design | **Never fully** - section map in section 5 |
 | `docs/SEMANTICS.md` | Formal semantics (NORMATIVE): automaton model, transition relation, deterministic vs nondeterministic modes, property sampling, PSL operator semantics, strong/weak liveness + fairness, assumptions + handler policies, error/deadlock semantics, MC configurations/abstraction rules/status labeling | For precise "what does X mean" questions; the reference Phase 6's ref MC (task 3.2) and independent evaluators (tasks 4.x) implement against | Fully (medium size) or `grep -n "^## \|^### "` + sed ranges |
 | `docs/user/` | External user documentation set (Phase 6 tasks 2.4/7): README index, LANGUAGE, PROPERTIES, MODEL_CHECKING, INTEGRATION, EXAMPLES, FAQ + MIGRATION.md - self-contained for people who have never seen this repo; mermaid diagrams throughout; machine-checked by `tests/docs_md_test.rs` (mdr parser stack) | When answering user-facing how-to questions or writing external docs | Fully (each file is short) |
@@ -200,13 +200,14 @@ Paths, reinstall, and failure recovery: `TOOLCHAIN.md`.
 Line numbers drift as docs evolve - always run `grep -n "^## \|^### " <file>` first,
 then `sed -n '<start>,<end>p'`. Sections:
 
-- **KB.md**: 1 current project state / 2 design decisions / 3 RFS v0 syntax reference
-  (3.1-3.9) / 4 Rust source code map (4.1 deps, 4.2 files, 4.3 public API, 4.4 parser
-  internals, 4.5 CLI behavior, 4.6 training-set organization, 4.7 TLA+ adaptation) /
-  5 build-test-run pointers / 6 agent workflow experience (6.1 env corner cases, 6.2
-  editing workflow, 6.3-6.5 parser findings, 6.6 doc workflow) / 7 known limitations /
-  8 updated roadmap / 9 historical R&D plan (superseded) / 10 quick-start pointer /
-  11 rules for future work / 12 what to work on next / 13 Phase 1 codegen + bounded MC.
+- **KB.md**: 1 current project state / 2 design decisions (reference stubs to
+  DESIGN.md sections 1-4, 7, 8, 12) / 3 RFS v0 syntax reference (reference stub
+  to DESIGN.md section 5) / 4 Rust source code map (4.1 deps, 4.2 files, 4.3 public
+  API, 4.4 parser internals, 4.5 CLI behavior, 4.6 training-set organization, 4.7
+  TLA+ adaptation) / 5 build-test-run pointers / 6 agent workflow experience (6.1
+  env corner cases, 6.2 editing workflow, 6.3-6.5 parser findings, 6.6 doc workflow)
+  / 7 known limitations / 8 roadmap pointer / 9 quick-start pointer / 10 rules for
+  future work.
 - **DESIGN.md**: 1 purpose / 2 architecture / 3 core semantics / 4 model-checking
   constraints / 5 RFS v0 language subset / 6 EBNF grammar / 7 IR v0 schema / 8 parser
   design / 9 major design choices / 10 production codegen plan / 11 MC plan /
@@ -230,10 +231,10 @@ then `sed -n '<start>,<end>p'`. Sections:
 | Task type | Read (on demand) | Do | Verify |
 |---|---|---|---|
 | Add a valid/invalid example | `BUILD.md` section 3 (suite expectations) | Drop `.rfs` into `examples/valid|invalid` - no test-code change | `cargo test --test examples_test` |
-| Change RFS syntax/grammar | `DESIGN.md` sections 5-6 + `KB.md` sections 3, 6.5; add examples FIRST | Update parser/validator | Full checklist (`BUILD.md` section 5) + update DESIGN/KB |
+| Change RFS syntax/grammar | `DESIGN.md` sections 5-6 (the language surface + grammar - KB.md section 3 is a pointer stub to them) + `KB.md` section 6.5 (parser findings); add examples FIRST | Update parser/validator | Full checklist (`BUILD.md` section 5) + update DESIGN/KB |
 | Change the IR | `DESIGN.md` section 7 + `to_json`/`from_json` in `src/ir.rs` (hand-rolled, D-P5-2) | Decide backward compat; bump `IR_VERSION` if needed | JSON round-trip tests + full checklist |
 | Add a codegen backend language | `CODEGEN.md` fully + `src/backends/RUST.md` / `src/backends/C.md` as references | Implement 3 command fns in `src/backends/<lang>*.rs`, register static in `BACKENDS` | per-command generation tests (see CODEGEN section 8) |
-| Phase implementation (Phases 0-8 COMPLETE; next phase to be planned) | `docs/roadmap/INTRO.md` + `PROTOCOL.md` + `FORMATTING.md` fully + `docs/roadmap/phase_N/PHASE_N.md`; phase-specific docs (`DESIGN.md` sections 22-25 for the shipped MC/toolchain/docs decisions, `KB.md` section 2.6 for properties) | Two-stage protocol from PROTOCOL.md: planning stage writes `phase_N/PHASE_N_PLAN.md`, then stops for user review; implementation stage executes the plan, tracks corrections, writes `phase_N/PHASE_N_STATUS.md` at exit criteria | Full checklist + docs sync + TASKS.md entry |
+| Phase implementation (Phases 0-8 COMPLETE; next phase to be planned) | `docs/roadmap/INTRO.md` + `PROTOCOL.md` + `FORMATTING.md` fully + `docs/roadmap/phase_N/PHASE_N.md`; phase-specific docs (`DESIGN.md` sections 22-25 for the shipped MC/toolchain/docs decisions, `DESIGN.md` sections 12 + 5.10 for properties - KB.md section 2.6 is a pointer stub to them) | Two-stage protocol from PROTOCOL.md: planning stage writes `phase_N/PHASE_N_PLAN.md`, then stops for user review; implementation stage executes the plan, tracks corrections, writes `phase_N/PHASE_N_STATUS.md` at exit criteria | Full checklist + docs sync + TASKS.md entry |
 | Improve validator/codegen checks | `DESIGN.md` sections 19-20 (decision tables D1-D10) + `KB.md` section 7 | Implement checks, add invalid examples first | Full checklist |
 | Training-set work | `KB.md` section 4.6 (format rules: 2 messages, `< think> ... < /think>` assistant, snippets auto-extracted) | Edit `training/<cat>/rfs_training.jsonl` | `cargo extract-training-snippets && cargo build-training && cargo test-training` |
 | LLM training run (GPU) | `head -60 training.py` (docstring only) + `BUILD.md` last command row | `python training.py --stage both` | `--dry-run` first for CPU-only data/reward validation |

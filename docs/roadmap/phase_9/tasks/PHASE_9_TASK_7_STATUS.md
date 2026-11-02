@@ -32,7 +32,7 @@
 | `docs/dev/mc_engine.md` | changed | 7 plain mentions -> links; the existing REFERENCES.md#anchor link untouched |
 | `docs/dev/monitor_compiler.md` | changed | 6 plain mentions -> links (backend_rust/backend_c sibling refs); existing anchor links untouched |
 | `docs/dev/parser.md` | changed | 14 mentions -> links (DESIGN x6, SEMANTICS, START, siblings) |
-| `docs/dev/toolchain_fuzz.md` | changed | 4 mentions -> links; the task-5-corrected "[KB.md](../../KB.md) section 1" pointers included |
+| `docs/dev/toolchain_fuzz.md` | changed | 4 mentions -> links; the task-5-corrected "`[KB.md](../../KB.md)` section 1" pointers included |
 | `docs/dev/validator.md` | changed | 8 mentions -> links (DESIGN x2, SEMANTICS, siblings, root docs) |
 
 Unchanged (zero mentions - git-verified): `docs/dev/ARCHITECTURE.md`,

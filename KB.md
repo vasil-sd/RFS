@@ -94,46 +94,9 @@ inventory live in [DESIGN.md](DESIGN.md) section 7 (single source of truth).
 
 ### 2.5 Parser decisions
 
-Final Phase 0 parser choice: **`nom` 8**.
-
-| Option | Pros | Cons | Decision |
-|---|---|---|---|
-| Hand-rolled lexer + recursive descent | Full control, no dependency | More duplicated low-level logic | Replaced after prototype. |
-| `nom` 8 | Mature, stable, direct `IResult`, good recursive-descent fit | Some lifetime/API care needed | **Chosen**. |
-| `chumsky` 0.13 | Ergonomic PEG style, modern API, promising diagnostics | Not needed yet; some API details require explicit annotations | Dev-dependency comparison only; future candidate. |
-| LALR/PEG generator | Strong grammar discipline | Toolchain complexity, overkill | Rejected for Phase 0. |
-
-Parser architecture:
-
-- No separate token-pass lexer.
-- Comments are stripped first.
-- Parsing is recursive descent over `&str`.
-- Tokens are recognized on demand with nom combinators and small helpers.
-- The parser performs structural validation but not full semantic type checking.
-- Errors carry a byte span and optional source text for line/column display.
-
-Current parser validations:
-
-- duplicate enum declarations;
-- duplicate enum variants;
-- duplicate initial state declaration;
-- duplicate event/output variant inside the same group;
-- duplicate variable declarations;
-- duplicate property/assumption names within a module;
-- duplicate field names in constructor structs;
-- transition body must contain exactly one `next`;
-- duplicate assignment to the same variable in one transition is rejected;
-- duplicate `priority` action in one transition is rejected.
-
-Current parser non-validations:
-
-- unknown state names;
-- unknown event/output groups or variants;
-- pattern field count/type compatibility;
-- expression type checking;
-- bit-width overflow checks;
-- initial state membership in `State` enum;
-- output argument count/type compatibility.
+The parser implementation choice (nom 8 vs chumsky comparison) is in
+[DESIGN.md](DESIGN.md) section 8.1; the parser-level check lists are in its
+section 8.5.
 
 ### 2.6 Property language decisions
 

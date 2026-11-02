@@ -911,6 +911,33 @@ pub fn parse_file(path: &std::path::Path) -> Result<Ir, ParseError>;
 
 The parser returns the IR directly in Phase 0. If a separate AST becomes useful, it can be introduced without changing the external API significantly.
 
+### 8.5 Parser-level checks
+
+The split: the parser enforces structural duplicates and transition-body shape; everything semantic is the validator's job (`src/validator.rs`, section 13).
+
+Parser validations (rejected at parse time):
+
+- duplicate enum declarations;
+- duplicate enum variants;
+- duplicate initial state declaration;
+- duplicate event/output variant inside the same group;
+- duplicate variable declarations;
+- duplicate property/assumption names within a module;
+- duplicate field names in constructor structs;
+- transition body must contain exactly one `next`;
+- duplicate assignment to the same variable in one transition is rejected;
+- duplicate `priority` action in one transition is rejected.
+
+Parser non-validations (the validator's territory):
+
+- unknown state names;
+- unknown event/output groups or variants;
+- pattern field count/type compatibility;
+- expression type checking;
+- bit-width overflow checks;
+- initial state membership in `State` enum;
+- output argument count/type compatibility.
+
 ---
 
 ## 9. Major design choices

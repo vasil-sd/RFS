@@ -7,7 +7,7 @@
 ## Goal
 Enumerate every function and type of the CLI-entry + tooling-command cluster -
 `src/main.rs`, `src/frontend.rs`, `src/ext_tool.rs`, `src/cli_log.rs`,
-`src/test_cmd.rs`, `src/gen_spec_cmd.rs`, `src/mc_ref_cmd.rs` (~89 fns / ~20 types - the two command files added per plan correction 2a) - into `SRC_STRUCTURE.md`.
+`src/test_cmd.rs`, `src/gen_spec_cmd.rs`, `src/mc_ref_cmd.rs` (~89 fns / ~19 types - the two command files added per plan correction 2a) - into `SRC_STRUCTURE.md`.
 
 ## Context
 - Conventions: SRC_STRUCTURE.md preamble + PHASE_10.md. Component/Functionality
@@ -17,7 +17,9 @@ Enumerate every function and type of the CLI-entry + tooling-command cluster -
     subcommands (`parse`, `validate`, `info`, `test`, `diagram`, `codegen`,
     `mc-ref`, `gen-spec`), argument parsing, exit codes; unknown subcommand
     prints usage and exits 1.
-  - `src/frontend.rs` (747 lines, 21 non-test fns + 3 inline tests in task 29 / 6 types): parse/validate CLI logic -
+  - `src/frontend.rs` (747 lines, 21 non-test fns + 3 inline tests in task 29 / 5 types): parse/validate CLI logic -
+    (the 6th type grep hit is a `type Err = String` associated-type binding
+    inside the FromStr impl, not a standalone type - the task 5 phantom class)
     `run_conversion`/`plan_conversion`, output path planning (target-dir
     structure, extension replacement, collision guard via normalized absolute
     paths), validation dispatch incl. `.rfs-validation.err` writing and the
@@ -35,8 +37,12 @@ Enumerate every function and type of the CLI-entry + tooling-command cluster -
     coverage.
   - `src/gen_spec_cmd.rs` (409 lines, 7 non-test fns + 5 inline tests in task 30 / 1 type): the `rfs gen-spec` command - fully random mode (`--seed` + size caps) and incremental mutation mode (`--base SPEC --mutations K`); output always parsed + validated before writing.
   - `src/mc_ref_cmd.rs` (390 lines, 7 non-test fns + 7 inline tests in task 30 / 2 types): the `rfs mc-ref` command - in-process reference MC with flags unified with the generated exact-mode binary and exit codes 0/1/2 mirrored.
-- Re-verify counts first (~89/~20); mismatch -> plan correction.
-- Documented-in from each file's `//! Docs:` line (all five are manifest files).
+- Re-verify counts first (~89/~19); mismatch -> plan correction.
+- Documented-in from each file's `//! Docs:` line (all seven are manifest files).
+- Forward edges: main.rs's cmd_info/run_info_format depend on the info cluster
+  (task 10) and cmd_diagram/tool_override_mut on the diagram cluster (task 11)
+  - neither is in the tables yet; list the identifiers anyway (task 5's
+  spec_hash16 precedent).
 
 ## Scope
 
@@ -58,12 +64,12 @@ Enumerate every function and type of the CLI-entry + tooling-command cluster -
 
 | File | Operation | Brief description |
 |------|-----------|-------------------|
-| `SRC_STRUCTURE.md` | change | ~90 function rows + ~17 type rows appended |
+| `SRC_STRUCTURE.md` | change | ~89 function rows + ~19 type rows appended |
 
 ## Planned actions
 
 ### Re-verify chunk counts
-Fn/type greps over the five files vs ~90/~17; mismatch -> plan correction.
+Fn/type greps over the seven files vs ~89/~19; mismatch -> plan correction.
 
 #### Affected files
 
@@ -78,10 +84,10 @@ Grep signatures, read bodies, one row per fn in `## All functions` with bidirect
 
 | File | Operation | Description + rationale |
 |------|-----------|-------------------------|
-| `SRC_STRUCTURE.md` | change (`## All functions`) | ~90 rows for the CLI-entry cluster |
+| `SRC_STRUCTURE.md` | change (`## All functions`) | ~89 rows for the CLI-entry cluster |
 
 ### Enumerate types
-One row per type in `## All types` (~17): conversion/validation result types,
+One row per type in `## All types` (~19): conversion/validation result types,
 tool-resolver presets, test-command pipeline types.
 
 #### Affected files
@@ -100,8 +106,9 @@ docs_md_test green.
 | (none) | - | verification only |
 
 ## Task deliverables
-- Complete function + type rows for `src/main.rs`, `src/frontend.rs`,
-  `src/ext_tool.rs`, `src/cli_log.rs`, `src/test_cmd.rs`.
+- Complete function + type rows for all seven cluster files: `src/main.rs`,
+  `src/frontend.rs`, `src/ext_tool.rs`, `src/cli_log.rs`, `src/test_cmd.rs`,
+  `src/gen_spec_cmd.rs`, `src/mc_ref_cmd.rs`.
 
 ## Task exit criteria
 - [ ] Row counts equal re-verified grep counts per file.

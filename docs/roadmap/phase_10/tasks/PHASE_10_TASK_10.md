@@ -53,12 +53,12 @@ cluster - `src/info.rs`, `src/info_format.rs`, `src/ebnf_grammar.rs`,
 
 | File | Operation | Brief description |
 |------|-----------|-------------------|
-| `SRC_STRUCTURE.md` | change | ~85 function rows + ~7 type rows appended |
+| `SRC_STRUCTURE.md` | change | ~75 function rows + ~7 type rows appended |
 
 ## Planned actions
 
 ### Re-verify chunk counts
-Fn/type greps over the four files vs ~85/~7; mismatch -> plan correction.
+Fn/type greps over the four files vs ~75/~7; mismatch -> plan correction.
 
 #### Affected files
 
@@ -73,7 +73,7 @@ Grep signatures, read bodies, one row per fn in `## All functions` with bidirect
 
 | File | Operation | Description + rationale |
 |------|-----------|-------------------------|
-| `SRC_STRUCTURE.md` | change (`## All functions`) | ~85 rows for the introspection/format cluster |
+| `SRC_STRUCTURE.md` | change (`## All functions`) | ~75 rows for the introspection/format cluster |
 
 ### Enumerate types
 One row per type in `## All types` (~7): FormatInfo, RuleNode, schema field-model

@@ -6,7 +6,7 @@
 
 ## Goal
 Enumerate every function and type of the C backend -
-`src/backends/c.rs`, `c_fsm.rs`, `c_test.rs`, `c_mc.rs` (~73 fns / ~5 types) -
+`src/backends/c.rs`, `c_fsm.rs`, `c_test.rs`, `c_mc.rs` (~73 fns / ~2 types) -
 into `SRC_STRUCTURE.md`.
 
 ## Context
@@ -21,9 +21,15 @@ into `SRC_STRUCTURE.md`.
   - `src/backends/c_test.rs` (1,035 lines, 15 fns / 0 types): plain-assert
     per-test harness with the SAME stable test names as Rust + separate
     `fuzz_target.c` libFuzzer skeleton emission.
-  - `src/backends/c_mc.rs` (2,836 lines, 15 fns / 3 types): bounded model
+  - `src/backends/c_mc.rs` (2,836 lines, 15 fns / 0 types): bounded model
     checker mirroring the Rust exact engine - same summary line, counterexample
-    fields, and CLI wire format (parity-pinned).
+    fields, and CLI wire format (parity-pinned). Its `struct` grep hits are C
+    declarations inside raw-string templates, not Rust types.
+- Nested-fn convention (first use in this inventory): a function defined
+  inside another function body gets its own row identified as
+  `<file>::<parent_fn>::<child_fn>` (lowercase parent - distinct from the
+  `<file>::<Type>::<method>` method form). c_fsm.rs has two: `push` inside
+  collect_signal_patterns and `walk` inside collect_liv_signal_patterns.
 - Re-verify counts first (~73/~5); mismatch -> plan correction.
 - Documented-in from each file's `//! Docs:` line (all four are manifest files).
 - Execute AFTER task 7 so cross-backend dependency notes stay consistent.
@@ -47,12 +53,12 @@ into `SRC_STRUCTURE.md`.
 
 | File | Operation | Brief description |
 |------|-----------|-------------------|
-| `SRC_STRUCTURE.md` | change | ~77 function rows + ~5 type rows appended |
+| `SRC_STRUCTURE.md` | change | ~73 function rows + ~2 type rows appended |
 
 ## Planned actions
 
 ### Re-verify chunk counts
-Fn/type greps over the four files vs ~77/~5; mismatch -> plan correction.
+Fn/type greps over the four files vs ~73/~2; mismatch -> plan correction.
 
 #### Affected files
 
@@ -67,7 +73,7 @@ Grep signatures, read bodies, one row per fn in `## All functions` with bidirect
 
 | File | Operation | Description + rationale |
 |------|-----------|-------------------------|
-| `SRC_STRUCTURE.md` | change (`## All functions`) | ~77 rows for the C backend |
+| `SRC_STRUCTURE.md` | change (`## All functions`) | ~73 rows for the C backend |
 
 ### Enumerate types
 One row per type in `## All types` (~5): registration/helper + MC internals.
@@ -76,7 +82,7 @@ One row per type in `## All types` (~5): registration/helper + MC internals.
 
 | File | Operation | Description + rationale |
 |------|-----------|-------------------------|
-| `SRC_STRUCTURE.md` | change (`## All types`) | ~5 type rows |
+| `SRC_STRUCTURE.md` | change (`## All types`) | ~2 type rows (Gen, Ctx) |
 
 ### Gate check
 docs_md_test green.

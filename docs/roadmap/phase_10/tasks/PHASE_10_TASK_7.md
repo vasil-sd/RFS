@@ -100,3 +100,9 @@ docs_md_test green.
 
 ## Non-goals
 - No classification, no C backend (task 8), no source changes.
+
+## Task corrections (optional)
+
+| Correction | Description + rationale |
+|------------|-------------------------|
+| Row counts ~134/~26 -> 71/3 | The Scope table and the "Re-verify chunk counts" / "Enumerate functions" actions carried the pre-correction-2a figure "~134 function rows" (test-inclusive: 131 + rust.rs's 3 inline tests) and "~26 type rows". Both were wrong for different reasons, established by read-through (authoritative per correction 2a's own rule for emitter files). (1) Functions: the emitters' raw-string code templates contain fn definitions that line counters miscount - rust_fsm.rs 5 phantom fns (ProtocolFsm + Fsm templates), rust_test.rs 9 phantom test-fn templates in format! strings (and NO real test module: its awk-era "25 test fns" started counting at a DOC COMMENT mentioning #[cfg(test)]), rust_mc.rs 46 phantom fns across seven engine raw strings. Authoritative non-test counts: rust.rs 7, rust_fsm.rs 41, rust_test.rs 16, rust_mc.rs 7 = 71 (not ~131). (2) Types: the same templates define types - rust_fsm.rs 13 phantom types (TraceStep/Trace/Sample/AssumptionPolicy/AssumptionHandler/handlers/StepError/Fsm + 3 associated-type bindings), rust_mc.rs 10 phantom types (Node/StepOutcome/LivGraph/LivLeaf/LivProperty/LivWitness/McJson/LevelOutcome/Rng/ViolationSpec). Authoritative type counts: rust_fsm.rs 2 (Gen, ExprCtx), rust_test.rs 1 (GeneratedCrate), rust_mc.rs 0 = 3 (not ~26). Plan correction 7a records the chunk total 71/3 and the revised src/ totals (~935 fns / ~210 types). |

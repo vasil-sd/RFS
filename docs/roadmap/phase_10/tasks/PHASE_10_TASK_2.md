@@ -6,7 +6,7 @@
 
 ## Goal
 Enumerate every function and every type of the parser-core cluster -
-`src/parser.rs`, `src/error.rs`, `src/lib.rs` (~120 fns / ~4 types) - into the
+`src/parser.rs`, `src/error.rs`, `src/lib.rs` (~86 fns / ~4 types) - into the
 `## All functions` and `## All types` tables of `SRC_STRUCTURE.md`. First data
 chunk of the inventory.
 
@@ -14,7 +14,7 @@ chunk of the inventory.
 - Conventions: the Conventions preamble of `SRC_STRUCTURE.md` (task 1) +
   PHASE_10.md "Inventory conventions". Component/Functionality cells stay BLANK.
 - Cluster notes:
-  - `src/parser.rs` (2,091 lines, 108 fns / 2 types): nom 8 recursive-descent
+  - `src/parser.rs` (2,091 lines, 76 non-test fns + 32 inline tests enumerated in task 29 / 2 types): nom 8 recursive-descent
     parser; comment stripping (`strip_comments`); the full module/item/enum/
     event/output/var/transition/pattern/expression/formula rule set; low-level
     token helpers (`identifier`, `keyword`, `soft_keyword`, `int_lit`,
@@ -26,11 +26,11 @@ chunk of the inventory.
     do not invent a type row for it).
   - `src/error.rs` (104 lines, 8 fns / 2 types): `Span`, `ParseError`, line/
     column computation and rich Display impls.
-  - `src/lib.rs` (113 lines, 4 fns / 0 types): public API re-exports,
+  - `src/lib.rs` (113 lines, 2 non-test fns + 2 inline tests in task 29 / 0 types): public API re-exports,
     `collect_rfs_files` (recursive directory walk, sorted results - what makes
     the example suite file-driven).
 - Re-verify counts first: `grep -cE '^[[:space:]]*(pub(\(crate\))? )?fn '` and
-  the type grep over the three files; if they differ from ~120/~4, record a
+  the type grep over the three files; if they differ from ~86/~4, record a
   plan correction before filling rows.
 - Documented-in: copy the fragment names from each file's `//! Docs:` line
   (all three are in the 71-file manifest).

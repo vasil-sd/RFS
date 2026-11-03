@@ -6,7 +6,7 @@
 
 ## Goal
 Fill the Component and Functionality cells of EVERY row in the `## All types`
-table (~237 rows) using the task-14 vocabulary. After this task no type row has
+table (~233 rows) using the task-14 vocabulary. After this task no type row has
 an empty Component or Functionality cell, and both inventory tables are fully
 classified.
 
@@ -42,7 +42,7 @@ classified.
 
 | File | Operation | Brief description |
 |------|-----------|-------------------|
-| `SRC_STRUCTURE.md` | change | Component + Functionality cells set on all ~237 type rows |
+| `SRC_STRUCTURE.md` | change | Component + Functionality cells set on all ~233 type rows |
 
 ## Planned actions
 

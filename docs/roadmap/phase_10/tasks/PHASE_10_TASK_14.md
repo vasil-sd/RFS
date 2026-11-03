@@ -11,8 +11,8 @@ tables of `SRC_STRUCTURE.md`. These categories are the classification axes for
 tasks 15-16 and the justification basis for the naming scheme (task 17).
 
 ## Context
-- The full non-test inventory exists after task 13 (~1,250 function rows,
-  ~237 type rows) with complete Depends edges - that edge picture is the input
+- The full non-test inventory exists after task 13 (~999 function rows,
+  ~233 type rows per plan correction 2a) with complete Depends edges - that edge picture is the input
   to this task.
 - Start from the seed proposal in PHASE_10_PLAN.md Context (Components:
   parser, IR model, JSON I/O, printer, validator, monitor compiler, codegen

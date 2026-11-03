@@ -6,14 +6,14 @@
 
 ## Goal
 Enumerate every function and type of the C backend -
-`src/backends/c.rs`, `c_fsm.rs`, `c_test.rs`, `c_mc.rs` (~77 fns / ~5 types) -
+`src/backends/c.rs`, `c_fsm.rs`, `c_test.rs`, `c_mc.rs` (~73 fns / ~5 types) -
 into `SRC_STRUCTURE.md`.
 
 ## Context
 - Conventions: SRC_STRUCTURE.md preamble + PHASE_10.md. Component/Functionality
   cells stay BLANK.
 - Cluster notes:
-  - `src/backends/c.rs` (177 lines, 10 fns / 0 types): C backend registration +
+  - `src/backends/c.rs` (177 lines, 6 non-test fns + 4 inline tests in task 30 / 0 types): C backend registration +
     helpers.
   - `src/backends/c_fsm.rs` (2,160 lines, 37 fns / 2 types): production FSM C
     generation; wide bitvector ops use native unsigned wrap (plan correction
@@ -24,7 +24,7 @@ into `SRC_STRUCTURE.md`.
   - `src/backends/c_mc.rs` (2,836 lines, 15 fns / 3 types): bounded model
     checker mirroring the Rust exact engine - same summary line, counterexample
     fields, and CLI wire format (parity-pinned).
-- Re-verify counts first (~77/~5); mismatch -> plan correction.
+- Re-verify counts first (~73/~5); mismatch -> plan correction.
 - Documented-in from each file's `//! Docs:` line (all four are manifest files).
 - Execute AFTER task 7 so cross-backend dependency notes stay consistent.
 

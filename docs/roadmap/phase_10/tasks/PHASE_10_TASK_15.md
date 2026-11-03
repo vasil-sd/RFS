@@ -6,7 +6,7 @@
 
 ## Goal
 Fill the Component and Functionality cells of EVERY row in the `## All
-functions` table (~1,250 rows) using the task-14 vocabulary. Multi-valued
+functions` table (~999 rows) using the task-14 vocabulary. Multi-valued
 cells allowed (comma-separated). After this task no function row has an empty
 Component or Functionality cell.
 
@@ -43,7 +43,7 @@ Component or Functionality cell.
 
 | File | Operation | Brief description |
 |------|-----------|-------------------|
-| `SRC_STRUCTURE.md` | change | Component + Functionality cells set on all ~1,250 function rows |
+| `SRC_STRUCTURE.md` | change | Component + Functionality cells set on all ~999 function rows |
 
 ## Planned actions
 
@@ -55,7 +55,7 @@ assignment rules. Save after each cluster.
 
 | File | Operation | Description + rationale |
 |------|-----------|-------------------------|
-| `SRC_STRUCTURE.md` | change (`## All functions`) | ~1,250 rows gain their classification - the input to the naming-scheme and mapping tasks |
+| `SRC_STRUCTURE.md` | change (`## All functions`) | ~999 rows gain their classification - the input to the naming-scheme and mapping tasks |
 
 ### Completeness sweep
 Count rows with an empty Component or Functionality cell; must be zero. Spot-

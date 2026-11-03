@@ -7,7 +7,7 @@
 ## Goal
 Enumerate every function and type of the CLI-entry + tooling-command cluster -
 `src/main.rs`, `src/frontend.rs`, `src/ext_tool.rs`, `src/cli_log.rs`,
-`src/test_cmd.rs` (~90 fns / ~17 types) - into `SRC_STRUCTURE.md`.
+`src/test_cmd.rs`, `src/gen_spec_cmd.rs`, `src/mc_ref_cmd.rs` (~89 fns / ~20 types - the two command files added per plan correction 2a) - into `SRC_STRUCTURE.md`.
 
 ## Context
 - Conventions: SRC_STRUCTURE.md preamble + PHASE_10.md. Component/Functionality
@@ -17,23 +17,25 @@ Enumerate every function and type of the CLI-entry + tooling-command cluster -
     subcommands (`parse`, `validate`, `info`, `test`, `diagram`, `codegen`,
     `mc-ref`, `gen-spec`), argument parsing, exit codes; unknown subcommand
     prints usage and exits 1.
-  - `src/frontend.rs` (747 lines, 24 fns / 6 types): parse/validate CLI logic -
+  - `src/frontend.rs` (747 lines, 21 non-test fns + 3 inline tests in task 29 / 6 types): parse/validate CLI logic -
     `run_conversion`/`plan_conversion`, output path planning (target-dir
     structure, extension replacement, collision guard via normalized absolute
     paths), validation dispatch incl. `.rfs-validation.err` writing and the
     Phase 5 task 13 `--json` structured diagnostics.
-  - `src/ext_tool.rs` (622 lines, 26 fns / 4 types): shared external-tool
+  - `src/ext_tool.rs` (622 lines, 16 non-test fns + 10 inline tests in task 29 / 4 types): shared external-tool
     resolver + invocation helper - presets RUSTC/GCC/DOT/PLANTUML/MERMAID/
     CLANG/CARGO_FUZZ with `RFS_*` env vars (+ `*_ARGS`), CLI-flag override,
     PATH default; fixed-subcommand extension (cargo-fuzz); deterministic POSIX
     sh script emission for `--print-script`.
-  - `src/cli_log.rs` (100 lines, 10 fns / 2 types): `--log-level` handling.
+  - `src/cli_log.rs` (100 lines, 8 non-test fns + 2 inline tests in task 29 / 2 types): `--log-level` handling.
   - `src/test_cmd.rs` (890 lines, 19 fns / 5 types): the `rfs test` command -
     suite selection (`unit`/`fuzz`), unit pipeline (codegen into temp dir +
     compile with resolved rustc/gcc + run), C/Rust libFuzzer fuzz pipelines,
     missing-tool diagnostics only for selected suites, `--print-script`
     coverage.
-- Re-verify counts first (~90/~17); mismatch -> plan correction.
+  - `src/gen_spec_cmd.rs` (409 lines, 7 non-test fns + 5 inline tests in task 30 / 1 type): the `rfs gen-spec` command - fully random mode (`--seed` + size caps) and incremental mutation mode (`--base SPEC --mutations K`); output always parsed + validated before writing.
+  - `src/mc_ref_cmd.rs` (390 lines, 7 non-test fns + 7 inline tests in task 30 / 2 types): the `rfs mc-ref` command - in-process reference MC with flags unified with the generated exact-mode binary and exit codes 0/1/2 mirrored.
+- Re-verify counts first (~89/~20); mismatch -> plan correction.
 - Documented-in from each file's `//! Docs:` line (all five are manifest files).
 
 ## Scope

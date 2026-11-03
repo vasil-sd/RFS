@@ -7,7 +7,7 @@
 ## Goal
 Enumerate every function and type of the codegen-core cluster -
 `src/codegen.rs`, `src/codegen_mc.rs`, `src/codegen_test.rs`
-(~110 fns / ~40 types) - into `SRC_STRUCTURE.md`.
+(~66 fns / ~40 types) - into `SRC_STRUCTURE.md`.
 
 ## Context
 - Conventions: SRC_STRUCTURE.md preamble + PHASE_10.md. Component/Functionality
@@ -18,19 +18,19 @@ Enumerate every function and type of the codegen-core cluster -
     registry, `parse_codegen_args` CLI parsing, help rendering, shared
     option/output types, and the spec-hash + toolchain-version stamping into
     line 1 of every generated artifact (D-P6-3).
-  - `src/codegen_mc.rs` (863 lines, 30 fns / 11 types): language-agnostic MC
+  - `src/codegen_mc.rs` (863 lines, 17 non-test fns + 13 inline tests in task 29 / 11 types): language-agnostic MC
     concepts - `McConfig` wire format, `ViolationSpec`, `McPhase`, `McStatus`;
     exact-mode `ExactStatus`/`FailReason` + the pinned summary line; Phase 5
     task 10 `CounterexampleFormat` + JSON report model (`McJsonReport` /
     `JsonCounterexample` / `JsonStep` / `JsonIo`, key-ordering contract next to
     the `JSON_KEY_*` constants); Phase 6 `statistics.peak_rss_kb` +
     `counterexample.ce_steps`.
-  - `src/codegen_test.rs` (2,320 lines, 67 fns / 17 types): the language-
+  - `src/codegen_test.rs` (2,320 lines, 36 non-test fns + 31 inline tests in task 29 / 17 types): the language-
     agnostic unit-test planner - `TestPlan` with module-level cases,
     per-transition cases (static guard taken/not-taken analysis), invariant
     cases, monitor-violation cases, seeded random-trace case, fuzz decode plan;
     unexpected-input/deadlock detection. One plan rendered by BOTH backends.
-- Re-verify counts first (~110/~40); mismatch -> plan correction.
+- Re-verify counts first (~66/~40); mismatch -> plan correction.
 - Documented-in from each file's `//! Docs:` line (all three are manifest files).
 
 ## Scope

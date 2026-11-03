@@ -6,21 +6,21 @@
 
 ## Goal
 Enumerate every function and type of the MC-planning + SMT cluster -
-`src/mc_plan.rs`, `src/smt_plan.rs`, `src/smt_emit.rs` (~83 fns / ~31 types) -
+`src/mc_plan.rs`, `src/smt_plan.rs`, `src/smt_emit.rs` (~61 fns / ~29 types) -
 into `SRC_STRUCTURE.md`.
 
 ## Context
 - Conventions: SRC_STRUCTURE.md preamble + PHASE_10.md. Component/Functionality
   cells stay BLANK.
 - Cluster notes:
-  - `src/mc_plan.rs` (1,130 lines, 34 fns / 18 types): the shared exact-mode MC
+  - `src/mc_plan.rs` (1,130 lines, 18 non-test fns + 16 inline tests in task 29 / 16 types): the shared exact-mode MC
     plan - input abstraction, state encoding, traversal structure, liveness
     obligations; consumed by both backends' generated MC engines.
   - `src/smt_plan.rs` (692 lines, 11 fns / 11 types): SMT bounded-mode spec
     planning (feature-gated behind `smt`).
-  - `src/smt_emit.rs` (1,849 lines, 38 fns / 2 types): the SMT emitter - z3 C
+  - `src/smt_emit.rs` (1,849 lines, ~32 non-test fns per test-aware count - NOTE: this emitter's string templates contain C function definitions that line counters miscount; the read-through establishes the authoritative count - + 6 inline tests in task 30 / 2 types): the SMT emitter - z3 C
     API source generation for the generated C binary (links libz3 directly).
-- Re-verify counts first (~83/~31); mismatch -> plan correction.
+- Re-verify counts first (~61/~29); mismatch -> plan correction.
 - Documented-in from each file's `//! Docs:` line (all three are manifest files).
 
 ## Scope

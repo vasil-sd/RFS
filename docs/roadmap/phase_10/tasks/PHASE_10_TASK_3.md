@@ -6,7 +6,7 @@
 
 ## Goal
 Enumerate every function and type of the IR-model + serialization cluster -
-`src/ir.rs`, `src/printer.rs`, `src/json_rw.rs` (~155 fns / ~29 types) - into
+`src/ir.rs`, `src/printer.rs`, `src/json_rw.rs` (~115 fns / ~27 types) - into
 `SRC_STRUCTURE.md`.
 
 ## Context
@@ -20,14 +20,14 @@ Enumerate every function and type of the IR-model + serialization cluster -
     u64-range values; key order is pinned (byte-identical output contract).
     The 63 fns are dominated by these per-type pairs - describe each pair once
     accurately, do not pad.
-  - `src/printer.rs` (828 lines, 34 fns / 3 types): IR -> formatted RFS source
+  - `src/printer.rs` (828 lines, 20 non-test fns + 14 inline tests in task 29 / 1 type): IR -> formatted RFS source
     rendering (the rfs->rfs reformat path).
-  - `src/json_rw.rs` (962 lines, 58 fns / 3 types): the hand-rolled JSON
+  - `src/json_rw.rs` (962 lines, 32 non-test fns + 26 inline tests in task 29 / 3 types): the hand-rolled JSON
     reader-writer ALL toolchain JSON goes through - ordered-object value model,
     compact + pretty writers with pinned escaping/number formatting, reader with
     typed extraction; an embedded copy of the writer ships inside generated MC
     binaries (note that in the description, it is not a separate row).
-- Re-verify counts first (~155/~29); mismatch -> plan correction.
+- Re-verify counts first (~115/~27); mismatch -> plan correction.
 - Documented-in from each file's `//! Docs:` line (all three are manifest files).
 
 ## Scope

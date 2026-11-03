@@ -7,30 +7,30 @@
 ## Goal
 Enumerate every function and type of the independent reference-infrastructure
 cluster - `src/ref_mc.rs`, `src/specgen.rs`, `src/spec_hash.rs`
-(~193 fns / ~32 types) - into `SRC_STRUCTURE.md`. The largest single chunk.
+(~156 fns / ~31 types) - into `SRC_STRUCTURE.md`. The largest single chunk.
 
 ## Context
 - Conventions: SRC_STRUCTURE.md preamble + PHASE_10.md. Component/Functionality
   cells stay BLANK.
 - Cluster notes:
-  - `src/ref_mc.rs` (4,971 lines, 124 fns / 26 types): the brute-force reference
+  - `src/ref_mc.rs` (4,971 lines, 100 non-test fns + 24 inline tests in task 30 / 26 types): the brute-force reference
     model checker with DELIBERATELY independent data structures (Vec frontier,
     plain HashMap config keys, no bit-packing) + its own property evaluator;
     implements `docs/SEMANTICS.md` sections 2-9 directly. Public APIs: run/
     status, `step_trace`, `verify_counterexample` (replays a generated engine's
     JSON CE against the independent transition relation / monitors / liveness
     product); unified report rendering per D-P6-10.
-  - `src/specgen.rs` (2,094 lines, 64 fns / 6 types): seeded random spec
+  - `src/specgen.rs` (2,094 lines, 53 non-test fns + 11 inline tests in task 30 / 5 types): seeded random spec
     generator - fuzzer/seed bytes -> bounds, validity by construction (raw IR
     types deliberately NOT `Arbitrary`), 17-op incremental `mutate` API with
     per-step validator gate (invalid candidates rolled back + redrawn). Shared
     by the root `fuzz/` targets, `tests/toolchain_fuzz_test.rs`, and
     `rfs gen-spec`.
-  - `src/spec_hash.rs` (158 lines, 5 fns / 0 types): hand-rolled minimal SHA-256
+  - `src/spec_hash.rs` (158 lines, 3 non-test fns + 2 inline tests in task 30 / 0 types): hand-rolled minimal SHA-256
     (NIST test vectors, no dependencies) + the spec-hash helper - SHA-256 over
     the canonical IR JSON of the whole input file, first 16 hex chars stamped
     into line 1 of every generated artifact.
-- Re-verify counts first (~193/~32); mismatch -> plan correction. This chunk is
+- Re-verify counts first (~156/~31); mismatch -> plan correction. This chunk is
   big: work file by file (ref_mc, then specgen, then spec_hash) and save rows
   after each file to keep the diff reviewable.
 - Documented-in from each file's `//! Docs:` line (all three are manifest files).

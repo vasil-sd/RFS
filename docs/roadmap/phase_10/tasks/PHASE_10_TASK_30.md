@@ -6,7 +6,7 @@
 
 ## Goal
 Enumerate the remaining inline `#[cfg(test)]` functions (backends/MC/CLI cluster,
-~131 test fns) plus the workspace-crate tests (`crates/rfs-build/tests/
+~99 test fns per plan correction 2a - rust_test.rs and test_cmd.rs have NO real test module) plus the workspace-crate tests (`crates/rfs-build/tests/
 integration.rs`, `crates/rfs-adapters/tests/{adapters,nostd_minimal}.rs`,
 26 fns / 14 types) and ALL five `fuzz/fuzz_targets/*.rs` files (their SOLE home
 per the user's plan-review decision) into `TEST_STRUCTURE.md`. Completes the
@@ -15,10 +15,10 @@ test inventory.
 ## Context
 - Conventions: TEST_STRUCTURE.md preamble (task 19). Component/Functionality
   cells stay BLANK.
-- Per-file inline counts (re-verify; mismatch -> plan correction): rust_test 24,
-rust.rs 3, c.rs 4, specgen 11, codegen_mc 13, json_schema 6, test_cmd 4,
-info_format 4, smt_emit 10, ref_mc 24, mc_plan 16, mc_ref_cmd 7, gen_spec_cmd 5
-= ~131.
+- Per-file inline counts (re-verify; mismatch -> plan correction): rust_test 0,
+rust.rs 3, c.rs 4, specgen 11, codegen_mc 13, json_schema 6, test_cmd 0,
+info_format 4, smt_emit 6, ref_mc 24, mc_plan 16, mc_ref_cmd 7, gen_spec_cmd 5
+= ~99 (correction 2a: the awk-era counts for rust_test/test_cmd/smt_emit were template-fn phantoms).
 - Crate tests: rfs-build integration (6 fns / 0 types - RFS_BIN precedence/stub
 error propagation + builder argv pins + real end-to-end vs the workspace
 binary), rfs-adapters adapters.rs (12 fns / 7 types - channel round-trip/

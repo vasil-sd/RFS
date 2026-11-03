@@ -7,7 +7,7 @@
 ## Goal
 Enumerate every function and type of the introspection + self-describing-format
 cluster - `src/info.rs`, `src/info_format.rs`, `src/ebnf_grammar.rs`,
-`src/json_schema.rs` (~85 fns / ~7 types) - into `SRC_STRUCTURE.md`.
+`src/json_schema.rs` (~75 fns / ~7 types) - into `SRC_STRUCTURE.md`.
 
 ## Context
 - Conventions: SRC_STRUCTURE.md preamble + PHASE_10.md. Component/Functionality
@@ -17,7 +17,7 @@ cluster - `src/info.rs`, `src/info_format.rs`, `src/ebnf_grammar.rs`,
     per-module introspection (states, events/outputs with variants + fields,
     vars, transition count, properties/assumptions with monitor-subset status);
     text rendering + the `--json` document (stable key order, all keys present).
-  - `src/info_format.rs` (1,623 lines, 24 fns / 1 type): the Phase 7
+  - `src/info_format.rs` (1,623 lines, 20 non-test fns + 4 inline tests in task 29 / 1 type): the Phase 7
     `rfs info format` registry - static `FORMATS: &[FormatInfo]` (10 entries:
     spec-rfs, spec-json, ce-trace, mc-report, validate-json, info-json,
     diagram-dot, diagram-puml, diagram-mmd, artifact-header) + per-entry
@@ -27,11 +27,11 @@ cluster - `src/info.rs`, `src/info_format.rs`, `src/ebnf_grammar.rs`,
     `RuleNode` model + 61-rule `GRAMMAR_RULES` mirroring the ACTUAL parser;
     renderers `to_md()` / `to_plantuml_ebnf()` / `to_svg()`; `to_ebnf_text()`
     is the canonical text of DESIGN.md section 6's ebnf fence.
-  - `src/json_schema.rs` (767 lines, 33 fns / 4 types): shared draft-07
+  - `src/json_schema.rs` (767 lines, 27 non-test fns + 6 inline tests in task 29 / 4 types): shared draft-07
     JSON-Schema emitter + md table renderer over a compact field model
     (`Str/Int/Bool/Null/Obj/Arr` + `EnumStr`, `Ref`, `TaggedUnion`, `Nullable`,
     `FreeObj`, `Union`); the D-P7-9 walk check shared by five format entries.
-- Re-verify counts first (~85/~7); mismatch -> plan correction.
+- Re-verify counts first (~75/~7); mismatch -> plan correction.
 - Documented-in from each file's `//! Docs:` line (all four are manifest files).
 
 ## Scope

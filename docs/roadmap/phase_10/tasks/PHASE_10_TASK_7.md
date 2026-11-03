@@ -7,23 +7,23 @@
 ## Goal
 Enumerate every function and type of the Rust backend -
 `src/backends/rust.rs`, `rust_fsm.rs`, `rust_test.rs`, `rust_mc.rs`
-(~134 fns / ~26 types) - into `SRC_STRUCTURE.md`.
+(~131 fns / ~26 types) - into `SRC_STRUCTURE.md`.
 
 ## Context
 - Conventions: SRC_STRUCTURE.md preamble + PHASE_10.md. Component/Functionality
   cells stay BLANK.
 - Cluster notes:
-  - `src/backends/rust.rs` (215 lines, 10 fns / 0 types): `RUST_BACKEND`
+  - `src/backends/rust.rs` (215 lines, 7 non-test fns + 3 inline tests in task 30 / 0 types): `RUST_BACKEND`
     registration + shared Rust helpers (ident mangling, type mapping).
   - `src/backends/rust_fsm.rs` (1,896 lines, 46 fns / 15 types): production FSM
     source generation (core reused by test/mc); `--no-std` and
     `--with-protocol-fsm` emission paths live here.
-  - `src/backends/rust_test.rs` (977 lines, 25 fns / 1 type): unit-test
+  - `src/backends/rust_test.rs` (977 lines, ~25 fns per test-aware count - NOTE: this file EMITS test code as string templates containing fn definitions that line counters miscount, and it has NO real test module of its own; the read-through establishes the authoritative non-test count / 1 type): unit-test
     generation + aggregate test-crate tooling (`generate_aggregate_test_crate`).
   - `src/backends/rust_mc.rs` (2,034 lines, 53 fns / 10 types): bounded/exact
     model-checker executable generation; the embedded json_rw writer copy for
     `--counterexample-format json` is emitted from here.
-- Re-verify counts first (~134/~26); mismatch -> plan correction.
+- Re-verify counts first (~131/~26); mismatch -> plan correction.
 - Documented-in from each file's `//! Docs:` line (all four are manifest files).
 - Read this chunk BEFORE task 8 so the C-backend rows can mirror the same
   dependency vocabulary (cross-backend parity is a project invariant).

@@ -107,3 +107,9 @@ docs_md_test green.
 
 ## Non-goals
 - No classification, no other clusters, no source changes.
+
+## Task corrections (optional)
+
+| Correction | Description + rationale |
+|------------|-------------------------|
+| Row counts ~110/~40 -> 66/38 | Two stale figures superseded at count re-verification. (1) The Scope table and the "Re-verify chunk counts" / "Enumerate functions" actions still carried the pre-correction-2a figure "~110 function rows", which INCLUDES the 44 inline `#[cfg(test)]` functions (13 codegen_mc + 31 codegen_test); re-verification confirmed 13+17+36 = 66 non-test fns, matching correction 2a's "T5 66/40" and the boundary rule (inline tests belong to task 29). (2) The type figure ~40 came from the plan's counting grep, which matched two `type Err = String;` associated-type bindings INSIDE the FromStr impls of McMode/AssumptionSelection in codegen.rs - not standalone data types. Authoritative read-through count: 10 real types in codegen.rs, so 66 fns / 38 types (codegen.rs 10, codegen_mc.rs 11, codegen_test.rs 17). Same counter-phantom class as the emitter template fns noted in correction 2a; no plan correction needed. |

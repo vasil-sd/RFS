@@ -105,3 +105,9 @@ docs_md_test green.
 
 ## Non-goals
 - No classification, no other clusters, no source changes.
+
+## Task corrections (optional)
+
+| Correction | Description + rationale |
+|------------|-------------------------|
+| Row count ~105 -> 47 | The Scope table and the "Re-verify chunk counts" / "Enumerate functions" actions still carried the pre-correction-2a figure "~105 function rows", which INCLUDES the 58 inline `#[cfg(test)]` functions (26 validator + 4 codegen_fsm + 28 monitor). Re-verification at task start confirmed 26+6+15 = 47 non-test fns and 3+3+7 = 13 types - exactly plan correction 2a's "T4 47/13" and the boundary rule (inline tests are enumerated in task 29, not here). The Goal line (~47 fns / ~13 types) was already correct; only the stale internal tables were superseded. No plan correction needed - correction 2a already records the authoritative numbers. |

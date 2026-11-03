@@ -96,3 +96,9 @@ docs_md_test green.
 
 ## Non-goals
 - No classification, no other clusters, no source changes.
+
+## Task corrections (optional)
+
+| Correction | Description + rationale |
+|------------|-------------------------|
+| Row counts ~83/~31 -> 57/29 | Three stale figures superseded at count re-verification. (1) The Scope table and the "Re-verify chunk counts" / "Enumerate functions" actions carried the pre-correction-2a figure "~83 function rows", which INCLUDES the 26 inline `#[cfg(test)]` functions (16 mc_plan + 10 smt_emit); per the boundary rule those belong to tasks 29/30, so only non-test fns are enumerated here. (2) The cluster note's "~32 non-test fns" for smt_emit.rs (inherited from correction 2a's "T6 61/29") was based on the claim that its test module holds 6 real fns, not 10; the read-through shows ALL 10 are real and there are NO template phantoms - the generated `fn` text lives inside format!/push_str string literals and never starts a line. Authoritative smt_emit.rs count: 28 non-test fns / 2 types. (3) The "~31 type rows" figure was likewise pre-correction-2a; the authoritative type count is 29 (mc_plan.rs 16 - its grep's 2 extra matches are template enums inside the test region, smt_plan.rs 11, smt_emit.rs 2). Chunk E total: 57 fns / 29 types. Recorded as plan correction 6a (supersedes correction 2a's "T6 61/29"). |

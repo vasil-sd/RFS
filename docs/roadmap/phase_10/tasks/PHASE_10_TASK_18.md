@@ -15,7 +15,8 @@ SRC_STRUCTURE.md - the bridge document the refactoring phase executes against.
   inventory (tasks 15-16).
 - File mapping table columns exactly: `| Source file name | Components |
   Functionalities | Description + rationale |`. One row per current non-test source
-  file (~42 in src/ incl. bin/ + ~17 in crates/). Components/Functionalities
+  file (63 non-test source files - 49 in src/ incl. bin/ + 14 in crates/;
+  CORRECTION 18a supersedes the planned ~42 + ~17 estimate). Components/Functionalities
   cells are the file's assigned categories (multi-valued, comma-separated);
   description + rationale states what the file is and where it lands under the
   proposed scheme (new path, or "kept" with why).

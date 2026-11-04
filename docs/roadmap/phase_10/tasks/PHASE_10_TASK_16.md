@@ -6,7 +6,7 @@
 
 ## Goal
 Fill the Component and Functionality cells of EVERY row in the `## All types`
-table (~233 rows) using the task-14 vocabulary. After this task no type row has
+table (197 rows - authoritative per plan correction 13a; the planned ~233 was a stale pre-correction figure) using the task-14 vocabulary. After this task no type row has
 an empty Component or Functionality cell, and both inventory tables are fully
 classified.
 
@@ -54,7 +54,7 @@ Save after each cluster.
 
 | File | Operation | Description + rationale |
 |------|-----------|-------------------------|
-| `SRC_STRUCTURE.md` | change (`## All types`) | ~237 rows gain their classification - completes the classified inventory |
+| `SRC_STRUCTURE.md` | change (`## All types`) | 197 rows (authoritative per correction 13a) gain their classification - completes the classified inventory |
 
 ### Consistency + completeness sweep
 Zero type rows with an empty cell; cross-check that shared types (wire model,

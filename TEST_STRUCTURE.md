@@ -74,11 +74,40 @@ source has its own inventory: `SRC_STRUCTURE.md`.
 
 | Function | Depends | Component | Functionality | Short description | Documented in |
 |---|---|---|---|---|---|
+| tests/common/prod_driver.rs::rustc |  |  |  | rustc override - the RUSTC env var or "rustc" (same convention as backend_parity_test). |  |
+| tests/common/prod_driver.rs::flatten_groups | src/ir.rs::ConstructorGroup, src/ir.rs::ConstructorVariant, tests/common/prod_driver.rs::FlatVariant |  |  | flatten constructor groups into variants using the backend naming convention (single-variant same-name group keeps the bare name; else Group_Variant; collisions get a numeric suffix). |  |
+| tests/common/prod_driver.rs::flattened_inputs | src/ir.rs::Module, tests/common/prod_driver.rs::flatten_groups, tests/common/prod_driver.rs::FlatVariant |  |  | the module's input variants (flattened events). |  |
+| tests/common/prod_driver.rs::flattened_outputs | src/ir.rs::Module, tests/common/prod_driver.rs::flatten_groups, tests/common/prod_driver.rs::FlatVariant |  |  | the module's output variants (flattened outputs). |  |
+| tests/common/prod_driver.rs::state_variants | src/ir.rs::Module |  |  | the State enum's variant names (empty when the module has no State enum). |  |
+| tests/common/prod_driver.rs::bit_rust_type |  |  |  | Rust integer type for a bit width (same mapping as the Rust backend): u8/u16/u32/u64/u128. |  |
+| tests/common/prod_driver.rs::bit_c_type |  |  |  | C integer type for a bit width (same mapping as the C backend): uint8_t/uint16_t/uint32_t/uint64_t. |  |
+| tests/common/prod_driver.rs::c_field_ty | src/ir.rs::Type, tests/common/prod_driver.rs::bit_c_type |  |  | C type of a payload/variable field (bool / bit<N> integer / {name}_t enum). |  |
+| tests/common/prod_driver.rs::input_script | src/ir.rs::Module, src/ir.rs::Type, src/specgen.rs::Rng, tests/common/prod_driver.rs::flattened_inputs |  |  | deterministic input script (the LCG lineage of the fuzz wire format) - one line per step, variant picked by the RNG, field values drawn from each field's domain; the same bytes feed both drivers. |  |
+| tests/common/prod_driver.rs::enum_helper_name |  |  |  | per-enum variant-index helper name (rfs_pp_enum_idx_{name}), shared by the Rust and C glue. |  |
+| tests/common/prod_driver.rs::rust_driver_source | src/ir.rs::Module, src/ir.rs::Type, tests/common/prod_driver.rs::flattened_inputs, tests/common/prod_driver.rs::flattened_outputs, tests/common/prod_driver.rs::bit_rust_type, tests/common/prod_driver.rs::enum_helper_name |  |  | the Rust driver source - the production artifact verbatim plus generated glue (enum-index helpers, input parser, raw var/output renderers) and main, built by concatenation so it compiles as-is. |  |
+| tests/common/prod_driver.rs::c_kind_name |  |  |  | the C kind-enum constant for a flattened variant ({prefix}_{UPPERCASE}). |  |
+| tests/common/prod_driver.rs::c_payload_member |  |  |  | the C payload-union member name for a flattened variant ({prefix}_{lowercase}), same convention as the C backend. |  |
+| tests/common/prod_driver.rs::c_union_member | tests/common/prod_driver.rs::c_payload_member |  |  | the input payload-union member name (c_payload_member with the "input" prefix). |  |
+| tests/common/prod_driver.rs::c_driver_source | src/ir.rs::Module, tests/common/prod_driver.rs::flattened_inputs, tests/common/prod_driver.rs::flattened_outputs, tests/common/prod_driver.rs::c_kind_name, tests/common/prod_driver.rs::c_payload_member, tests/common/prod_driver.rs::c_union_member, tests/common/prod_driver.rs::c_field_ty |  |  | the C driver source - #include of the production artifact plus generated glue (kind enum, payload union, input parser, raw renderers) and main. |  |
+| tests/common/prod_driver.rs::production_artifacts | src/ir.rs::Module, src/ir.rs::Ir, src/codegen.rs::BackendOptions, src/codegen.rs::CodegenCommandKind, src/codegen.rs::get_backend, tests/common/prod_driver.rs::ProductionArtifacts |  |  | generate the production artifacts (property monitors ON) for module into <scratch_root>/<tag>/ and return their paths + the Rust source; the input drivers build on top of this. |  |
+| tests/common/prod_driver.rs::build_drivers | tests/common/prod_driver.rs::production_artifacts, tests/common/prod_driver.rs::rust_driver_source, tests/common/prod_driver.rs::c_driver_source, tests/common/prod_driver.rs::rustc |  |  | build both drivers for one spec - generate the production artifacts, write the driver sources next to them, compile with rustc and gcc (asserting the generated C is warning-free). |  |
+| tests/common/prod_driver.rs::rust_sample_driver_source | src/ir.rs::Module, src/ir.rs::Type, tests/common/prod_driver.rs::state_variants, tests/common/prod_driver.rs::bit_rust_type |  |  | the Rust sample-level driver source - drives the generated property monitors over raw sample lines (State|v0,v1,...) instead of FSM inputs; emits M{k} OK/FAIL + FIRST. |  |
+| tests/common/prod_driver.rs::c_sample_driver_source | src/ir.rs::Module, src/ir.rs::Type, tests/common/prod_driver.rs::state_variants, tests/common/prod_driver.rs::bit_c_type |  |  | the C sample-level driver source - the C mirror of rust_sample_driver_source (generated monitors over raw sample lines). |  |
+| tests/common/prod_driver.rs::build_sample_drivers | tests/common/prod_driver.rs::production_artifacts, tests/common/prod_driver.rs::rust_sample_driver_source, tests/common/prod_driver.rs::c_sample_driver_source, tests/common/prod_driver.rs::rustc |  |  | build both sample-level drivers for one spec (generated monitors over raw sample lines); returns (rust bin, c bin). |  |
+| tests/common/prod_driver.rs::run_driver |  |  |  | run one driver with the script on stdin; returns (exit code, stdout). |  |
+| tests/common/fail_variants.rs::root |  |  |  | the repo root (CARGO_MANIFEST_DIR). |  |
+| tests/common/fail_variants.rs::spec_source | tests/common/fail_variants.rs::root |  |  | read a valid example spec from examples/valid/<name> (panics if unreadable). |  |
+| tests/common/fail_variants.rs::mutate_spec | tests/common/fail_variants.rs::spec_source |  |  | read a valid example and replace exactly one anchored block with new (asserts the anchor occurs exactly once - the drift guard). |  |
+| tests/common/fail_variants.rs::http2_rst_fail_src | tests/common/fail_variants.rs::mutate_spec |  |  | 47_http2_stream with the Open RstStream arm retargeted off Closed, so rst_goes_closed is violated at step 2 (the pinned FAIL variant). |  |
+| tests/common/fail_variants.rs::can_passive_fail_src | tests/common/fail_variants.rs::mutate_spec |  |  | 49_can_arbitration with the Data AckErr band-entry counter update weakened (+1 instead of +4), so passive_band is violated at step 6 (the pinned FAIL variant). |  |
+| tests/common/mc_json.rs::zero_peak_rss |  |  |  | zero the peak_rss_kb field in one compact MC JSON document before byte-comparison (machine-dependent, never pinned). |  |
 
 ## All types
 
 | Type | Depends | Component | Functionality | Short description | Documented in |
 |---|---|---|---|---|---|
+| tests/common/prod_driver.rs::FlatVariant | src/ir.rs::Type |  |  | one flattened input/output variant of a module (declaration order): collision-free name, its constructor group, the bare variant name, and (field name, field type) pairs. |  |
+| tests/common/prod_driver.rs::ProductionArtifacts |  |  |  | generated production artifacts (property monitors ON) for one module - the Rust source kept in memory plus both artifact paths (the C driver #includes the .c file). |  |
 
 ## Components
 

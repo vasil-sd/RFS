@@ -1246,6 +1246,243 @@ Test source has its own inventory: `TEST_STRUCTURE.md`.
 | build integration | protocol adapters/integration | The rfs-build crate plus the example build.rs files. Seed axis kept. |
 | protocol adapters/integration | build integration | The ProtocolFsm trait, the four adapter strategies, and the example crates that drive them. Seed axis kept. |
 
+## Proposed naming scheme
+
+Proposal only - nothing is moved or renamed in Phase 10. The scheme makes the
+task-14 category structure visible in the file tree: files grouped by component,
+named by responsibility, with intra-component edges staying inside one directory
+and cross-component edges going through clearly named module roots. It is the
+design input for task 18's mapping table and for the later refactoring phase that
+will actually execute it.
+
+### Naming conventions (rules)
+
+1. snake_case module files mirroring module paths (the existing Rust convention;
+   no file ever gets a non-snake_case name).
+2. Command modules live under `commands/` and are named after their subcommand
+   WITHOUT the `_cmd` suffix: `test_cmd.rs` -> `commands/test.rs`,
+   `gen_spec_cmd.rs` -> `commands/gen_spec.rs`, `mc_ref_cmd.rs` ->
+   `commands/mc_ref.rs`. The directory carries the "command" context, so the
+   suffix is redundant noise; `info.rs` and `diagram.rs` already follow the rule
+   and simply move under `commands/`.
+3. Backend files KEEP the `<lang>_<artifact>.rs` split (`rust_fsm` / `rust_test`
+   / `rust_mc`, `c_fsm` / `c_test` / `c_mc`): the three artifacts are genuinely
+   separate responsibilities (production FSM, test harness, model checker), and
+   merging them into `rust.rs` / `c.rs` would destroy the split the parity
+   invariant is checked against. The backends directory itself stays where it is.
+4. Shared-plan files under `codegen/` drop the now-redundant `codegen_` prefix:
+   `codegen_fsm.rs` -> `codegen/fsm.rs`, `codegen_test.rs` ->
+   `codegen/test_plan.rs` (not `test.rs` - that name belongs to the rfs-test
+   command module), `codegen_mc.rs` -> `codegen/mc_concepts.rs`. `monitor.rs`
+   moves in as `codegen/monitor.rs` (no rename: the Monitor compiler is a shared
+   pre-backend layer, consumed by both emitters, the test planner, MC planning
+   and the info command).
+5. Files that stay at the `src/` root keep their names EXACTLY: `json_rw.rs`,
+   `frontend.rs`, `ext_tool.rs`, `specgen.rs`, `training.rs`, `cli_log.rs`,
+   `main.rs`, `lib.rs`. Several of them have module paths consumed outside
+   `src/` (bins, the detached fuzz workspace, test suites), and renaming would
+   churn those importers for zero grouping benefit.
+6. Bin files are NEVER renamed: their names are cargo alias targets in
+   `.cargo/config.toml` (`cargo build-training`, `cargo extract-training-snippets`,
+   `cargo generate-code-tests`, `cargo test-generated-code`). Renaming a bin
+   requires updating the alias plus every document that cites it (BUILD.md,
+   START.md, TASKS.md history); all four bins are therefore explicitly kept.
+
+### Target directory tree
+
+Every current non-test source file appears exactly once: moved (with its new
+path) or explicitly kept. New `mod.rs` files are marked; the three existing
+files that become a directory's `mod.rs` (`codegen.rs`, `info_format.rs`,
+`diagram.rs`) keep their module path where noted.
+
+```text
+src/
+  main.rs                        kept    CLI dispatch (binary entry point)
+  cli_log.rs                     kept    CLI dispatch (level-filtered stderr logger; zero outgoing edges, 27 incoming)
+  lib.rs                         kept    crate root + the .rfs collectors (Shared test planning); must stay - Rust requires src/lib.rs
+  json_rw.rs                     kept    JSON I/O (zero-outgoing leaf with 134 incoming edges - a substrate module everything imports)
+  frontend.rs                    kept    Frontend CLI logic (the shared front half of ALL eight commands, not one command)
+  ext_tool.rs                    kept    External tool resolution (zero-outgoing leaf with 61 incoming edges from the rfs-test and diagram stacks)
+  specgen.rs                     kept    Spec generation (module path `specgen` is imported by the detached fuzz workspace - see risk notes)
+  training.rs                    kept    Training pipeline (library behind the two training bins)
+  lang/                          new directory - the language core
+    mod.rs                       new
+    parser.rs                    moved from src/parser.rs        Parser
+    error.rs                     moved from src/error.rs         Parser (its diagnostics infrastructure; all 7 incoming edges come from parser.rs)
+    ir.rs                        moved from src/ir.rs            IR model (data model + to_json/from_json wire pairs are inseparable)
+    printer.rs                   moved from src/printer.rs       Printer
+    validator.rs                 moved from src/validator.rs     Validator
+    spec_hash.rs                 moved from src/spec_hash.rs     Spec hashing (leaf; the D-P6-3 stamp)
+  codegen/                       new directory - the shared pre-backend codegen layer
+    mod.rs                       moved from src/codegen.rs       Codegen core (module path `codegen` UNCHANGED - zero importer churn)
+    fsm.rs                       moved from src/codegen_fsm.rs   Shared FSM concepts
+    test_plan.rs                 moved from src/codegen_test.rs  Shared test planning (the language-agnostic planner half)
+    mc_concepts.rs               moved from src/codegen_mc.rs    Shared MC concepts (exact-mode wire format + report builders)
+    monitor.rs                   moved from src/monitor.rs       Monitor compiler
+  mc/                            new directory - model-checking planning + the independent reference engine
+    mod.rs                       new
+    plan.rs                      moved from src/mc_plan.rs       MC plan (abstraction, encoding, traversal, liveness decomposition)
+    smt_plan.rs                  moved from src/smt_plan.rs      SMT plan + emitter
+    smt_emit.rs                  moved from src/smt_emit.rs      SMT plan + emitter (its 59 outgoing edges all target smt_plan - the pair stays together)
+    ref_mc.rs                    moved from src/ref_mc.rs        Reference MC (independent by contract: no mc_plan/monitor/codegen_fsm/backend edges)
+  backends/                      kept in place - the <lang>_<artifact>.rs split IS the responsibility split
+    mod.rs                       kept    (0 fns / 0 types - re-exports only)
+    rust.rs                      kept    Rust backend (type/ident helpers; also holds the snake/rust_ident utilities the C backend borrows)
+    rust_fsm.rs                  kept    Rust backend (production emitter)
+    rust_test.rs                 kept    Rust backend (test emitter + aggregate-crate writer)
+    rust_mc.rs                   kept    Rust backend (MC emitter)
+    c.rs                         kept    C backend (type/ident helpers)
+    c_fsm.rs                     kept    C backend (production emitter)
+    c_test.rs                    kept    C backend (test emitter)
+    c_mc.rs                      kept    C backend (MC emitter)
+  commands/                      new directory - one module per subcommand, named after the subcommand
+    mod.rs                       new
+    test.rs                      moved from src/test_cmd.rs      rfs-test command
+    gen_spec.rs                  moved from src/gen_spec_cmd.rs  gen-spec command
+    mc_ref.rs                    moved from src/mc_ref_cmd.rs    mc-ref command
+    info.rs                      moved from src/info.rs          Info command
+    diagram/                     new directory - Diagram command + plugins
+      mod.rs                     moved from src/diagram.rs       the plugin registry (module path becomes `commands::diagram`)
+      (src/diagrams/mod.rs)      merged into commands/diagram/mod.rs - its label helpers (event_label/guard_label/emit_labels/states/render_check) move with the registry; no separate file survives
+      dot.rs                     moved from src/diagrams/dot.rs  DOT plugin
+      plantuml.rs                moved from src/diagrams/plantuml.rs  PlantUML plugin
+      mermaid.rs                 moved from src/diagrams/mermaid.rs   Mermaid plugin
+      tables.rs                  moved from src/diagrams/tables.rs    table + md plugins
+  info_format/                   new directory - the self-describing formats cluster (Phase 7)
+    mod.rs                       moved from src/info_format.rs   Info-format registry (module path `info_format` UNCHANGED - zero importer churn)
+    ebnf_grammar.rs              moved from src/ebnf_grammar.rs  EBNF grammar model (leaf consumed only by the registry)
+    json_schema.rs               moved from src/json_schema.rs   JSON-schema emitter (69 of the registry's 72 outgoing edges target it)
+  bin/                           kept in place - bin names are cargo alias targets (rule 6)
+    build_training.rs            kept    alias: cargo build-training
+    extract_training_snippets.rs kept    alias: cargo extract-training-snippets
+    generate_code_tests.rs       kept    alias: cargo generate-code-tests
+    test_generated_code.rs       kept    alias: cargo test-generated-code
+
+crates/                          workspace members - layout kept in place (Cargo workspace constraint)
+  rfs-build/src/lib.rs           kept    rfs-build crate (dependency-free build.rs helper)
+  rfs-adapters/src/lib.rs        kept    rfs-adapters crate (ProtocolFsm trait)
+  rfs-adapters/src/channel.rs    kept    rfs-adapters crate (channel adapter)
+  rfs-adapters/src/async_adapter.rs kept rfs-adapters crate (futures-stream adapter)
+  rfs-adapters/src/callback.rs   kept    rfs-adapters crate (callback driver)
+  rfs-adapters/src/minimal.rs    kept    rfs-adapters crate (no_std-minimal wrapper)
+  examples/sync_handler/src/lib.rs   kept Example crates (ARQ session over std mpsc)
+  examples/sync_handler/src/main.rs  kept Example crates (demo binary)
+  examples/sync_handler/build.rs     kept Example crates (rfs-build with --with-protocol-fsm)
+  examples/async_handler/src/lib.rs  kept Example crates (same session as a futures Stream)
+  examples/async_handler/src/main.rs kept Example crates (demo binary)
+  examples/async_handler/build.rs    kept Example crates (rfs-build with --with-protocol-fsm)
+  examples/fuzz_rust/src/lib.rs      kept Example crates (root crate: wraps the generated spec-43 artifact via include! - 0 own fns/types, so it has no inventory rows but is a real source file)
+  examples/fuzz_rust/build.rs        kept Example crates (wires the emitted libfuzzer skeleton into the detached fuzz layout)
+
+Explicitly out of scope (stay exactly where they are):
+  crates/examples/c_sync_handler/, crates/examples/fuzz_c/ - Makefile-driven, NOT cargo members
+  fuzz/ - the DETACHED root cargo-fuzz workspace (test infrastructure; its reorganization belongs to the TEST side, task 33)
+```
+
+### Per-group rationale (component names in parentheses)
+
+- **Kept at the `src/` root** (CLI dispatch for `main.rs` + `cli_log.rs`; Shared
+  test planning's crate-root half for `lib.rs`; JSON I/O for `json_rw.rs`;
+  Frontend CLI logic for `frontend.rs`; External tool resolution for
+  `ext_tool.rs`; Spec generation for `specgen.rs`; Training pipeline for
+  `training.rs`): these are either structurally pinned (the binary entry point,
+  the crate root) or zero-outgoing leaves / all-command hubs whose entire
+  consumer set spans every other group - a directory of their own would be a
+  one-file directory, and moving them would churn importers across the whole
+  tree for no grouping gain.
+- **`lang/`** (Parser, IR model, Printer, Validator, Spec hashing): the language
+  core pipeline parse -> IR -> validate -> print. All five components' edges
+  stay inside the directory (parser builds IR, validator types IR, printer
+  renders IR and round-trips through the parser, spec_hash is a leaf); the only
+  outgoing edge is to JSON I/O, which stays at the root as the shared substrate.
+- **`codegen/`** (Codegen core, Shared FSM concepts, Shared test planning,
+  Shared MC concepts, Monitor compiler): the shared pre-backend layer. The real
+  2-edge cycle between Codegen core and Shared MC concepts stays inside one
+  directory; the Monitor compiler's consumers (both emitters, the test planner,
+  MC planning, the info command) all reach it through the `codegen` module root.
+- **`mc/`** (MC plan, SMT plan + emitter, Reference MC): model-checking planning
+  plus the independent brute-force engine. The smt_plan/smt_emit inseparable
+  pair (59 one-directional edges) stays together; ref_mc's independence contract
+  (no edges into mc_plan/monitor/codegen_fsm/backends) is visible as a sibling
+  file with no intra-directory imports.
+- **`backends/` kept in place** (Rust backend, C backend): the
+  `<lang>_<artifact>.rs` split mirrors the three genuinely separate artifacts;
+  the parity invariant keeps the two backends as separate categories. The one
+  deliberate cross-backend coupling (c_* emitters borrowing `snake` /
+  `rust_ident` from `rust.rs`) is flagged for the refactoring phase to resolve
+  by moving those identifier utilities into a neutral module (e.g.
+  `codegen/ident.rs`).
+- **`commands/`** (rfs-test command, gen-spec command, mc-ref command, Info
+  command, Diagram command + plugins): one module per subcommand, named after
+  the subcommand. Every command is a thin shell over the shared layers above -
+  the move makes "these are the CLI surface" visible at a glance, and the
+  diagram plugins nest under their command because they exist only for it.
+- **`info_format/`** (Info-format registry, EBNF grammar model, JSON-schema
+  emitter): the self-describing formats cluster. The two leaves (EBNF model,
+  schema emitter) are consumed almost exclusively by the registry (69 of its 72
+  outgoing edges target the schema emitter), so all three form one directory.
+- **`bin/` kept** (Shared test planning's driver bins + Training pipeline's
+  bins): bin file names are cargo alias targets - rule 6 forbids renames.
+- **`crates/*` kept in place** (rfs-build crate, rfs-adapters crate, Example
+  crates): the Cargo workspace layout is a hard constraint; none of these
+  crates references toolchain source paths (rfs-build resolves the BINARY via
+  RFS_BIN/PATH, rfs-adapters never depends on generated code or the toolchain,
+  the example build.rs files invoke the binary), so their internal layout needs
+  no change to realize any category.
+
+### Risk and effort per non-trivial move
+
+- **Zero-churn moves (module path unchanged):** `codegen.rs` ->
+  `codegen/mod.rs` and `info_format.rs` -> `info_format/mod.rs` keep their
+  module paths (`codegen`, `info_format`) - every existing `use rfs::codegen::*`
+  / `rfs::info_format::*` site (including the detached fuzz workspace's
+  `fuzz/fuzz_targets/codegen.rs`) keeps compiling untouched. Same for all kept
+  files and everything under `crates/`.
+- **Path-rename moves (mechanical, cargo-check-verifiable):** every other move
+  changes the module path and requires updating `use` sites in `src/`,
+  `src/bin/`, `tests/` and - for two of them - the detached fuzz workspace.
+  External import-site counts measured at proposal time: `ir` 2 files,
+  `parser` 2, `validator` 8, `codegen_mc` 5, `ref_mc` 5, `spec_hash` 2,
+  `info` 2, `diagram` 2, `diagrams` 3, `gen_spec_cmd` 1, `mc_ref_cmd` 1,
+  `info_format` 1 (path-stable, so actually 0), `ebnf_grammar` 1,
+  `json_schema` 1; all other moved modules have 0 external importers. The
+  internal churn is larger but purely mechanical (`ir` has 576 incoming edges -
+  the biggest single rename in the tree).
+- **`specgen.rs` stays at the root BECAUSE of the fuzz workspace:**
+  `fuzz/fuzz_targets/common.rs` imports `rfs::specgen::{Bounds, SpecGen}` by
+  module path. Moving specgen would force a lockstep edit inside the detached
+  fuzz workspace (a separate cargo project) - avoided by keeping the path.
+  If a later phase moves it anyway, that workspace's import must be updated in
+  the same commit.
+- **Bin aliases:** no bin is renamed, so `.cargo/config.toml` needs no change.
+  Recorded per bin for the refactoring phase: `build_training.rs`,
+  `extract_training_snippets.rs`, `generate_code_tests.rs`,
+  `test_generated_code.rs` are each pinned by an alias (`cargo build-training`,
+  `cargo extract-training-snippets`, `cargo generate-code-tests`,
+  `cargo test-generated-code`) plus BUILD.md/START.md citations - any future
+  rename of one of them must update the alias and those documents in the same
+  change.
+- **`//! Docs:` manifest + doc references:** every moved file keeps its single
+  `//! Docs:` pointer line verbatim (the fragment IDs do not change); what must
+  be re-synced in the refactoring phase is (1) `tests/dev_docs_manifest.txt`
+  (71 paths -> new paths for the 29 moved files), and (2) every backticked
+  `src/...` reference in `docs/dev/` + `docs/llm/` that points at a moved file.
+  The dev_docs_test gate names exactly which pointers/references break after
+  the move - its output IS the update list. No fragment is orphaned by this
+  scheme: each moved file remains the sole owner of its fragments.
+- **Generated code:** standalone by construction - no generated artifact
+  references toolchain source paths (the artifact header carries only the
+  toolchain version + spec hash + module name, D-P6-3), so codegen output is
+  byte-identical before and after any rename. `rfs-build`'s RFS_BIN resolution
+  and the example build.rs files reference the toolchain BINARY, not source
+  paths - unaffected (noted per the hard-constraint list).
+- **Effort summary:** 27 file moves + 1 merge (`diagrams/mod.rs` into
+  `commands/diagram/mod.rs`) + 3 new `mod.rs` files (lang, mc, commands), all
+  mechanical path renames verifiable by `cargo build` + `cargo test`; no
+  functionality, API, CLI, or codegen-output change is implied. The two
+  zero-churn `mod.rs` absorptions (`codegen`, `info_format`) and the kept-root
+  set mean every import site of those modules survives untouched.
+
 ## File mapping
 
 | Source file name | Components | Functionalities | Description + rationale |

@@ -21,6 +21,19 @@ of the test-inventory half of the phase (user step p7).
   - Documented-in is blank for all test files EXCEPT `tests/dev_docs_test.rs`
     (the only one with a `//! Docs:` line); where `docs/llm/TASK_MAP.md` has a
     suite entry, note it in the row's description instead.
+    **CORRECTION 19a** (recorded at execution): the "only one with a `//! Docs:`
+    line" claim is wrong. `tests/dev_docs_test.rs` has NO pointer line (its
+    `Docs:` mentions are prose describing the convention) and is not in the doc
+    manifest, so its Documented-in is blank. The test files that DO carry real
+    `//! Docs:` pointers to fragments defined in `docs/` are the five fuzz targets
+    (`fuzz/fuzz_targets/{common,parser,codegen,validator,ir_roundtrip}.rs`) and
+    the three workspace-crate tests (`crates/rfs-adapters/tests/{adapters,
+    nostd_minimal}.rs`, `crates/rfs-build/tests/integration.rs`) - all eight are
+    in `tests/dev_docs_manifest.txt` and their fragments are copied like any
+    other file's. The three fixtures' `//! Docs:` lines point at fixture-only
+    fragments (`dev:fixture-*` / `llm:fixture-*`, not defined in the doc set) as
+    deliberate negative controls. TEST_STRUCTURE.md's preamble pins this accurate
+    rule.
   - The three `tests/fixtures/dev_docs/*.rs` files are negative-control
     FIXTURES for dev_docs_test - enumerated like any other file but flagged as
     fixtures in their descriptions (their "functions" are deliberate test

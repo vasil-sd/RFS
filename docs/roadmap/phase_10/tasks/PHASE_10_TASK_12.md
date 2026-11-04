@@ -54,12 +54,12 @@ cluster - `src/ref_mc.rs`, `src/specgen.rs`, `src/spec_hash.rs`
 
 | File | Operation | Brief description |
 |------|-----------|-------------------|
-| `SRC_STRUCTURE.md` | change | ~193 function rows + ~32 type rows appended |
+| `SRC_STRUCTURE.md` | change | ~156 function rows + ~31 type rows appended |
 
 ## Planned actions
 
 ### Re-verify chunk counts
-Fn/type greps over the three files vs ~193/~32; mismatch -> plan correction.
+Fn/type greps over the three files vs ~156/~31; mismatch -> plan correction.
 
 #### Affected files
 
@@ -68,33 +68,33 @@ Fn/type greps over the three files vs ~193/~32; mismatch -> plan correction.
 | (none) | - | verification only |
 
 ### Enumerate functions - ref_mc.rs
-Grep signatures, read bodies, one row per fn (~124) with bidirectional project function/type
+Grep signatures, read bodies, one row per fn (~100) with bidirectional project function/type
 Depends and one-line descriptions.
 
 #### Affected files
 
 | File | Operation | Description + rationale |
 |------|-----------|-------------------------|
-| `SRC_STRUCTURE.md` | change (`## All functions`) | ~124 rows for the reference MC |
+| `SRC_STRUCTURE.md` | change (`## All functions`) | ~100 rows for the reference MC |
 
 ### Enumerate functions - specgen.rs + spec_hash.rs
-Same method for the remaining ~69 fns.
+Same method for the remaining ~56 fns.
 
 #### Affected files
 
 | File | Operation | Description + rationale |
 |------|-----------|-------------------------|
-| `SRC_STRUCTURE.md` | change (`## All functions`) | ~69 rows for spec generation + hashing |
+| `SRC_STRUCTURE.md` | change (`## All functions`) | ~56 rows for spec generation + hashing |
 
 ### Enumerate types
-One row per type in `## All types` (~32): ref_mc state/config/trace types,
+One row per type in `## All types` (~31): ref_mc state/config/trace types,
 specgen bounds/mutation types.
 
 #### Affected files
 
 | File | Operation | Description + rationale |
 |------|-----------|-------------------------|
-| `SRC_STRUCTURE.md` | change (`## All types`) | ~32 type rows |
+| `SRC_STRUCTURE.md` | change (`## All types`) | ~31 type rows |
 
 ### Gate check
 docs_md_test green.

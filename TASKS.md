@@ -1722,3 +1722,17 @@ PHASE 8 IS NOW COMPLETE.
 - Fixed the section-heading glue defect that task 26's splice had introduced AGAIN: the committed file had the last fn row directly adjacent to `## All types` (and the Run row to `## Components`) with no blank line. Root cause: task 26's splice consumed the separating blank line as the terminator of its last inserted row - its assertion verified the blank line existed but not that it would survive. This task's insertion detected the glued state and re-added the blank lines (all six section headers verified present in order).
 - `PHASE_10_TASK_27_STATUS.md` written per FORMATTING.md §6.2.
 - Verification: `cargo test --test docs_md_test` 5/5 OK; row counts re-checked against the file (72 fn rows + 9 type rows for the three suites); no blank lines between table rows. Committed as one commit.
+
+## 2026-11-05 07:12 — Phase 10 task 28: enumerated the remaining tests/ suites + fixtures into TEST_STRUCTURE.md (85 fns / 2 types) - tests/ tree COMPLETE
+
+### Interpretation & plan
+
+- Requested: execute Phase 10 task 28 per `docs/roadmap/phase_10/tasks/PHASE_10_TASK_28.md` - enumerate every function and type of the five remaining `tests/` suites (dev_docs_test, diagram_render_parity_test, example_projects_test, integration_example_test, training_test) plus the three tests/fixtures/dev_docs/*.rs fixture files.
+- Plan: re-verify chunk counts (grep + read-through), append rows after the task-27 rows using full-row anchors + glue-aware splice, write the status file, append this entry, commit.
+
+### Report
+
+- `TEST_STRUCTURE.md`: 85 function rows + 2 type rows appended - dev_docs_test.rs 37 fns / 2 types (FragDef, PointerParse; three real nested walk fns get <file>::<parent_fn>::<child_fn> identifiers), diagram_render_parity_test.rs 27 fns, example_projects_test.rs 9 fns, integration_example_test.rs 4 fns, training_test.rs 5 fns, fixtures 1 fn each (flagged as fixtures). The `tests/` tree is now fully enumerated (tasks 20-28 complete).
+- PLAN CORRECTION 28a (recorded in PHASE_10_PLAN.md + the task file's new Task corrections section): the Goal's "7 fns" for integration_example_test.rs was inflated by three template phantoms (fn input_from + fn main in the DRIVER_SRC raw string, a second fn main in the on_error inline driver string); authoritative chunk total 85 fns / 2 types (was 88/2). The Context's dev_docs_test //! Docs: claim repeats the error correction 19a already settled - every row's Documented-in is blank per the pinned preamble rule.
+- `PHASE_10_TASK_28_STATUS.md` written per FORMATTING.md §6.2.
+- Verification: `cargo test --test docs_md_test` 5/5 OK; all six section headers present in order; row counts re-checked against the file (85 fn rows + 2 type rows); no blank lines between table rows. Committed as one commit.

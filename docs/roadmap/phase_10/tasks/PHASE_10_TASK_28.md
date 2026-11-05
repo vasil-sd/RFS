@@ -105,3 +105,9 @@ docs_md_test green.
 
 ## Non-goals
 - No inline/crate/fuzz enumeration (task 29-30), no classification, no source changes.
+
+## Task corrections (optional)
+
+| Correction | Description + rationale |
+|------------|-------------------------|
+| Row counts 88/2 -> 85/2 | The Goal's "7 fns" for integration_example_test.rs was a grep count inflated by THREE template phantoms - `fn input_from` + `fn main` inside the DRIVER_SRC raw string and a second `fn main` inside the on_error test's inline driver string (all at column 0 of the string content, so line-based counters see them). Authoritative: integration_example_test.rs 4 fns / 0 types; all other per-file figures clean (dev_docs 37/2 incl. its three real nested walk fns, diagram_render_parity 27/0, example_projects 9/0, training 5/0, fixtures 1 fn each). Chunk total: 85 fns / 2 types. Recorded as plan correction 28a. The Context's Documented-in claim ("the ONLY test file with a //! Docs: line") is the same error correction 19a already settled - dev_docs_test.rs has no pointer line and is not in the manifest, so every row's Documented-in is blank per the pinned preamble rule. |

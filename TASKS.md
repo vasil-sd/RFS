@@ -1677,3 +1677,18 @@ PHASE 8 IS NOW COMPLETE.
 - Fixed a pre-existing defect while appending: a stray blank line between the last task-20 row (mc_json.rs::zero_peak_rss) and the first task-21 row (frontend_test.rs::tmp_root) had split the All functions table into two GFM fragments (introduced by task 21; comrak parses both fragments as valid tables, so docs_md_test never caught it). Removed - all rows now form one contiguous table.
 - `PHASE_10_TASK_24_STATUS.md` written per FORMATTING.md §6.2.
 - Verification: `cargo test --test docs_md_test` 5/5 OK after the rows were written; row counts re-checked against the file (41/7/3 fn rows, 7 type rows total incl. task 20's 2); no blank lines remain between table rows. Committed as one commit.
+
+## 2026-11-05 05:42 — Phase 10 task 25: enumerated the model-checking test cluster into TEST_STRUCTURE.md (49 fns / 6 types)
+
+### Interpretation & plan
+
+- Requested: execute Phase 10 task 25 per `docs/roadmap/phase_10/tasks/PHASE_10_TASK_25.md` - enumerate every function and type of `tests/benchmark_mc_test.rs`, `tests/liveness_mc_test.rs`, `tests/smt_bounded_test.rs` into `TEST_STRUCTURE.md` (Component/Functionality blank, Documented-in blank, one row per line), then keep docs_md_test green.
+- Plan: re-verify chunk counts (grep + read-through), append rows after the task-24 rows, record any count corrections, write the status file, append this entry, commit.
+
+### Report
+
+- `TEST_STRUCTURE.md`: 49 function rows + 6 type rows appended - benchmark_mc_test.rs 24 fns / 5 types (Pin, BenchRun, FailPin, CodegenTimes, SpecRuns), liveness_mc_test.rs 17 fns / 1 type (LivOut), smt_bounded_test.rs 8 fns / 0 types. Every row carries bidirectional project Depends (src/{parser,codegen,json_rw}.rs identifiers + task-20 tests/common/fail_variants.rs helpers: spec_source/http2_rst_fail_src/can_passive_fail_src), a one-line description, blank Component/Functionality/Documented-in.
+- PLAN CORRECTION 25a (recorded in PHASE_10_PLAN.md + the task file's new Task corrections section): the type figures were grep counts inflated by RFS spec enums inside inline raw strings - nine of liveness_mc's ten type hits are `enum State` in its nine inline spec constants, and all three of smt_bounded's hits are `enum State` in SMT_FAIL_SRC/SMT_LIV_SRC/SMT_PASS_SRC; only LivOut is real. Fn counts were all clean (24+17+8=49). Authoritative total: 49 fns / 6 types (was ~49/~23).
+- Fixed a pre-existing layout quirk surfaced by the insertion: the committed file had NO blank line between the last All-functions row and `## All types`, nor between the last All-types row and `## Components` (introduced by task 23's splice). The after-the-row insertion therefore glued both headings onto the last inserted rows (`...|  |## All types`) - comrak parses a heading inside a table cell as cell text, so docs_md_test would not have caught it. Both headings split back onto their own lines with a separating blank line; all six section headers verified present in order.
+- `PHASE_10_TASK_25_STATUS.md` written per FORMATTING.md §6.2 (incl. the warning for future chunk tasks 26-30 to insert with an explicit blank-line separator before the headings).
+- Verification: `cargo test --test docs_md_test` 5/5 OK; row counts re-checked against the file (49 fn rows + 6 type rows for the three suites); no blank lines between table rows. Committed as one commit.

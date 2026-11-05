@@ -89,3 +89,9 @@ docs_md_test green.
 
 ## Non-goals
 - No other suites, no classification, no source changes.
+
+## Task corrections (optional)
+
+| Correction | Description + rationale |
+|------------|-------------------------|
+| Type rows ~23 -> 6 | The Goal's per-file type figures ("5 types" benchmark_mc, "10 types" liveness_mc, "3 types" smt_bounded) and the Context's "~23" total were grep counts inflated by RFS spec enums inside inline raw strings - the phantom class of corrections 7a/8a/20a/21a/23a/24a. liveness_mc_test.rs: nine of the ten type hits are `enum State` declarations inside its nine inline spec constants (PASS_SPEC, FAIL_EV_SPEC, FAIL_UNTIL_SPEC, FAIL_SKEL_SAFETY_SPEC, FAIL_INPUT_IS_SPEC, NONDET_DISC_SPEC, TRUNC_FAIL_SPEC, NEST_DIAG_SPEC, SAFETY_PRECEDENCE_SPEC); only LivOut is real. smt_bounded_test.rs: all three hits are `enum State` inside SMT_FAIL_SRC / SMT_LIV_SRC / SMT_PASS_SRC - zero real types. benchmark_mc_test.rs is clean at 5 (Pin, BenchRun, FailPin, CodegenTimes, SpecRuns). The fn counts were all clean (24 + 17 + 8 = 49). Authoritative total: 49 fns / 6 types. Recorded as plan correction 25a. |

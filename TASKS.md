@@ -1784,3 +1784,58 @@ PHASE 8 IS NOW COMPLETE.
 - Assignability walk: all 62 test files (27 tests/ suites + helpers + 3 fixtures, 25 inline-test hosts, 3 crate-test files, 5 fuzz targets) are assignable to >= 1 component and >= 1 functionality. No plan correction needed - the Context's "~957 function rows" is the pre-correction figure superseded by plan correction 30c's authoritative 940.
 - `PHASE_10_TASK_31_STATUS.md` written per FORMATTING.md §6.2.
 - Verification: `cargo test --test docs_md_test` 5/5 OK; both tables structurally valid (3 cells per row); all 32 reused names verified spelled identically in both documents; every depends-on reference resolves to a known category name. Committed as one commit.
+
+## 2026-11-05 14:40 — Phase 10 task 32: filled the Component + Functionality cells of all 974 TEST_STRUCTURE.md inventory rows (entry appended at close-out - was missing from the task commit)
+
+### Interpretation & plan
+
+- Requested: execute Phase 10 task 32 per `docs/roadmap/phase_10/tasks/PHASE_10_TASK_32.md` - classify every test inventory row (940 function + 34 type) with Component and Functionality cells using the category systems proposed in tasks 31 (test side) and 15-16 (SRC side, reused).
+- Plan: apply task 31's classification rules row by row, verify every cell names an existing table row, keep rows one-per-line.
+
+### Report
+
+- `TEST_STRUCTURE.md`: all 974 inventory rows now carry Component + Functionality cells (multi-valued where a row spans categories); no plan correction needed - the Goal's "~957 function rows" was the pre-correction estimate, the authoritative 940/34 totals already documented by corrections 20a-30c.
+- `PHASE_10_TASK_32_STATUS.md` written per FORMATTING.md §6.2.
+- Verification: docs_md_test 5/5; every cell value verified to name an existing Components/Functionality table row. Committed as 0d06681.
+
+## 2026-11-05 17:34 — Phase 10 task 33: filled TEST_STRUCTURE.md's ## File mapping (39 rows) + proposed test-tree layout mermaid (entry appended at close-out - was missing from the task commit)
+
+### Interpretation & plan
+
+- Requested: execute Phase 10 task 33 per `docs/roadmap/phase_10/tasks/PHASE_10_TASK_33.md` - one file-mapping row per non-generated test source file (components, functionalities, description + rationale) plus the proposed test-tree layout as a mermaid diagram.
+- Plan: completeness audit of the 39 test source files against the mapping, draw the layout, render-check under docs_md_test.
+
+### Report
+
+- `TEST_STRUCTURE.md`: `## File mapping` filled with 39 rows covering every non-generated test source file exactly once; proposed test-tree layout mermaid added (three responsibility-based renames, everything else kept) and renders under the docs_md_test gate.
+- PLAN CORRECTION 33a: the Goal's "~38 rows / 2 crate-test files" undercounted by one - authoritative count 39 rows / 3 crate-test files (recorded in PHASE_10_PLAN.md).
+- `PHASE_10_TASK_33_STATUS.md` written per FORMATTING.md §6.2.
+- Verification: docs_md_test 5/5 incl. the mermaid render; mapping covers all 39 files exactly once. Committed as 0c64198.
+
+## 2026-11-05 18:05 — Phase 10 task 34 (plan correction 34a): enumerated the two example-crate inline test fns into TEST_STRUCTURE.md + fixed the inline-host bookkeeping
+
+### Interpretation & plan
+
+- Requested: close-out fresh-grep audit (protocol step q) found `crates/examples/{async_handler,sync_handler}/src/lib.rs` each carry a `#[cfg(test)] mod tests` with one `#[test]` fn (Phase 5 task 11's CI records) that no task assigned - the same gap class as correction 30c. Task 34 created and executed per protocol.
+- Plan: add the two rows (Component = Inline unit tests + Example crates; Functionality = behavior pinning; Depends on each host's `run` + `ArqReport`; Documented-in blank per the pinned preamble rule), correct the preamble's raw-grep "25 such host files" figure, record correction 34a.
+
+### Report
+
+- `TEST_STRUCTURE.md`: 2 function rows appended (arq_session_completes_over_the_stream / arq_session_completes_over_channels); inline-host bookkeeping corrected (the pre-existing "25" was a raw-grep count that included src/backends/rust_test.rs, whose nine test fns are enumerated elsewhere - authoritative figure restated).
+- `PHASE_10_PLAN.md`: correction 34a recorded. `PHASE_10_TASK_34_STATUS.md` written per FORMATTING.md §6.2.
+- Verification: docs_md_test 5/5 green after the rows + bookkeeping were written; fresh-grep audit then exact (see close-out entry).
+
+## 2026-11-05 18:30 — Phase 10 close-out: fresh-grep audit exact, full verification green, PHASE_10_STATUS.md written, CURRENT_STATE.md row 10 -> COMPLETE - PHASE 10 COMPLETE
+
+### Interpretation & plan
+
+- Requested: "Ok, confirm, phase is done. Perform phase close-out." - all 34 tasks complete; run the close-out loop per protocol (fresh-grep re-verification step q, full verification, status file step r, bookkeeping steps s/t).
+- Plan: string-masked test-module-aware grep of both inventories against the source tree; `cargo build && cargo test && cargo clippy --all-targets && cargo fmt --check`; write PHASE_10_STATUS.md; CURRENT_STATE.md row 10 -> COMPLETE; append this entry; single commit.
+
+### Report
+
+- Fresh-grep audit (step q): both documents exact - SRC_STRUCTURE.md 938 fns / 197 types, TEST_STRUCTURE.md 942 fns / 34 types, zero per-file diffs. The audit surfaced the two unassigned example-crate inline test fns -> plan correction 34a + task 34 (executed above), after which the audit is exact.
+- Full verification: `cargo test` 535 passed / 0 failed - exactly the documented baseline (incl. docs_md_test 5/5 parsing both inventory files + dev_docs_test 9/9); `cargo clippy --all-targets` finished with only the pre-existing warning set; `cargo fmt --check` clean.
+- `PHASE_10_STATUS.md` written per FORMATTING.md §4 (step r): no source added/changed/removed (docs-only phase), 34 plan corrections summarized, exit criteria all reached.
+- `CURRENT_STATE.md` row 10 -> COMPLETE (close-out 2026-11-05) (step s). Bookkeeping gap found and fixed: tasks 32 + 33 had been committed without their TASKS.md entries - both appended above with their commit hashes.
+- Verification of the close-out itself: git diff --stat over the phase shows only the two new inventory .md files, roadmap bookkeeping, and TASKS.md - no source file moved/renamed/split/joined/changed (exit criterion met).

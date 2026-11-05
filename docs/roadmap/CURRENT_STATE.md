@@ -14,7 +14,7 @@ Phase state (2026-11-02):
 | 7 - Documentation and self-describing formats | COMPLETE (close-out 2026-10-28: full verification green, `PHASE_7_STATUS.md`) | `PHASE_7.md`, `PHASE_7_PLAN.md`, `PHASE_7_TASK_{1..16}.md` (+ `_STATUS` files), `PHASE_7_STATUS.md` |
 | 8 - Detailed developer documentation and code↔doc traceability | COMPLETE (close-out 2026-11-01: full verification green, `PHASE_8_STATUS.md`) | `PHASE_8.md`, `PHASE_8_PLAN.md`, `PHASE_8_TASK_{1..15}.md`, `PHASE_8_STATUS.md` |
 | 9 - Documentation cleanup - structure, deduplication, navigability | COMPLETE (close-out 2026-11-02: full verification green, `PHASE_9_STATUS.md`) | `PHASE_9.md`, `PHASE_9_PLAN.md`, `PHASE_9_TASK_{1..8}.md` (+ `_STATUS` files), `PHASE_9_STATUS.md` |
-| 10 - Source structure analysis and refactoring preparation | IN PROGRESS (implementation started 2026-11-02; plan + 33 task files written and user-reviewed) | `PHASE_10.md`, `PHASE_10_PLAN.md`, `tasks/PHASE_10_TASK_{1..33}.md` |
+| 10 - Source structure analysis and refactoring preparation | COMPLETE (close-out 2026-11-05: full verification green, `PHASE_10_STATUS.md`) | `PHASE_10.md`, `PHASE_10_PLAN.md`, `tasks/PHASE_10_TASK_{1..34}.md` (+ `_STATUS` files), `PHASE_10_STATUS.md` |
 
 Keep this table current: update it when a phase is planned, completed, or re-planned.
 Note (2026-10-16): Phase 3 implementation began before the per-task protocol was

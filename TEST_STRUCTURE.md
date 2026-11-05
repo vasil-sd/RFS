@@ -248,6 +248,78 @@ source has its own inventory: `SRC_STRUCTURE.md`.
 | tests/library_comparison.rs::chumsky_smoke::module_header |  |  |  | chumsky: build the `module <name>` parser (keyword then identifier). |  |
 | tests/library_comparison.rs::chumsky_smoke::chumsky_can_parse_module_header | tests/library_comparison.rs::chumsky_smoke::module_header |  |  | chumsky smoke test: a well-formed module header parses to its name. |  |
 | tests/library_comparison.rs::chumsky_smoke::chumsky_reports_errors_for_bad_input | tests/library_comparison.rs::chumsky_smoke::module_header |  |  | chumsky smoke test: malformed input yields a parse error. |  |
+| tests/info_format_test.rs::rfs_bin |  |  |  | locate the compiled rfs test binary (panics if the build is missing). |  | 
+| tests/info_format_test.rs::root |  |  |  | the repo root (CARGO_MANIFEST_DIR). |  | 
+| tests/info_format_test.rs::run_info_format |  |  |  | run `rfs info format` in-process and return its result. |  | 
+| tests/info_format_test.rs::stdout_of |  |  |  | extract stdout from an info-format run. |  | 
+| tests/info_format_test.rs::stderr_of |  |  |  | extract stderr from an info-format run. |  | 
+| tests/docs_md_test.rs::check_markdown::walk | tests/docs_md_test.rs::check_link |  |  | recursively walk the comrak AST checking fence closure, mermaid rendering, and links. |  | 
+| tests/info_format_test.rs::list_pins_all_registered_formats |  |  |  | `rfs info format --list` pins the full set of registered formats. |  | 
+| tests/info_format_test.rs::spec_rfs_md_pins_all_rules_and_keywords |  |  |  | the spec-rfs markdown output pins every grammar rule and keyword. |  | 
+| tests/info_format_test.rs::spec_rfs_plantuml_pins_structure |  |  |  | the spec-rfs PlantUML output pins the diagram structure. |  | 
+| tests/info_format_test.rs::spec_rfs_svg_pins_labels |  |  |  | the spec-rfs SVG output pins the rendered labels. |  | 
+| tests/info_format_test.rs::design_md_fence_rule_names |  |  |  | extract the rule names from the ```ebnf fence in DESIGN.md section 6. |  | 
+| tests/info_format_test.rs::design_md_section6_rule_names_match_model |  |  |  | DESIGN.md section 6's rule names match the EBNF grammar model exactly. |  | 
+| tests/info_format_test.rs::collect_nonterminals | src/ebnf_grammar.rs::RuleNode |  |  | collect every non-terminal rule name referenced in the grammar model. |  | 
+| tests/info_format_test.rs::no_dangling_nonterminals |  |  |  | every non-terminal referenced by the grammar model is itself defined (no dangling rules). |  | 
+| tests/info_format_test.rs::keywords_appear_as_terminals_in_model | src/ebnf_grammar.rs::RuleNode |  |  | every RFS keyword appears as a terminal in the EBNF grammar model. |  | 
+| tests/info_format_test.rs::keywords_appear_as_terminals_in_model::collect_terminals | src/ebnf_grammar.rs::RuleNode |  |  | recursively collect every terminal string from a grammar RuleNode tree. |  | 
+| tests/info_format_test.rs::spec_json_schema_document_pin | src/info_format.rs::spec_json_schema, src/json_rw.rs::parse |  |  | the spec-json draft-07 schema document is byte-pinned. |  | 
+| tests/info_format_test.rs::spec_json_md_pins_all_sections | src/info_format.rs::spec_json_schema |  |  | the spec-json markdown output pins all its sections. |  | 
+| tests/info_format_test.rs::spec_json_walk_all_valid_examples | src/info_format.rs::spec_json_schema, src/json_schema.rs::walk_check, src/lib.rs::collect_rfs_files, src/parser.rs::parse_file |  |  | every valid example's spec-json output walks cleanly against the embedded model. |  | 
+| tests/info_format_test.rs::ce_trace_schema_document_pin | src/json_rw.rs::parse |  |  | the ce-trace draft-07 schema document is byte-pinned. |  | 
+| tests/info_format_test.rs::ce_trace_md_pins_sections | src/info_format.rs::ce_trace_schema |  |  | the ce-trace markdown output pins its sections. |  | 
+| tests/info_format_test.rs::rustc_path |  |  |  | locate rustc for compiling the exact-mode MC binaries. |  | 
+| tests/info_format_test.rs::ce_mc_binary | src/codegen.rs::BackendOptions, src/codegen.rs::CodegenCommandKind, src/codegen.rs::get_backend, src/parser.rs::parse_source |  |  | codegen + compile one exact-mode MC binary for a spec (cached per key so the suite stays fast). |  | 
+| tests/info_format_test.rs::mc_report_of | src/json_rw.rs::Json, src/json_rw.rs::parse |  |  | one --counterexample-format json run returning the full report document. |  | 
+| tests/info_format_test.rs::ce_object | src/json_rw.rs::Json |  |  | one --counterexample-format json run of a FAILING binary returning the report's ce object. |  | 
+| tests/info_format_test.rs::walk_ce | src/info_format.rs::ce_trace_schema, src/json_rw.rs::Json, src/json_schema.rs::walk_check |  |  | the D-P7-9 walk against the ce-trace model (required keys present, no undocumented keys). |  | 
+| tests/info_format_test.rs::ce_trace_walk_trace_and_lasso_both_backends | src/json_rw.rs::Json |  |  | the ce-trace walk passes for trace and lasso counterexamples on both backends. |  | 
+| tests/info_format_test.rs::ce_trace_walk_deadlock_config_both_backends | src/json_rw.rs::Json, tests/common/fail_variants.rs::spec_source |  |  | the ce-trace walk passes for deadlock-config counterexamples on both backends. |  | 
+| tests/info_format_test.rs::ce_trace_walk_ref_mc_in_process | src/codegen_mc.rs::ExactStatus, src/json_rw.rs::Json, src/parser.rs::parse_source, src/ref_mc.rs::RefConfig, src/ref_mc.rs::run, src/ref_mc.rs::to_json_report, tests/common/fail_variants.rs::spec_source |  |  | the ce-trace walk passes against the in-process reference MC's output. |  | 
+| tests/info_format_test.rs::prop_names | src/json_rw.rs::Json |  |  | the property names for a spec (helper for the mc-report walks). |  | 
+| tests/info_format_test.rs::enum_vals | src/json_rw.rs::Json |  |  | the enum values for a spec (helper for the mc-report walks). |  | 
+| tests/info_format_test.rs::walk_mc_report | src/info_format.rs::mc_report_schema, src/json_rw.rs::Json, src/json_schema.rs::walk_check |  |  | the D-P7-9 walk against the mc-report model (required keys present, no undocumented keys). |  | 
+| tests/info_format_test.rs::mc_report_schema_document_pin | src/codegen_mc.rs::ExactStatus, src/codegen_mc.rs::FailReason, src/info_format.rs::ce_trace_schema, src/json_rw.rs::parse, src/json_schema.rs::emit_type |  |  | the mc-report draft-07 schema document is byte-pinned. |  | 
+| tests/info_format_test.rs::mc_report_md_pins_sections | src/info_format.rs::mc_report_schema |  |  | the mc-report markdown output pins its sections. |  | 
+| tests/info_format_test.rs::mc_report_walk_benchmarks_both_backends | src/json_rw.rs::Json, tests/common/fail_variants.rs::can_passive_fail_src, tests/common/fail_variants.rs::http2_rst_fail_src, tests/common/fail_variants.rs::spec_source |  |  | the mc-report walk passes for the benchmark specs on both backends. |  | 
+| tests/info_format_test.rs::mc_report_walk_ref_mc_in_process | src/codegen_mc.rs::ExactStatus, src/parser.rs::parse_source, src/ref_mc.rs::RefConfig, src/ref_mc.rs::run, src/ref_mc.rs::to_json_report, tests/common/fail_variants.rs::spec_source |  |  | the mc-report walk passes against the in-process reference MC's output. |  | 
+| tests/info_format_test.rs::validate_json_schema_document_pin | src/json_rw.rs::parse |  |  | the validate-json draft-07 schema document is byte-pinned. |  | 
+| tests/info_format_test.rs::validate_json_md_pins_sections | src/info_format.rs::validate_json_schema |  |  | the validate-json markdown output pins its sections. |  | 
+| tests/info_format_test.rs::walk_validate_json | src/json_rw.rs::Json, src/json_schema.rs::SchemaDoc, src/json_schema.rs::walk_check |  |  | the D-P7-9 walk against the validate-json model (required keys present, no undocumented keys). |  | 
+| tests/info_format_test.rs::validate_json_walk_invalid_examples_both_kinds | src/frontend.rs::render_validate_json, src/frontend.rs::run_validate_structured, src/info_format.rs::validate_json_schema, src/json_rw.rs::parse, src/lib.rs::collect_rfs_files |  |  | the validate-json walk passes for invalid examples of both error kinds. |  | 
+| tests/info_format_test.rs::validate_json_walk_valid_files_ok_true | src/frontend.rs::render_validate_json, src/frontend.rs::run_validate_structured, src/info_format.rs::validate_json_schema, src/json_rw.rs::parse, src/lib.rs::collect_rfs_files |  |  | the validate-json walk reports ok=true for valid files. |  | 
+| tests/info_format_test.rs::validate_json_walk_directory_mode | src/frontend.rs::Format, src/frontend.rs::render_validate_json, src/frontend.rs::run_validate_structured, src/info_format.rs::validate_json_schema, src/json_rw.rs::parse |  |  | the validate-json walk handles directory mode (an array of per-file results). |  | 
+| tests/info_format_test.rs::info_json_schema_document_pin | src/json_rw.rs::parse |  |  | the info-json draft-07 schema document is byte-pinned. |  | 
+| tests/info_format_test.rs::info_json_md_pins_sections | src/info_format.rs::info_json_schema |  |  | the info-json markdown output pins its sections. |  | 
+| tests/info_format_test.rs::info_json_walk_all_valid_examples | src/info.rs::InfoOptions, src/info.rs::run_info, src/info_format.rs::info_json_schema, src/json_rw.rs::Json, src/json_rw.rs::parse, src/json_schema.rs::walk_check, src/lib.rs::collect_rfs_files, src/parser.rs::parse_file |  |  | every valid example's info-json output walks cleanly against the embedded model. |  | 
+| tests/info_format_test.rs::diagram_dot_md_pins_sections |  |  |  | the diagram-dot markdown output pins its sections. |  | 
+| tests/info_format_test.rs::check_dot_documented_subset | src/diagrams/mod.rs::event_label, src/diagrams/mod.rs::guard_label, src/ir.rs::Module |  |  | the coverage check for the diagram-dot format (D-P7-9 style): every documented line appears in generated output. |  | 
+| tests/info_format_test.rs::diagram_dot_generated_output_matches_documented_subset | src/diagrams/dot.rs::generate, src/ir.rs::PatternVariant, src/lib.rs::collect_rfs_files, src/parser.rs::parse_file |  |  | the generated DOT output matches the documented subset exactly. |  | 
+| tests/info_format_test.rs::diagram_puml_md_pins_sections |  |  |  | the diagram-puml markdown output pins its sections. |  | 
+| tests/info_format_test.rs::check_puml_documented_subset | src/diagrams/mod.rs::emit_labels, src/diagrams/mod.rs::event_label, src/diagrams/mod.rs::guard_label, src/diagrams/mod.rs::states, src/ir.rs::Module |  |  | the coverage check for the diagram-puml format (D-P7-9 style): every documented line appears in generated output. |  | 
+| tests/info_format_test.rs::diagram_puml_generated_output_matches_documented_subset | src/diagrams/plantuml.rs::generate, src/ir.rs::PatternVariant, src/lib.rs::collect_rfs_files, src/parser.rs::parse_file |  |  | the generated PlantUML output matches the documented subset exactly. |  | 
+| tests/info_format_test.rs::diagram_mmd_md_pins_sections |  |  |  | the diagram-mmd markdown output pins its sections. |  | 
+| tests/info_format_test.rs::check_mmd_documented_subset | src/diagrams/mod.rs::emit_labels, src/diagrams/mod.rs::event_label, src/diagrams/mod.rs::guard_label, src/diagrams/mod.rs::states, src/ir.rs::Module |  |  | the coverage check for the diagram-mmd format (D-P7-9 style): every documented line appears in generated output. |  | 
+| tests/info_format_test.rs::diagram_mmd_generated_output_matches_documented_subset | src/diagrams/mermaid.rs::generate, src/ir.rs::PatternVariant, src/lib.rs::collect_rfs_files, src/parser.rs::parse_file |  |  | the generated Mermaid output matches the documented subset exactly. |  | 
+| tests/info_format_test.rs::artifact_header_md_pins_sections |  |  |  | the artifact-header markdown output pins its sections. |  | 
+| tests/info_format_test.rs::expected_header_line | src/ir.rs::Ir, src/spec_hash.rs::spec_hash16 |  |  | the documented line-1 template filled with the IR data (D-P7-9 style). |  | 
+| tests/info_format_test.rs::artifact_header_generated_output_matches_documented_format | src/codegen.rs::BackendOptions, src/codegen.rs::CodegenCommandKind, src/codegen.rs::get_backend, src/lib.rs::collect_rfs_files, src/parser.rs::parse_source |  |  | the generated artifact header matches the documented format, including hash variation. |  | 
+| tests/info_format_test.rs::unknown_format_errors_with_list_hint |  |  |  | an unknown `rfs info format` argument errors with a --list hint. |  | 
+| tests/info_format_test.rs::unsupported_output_errors |  |  |  | an unsupported output combination errors cleanly. |  | 
+| tests/info_format_test.rs::no_name_and_no_list_errors |  |  |  | calling `rfs info format` with neither a name nor --list errors. |  | 
+| tests/docs_md_test.rs::mdr_options |  |  |  | the GFM extension set mdr enables (tables, task lists, strikethrough, footnotes, autolinks). |  | 
+| tests/docs_md_test.rs::url_decode |  |  |  | minimal percent-decoding for link targets (%20 -> space, ...). |  | 
+| tests/docs_md_test.rs::hex_val |  |  |  | decode one hex digit to a u8 (None if not a hex digit). |  | 
+| tests/docs_md_test.rs::check_link |  |  |  | check one link/image URL - skip external/fragment targets, resolve relative ones against the doc dir. |  | 
+| tests/docs_md_test.rs::check_markdown |  |  |  | run all document-quality checks over one Markdown source, returning the problem list. |  | 
+| tests/docs_md_test.rs::collect_docs |  |  |  | collect every .md file in the repo, skipping target/, __pycache__/, and hidden dirs. |  | 
+| tests/docs_md_test.rs::collect_docs::walk_dir |  |  |  | recursively walk a directory collecting .md files. |  | 
+| tests/docs_md_test.rs::all_repo_docs_pass_quality_checks |  |  |  | assert every repo .md passes the quality checks (the main gate). |  | 
+| tests/docs_md_test.rs::valid_mermaid_diagrams_and_links_pass |  |  |  | negative-control fixture: valid mermaid + links pass the checker. |  | 
+| tests/docs_md_test.rs::unterminated_fence_is_detected |  |  |  | negative-control fixture: an unterminated fence is detected. |  | 
+| tests/docs_md_test.rs::non_rendering_mermaid_is_detected |  |  |  | negative-control fixture: a non-rendering mermaid block is detected. |  | 
+| tests/docs_md_test.rs::dead_relative_link_is_detected |  |  |  | negative-control fixture: a dead relative link is detected. |  | 
 ## All types
 
 | Type | Depends | Component | Functionality | Short description | Documented in |

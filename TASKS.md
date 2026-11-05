@@ -1692,3 +1692,18 @@ PHASE 8 IS NOW COMPLETE.
 - Fixed a pre-existing layout quirk surfaced by the insertion: the committed file had NO blank line between the last All-functions row and `## All types`, nor between the last All-types row and `## Components` (introduced by task 23's splice). The after-the-row insertion therefore glued both headings onto the last inserted rows (`...|  |## All types`) - comrak parses a heading inside a table cell as cell text, so docs_md_test would not have caught it. Both headings split back onto their own lines with a separating blank line; all six section headers verified present in order.
 - `PHASE_10_TASK_25_STATUS.md` written per FORMATTING.md §6.2 (incl. the warning for future chunk tasks 26-30 to insert with an explicit blank-line separator before the headings).
 - Verification: `cargo test --test docs_md_test` 5/5 OK; row counts re-checked against the file (49 fn rows + 6 type rows for the three suites); no blank lines between table rows. Committed as one commit.
+
+## 2026-11-05 06:05 — Phase 10 task 26: enumerated the reference-MC soundness cluster into TEST_STRUCTURE.md (47 fns / 5 types)
+
+### Interpretation & plan
+
+- Requested: execute Phase 10 task 26 per `docs/roadmap/phase_10/tasks/PHASE_10_TASK_26.md` - enumerate every function and type of `tests/ref_mc_sweep_test.rs`, `tests/ref_mc_diag_test.rs`, `tests/ref_mc_diff_test.rs`, `tests/toolchain_fuzz_test.rs` into `TEST_STRUCTURE.md` (Component/Functionality blank, Documented-in blank, one row per line), then keep docs_md_test green.
+- Plan: re-verify chunk counts (grep + read-through), append rows after the task-25 rows using full-row anchors (task-25 warning), write the status file, append this entry, commit.
+
+### Report
+
+- `TEST_STRUCTURE.md`: 47 function rows + 5 type rows appended - ref_mc_sweep_test.rs 6 fns / 3 types (Job, Prep, SampleErr), ref_mc_diag_test.rs 5 fns / 1 type (Prep), ref_mc_diff_test.rs 24 fns / 0 types, toolchain_fuzz_test.rs 12 fns / 1 type (Run). Every row carries bidirectional project Depends (heavy rfs::ref_mc / rfs::specgen library-API edges mapped to real identifiers across src/{parser,validator,printer,ir,json_rw,codegen,codegen_mc,ref_mc,specgen,lib}.rs + the task-20 tests/common/mc_json.rs zero_peak_rss helper), a one-line description, blank Component/Functionality/Documented-in.
+- No plan correction needed: re-verified grep counts matched the task file's per-file Goal figures EXACTLY (6/3 + 5/1 + 24/0 + 12/1 = 47 fns / 5 types) and the read-through found no phantoms in any of the four files (same outcome as task 22; the Context's "~47/~8" and plan table's "~54/~10" were rougher estimates - the task file's exact numbers govern).
+- Insertion technique: FULL-row anchors (identifier + complete Depends cell + description) instead of identifier-only anchors - once this chunk's own rows reference types like LivOut in their Depends cells, an identifier-only anchor matches inside another row's cell too (the first attempt failed its uniqueness assertion before writing anything; the file was untouched).
+- `PHASE_10_TASK_26_STATUS.md` written per FORMATTING.md §6.2.
+- Verification: `cargo test --test docs_md_test` 5/5 OK; all six section headers present in order; row counts re-checked against the file (47 fn rows + 5 type rows for the four suites); no blank lines between table rows. Committed as one commit.

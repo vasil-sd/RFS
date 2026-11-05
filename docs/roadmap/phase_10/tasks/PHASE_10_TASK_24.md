@@ -91,3 +91,9 @@ docs_md_test green.
 
 ## Non-goals
 - No other suites, no classification, no source changes.
+
+## Task corrections (optional)
+
+| Correction | Description + rationale |
+|------------|-------------------------|
+| Row counts ~52/~18 -> 51/5 | The Goal's per-file figures ("41 fns / 14 types" for backend_parity_test.rs, "8 fns" for wide_ops_parity_test.rs) and the Context's "~52/~18" total were grep counts inflated by template phantoms - the same class corrections 7a/8a/20a/21a/23a established, where the read-through is authoritative. backend_parity_test.rs: only 4 of the 14 type grep hits are real Rust types (McOutcome, McExact, Pinned, and JsonCase nested in the mc_json_five_status_reason_cases fn body - enumerated as `tests/backend_parity_test.rs::mc_json_five_status_reason_cases::JsonCase` per the preamble's nested-type convention); the other ten are RFS spec enums (`enum State` / `enum Color`) inside the LIV_*_SPEC and JSON_GOLDEN_SPEC raw strings. wide_ops_parity_test.rs: only 7 of the 8 fn grep hits are real - the eighth is `fn main()` on a backslash-continuation line of rust_driver_source's format! string template (it starts a line, unlike smt_emit.rs's phantoms per correction 6a, so the naive counter sees it). prod_parity_test.rs is clean at 3 fns / 1 type. Authoritative chunk total: 51 fn rows + 5 type rows. Recorded as plan correction 24a. |

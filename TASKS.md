@@ -1662,3 +1662,18 @@ PHASE 8 IS NOW COMPLETE.
 - `START.md` section 6: phase-implementation row "Phases 0-8 COMPLETE" -> "Phases 0-9 COMPLETE".
 - `KB.md` section 1: added the Phase 9 row after the Phase 7 row (Phase 8 is already represented by the Class A / Class B doc-set rows).
 - Verification: docs_md_test 5/5, dev_docs_test 9/9; committed as one commit (2 files + this entry, tree clean afterwards).
+
+## 2026-11-05 05:14 — Phase 10 task 24: enumerated the three cross-backend parity suites into TEST_STRUCTURE.md (51 fns / 5 types)
+
+### Interpretation & plan
+
+- Requested: execute Phase 10 task 24 per `docs/roadmap/phase_10/tasks/PHASE_10_TASK_24.md` - enumerate every function and type of `tests/backend_parity_test.rs`, `tests/wide_ops_parity_test.rs`, `tests/prod_parity_test.rs` into `TEST_STRUCTURE.md` (Component/Functionality blank, Documented-in blank, one row per line), then keep docs_md_test green.
+- Plan: re-verify chunk counts (grep + read-through), append rows after the task-23 rows, record any count corrections, write the status file, append this entry, commit.
+
+### Report
+
+- `TEST_STRUCTURE.md`: 51 function rows + 5 type rows appended - backend_parity_test.rs 41 fns / 4 types (McOutcome, McExact, Pinned, nested-in-fn-body JsonCase as `tests/backend_parity_test.rs::mc_json_five_status_reason_cases::JsonCase`), wide_ops_parity_test.rs 7 fns / 0 types, prod_parity_test.rs 3 fns / 1 type (DriverRun). Every row carries bidirectional project Depends (src/{parser,codegen,codegen_mc,json_rw,lib}.rs identifiers + task-20 tests/common helpers: prod_driver build_drivers/input_script/run_driver, mc_json zero_peak_rss), a one-line description, blank Component/Functionality/Documented-in.
+- PLAN CORRECTION 24a (recorded in PHASE_10_PLAN.md + the task file's new Task corrections section): the cluster notes' "41 fns / 14 types" and "8 fns" were grep counts inflated by template phantoms - ten of backend_parity's fourteen type hits are RFS spec enums inside the LIV_*_SPEC / JSON_GOLDEN_SPEC raw strings, and wide_ops's eighth fn hit is `fn main()` on a backslash-continuation line of rust_driver_source's format! template (it starts a line, so the naive counter sees it - unlike smt_emit.rs per correction 6a). Authoritative total: 51 fns / 5 types (was ~52/~18).
+- Fixed a pre-existing defect while appending: a stray blank line between the last task-20 row (mc_json.rs::zero_peak_rss) and the first task-21 row (frontend_test.rs::tmp_root) had split the All functions table into two GFM fragments (introduced by task 21; comrak parses both fragments as valid tables, so docs_md_test never caught it). Removed - all rows now form one contiguous table.
+- `PHASE_10_TASK_24_STATUS.md` written per FORMATTING.md §6.2.
+- Verification: `cargo test --test docs_md_test` 5/5 OK after the rows were written; row counts re-checked against the file (41/7/3 fn rows, 7 type rows total incl. task 20's 2); no blank lines remain between table rows. Committed as one commit.

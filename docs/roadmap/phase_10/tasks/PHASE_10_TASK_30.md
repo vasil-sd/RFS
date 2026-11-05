@@ -120,3 +120,12 @@ correction.
 ## Non-goals
 - No categories (task 31), no classification (task 32), no mapping/layout
   (task 33), no source changes.
+
+## Task corrections (optional)
+
+| Correction | Description + rationale |
+|------------|-------------------------|
+| Inline total ~99 -> 103 | The Context's "smt_emit 6" inherited correction 2a's figure, which correction 6a already refuted at task 6 (all 10 test-module fns are real; no template phantoms - the generated `fn` text lives inside format!/push_str strings and never starts a line). Task 30's masked read-through confirms 10. Every other per-file figure matched exactly. Recorded as plan correction 30a. |
+| Crate tests 26/14 -> 23/4 | nostd_minimal.rs is 5 fns / 0 types (the planned 8/7 counted three phantom fns + seven phantom type hits inside its r#"..."# no_std mock template, incl. associated-type bindings); adapters.rs holds 4 real types (its `type Input/Output/Error` grep hits are associated-type bindings in the ProtocolFsm impl). Recorded as plan correction 30b. |
+| +12 rfs-build inline rows; +4 fuzz macro-entry rows | The completeness sweep found crates/rfs-build/src/lib.rs's REAL 12-fn test module assigned to NEITHER task 29 NOR task 30 (the preamble's "25 host files" counts it) - enumerated here. And each macro-only fuzz target gets one `fuzz_target!` entry row so all five files appear as their sole home. Recorded as plan correction 30c. Authoritative chunk total: 146 fn rows + 5 type rows; final inventory 940 fn rows (delta vs ~901 fully explained). |
+| Documented-in for crate tests | The Context's "blank for inline tests and crate tests" conflicts with the BINDING preamble, which names the three workspace-crate test files as carrying real //! Docs: pointers whose fragments are copied. The preamble governs: all rows of integration.rs / adapters.rs / nostd_minimal.rs carry their fragments; the five fuzz targets likewise. Inline rows (src/ + rfs-build lib.rs) stay blank per the task-29 rule. |

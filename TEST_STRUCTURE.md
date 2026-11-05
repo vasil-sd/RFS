@@ -1137,12 +1137,149 @@ assignable to at least one axis; multi-valued cells are allowed.
 
 ## File mapping
 
-(filled by task 33 - one row per non-generated test source file: components,
-functionalities, description + rationale incl. its proposed new path)
+One row per non-generated test source file (39: 24 tests/*.rs suites + 4 tests/common/*.rs + 3 fixtures + 3 crate-test files + 5 fuzz-target files). Inline #[cfg(test)] modules are NOT separate rows - they are covered by their host file's row in SRC_STRUCTURE.md's file mapping (the 23 host files under src/ plus crates/rfs-build/src/lib.rs); their test functions and types are enumerated in this document's inventory tables with <file>::tests::<fn> identifiers.
 
 | Source file name | Components | Functionalities | Description + rationale |
 |---|---|---|---|
+| crates/rfs-adapters/tests/adapters.rs | Workspace crate tests, rfs-adapters crate | behavior pinning | Adapter semantics over a mock counter FSM: minimal forwards steps and unwraps (and is itself a ProtocolFsm), callback drives until the closure stops / reports FSM errors with steps done / respects the step limit, channel round-trip preserves order + error outcomes keep the FSM running, async stream yields outcomes in order / is pending when empty / carries errors. 12 fns / 4 types (MockFsm, MockInput, MockOutput, MockError). kept in place (crate tests stay in their crates' tests/ directories). |
+| crates/rfs-adapters/tests/nostd_minimal.rs | Workspace crate tests, rfs-adapters crate, Spec hashing | behavior pinning | no_std compile checks: the adapters rlib compiles under no_std, minimal + callback compile against a no_std mock FSM, and minimal compiles against a REAL generated no_std FSM (the artifact-header pins exercise Spec hashing). 5 fns / 0 types. kept in place. |
+| crates/rfs-build/tests/integration.rs | Workspace crate tests, rfs-build crate, Rust backend | behavior pinning | Real end-to-end for the rfs-build helper: the workspace binary generates an artifact that compiles (rust backend) and a C file is generated (c backend) - compilation success IS the check. 6 fns / 0 types. kept in place. |
+| fuzz/fuzz_targets/codegen.rs | Toolchain fuzz targets, Codegen core, Rust backend, C backend, Spec hashing | fuzzing (toolchain) | libFuzzer harness: random valid specs generate ALL six artifacts (2 backends x production/test/mc) without error, each passing check_structure's cheap structural invariants (v1 header line, balanced delimiters with comment/string/char-literal skipping); no compilation inside the fuzzer. 2 fns / 0 types. kept in place (the detached fuzz/ workspace keeps its own layout - cargo-fuzz requirement). |
+| fuzz/fuzz_targets/common.rs | Toolchain fuzz targets, Spec generation | fuzzing (toolchain) | The shared RandSpec wrapper of all four other targets: fuzzer bytes -> u64 seed + small/medium size flag -> one random VALID spec through the specgen builder (validity by construction - never derives Arbitrary over raw IR types); split_head_rest separates the 9-byte head from the raw remainder. 3 fns / 1 type (RandSpec). kept in place. |
+| fuzz/fuzz_targets/ir_roundtrip.rs | Toolchain fuzz targets, IR model, JSON I/O, Spec generation | fuzzing (toolchain) | libFuzzer harness: random valid IRs, optionally mutated 0..4 validity-preserving steps, satisfy to_json -> from_json -> to_json byte-stability. 1 fn (fuzz_target! macro entry) / 0 types. kept in place. |
+| fuzz/fuzz_targets/parser.rs | Toolchain fuzz targets, Parser, JSON I/O | fuzzing (toolchain) | libFuzzer harness: arbitrary bytes -> parse_source must NOT panic; on success the IR validates without panicking and round-trips through the JSON serialization byte-stably. 1 fn (fuzz_target! macro entry) / 0 types. kept in place. |
+| fuzz/fuzz_targets/validator.rs | Toolchain fuzz targets, Validator, IR model, JSON I/O | fuzzing (toolchain) | libFuzzer harness: random VALID IRs -> validate_ir must not panic; arbitrary raw bytes as JSON text -> Ir::from_json returns Err or Ok, never panics. 1 fn (fuzz_target! macro entry) / 0 types. kept in place. |
+| tests/backend_parity_test.rs | Parity suites, Rust backend, C backend, Shared MC concepts | parity pinning | Cross-backend differential parity: exact-mode MC runs over ALL property-bearing examples field-identical across backends (exit code + parsed McExact), generated test-executable agreement (fuzz skeleton present in both, identical per-test result lists, byte-identical random-trace coverage line), liveness variant parity with pinned counterexample fields, JSON report byte-parity modulo peak_rss_kb incl. the five status/reason cases and a golden full-document pin, seeded forced-violation parity on all assumption-bearing examples. 41 fns / 4 types (McOutcome, McExact, Pinned, JsonCase). kept in place. |
+| tests/benchmark_mc_test.rs | MC benchmark/liveness/SMT suites, Rust backend, C backend, Shared MC concepts, MC plan, Monitor compiler | benchmarking, determinism pinning (seeds + byte-identity) | Pinned-metric benchmarks over six specs: pass-complete in both backends with pinned deterministic metrics (incl. monitor size), the five pinned FAIL variants failing identically in both backends with counterexample parity + ce_steps pins from the JSON report, the JSON report + summary/timing tables, --threads 1/2/4 byte-identity over all eight workloads, and the --fast soundness smoke. 24 fns / 5 types (Pin, BenchRun, FailPin, CodegenTimes, SpecRuns). kept in place. |
+| tests/codegen_test.rs | Codegen suite, Shared test planning, Rust backend, C backend, Monitor compiler | file-driven corpus coverage, parity pinning, behavior pinning, exit-code/CLI-contract pinning, fuzzing (generated code) | Runs the generated aggregate unit-test crate over all 50 valid examples in BOTH backends: planner behavior pins (taken/not-taken cases, invariant selection, monitor-violation planning fired through the reference monitor, fuzz-decode plans), registry/CLI parsing, no_std + protocol-fsm emission byte-pins, C/Rust semantics agreement on the endpoint-protocol example. 61 fns / 0 types. kept in place. |
+| tests/common/fail_variants.rs | Shared test helpers | behavior pinning | The pinned FAIL-variant specs shared by benchmark_mc_test and info_format_test: one anchored mutation of a valid example each (47_http2_stream rst_goes_closed violated at step 2, 49_can_arbitration passive_band violated at step 6), with the anchor-occurs-exactly-once drift guard. 5 fns / 0 types. kept in place (tests/common/ stays a shared module). |
+| tests/common/mc_json.rs | Shared test helpers, Shared MC concepts | parity pinning | peak-RSS normalization for byte comparisons: zeroes the machine-dependent peak_rss_kb field in one compact MC JSON document before cross-backend byte-comparison (never pinned itself). 1 fn / 0 types. kept in place. |
+| tests/common/mod.rs | Shared test helpers | parity pinning, determinism pinning (seeds + byte-identity) | Module root of the shared test-helper module (0 own fns / 0 types - no inventory rows): re-exports prod_driver, fail_variants and mc_json to the suites that consume them; the helper rows carry their consuming suites' verification axes. kept in place. |
+| tests/common/prod_driver.rs | Shared test helpers, IR model | parity pinning, determinism pinning (seeds + byte-identity) | Production-FSM driver construction for the parity/monitor suites: flattens constructor groups into variants using the backend naming convention, renders the Rust + C driver sources (production artifact verbatim plus generated glue) and the sample-level twins, builds both drivers with rustc/gcc (warning-free bar), and generates the deterministic LCG-lineage input script whose identical bytes feed both drivers. 21 fns / 2 types (FlatVariant, ProductionArtifacts). kept in place. |
+| tests/dev_docs_test.rs | Doc quality gates | doc-quality gating, code<->doc traceability | The Phase 8 code<->doc sync gate: fragment-ID grammar, doc-to-code reference resolution, code-to-doc //! Docs: pointers, TASK_MAP coverage, Class B llm-budgets, no orphans - the five checks must find zero problems on the real tree; manifest validation + filesystem-scan completeness; positive/negative-control fixture tests. 37 fns / 2 types (FragDef, PointerParse). kept in place. |
+| tests/diagram_render_parity_test.rs | Diagram parity suite, Diagram command + plugins, External tool resolution | parity pinning, file-driven corpus coverage, exit-code/CLI-contract pinning, behavior pinning | Cross-renderer syntax parity: internal half all 50 valid examples x dot/puml/mmd in-process (every render emits an SVG document), external half a pinned 4-spec subset through the real tools (availability-gated, serialized) with the rfs-written source byte-identical to the in-process text, unresolvable-tools e2e (the internal default still succeeds for all three formats), --print-script internal-mode structural pins, three garbage-rejection negative controls. 27 fns / 0 types. kept in place. |
+| tests/docs_md_test.rs | Doc quality gates, Diagram command + plugins | doc-quality gating | The mermaid/doc-pointer quality gate: every repo .md passes fence closure, mermaid rendering and relative-link checks (comrak AST walk with GFM extensions); the four negative-control fixtures prove each failure class is detected. 13 fns / 0 types. kept in place. |
+| tests/example_projects_test.rs | Example projects suite, Example crates, rfs-build crate, External tool resolution | parity pinning, behavior pinning, fuzzing (generated code), exit-code/CLI-contract pinning | Real build systems over the example crates: c_sync_handler rebuilt from scratch via its Makefile (gcc -Wall clean) with C/Rust scenario data lines byte-identical AND pinned; fuzz_rust skeleton cargo check in the detached fuzz workspace (no fuzzer runtime needed); fuzz_c generation without clang (skeleton + FSM content pins incl. the v1.0 unified line-1 header). 9 fns / 0 types. kept in place. |
+| tests/examples_test.rs | Example corpus suite, Frontend CLI logic, IR model | file-driven corpus coverage | The .rfs corpus is self-describing to the toolchain: all 50 valid examples parse/validate/round-trip through conversion, all 13 invalid ones are rejected by parse or validate, and the counts are reported so dropping a new example into examples/ works without test-code change. 4 fns / 0 types. proposed rename: tests/example_corpus_test.rs - disambiguates from example_projects_test.rs (real build systems, not the corpus) and matches its Example corpus suite component. |
+| tests/fixtures/dev_docs/dangling_pointer.rs | Doc quality gates | code<->doc traceability | FIXTURE (never compiled by cargo): the dangling-pointer negative control - a //! Docs: line naming a fragment no document defines; must be detected and own nothing. kept in place (fixtures stay under tests/fixtures/). |
+| tests/fixtures/dev_docs/good_code.rs | Doc quality gates | code<->doc traceability | FIXTURE (never compiled by cargo): the sync gate's positive control - a stub module with a valid //! Docs: pointer line; must pass every check with zero problems. kept in place. |
+| tests/fixtures/dev_docs/missing_pointer.rs | Doc quality gates | code<->doc traceability | FIXTURE (never compiled by cargo): the missing-pointer negative control - a manifest-listed source file with NO //! Docs: pointer line; must be detected. kept in place. |
+| tests/frontend_test.rs | Frontend CLI suite, Frontend CLI logic, Parser, Validator, Printer, Info command, Diagram command + plugins, rfs-test command, gen-spec command, mc-ref command, External tool resolution, CLI dispatch | exit-code/CLI-contract pinning, file-driven corpus coverage, fuzzing (generated code), determinism pinning (seeds + byte-identity), differential soundness | End-to-end CLI coverage of all eight subcommands through the compiled binary: conversion (extension rules, target-dir handling, collision guards), validation (structured errors, err files, --json error shapes), info (text/JSON over the example corpus), diagram (internal renderers + real/stub external tools + --print-script pins + tool precedence), test (both backends + the fuzz-suite invocation paths), gen-spec (seed determinism byte-identity), mc-ref (exit codes mirroring the generated binaries + output agreement with them). 137 fns / 0 types. kept in place. |
+| tests/info_format_test.rs | Doc quality gates, Info-format registry, EBNF grammar model, JSON-schema emitter, Info command | doc-quality gating, file-driven corpus coverage | The self-describing-formats suite: all ten formats render and schema-validate (byte-pinned draft-07 schema documents + markdown section pins), the EBNF grammar model matches DESIGN.md section 6 exactly with no dangling non-terminals and every RFS keyword as a terminal, ce-trace/mc-report/validate-json walks against generated output on both backends + the in-process reference MC, diagram-format documented-subset coverage checks, the artifact-header format pin. 59 fns / 0 types. kept in place. |
+| tests/integration_example_test.rs | Integration example suite, rfs-adapters crate, Example crates | determinism pinning (seeds + byte-identity), behavior pinning | The Phase 2 endpoint-protocol integration example through the adapters: an mpsc-channel driver steps the generated endpoint FSM - two runs byte-identical (channel-driver determinism) + pinned protocol behavior (SynAck/Ack sequence, version header); on_error fallback handling for inputs no transition matches (lands in Closed with Alert_Code(255), no StepError). 4 fns / 0 types. proposed rename: tests/endpoint_protocol_test.rs - the current name reads as a generic integration test and says nothing about its subject; the responsibility-based name names what is actually tested. |
+| tests/library_comparison.rs | Parser comparison suite, Parser | differential soundness | nom-vs-chumsky parser agreement over a module-header grammar: both external parsers build the same `module <name>` parser and must agree - well-formed input parses to its name, malformed input yields a parse error (independence is the point - a shared bug cannot hide in both). 9 fns / 0 types. proposed rename: tests/parser_comparison_test.rs - gains the _test suffix every other suite carries and matches its Parser comparison suite component. |
+| tests/liveness_mc_test.rs | MC benchmark/liveness/SMT suites, Rust backend, Shared MC concepts, MC plan, Monitor compiler | behavior pinning | Liveness violation semantics on the generated engine (Rust-only - no C path exists in the file): pass-complete, eventually/until violations with pinned formula/step/cycle/note + structurally valid lasso counterexamples, skeleton safety-leaf falsification, input_is edge labels (witness cycle must use the Pong self-loop), --nondet strong-fairness filter, truncated-mode soundness (never a false pass-complete), deeper-nesting diagnostic, safety-over-liveness precedence. 17 fns / 1 type (LivOut). kept in place. |
+| tests/monitor_integration_test.rs | Monitor/PSL suites, Monitor compiler, Rust backend, C backend | parity pinning | Injected-bug MC parity in both backends: the buggy example-41 variant (dropped Ack transition) must FAIL with cross-backend parity on label/trigger/violation steps (re-pinned fin_acked_bounded trigger 1 / violation 5); the correct spec reports NO property violation (no monitor false positives) with identical summary field sets + re-pinned FAIL(deadlock) depth; debug-gated production monitors surface the violation at the step API with values identical to the Rust step API. 17 fns / 1 type (McViolation). kept in place. |
+| tests/monitor_ref_test.rs | Monitor/PSL suites, Monitor compiler, Rust backend, C backend | differential soundness | Hand-written Rust + C (gcc -Wall) reference monitors for specs 43/44/45 vs the generated online monitors: seeded random traces through the real production FSM plus crafted boundary scenarios (bit-width wraparound, obligation deadlines, re-trigger after clear, sticky failure, same-sample tie-break) - M-lines and FIRST verdicts must agree. 21 fns / 5 types (Sample, RefViolation, RefProp, CTable, SpecDef). kept in place. |
+| tests/prod_parity_test.rs | Parity suites, Rust backend, C backend | parity pinning | Production-FSM driver parity: EVERY valid example x both backends driven with the identical seeded LCG script (seed 43210, 200 steps) - byte-identical driver stdout + exit code 0, and the unexpected-event path is exercised somewhere in the suite. 3 fns / 1 type (DriverRun). kept in place. |
+| tests/psl_translation_test.rs | Monitor/PSL suites, Monitor compiler, Rust backend, C backend | differential soundness, file-driven corpus coverage | The independent recursive window evaluator (own bit-vector semantics per SEMANTICS 2.2, own obligation scanning per SEMANTICS 5.5) vs the generated monitors over ALL property-bearing examples on seeded random traces: first-confirmation sample AND trigger sample exact match; the RFS_PSL_REF_TOOL hook cross-checks an external reference tool when set. 34 fns / 3 types (PslSample, Val, Ctx). kept in place. |
+| tests/ref_mc_diag_test.rs | Ref-MC soundness suites, Reference MC, Shared MC concepts, Rust backend | differential soundness | The non-fail-fast diagnostic companion: 8 workers enumerate every ref_mc-vs-generated-mc mismatch over all tractable valid examples in one shot (OK/HANG/MISMATCH/ERROR per sample, watchdog prep with a 15s in-process deadline). 5 fns / 1 type (Prep). kept in place. |
+| tests/ref_mc_diff_test.rs | Ref-MC soundness suites, Reference MC, Shared MC concepts, Rust backend, C backend, mc-ref command | differential soundness, exit-code/CLI-contract pinning | The Phase 6 differential suite: ref-MC vs both generated engines over every eligible valid example + 20 pinned-seed random specs - status agreement, exact states/max_depth, minimal-violation-label ground truth, CE replay through verify_counterexample, no-false-PASS negative control (tiny --max-states never yields PassComplete); the rfs mc-ref CLI pinned against in-process + both engines (exit codes mirror, JSON byte-identical modulo peak_rss_kb). 24 fns / 0 types. kept in place. |
+| tests/ref_mc_sweep_test.rs | Ref-MC soundness suites, Reference MC, Shared MC concepts, Rust backend | differential soundness | The independent reference engine as ground truth: byte-parity sweep of ref_mc vs the generated Rust MC over all tractable valid examples - fail-fast N-way parallel workers, per-sample timeout, failed-first reordering, watchdog-thread in-process phases so a stuck ref_mc cannot stall the suite. 6 fns / 3 types (Job, Prep, SampleErr). kept in place. |
+| tests/smt_bounded_test.rs | MC benchmark/liveness/SMT suites, SMT plan + emitter, MC plan, Rust backend, C backend | parity pinning | The feature-gated SMT bounded mode: both backends x three specs (FAIL/liveness/PASS) byte-identical stdout + exit codes with pinned status/label/step lines and incomplete labeling on the PASS spec; the runtime --bound flag overrides the codegen default in both backends. 8 fns / 0 types. kept in place. |
+| tests/toolchain_fuzz_test.rs | Toolchain fuzz CI suite, Reference MC, Rust backend, C backend, Codegen core, Spec generation | fuzzing (generated code), differential soundness, behavior pinning | The slow seeded compile-and-run layer: 3 pinned seeds x 10 specgen specs generate + compile all six artifacts and run MC exact/fuzz vs ref_mc ground truth with NO FALSE PASS + stderr stability across two runs; the sample-0 assumption-abort asymmetry (ref_mc clean error vs generated panic/abort naming the same label); the trigger-step-0 C report regression pin. 12 fns / 1 type (Run). kept in place. |
+| tests/training_test.rs | Training pipeline suite, Training pipeline | behavior pinning, file-driven corpus coverage | Training-set structure (every category has a non-empty rfs_training.jsonl passing the 2-message format validation), snippet extraction (every valid snippet parses + validates + IR-JSON and RFS printer round-trips both directions; every invalid one is NOT translation-ready), aggregation (line counts sum exactly) and freshness of the committed all_rfs_training.jsonl. 5 fns / 0 types. kept in place. |
+| tests/wide_ops_parity_test.rs | Parity suites, Rust backend, C backend | parity pinning | Wide bit-op semantics parity on example 50: per-step output of the boundary sequence byte-identical across backends AND matching pinned values (shifts by k >= width give 0; wide products 63744 then 5...), exact-mode MC status parity (both backends pass-complete with identical summary lines). 7 fns / 0 types. kept in place. |
 
 ## Proposed layout
 
-(filled by task 33 - the proposed test directory tree as a mermaid diagram)
+```mermaid
+graph TD
+  tests["tests/ - one binary per file"]
+  tests --> f_good
+  f_good --> c_mod
+  c_mod --> t_fe
+  t_fe --> t_parcmp
+  t_parcmp --> t_codegen
+  t_codegen --> t_corpus
+  t_corpus --> t_bparity
+  t_bparity --> t_bench
+  t_bench --> t_sweep
+  t_sweep --> t_fuzzci
+  t_fuzzci --> t_monref
+  t_monref --> t_docsmd
+  t_docsmd --> t_diagpar
+  t_diagpar --> t_exproj
+  t_exproj --> t_integex
+  t_integex --> t_training
+  t_training --> fz_common
+  fz_common --> ct_adapters
+
+  subgraph fixtures["tests/fixtures/dev_docs/ - gate controls"]
+    f_good["good_code.rs"]
+    f_missing["missing_pointer.rs"]
+    f_dangling["dangling_pointer.rs"]
+  end
+  subgraph common["tests/common/ - shared module"]
+    c_mod["mod.rs"]
+    c_prod["prod_driver.rs"]
+    c_fail["fail_variants.rs"]
+    c_mcjson["mc_json.rs"]
+  end
+  subgraph fe["Frontend CLI suite"]
+    t_fe["frontend_test.rs"]
+  end
+  subgraph parcmp["Parser comparison suite"]
+    t_parcmp["parser_comparison_test.rs"]
+  end
+  subgraph codegen["Codegen suite"]
+    t_codegen["codegen_test.rs"]
+  end
+  subgraph corpus["Example corpus suite"]
+    t_corpus["example_corpus_test.rs"]
+  end
+  subgraph parity["Parity suites"]
+    t_bparity["backend_parity_test.rs"]
+    t_wideops["wide_ops_parity_test.rs"]
+    t_prodpar["prod_parity_test.rs"]
+  end
+  subgraph mc["MC benchmark/liveness/SMT suites"]
+    t_bench["benchmark_mc_test.rs"]
+    t_liv["liveness_mc_test.rs"]
+    t_smt["smt_bounded_test.rs"]
+  end
+  subgraph refmc["Ref-MC soundness suites"]
+    t_sweep["ref_mc_sweep_test.rs"]
+    t_diag["ref_mc_diag_test.rs"]
+    t_diff["ref_mc_diff_test.rs"]
+  end
+  subgraph fuzzci["Toolchain fuzz CI suite"]
+    t_fuzzci["toolchain_fuzz_test.rs"]
+  end
+  subgraph monitor["Monitor/PSL suites"]
+    t_monref["monitor_ref_test.rs"]
+    t_monint["monitor_integration_test.rs"]
+    t_psl["psl_translation_test.rs"]
+  end
+  subgraph docgate["Doc quality gates"]
+    t_docsmd["docs_md_test.rs"]
+    t_devdocs["dev_docs_test.rs"]
+    t_infofmt["info_format_test.rs"]
+  end
+  subgraph diagpar["Diagram parity suite"]
+    t_diagpar["diagram_render_parity_test.rs"]
+  end
+  subgraph exproj["Example projects suite"]
+    t_exproj["example_projects_test.rs"]
+  end
+  subgraph integex["Integration example suite"]
+    t_integex["endpoint_protocol_test.rs"]
+  end
+  subgraph training["Training pipeline suite"]
+    t_training["training_test.rs"]
+  end
+  subgraph fuzzws["fuzz/fuzz_targets/ - detached cargo-fuzz workspace"]
+    fz_common["common.rs"]
+    fz_parser["parser.rs"]
+    fz_validator["validator.rs"]
+    fz_roundtrip["ir_roundtrip.rs"]
+    fz_codegen["codegen.rs"]
+  end
+  subgraph cratetests["crates/*/tests/ - crate test dirs"]
+    ct_adapters["rfs-adapters: adapters.rs"]
+    ct_nostd["rfs-adapters: nostd_minimal.rs"]
+    ct_build["rfs-build: integration.rs"]
+  end
+```
+
+> The suite-family subgraphs are visual groupings by component family, not directories: every integration suite stays a flat top-level `tests/*.rs` file because cargo discovers one test binary per file - the families become visible through consistent naming instead of directories. The three renamed files (parser_comparison_test.rs, example_corpus_test.rs, endpoint_protocol_test.rs) appear under their proposed names; every other file is kept in place. The arrows between groups are layout spines that keep the renderer from overlapping them - they are not dependencies. Categories live in the mapping table above, not here.

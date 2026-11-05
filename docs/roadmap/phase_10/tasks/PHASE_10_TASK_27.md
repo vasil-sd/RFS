@@ -88,3 +88,9 @@ docs_md_test green.
 
 ## Non-goals
 - No other suites, no classification, no source changes.
+
+## Task corrections (optional)
+
+| Correction | Description + rationale |
+|------------|-------------------------|
+| Row counts 73/10 -> 72/9 | The Goal's per-file figures ("21 fns / 6 types" monitor_ref, "18 fns / 1 type" monitor_integration) were grep counts inflated by two template phantoms - the class of corrections 7a/8a/20a/21a/23a/24a/25a. monitor_ref_test.rs: one of the six type hits is a C `enum {{ KIND_ALWAYS, KIND_OBLIGATION }}` on a line of c_reference_source's format! string template (it starts a line, so the naive counter sees it) - only Sample, RefViolation, RefProp, CTable and SpecDef are real. monitor_integration_test.rs: one of the eighteen fn hits is `fn main() {` at column 0 inside the RUST_DRIVER raw-string driver template - only 17 fns are real (McViolation is clean). psl_translation_test.rs is clean at 34/3 (the six Ctx methods get `<file>::<Type>::<method>` identifiers). Authoritative total: 72 fns / 9 types. Recorded as plan correction 27a. |

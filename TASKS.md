@@ -1707,3 +1707,18 @@ PHASE 8 IS NOW COMPLETE.
 - Insertion technique: FULL-row anchors (identifier + complete Depends cell + description) instead of identifier-only anchors - once this chunk's own rows reference types like LivOut in their Depends cells, an identifier-only anchor matches inside another row's cell too (the first attempt failed its uniqueness assertion before writing anything; the file was untouched).
 - `PHASE_10_TASK_26_STATUS.md` written per FORMATTING.md §6.2.
 - Verification: `cargo test --test docs_md_test` 5/5 OK; all six section headers present in order; row counts re-checked against the file (47 fn rows + 5 type rows for the four suites); no blank lines between table rows. Committed as one commit.
+
+## 2026-11-05 06:38 — Phase 10 task 27: enumerated the monitor/PSL test cluster into TEST_STRUCTURE.md (72 fns / 9 types)
+
+### Interpretation & plan
+
+- Requested: execute Phase 10 task 27 per `docs/roadmap/phase_10/tasks/PHASE_10_TASK_27.md` - enumerate every function and type of `tests/monitor_ref_test.rs`, `tests/monitor_integration_test.rs`, `tests/psl_translation_test.rs` into `TEST_STRUCTURE.md` (Component/Functionality blank, Documented-in blank, one row per line), then keep docs_md_test green.
+- Plan: re-verify chunk counts (grep + read-through), append rows after the task-26 rows using full-row anchors, write the status file, append this entry, commit.
+
+### Report
+
+- `TEST_STRUCTURE.md`: 72 function rows + 9 type rows appended - monitor_ref_test.rs 21 fns / 5 types (Sample, RefViolation, RefProp, CTable, SpecDef), monitor_integration_test.rs 17 fns / 1 type (McViolation), psl_translation_test.rs 34 fns / 3 types (PslSample, Val, Ctx). Every row carries bidirectional project Depends (src/{parser,ir,codegen,lib}.rs identifiers + the task-20 tests/common/prod_driver.rs helpers - build_drivers/build_sample_drivers/input_script/run_driver/production_artifacts/flattened_inputs/flattened_outputs/state_variants/FlatVariant), a one-line description, blank Component/Functionality/Documented-in. The six Ctx methods get `<file>::<Type>::<method>` identifiers - the first method rows in this document.
+- PLAN CORRECTION 27a (recorded in PHASE_10_PLAN.md + the task file's new Task corrections section): two template phantoms inflated the Goal's figures - a C `enum {{ KIND_ALWAYS, KIND_OBLIGATION }}` line inside monitor_ref's c_reference_source format! template (one of six type hits) and `fn main() {` at column 0 inside monitor_integration's RUST_DRIVER raw-string driver template (one of eighteen fn hits). Authoritative total: 72 fns / 9 types (was 73/10); psl_translation clean at 34/3.
+- Fixed the section-heading glue defect that task 26's splice had introduced AGAIN: the committed file had the last fn row directly adjacent to `## All types` (and the Run row to `## Components`) with no blank line. Root cause: task 26's splice consumed the separating blank line as the terminator of its last inserted row - its assertion verified the blank line existed but not that it would survive. This task's insertion detected the glued state and re-added the blank lines (all six section headers verified present in order).
+- `PHASE_10_TASK_27_STATUS.md` written per FORMATTING.md §6.2.
+- Verification: `cargo test --test docs_md_test` 5/5 OK; row counts re-checked against the file (72 fn rows + 9 type rows for the three suites); no blank lines between table rows. Committed as one commit.

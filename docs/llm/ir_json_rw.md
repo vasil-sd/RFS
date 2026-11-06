@@ -10,8 +10,8 @@ schemas, or spec hashing.
 **Responsibility.** The IR document model and the hand-rolled JSON stack that
 serializes it - the PINNED wire-format contract at the heart of the
 toolchain. Four files: `src/ir.rs` (types + per-type to_json/from_json),
-`src/json_rw.rs` (the only JSON impl: value model, writer, strict reader),
-`src/json_schema.rs` (draft-07 emitter + md renderer + sync walker),
+`src/json/json_rw.rs` (the only JSON impl: value model, writer, strict reader),
+`src/json/json_schema.rs` (draft-07 emitter + md renderer + sync walker),
 `src/utils/hash.rs` (hand-rolled SHA-256 for artifact headers).
 
 **Key items.**
@@ -22,12 +22,12 @@ toolchain. Four files: `src/ir.rs` (types + per-type to_json/from_json),
 | `src/ir.rs::IR_VERSION` | = 1; read policy D-P6-2: from_json loads 0..=1, rejects higher with a pinned error |
 | `src/ir.rs::IrJson` | private per-type to_json/from_json trait; every error carries a JSONPath-style location |
 | `src/ir.rs::uint_json` / `src/ir.rs::uint_field` | u64 value model: to_json FAILS above i64::MAX (no clamping); from_json rejects negatives |
-| `src/json_rw.rs::Json` | value model: Null/Bool/Int(i64)/Str/Arr/Obj - objects are ORDERED pairs; integers only (no float) |
-| `src/json_rw.rs::parse` | strict reader: no trailing garbage, no leading zeros, no duplicate keys, depth <= MAX_DEPTH (512), integer-only; byte-offset errors |
-| `src/json_schema.rs::SchemaDoc` / `src/json_schema.rs::FieldType` | one documented JSON document: root model + named definitions + extra md sections; 12 field-type shapes incl. TaggedUnion, Nullable, FreeObj, Union |
-| `src/json_schema.rs::emit_schema_pretty` | draft-07 schema (additionalProperties:false everywhere except FreeObj) rendered through json_rw |
-| `src/json_schema.rs::render_md` | markdown field/kind tables for rfs info format --output md |
-| `src/json_schema.rs::walk_check` | D-P7-9 sync: required keys present, no undocumented key, types/enums agree; returns ALL violations |
+| `src/json/json_rw.rs::Json` | value model: Null/Bool/Int(i64)/Str/Arr/Obj - objects are ORDERED pairs; integers only (no float) |
+| `src/json/json_rw.rs::parse` | strict reader: no trailing garbage, no leading zeros, no duplicate keys, depth <= MAX_DEPTH (512), integer-only; byte-offset errors |
+| `src/json/json_schema.rs::SchemaDoc` / `src/json/json_schema.rs::FieldType` | one documented JSON document: root model + named definitions + extra md sections; 12 field-type shapes incl. TaggedUnion, Nullable, FreeObj, Union |
+| `src/json/json_schema.rs::emit_schema_pretty` | draft-07 schema (additionalProperties:false everywhere except FreeObj) rendered through json_rw |
+| `src/json/json_schema.rs::render_md` | markdown field/kind tables for rfs info format --output md |
+| `src/json/json_schema.rs::walk_check` | D-P7-9 sync: required keys present, no undocumented key, types/enums agree; returns ALL violations |
 | `src/utils/hash.rs::spec_hash16` | first 16 hex of SHA-256 over the whole-file canonical IR JSON (D-P6-3); stamped into every artifact header |
 | `src/info_format.rs::spec_json_schema` | the spec-json field model, derived from ir.rs to_json - must stay in lockstep with it |
 

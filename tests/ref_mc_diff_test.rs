@@ -183,14 +183,14 @@ fn mc_json_binary(tag: &str, backend_name: &str, ir: &rfs::Ir) -> PathBuf {
 
 /// Run one generated MC binary (exact mode is the default) and return
 /// (exit code, parsed JSON report document).
-fn run_mc_json(bin: &Path, extra_args: &[&str]) -> (i32, rfs::json_rw::Json) {
+fn run_mc_json(bin: &Path, extra_args: &[&str]) -> (i32, rfs::json::json_rw::Json) {
     let out = Command::new(bin)
         .args(extra_args)
         .output()
         .unwrap_or_else(|e| panic!("run MC binary {:?}: {e}", bin));
     let stdout = String::from_utf8_lossy(&out.stdout).to_string();
     let doc_text = stdout.strip_suffix('\n').unwrap_or(&stdout);
-    let doc = rfs::json_rw::parse(doc_text)
+    let doc = rfs::json::json_rw::parse(doc_text)
         .unwrap_or_else(|e| panic!("MC JSON must strict-parse: {e}\n{stdout}"));
     (out.status.code().unwrap_or(-1), doc)
 }
@@ -209,7 +209,7 @@ fn ref_cfg() -> rfs::ref_mc::RefConfig {
 
 /// The ref JSON document, rendered through the SAME unified report model as
 /// the generated binaries (D-P6-10) - directly comparable.
-fn ref_json_doc(module: &rfs::Module, res: &rfs::ref_mc::RefResult) -> rfs::json_rw::Json {
+fn ref_json_doc(module: &rfs::Module, res: &rfs::ref_mc::RefResult) -> rfs::json::json_rw::Json {
     rfs::ref_mc::to_json_report(res, module).to_json()
 }
 
@@ -217,14 +217,14 @@ fn ref_json_doc(module: &rfs::Module, res: &rfs::ref_mc::RefResult) -> rfs::json
 // JSON report field extraction
 // ---------------------------------------------------------------------------
 
-fn doc_status(doc: &rfs::json_rw::Json) -> String {
+fn doc_status(doc: &rfs::json::json_rw::Json) -> String {
     doc.get("status")
         .and_then(|v| v.as_str())
         .unwrap_or("<missing>")
         .to_string()
 }
 
-fn doc_fail(doc: &rfs::json_rw::Json) -> Option<(rfs::codegen_mc::FailReason, String, usize)> {
+fn doc_fail(doc: &rfs::json::json_rw::Json) -> Option<(rfs::codegen_mc::FailReason, String, usize)> {
     let reason = doc.get("reason")?.as_str()?;
     let label = doc.get("label")?.as_str()?.to_string();
     let step = doc.get("step")?.as_int()? as usize;
@@ -238,12 +238,12 @@ fn doc_fail(doc: &rfs::json_rw::Json) -> Option<(rfs::codegen_mc::FailReason, St
 }
 
 /// One JSON input/output record -> [`rfs::codegen_mc::JsonIo`].
-fn json_io(j: &rfs::json_rw::Json, what: &str) -> rfs::codegen_mc::JsonIo {
+fn json_io(j: &rfs::json::json_rw::Json, what: &str) -> rfs::codegen_mc::JsonIo {
     let obj = j
         .as_obj()
         .unwrap_or_else(|| panic!("{what}: not an object"));
     let mut variant = String::new();
-    let mut fields: Vec<(String, rfs::json_rw::Json)> = Vec::new();
+    let mut fields: Vec<(String, rfs::json::json_rw::Json)> = Vec::new();
     for (k, v) in obj {
         match k.as_str() {
             "variant" => variant = v.as_str().expect("variant is a string").to_string(),
@@ -254,13 +254,13 @@ fn json_io(j: &rfs::json_rw::Json, what: &str) -> rfs::codegen_mc::JsonIo {
     rfs::codegen_mc::JsonIo { variant, fields }
 }
 
-fn json_step(j: &rfs::json_rw::Json) -> rfs::codegen_mc::JsonStep {
+fn json_step(j: &rfs::json::json_rw::Json) -> rfs::codegen_mc::JsonStep {
     let obj = j.as_obj().expect("step is an object");
     let mut input = None;
-    let mut outputs: Vec<rfs::json_rw::Json> = Vec::new();
+    let mut outputs: Vec<rfs::json::json_rw::Json> = Vec::new();
     let mut from_state = String::new();
     let mut to_state = String::new();
-    let mut vars: Vec<(String, rfs::json_rw::Json)> = Vec::new();
+    let mut vars: Vec<(String, rfs::json::json_rw::Json)> = Vec::new();
     for (k, v) in obj {
         match k.as_str() {
             "input" => input = Some(v.clone()),
@@ -285,21 +285,21 @@ fn json_step(j: &rfs::json_rw::Json) -> rfs::codegen_mc::JsonStep {
 
 /// The counterexample object of a JSON report -> the shared report-model
 /// enum (so `ref_mc::verify_counterexample` can consume it).
-fn json_ce(doc: &rfs::json_rw::Json) -> rfs::codegen_mc::JsonCounterexample {
+fn json_ce(doc: &rfs::json::json_rw::Json) -> rfs::codegen_mc::JsonCounterexample {
     let ce = doc
         .get("counterexample")
         .expect("fail report carries a counterexample");
     let obj = ce.as_obj().expect("counterexample is an object");
     let mut kind = String::new();
     let mut initial_state = String::new();
-    let mut initial_vars: Vec<(String, rfs::json_rw::Json)> = Vec::new();
-    let mut steps: Vec<rfs::json_rw::Json> = Vec::new();
-    let mut prefix: Vec<rfs::json_rw::Json> = Vec::new();
-    let mut cycle: Vec<rfs::json_rw::Json> = Vec::new();
+    let mut initial_vars: Vec<(String, rfs::json::json_rw::Json)> = Vec::new();
+    let mut steps: Vec<rfs::json::json_rw::Json> = Vec::new();
+    let mut prefix: Vec<rfs::json::json_rw::Json> = Vec::new();
+    let mut cycle: Vec<rfs::json::json_rw::Json> = Vec::new();
     let mut cycle_length = 0i64;
     let mut depth = 0i64;
     let mut state = String::new();
-    let mut vars: Vec<(String, rfs::json_rw::Json)> = Vec::new();
+    let mut vars: Vec<(String, rfs::json::json_rw::Json)> = Vec::new();
     let mut ce_steps = None;
     for (k, v) in obj {
         match k.as_str() {

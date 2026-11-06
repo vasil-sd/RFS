@@ -38,7 +38,7 @@ fuzz_target!(|data: &[u8]| {
         .to_json()
         .expect("valid IR serializes to JSON")
         .to_string();
-    let j2 = rfs::json_rw::parse(&t1)
+    let j2 = rfs::json::json_rw::parse(&t1)
         .unwrap_or_else(|e| panic!("own JSON must strict-parse: {e}\n{t1}"));
     let ir2 = rfs::Ir::from_json(&j2).unwrap_or_else(|e| panic!("round-trip from_json: {e}\n{t1}"));
     let t2 = ir2.to_json().expect("re-serialized IR").to_string();

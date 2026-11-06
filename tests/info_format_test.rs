@@ -445,7 +445,7 @@ fn spec_json_schema_document_pin() {
     let text = stdout_of(&out);
 
     // Pretty JSON through json_rw (project rule) - must round-trip.
-    let doc = rfs::json_rw::parse(&text).expect("schema output must be valid JSON");
+    let doc = rfs::json::json_rw::parse(&text).expect("schema output must be valid JSON");
     assert_eq!(
         doc.get("$schema").and_then(|v| v.as_str()),
         Some("http://json-schema.org/draft-07/schema#"),
@@ -587,7 +587,7 @@ fn spec_json_walk_all_valid_examples() {
             .unwrap_or_else(|e| panic!("{}: to_json failed: {e}", path.display()));
         // (a) every required key present, (b) no undocumented key at any
         // object level, (c) types + enum constraints agree.
-        if let Err(errs) = rfs::json_schema::walk_check(&doc, &json) {
+        if let Err(errs) = rfs::json::json_schema::walk_check(&doc, &json) {
             panic!(
                 "{}: spec-json model out of sync with ir.rs to_json:\n{}",
                 path.display(),
@@ -608,7 +608,7 @@ fn ce_trace_schema_document_pin() {
     let text = stdout_of(&out);
 
     // Pretty JSON through json_rw (project rule) - must round-trip.
-    let doc = rfs::json_rw::parse(&text).expect("schema output must be valid JSON");
+    let doc = rfs::json::json_rw::parse(&text).expect("schema output must be valid JSON");
     assert_eq!(
         doc.get("$schema").and_then(|v| v.as_str()),
         Some("http://json-schema.org/draft-07/schema#"),
@@ -860,7 +860,7 @@ fn ce_mc_binary(key: &str, backend: &str, src: &str) -> PathBuf {
 /// One `--counterexample-format json` run: returns the full report document.
 /// The exit code must match the reported status (0 = pass-complete,
 /// 1 = fail, 2 = unknown-state-limit).
-fn mc_report_of(bin: &Path, key: &str, extra_args: &[&str]) -> rfs::json_rw::Json {
+fn mc_report_of(bin: &Path, key: &str, extra_args: &[&str]) -> rfs::json::json_rw::Json {
     let mut args: Vec<&str> = extra_args.to_vec();
     args.push("--counterexample-format");
     args.push("json");
@@ -869,9 +869,9 @@ fn mc_report_of(bin: &Path, key: &str, extra_args: &[&str]) -> rfs::json_rw::Jso
         .output()
         .unwrap_or_else(|e| panic!("run MC binary for {key}: {e}"));
     let stdout = String::from_utf8_lossy(&out.stdout).to_string();
-    let doc = rfs::json_rw::parse(&stdout)
+    let doc = rfs::json::json_rw::parse(&stdout)
         .unwrap_or_else(|e| panic!("{key}: JSON report must parse: {e}\n{stdout}"));
-    let want_code = match doc.get("status").and_then(rfs::json_rw::Json::as_str) {
+    let want_code = match doc.get("status").and_then(rfs::json::json_rw::Json::as_str) {
         Some("pass-complete") => 0,
         Some("fail") => 1,
         Some("unknown-state-limit") => 2,
@@ -887,10 +887,10 @@ fn mc_report_of(bin: &Path, key: &str, extra_args: &[&str]) -> rfs::json_rw::Jso
 
 /// One `--counterexample-format json` run of a FAILING binary: returns the
 /// report's `counterexample` object (present iff status is fail).
-fn ce_object(bin: &Path, key: &str) -> rfs::json_rw::Json {
+fn ce_object(bin: &Path, key: &str) -> rfs::json::json_rw::Json {
     let doc = mc_report_of(bin, key, &[]);
     assert_eq!(
-        doc.get("status").and_then(rfs::json_rw::Json::as_str),
+        doc.get("status").and_then(rfs::json::json_rw::Json::as_str),
         Some("fail"),
         "{key}"
     );
@@ -901,9 +901,9 @@ fn ce_object(bin: &Path, key: &str) -> rfs::json_rw::Json {
 
 /// The D-P7-9 walk against the ce-trace model (required keys present, no
 /// undocumented key at any object level, types + enum constraints agree).
-fn walk_ce(ce: &rfs::json_rw::Json, what: &str) {
+fn walk_ce(ce: &rfs::json::json_rw::Json, what: &str) {
     let doc = rfs::info_format::ce_trace_schema();
-    if let Err(errs) = rfs::json_schema::walk_check(&doc, ce) {
+    if let Err(errs) = rfs::json::json_schema::walk_check(&doc, ce) {
         panic!(
             "{what}: ce-trace model out of sync with the generated report:\n{}",
             errs.join("\n")
@@ -928,12 +928,12 @@ fn ce_trace_walk_trace_and_lasso_both_backends() {
         ),
     ];
     for (key, src, want_kind) in cases {
-        let mut docs: [Option<rfs::json_rw::Json>; 2] = [None, None];
+        let mut docs: [Option<rfs::json::json_rw::Json>; 2] = [None, None];
         for (i, backend) in ["rust", "c"].iter().enumerate() {
             let bin = ce_mc_binary(&format!("ce|{key}|{backend}"), backend, src);
             let ce = ce_object(&bin, key);
             assert_eq!(
-                ce.get("kind").and_then(rfs::json_rw::Json::as_str),
+                ce.get("kind").and_then(rfs::json::json_rw::Json::as_str),
                 Some(want_kind),
                 "{key}/{backend}"
             );
@@ -962,12 +962,12 @@ fn ce_trace_walk_trace_and_lasso_both_backends() {
     );
     assert_eq!(
         rt.get(rfs::codegen_mc::JSON_KEY_CE_STEPS)
-            .and_then(rfs::json_rw::Json::as_int),
+            .and_then(rfs::json::json_rw::Json::as_int),
         Some(1)
     );
     let steps = rt
         .get(rfs::codegen_mc::JSON_KEY_STEPS)
-        .and_then(rfs::json_rw::Json::as_arr)
+        .and_then(rfs::json::json_rw::Json::as_arr)
         .cloned()
         .unwrap();
     assert_eq!(steps.len(), 1);
@@ -982,12 +982,12 @@ fn ce_trace_walk_trace_and_lasso_both_backends() {
     );
     assert_eq!(
         rl.get(rfs::codegen_mc::JSON_KEY_CYCLE_LENGTH)
-            .and_then(rfs::json_rw::Json::as_int),
+            .and_then(rfs::json::json_rw::Json::as_int),
         Some(2)
     );
     let cycle = rl
         .get(rfs::codegen_mc::JSON_KEY_CYCLE)
-        .and_then(rfs::json_rw::Json::as_arr)
+        .and_then(rfs::json::json_rw::Json::as_arr)
         .cloned()
         .unwrap();
     assert_eq!(cycle.len(), 2);
@@ -999,12 +999,12 @@ fn ce_trace_walk_deadlock_config_both_backends() {
     // depth 2 (the same case backend_parity_test pins for the five
     // status/reason combinations).
     let src = common::fail_variants::spec_source("04_tcp_handshake_like.rfs");
-    let mut docs: [Option<rfs::json_rw::Json>; 2] = [None, None];
+    let mut docs: [Option<rfs::json::json_rw::Json>; 2] = [None, None];
     for (i, backend) in ["rust", "c"].iter().enumerate() {
         let bin = ce_mc_binary(&format!("ce|ex04_deadlock|{backend}"), backend, &src);
         let ce = ce_object(&bin, "ex04_deadlock");
         assert_eq!(
-            ce.get("kind").and_then(rfs::json_rw::Json::as_str),
+            ce.get("kind").and_then(rfs::json::json_rw::Json::as_str),
             Some(rfs::codegen_mc::JSON_CE_KIND_DEADLOCK_CONFIG),
             "{backend}"
         );
@@ -1022,12 +1022,12 @@ fn ce_trace_walk_deadlock_config_both_backends() {
     let ce = docs[0].as_ref().unwrap();
     assert_eq!(
         ce.get(rfs::codegen_mc::JSON_KEY_DEPTH)
-            .and_then(rfs::json_rw::Json::as_int),
+            .and_then(rfs::json::json_rw::Json::as_int),
         Some(2)
     );
     assert_eq!(
         ce.get(rfs::codegen_mc::JSON_KEY_CE_STEPS)
-            .and_then(rfs::json_rw::Json::as_int),
+            .and_then(rfs::json::json_rw::Json::as_int),
         Some(2)
     );
 }
@@ -1065,7 +1065,7 @@ fn ce_trace_walk_ref_mc_in_process() {
             .cloned()
             .unwrap_or_else(|| panic!("{key}: fail carries a counterexample"));
         assert_eq!(
-            ce.get("kind").and_then(rfs::json_rw::Json::as_str),
+            ce.get("kind").and_then(rfs::json::json_rw::Json::as_str),
             Some(want_kind),
             "{key}"
         );
@@ -1077,9 +1077,9 @@ fn ce_trace_walk_ref_mc_in_process() {
 // mc-report: schema + md document pins (Phase 7 task 8)
 // ---------------------------------------------------------------------------
 
-fn prop_names(j: &rfs::json_rw::Json) -> Vec<String> {
+fn prop_names(j: &rfs::json::json_rw::Json) -> Vec<String> {
     j.get("properties")
-        .and_then(rfs::json_rw::Json::as_obj)
+        .and_then(rfs::json::json_rw::Json::as_obj)
         .cloned()
         .unwrap()
         .into_iter()
@@ -1087,9 +1087,9 @@ fn prop_names(j: &rfs::json_rw::Json) -> Vec<String> {
         .collect()
 }
 
-fn enum_vals(j: &rfs::json_rw::Json) -> Vec<String> {
+fn enum_vals(j: &rfs::json::json_rw::Json) -> Vec<String> {
     j.get("enum")
-        .and_then(rfs::json_rw::Json::as_arr)
+        .and_then(rfs::json::json_rw::Json::as_arr)
         .cloned()
         .unwrap()
         .into_iter()
@@ -1099,9 +1099,9 @@ fn enum_vals(j: &rfs::json_rw::Json) -> Vec<String> {
 
 /// The D-P7-9 walk against the mc-report model (required keys present, no
 /// undocumented key at any object level, types + enum constraints agree).
-fn walk_mc_report(rep: &rfs::json_rw::Json, what: &str) {
+fn walk_mc_report(rep: &rfs::json::json_rw::Json, what: &str) {
     let doc = rfs::info_format::mc_report_schema();
-    if let Err(errs) = rfs::json_schema::walk_check(&doc, rep) {
+    if let Err(errs) = rfs::json::json_schema::walk_check(&doc, rep) {
         panic!(
             "{what}: mc-report model out of sync with the generated report:\n{}",
             errs.join("\n")
@@ -1115,7 +1115,7 @@ fn mc_report_schema_document_pin() {
     assert!(out.status.success(), "stderr: {}", stderr_of(&out));
     let text = stdout_of(&out);
 
-    let doc = rfs::json_rw::parse(&text).expect("schema output must be valid JSON");
+    let doc = rfs::json::json_rw::parse(&text).expect("schema output must be valid JSON");
     assert_eq!(
         doc.get("$schema").and_then(|v| v.as_str()),
         Some("http://json-schema.org/draft-07/schema#")
@@ -1213,7 +1213,7 @@ fn mc_report_schema_document_pin() {
     // No-drift pin: the counterexample definition is byte-identical to the
     // ce-trace document's root (shared builder - task 7).
     let ce_def = defs.get("counterexample").cloned().unwrap();
-    let ce_root_emitted = rfs::json_schema::emit_type(&rfs::info_format::ce_trace_schema().root);
+    let ce_root_emitted = rfs::json::json_schema::emit_type(&rfs::info_format::ce_trace_schema().root);
     assert_eq!(
         ce_def.to_string_compact(),
         ce_root_emitted.to_string_compact(),
@@ -1294,7 +1294,7 @@ fn mc_report_walk_benchmarks_both_backends() {
             let bin = ce_mc_binary(&format!("mcrep|{name}|{backend}"), backend, &src);
             let rep = mc_report_of(&bin, name, &[]);
             assert_eq!(
-                rep.get("status").and_then(rfs::json_rw::Json::as_str),
+                rep.get("status").and_then(rfs::json::json_rw::Json::as_str),
                 Some("pass-complete"),
                 "{name}/{backend}"
             );
@@ -1366,22 +1366,22 @@ fn mc_report_walk_benchmarks_both_backends() {
             let bin = ce_mc_binary(&format!("mcrep|{key}|{backend}"), backend, &src);
             let rep = mc_report_of(&bin, key, args);
             assert_eq!(
-                rep.get("status").and_then(rfs::json_rw::Json::as_str),
+                rep.get("status").and_then(rfs::json::json_rw::Json::as_str),
                 Some("fail"),
                 "{key}/{backend}"
             );
             assert_eq!(
-                rep.get("reason").and_then(rfs::json_rw::Json::as_str),
+                rep.get("reason").and_then(rfs::json::json_rw::Json::as_str),
                 Some(want_reason),
                 "{key}/{backend}"
             );
             assert_eq!(
-                rep.get("label").and_then(rfs::json_rw::Json::as_str),
+                rep.get("label").and_then(rfs::json::json_rw::Json::as_str),
                 Some(want_label),
                 "{key}/{backend}"
             );
             assert_eq!(
-                rep.get("step").and_then(rfs::json_rw::Json::as_int),
+                rep.get("step").and_then(rfs::json::json_rw::Json::as_int),
                 Some(want_step),
                 "{key}/{backend}"
             );
@@ -1400,7 +1400,7 @@ fn mc_report_walk_benchmarks_both_backends() {
         let bin = ce_mc_binary(&format!("mcrep|ex43_unknown|{backend}"), backend, &src);
         let rep = mc_report_of(&bin, "ex43_unknown", &["--max-states", "1"]);
         assert_eq!(
-            rep.get("status").and_then(rfs::json_rw::Json::as_str),
+            rep.get("status").and_then(rfs::json::json_rw::Json::as_str),
             Some("unknown-state-limit"),
             "{backend}"
         );
@@ -1477,7 +1477,7 @@ fn validate_json_schema_document_pin() {
     let text = stdout_of(&out);
 
     // Pretty JSON through json_rw (project rule) - must round-trip.
-    let doc = rfs::json_rw::parse(&text).expect("schema output must be valid JSON");
+    let doc = rfs::json::json_rw::parse(&text).expect("schema output must be valid JSON");
     assert_eq!(
         doc.get("$schema").and_then(|v| v.as_str()),
         Some("http://json-schema.org/draft-07/schema#")
@@ -1599,8 +1599,8 @@ fn validate_json_md_pins_sections() {
 
 /// The D-P7-9 walk against the validate-json model (required keys present,
 /// no undocumented key at any object level, types + enum constraints agree).
-fn walk_validate_json(doc: &rfs::json_schema::SchemaDoc, json: &rfs::json_rw::Json, what: &str) {
-    if let Err(errs) = rfs::json_schema::walk_check(doc, json) {
+fn walk_validate_json(doc: &rfs::json::json_schema::SchemaDoc, json: &rfs::json::json_rw::Json, what: &str) {
+    if let Err(errs) = rfs::json::json_schema::walk_check(doc, json) {
         panic!(
             "{what}: validate-json model out of sync with the rendered document:\n{}",
             errs.join("\n")
@@ -1626,7 +1626,7 @@ fn validate_json_walk_invalid_examples_both_kinds() {
             path.display()
         );
         let text = rfs::frontend::render_validate_json(path, false, &failed);
-        let json = rfs::json_rw::parse(&text).unwrap_or_else(|e| {
+        let json = rfs::json::json_rw::parse(&text).unwrap_or_else(|e| {
             panic!(
                 "{}: rendered document is not valid JSON: {e}",
                 path.display()
@@ -1667,7 +1667,7 @@ fn validate_json_walk_valid_files_ok_true() {
         assert!(failed.is_empty(), "{} must validate clean", path.display());
         // File mode prints the object even on success: ok=true, errors=[].
         let text = rfs::frontend::render_validate_json(path, false, &failed);
-        let json = rfs::json_rw::parse(&text).unwrap_or_else(|e| {
+        let json = rfs::json::json_rw::parse(&text).unwrap_or_else(|e| {
             panic!(
                 "{}: rendered document is not valid JSON: {e}",
                 path.display()
@@ -1697,7 +1697,7 @@ fn validate_json_walk_directory_mode() {
             .expect("directory validation should run");
     assert_eq!(failed.len(), 13, "every invalid example must fail");
     let text = rfs::frontend::render_validate_json(&invalid_dir, true, &failed);
-    let json = rfs::json_rw::parse(&text).expect("directory document must be valid JSON");
+    let json = rfs::json::json_rw::parse(&text).expect("directory document must be valid JSON");
     walk_validate_json(&doc, &json, "directory mode examples/invalid");
     let arr = json.as_arr().cloned().unwrap();
     assert_eq!(arr.len(), 13);
@@ -1721,7 +1721,7 @@ fn validate_json_walk_directory_mode() {
             .expect("directory validation should run");
     assert!(failed.is_empty(), "all valid examples must pass");
     let text = rfs::frontend::render_validate_json(&valid_dir, true, &failed);
-    let json = rfs::json_rw::parse(&text).unwrap();
+    let json = rfs::json::json_rw::parse(&text).unwrap();
     walk_validate_json(&doc, &json, "directory mode examples/valid");
     assert!(json.as_arr().cloned().unwrap().is_empty());
 }
@@ -1737,7 +1737,7 @@ fn info_json_schema_document_pin() {
     let text = stdout_of(&out);
 
     // Pretty JSON through json_rw (project rule) - must round-trip.
-    let doc = rfs::json_rw::parse(&text).expect("schema output must be valid JSON");
+    let doc = rfs::json::json_rw::parse(&text).expect("schema output must be valid JSON");
     assert_eq!(
         doc.get("$schema").and_then(|v| v.as_str()),
         Some("http://json-schema.org/draft-07/schema#")
@@ -1939,7 +1939,7 @@ fn info_json_walk_all_valid_examples() {
         // The exact command path: parse + validate + render_json.
         let text = rfs::info::run_info(path, &rfs::info::InfoOptions { json: true })
             .unwrap_or_else(|e| panic!("{}: {e}", path.display()));
-        let json = rfs::json_rw::parse(&text).unwrap_or_else(|e| {
+        let json = rfs::json::json_rw::parse(&text).unwrap_or_else(|e| {
             panic!(
                 "{}: rendered document is not valid JSON: {e}",
                 path.display()
@@ -1948,7 +1948,7 @@ fn info_json_walk_all_valid_examples() {
 
         // (a) every required key present, (b) no undocumented key at any
         // object level, (c) types + constraints agree.
-        if let Err(errs) = rfs::json_schema::walk_check(&doc, &json) {
+        if let Err(errs) = rfs::json::json_schema::walk_check(&doc, &json) {
             panic!(
                 "{}: info-json model out of sync with info.rs render_json:\n{}",
                 path.display(),
@@ -1977,7 +1977,7 @@ fn info_json_walk_all_valid_examples() {
             );
 
             if m.get("on_error")
-                .is_some_and(|v| !matches!(v, rfs::json_rw::Json::Null))
+                .is_some_and(|v| !matches!(v, rfs::json::json_rw::Json::Null))
             {
                 saw_on_error = true;
             }

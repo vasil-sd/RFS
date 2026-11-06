@@ -15,7 +15,7 @@
 //! category JSONL files.
 //! Docs: dev:toolchain-fuzz-overview, dev:toolchain-fuzz-training, llm:toolchain-fuzz
 
-use crate::json_rw::Json;
+use crate::json::json_rw::Json;
 use std::collections::HashSet;
 use std::fs;
 use std::io::Write;
@@ -65,7 +65,7 @@ pub fn read_jsonl_lines(path: &Path) -> std::io::Result<Vec<String>> {
 }
 
 pub fn validate_training_line(line: &str) -> Result<(), String> {
-    let value = crate::json_rw::parse(line).map_err(|e| format!("invalid JSONL: {e}"))?;
+    let value = crate::json::json_rw::parse(line).map_err(|e| format!("invalid JSONL: {e}"))?;
 
     let messages = value
         .get("messages")
@@ -182,7 +182,7 @@ pub fn extract_category_snippets(category: &Path) -> Result<SnippetCounts, Strin
     for line in
         read_jsonl_lines(&jsonl_path).map_err(|e| format!("{}: {e}", jsonl_path.display()))?
     {
-        let value = crate::json_rw::parse(&line)
+        let value = crate::json::json_rw::parse(&line)
             .map_err(|e| format!("{} invalid JSONL: {e}", jsonl_path.display()))?;
 
         let messages = value

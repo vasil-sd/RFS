@@ -23,7 +23,7 @@ intermediate on-disk representation between stages.
    list of validation errors; a spec is usable only when that list is empty.
 4. **IR** - the normalized form is `src/ir.rs::Ir`, versioned by
    `src/ir.rs::IR_VERSION`. Its wire format is hand-rolled JSON
-   (`src/json_rw.rs`); every generated artifact carries the spec hash
+   (`src/json/json_rw.rs`); every generated artifact carries the spec hash
    `src/utils/hash.rs::spec_hash16` (first 16 hex chars of SHA-256 over the
    canonical IR JSON) in its header line. The IR can be printed back to RFS
    source by `src/printer.rs::print_ir`.
@@ -128,7 +128,7 @@ flowchart TD
 
     subgraph IRCORE["IR core"]
         IR["Ir + IR_VERSION (src/ir.rs)"]
-        JSON["JSON wire format (src/json_rw.rs)"]
+        JSON["JSON wire format (src/json/json_rw.rs)"]
         HASH["spec hash (src/utils/hash.rs)"]
         PRINT["print to RFS (src/printer.rs)"]
     end

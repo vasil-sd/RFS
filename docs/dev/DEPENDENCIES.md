@@ -309,7 +309,7 @@ Reading the graph:
 
 - **The IR is the hub.** `src/ir.rs::Ir` is depended on by every consumer
   (frontend, codegen, backends, MC, diagrams, CLI); it depends only on
-  `src/json_rw.rs`, which depends on nothing - the two together are the
+  `src/json/json_rw.rs`, which depends on nothing - the two together are the
   foundation of the crate.
 - **The plugin registries are mutually dependent by design.**
   `src/codegen.rs` holds the `Backend` trait and the `BACKENDS` registry, so
@@ -321,7 +321,7 @@ Reading the graph:
   `src/smt_plan.rs`, which depends on `src/mc_plan.rs`; both `*_mc` backends
   consume the chain, and nothing else does.
 - **The reference checker stays independent.** `src/ref_mc.rs` depends on the
-  IR, `src/json_rw.rs`, the parser, and the shared report concepts in
+  IR, `src/json/json_rw.rs`, the parser, and the shared report concepts in
   `src/codegen_mc.rs` - never on the backends or the codegen registry.
 - **Workspace crates are standalone.** `rfs-build` and `rfs-adapters` have no
   dependency on the root crate; the example crates depend on `rfs-adapters`

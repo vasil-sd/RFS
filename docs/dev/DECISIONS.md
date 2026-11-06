@@ -339,7 +339,7 @@ round-trips unchanged; reserving bumps for breaking changes keeps the version
 meaningful. (Phase 5's hand-rolled JSON reader-writer, D-P5-2, preserves this
 contract with pinned key order.)
 Table: [DESIGN.md](../../DESIGN.md) section 20, D10 - Code: `src/ir.rs::IR_VERSION`,
-`src/json_rw.rs`.
+`src/json/json_rw.rs`.
 
 ### D-P3-1. IR representation of `always[N]` - additive `BoundedAlways` variant
 
@@ -649,7 +649,7 @@ Table: [DESIGN.md](../../DESIGN.md) section 23, D-P5-1 - Code: `crates/rfs-build
 
 ### D-P5-2. Hand-rolled JSON reader-writer, ALL sources (task 2)
 
-A full hand-rolled JSON READER + WRITER (`src/json_rw.rs`) replaced
+A full hand-rolled JSON READER + WRITER (`src/json/json_rw.rs`) replaced
 serde/serde_json EVERYWHERE: IR serialization/round-trip, all `--json` CLI
 outputs (info/validate/MC counterexample), and the generated MC JSON via an
 embedded copy of the writer. Rationale: guarantee KEY ORDERING (declaration
@@ -666,7 +666,7 @@ valid examples, so no test re-pinning was needed.
 of artifact reproducibility; only owning the serializer guarantees pinned key
 order forever, and a fallible writer turns an unrepresentable value into a
 diagnostic instead of corrupted output.
-Table: [DESIGN.md](../../DESIGN.md) section 23, D-P5-2 - Code: `src/json_rw.rs::parse`,
+Table: [DESIGN.md](../../DESIGN.md) section 23, D-P5-2 - Code: `src/json/json_rw.rs::parse`,
 `src/ir.rs::to_json`.
 
 ### D-P5-3. rfs-build: build.rs helper (task 1)
@@ -1274,7 +1274,7 @@ Table: [DESIGN.md](../../DESIGN.md) section 25, D-P7-7 - Code: `src/ebnf_grammar
 ### D-P7-8. JSON Schema: draft-07 via a shared emitter (tasks 6-10)
 
 draft-07 (widest CI-validator support), emitted by the small shared emitter
-`src/json_schema.rs` from a compact field model, with required/optional
+`src/json/json_schema.rs` from a compact field model, with required/optional
 marking and enum-constraint notes. Schema output is pretty JSON produced
 through `json_rw` (project rule: all JSON goes through json_rw). The
 mc-report model `$ref`s the ce-trace model via `definitions`. Execution
@@ -1294,8 +1294,8 @@ tests over real runs instead.
 and draft-07-compatible, deriving enum values from the wire() methods makes
 schema drift impossible, and modeling fail fields optional (with walk tests
 pinning IFF-fail presence) works within draft-07's lack of if/then.
-Table: [DESIGN.md](../../DESIGN.md) section 25, D-P7-8 - Code: `src/json_schema.rs::SchemaDoc`,
-`src/json_schema.rs::emit_schema_pretty`, `src/codegen_mc.rs::JSON_KEY_STATUS`.
+Table: [DESIGN.md](../../DESIGN.md) section 25, D-P7-8 - Code: `src/json/json_schema.rs::SchemaDoc`,
+`src/json/json_schema.rs::emit_schema_pretty`, `src/codegen_mc.rs::JSON_KEY_STATUS`.
 
 ### D-P7-9. Sync tests: the "stays in sync with the code" guarantee (tasks 5-14)
 

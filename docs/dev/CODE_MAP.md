@@ -5,7 +5,7 @@ File-by-file map of the 71 hand-written source files: `src/` (49), `crates/`
 links both ways. The pointer scope is driven by `tests/dev_docs_manifest.txt`.
 
 <a id="dev:code-map-frontend"></a>
-## Frontend area - root + parser + validator/IR (13 files)
+## Frontend area - root + parser + validator/IR (10 files)
 
 ### Root (6)
 
@@ -44,7 +44,7 @@ links both ways. The pointer scope is driven by `tests/dev_docs_manifest.txt`.
   output: `src/ebnf_grammar.rs::RuleNode`, `to_ebnf_text`, `to_md`,
   `to_plantuml_ebnf`, `to_svg`.
 
-### Validator + IR (5)
+### Validator + IR (2)
 
 - `src/validator.rs` - semantic validation and expression typing for RFS IR:
   `src/validator.rs::validate_ir` returns the full error list
@@ -54,13 +54,16 @@ links both ways. The pointer scope is driven by `tests/dev_docs_manifest.txt`.
 - `src/ir.rs` - IR types + pinned JSON wire format: `src/ir.rs::Ir`,
   `src/ir.rs::Module`, `src/ir.rs::IR_VERSION`. Deep dive:
   `dev:ir-json-rw-overview` / `llm:ir-json-rw`.
-- `src/json_rw.rs` - hand-rolled JSON reader/writer (the only JSON impl in the
-  toolchain): ordered objects, byte-identical output contract;
-  `src/json_rw.rs::Json`, `src/json_rw.rs::parse`.
-- `src/json_schema.rs` - draft-07 JSON-Schema emitter + markdown renderer +
-  sync walker for the IR wire format: `src/json_schema.rs::SchemaDoc`.
-- `src/utils/hash.rs` - hand-rolled SHA-256; `src/utils/hash.rs::spec_hash16`
-  stamps every generated artifact header.
+
+<a id="dev:code-map-json"></a>
+## JSON substrate (`src/json/`) (3 files)
+
+- `src/json/mod.rs` - module root of the JSON substrate (I/O + schema emitter).
+- `src/json/json_rw.rs` - hand-rolled JSON reader/writer (the only JSON impl in
+  the toolchain): ordered objects, byte-identical output contract;
+  `src/json/json_rw.rs::Json`, `src/json/json_rw.rs::parse`.
+- `src/json/json_schema.rs` - draft-07 JSON-Schema emitter + markdown renderer +
+  sync walker for the IR wire format: `src/json/json_schema.rs::SchemaDoc`.
 
 <a id="dev:code-map-codegen"></a>
 ## Codegen core + backends (18 files)

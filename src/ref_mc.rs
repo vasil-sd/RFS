@@ -32,7 +32,7 @@
 //! ExactStatus, FailReason, JsonCounterexample, JsonIo, JsonStep,
 //! McJsonReport, EXACT_DEFAULT_MAX_STATES, EXACT_DEFAULT_TIMEOUT_SEC}`
 //! (data types + shared report helpers only). The unit tests additionally use
-//! `crate::json_rw::Json`. NOT imported: `mc_plan`, `monitor`,
+//! `crate::json::json_rw::Json`. NOT imported: `mc_plan`, `monitor`,
 //! `codegen_fsm`, `printer`, backend modules - enforced by the
 //! `independence_import_audit` test.
 //! Docs: dev:mc-engine-overview, dev:mc-engine-exact, dev:mc-engine-liveness, dev:mc-engine-verify, dev:algorithms-mc-engine, dev:references-model-checking, llm:mc-engine
@@ -3277,7 +3277,7 @@ fn render_text_impl(
 /// Build the canonical JSON report document (same model + key order as the
 /// generated engines' `--counterexample-format json` output).
 pub fn to_json_report(res: &RefResult, module: &Module) -> McJsonReport {
-    use crate::json_rw::Json;
+    use crate::json::json_rw::Json;
 
     let val_json = |v: &Val, ty: &Type| -> Json {
         match (v, ty) {
@@ -3645,11 +3645,11 @@ fn initial_config(module: &Module) -> Result<(usize, Vec<Val>), String> {
 /// [`Val`]: Bool -> Bool, Int -> Bit, Str -> Enum variant name. The wire form
 /// of an enum value is `EnumType::Variant` (see `to_json_report`); [`Val`]
 /// carries the bare variant name.
-fn json_val(j: &crate::json_rw::Json, what: &str) -> Result<Val, String> {
+fn json_val(j: &crate::json::json_rw::Json, what: &str) -> Result<Val, String> {
     match j {
-        crate::json_rw::Json::Bool(b) => Ok(Val::Bool(*b)),
-        crate::json_rw::Json::Int(n) => Ok(Val::Bit(*n as u64)),
-        crate::json_rw::Json::Str(s) => Ok(Val::Enum(
+        crate::json::json_rw::Json::Bool(b) => Ok(Val::Bool(*b)),
+        crate::json::json_rw::Json::Int(n) => Ok(Val::Bit(*n as u64)),
+        crate::json::json_rw::Json::Str(s) => Ok(Val::Enum(
             s.rsplit_once("::")
                 .map(|(_, v)| v.to_string())
                 .unwrap_or_else(|| s.clone()),
@@ -3773,7 +3773,7 @@ fn ce_state_name(s: &str) -> &str {
 fn check_initial(
     module: &Module,
     initial_state: &str,
-    initial_vars: &[(String, crate::json_rw::Json)],
+    initial_vars: &[(String, crate::json::json_rw::Json)],
 ) -> Result<(), String> {
     let (q0, vars0) = initial_config(module)?;
     if state_name(module, q0) != ce_state_name(initial_state) {
@@ -4079,7 +4079,7 @@ fn verify_deadlock(
     cfg: &RefConfig,
     depth: usize,
     state: &str,
-    vars: &[(String, crate::json_rw::Json)],
+    vars: &[(String, crate::json::json_rw::Json)],
     mons_proj: Option<&Vec<Vec<u64>>>,
 ) -> Result<(), String> {
     let states = state_variants(module).to_vec();

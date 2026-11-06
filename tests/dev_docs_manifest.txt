@@ -61,8 +61,9 @@ src/gen_spec_cmd.rs
 src/info.rs
 src/info_format.rs
 src/ir.rs
-src/json_rw.rs
-src/json_schema.rs
+src/json/json_rw.rs
+src/json/json_schema.rs
+src/json/mod.rs
 src/lib.rs
 src/main.rs
 src/mc_plan.rs

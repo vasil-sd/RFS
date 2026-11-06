@@ -45,12 +45,12 @@ pub fn puppeteer_args() -> Vec<String> {
 
 /// The puppeteer config JSON (compact, via the hand-rolled writer).
 pub fn puppeteer_json() -> String {
-    crate::json_rw::Json::obj(vec![(
+    crate::json::json_rw::Json::obj(vec![(
         "args".to_string(),
-        crate::json_rw::Json::arr(
+        crate::json::json_rw::Json::arr(
             puppeteer_args()
                 .into_iter()
-                .map(crate::json_rw::Json::str)
+                .map(crate::json::json_rw::Json::str)
                 .collect(),
         ),
     )])

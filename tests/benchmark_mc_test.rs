@@ -27,7 +27,7 @@
 mod common;
 
 use common::fail_variants::*;
-use rfs::json_rw::Json;
+use rfs::json::json_rw::Json;
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -359,7 +359,7 @@ fn run_json_mode(bin: &Path, extra_args: &[&str]) -> Json {
         .output()
         .unwrap_or_else(|e| panic!("run MC binary {:?}: {e}", bin));
     let stdout = String::from_utf8_lossy(&out.stdout).to_string();
-    rfs::json_rw::parse(&stdout)
+    rfs::json::json_rw::parse(&stdout)
         .unwrap_or_else(|e| panic!("MC JSON report from {:?} must parse: {e}\n{stdout}", bin))
 }
 
@@ -808,7 +808,7 @@ fn bench_mc_json_report_and_table() {
 
     // Assert on PARSED fields (never byte-for-byte): read the file back and
     // check status + deterministic metrics match what the runs produced.
-    let on_disk = rfs::json_rw::parse(&std::fs::read_to_string(&path).expect("read report"))
+    let on_disk = rfs::json::json_rw::parse(&std::fs::read_to_string(&path).expect("read report"))
         .expect("report must be valid JSON");
     for (name, (runs, docs)) in &entries {
         for be in ["rust", "c"] {

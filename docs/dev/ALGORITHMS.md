@@ -356,8 +356,8 @@ UnknownStateLimit with exit codes 0/1/2 and a parity-pinned summary
 line), and the counterexample report whose key ORDERING is part of the
 byte-parity contract.
 
-Code: `src/ir.rs::Module`, `src/json_rw.rs::Json`,
-`src/json_rw.rs::parse`, `src/utils/hash.rs::sha256_hex`,
+Code: `src/ir.rs::Module`, `src/json/json_rw.rs::Json`,
+`src/json/json_rw.rs::parse`, `src/utils/hash.rs::sha256_hex`,
 `src/codegen.rs::BackendOptions`,
 `src/codegen_fsm.rs::build_variants`,
 `src/codegen_fsm.rs::representative_values`,
@@ -436,7 +436,7 @@ Code: `src/ir.rs::Module`, `src/json_rw.rs::Json`,
    documented no-op (plain C is already dependency-free).
 
 Code: `src/ir.rs::to_json`, `src/ir.rs::from_json`,
-`src/json_rw.rs::MAX_DEPTH`, `src/codegen.rs::run`,
+`src/json/json_rw.rs::MAX_DEPTH`, `src/codegen.rs::run`,
 `src/utils/rng.rs::Rng`, `src/codegen_test.rs::RANDOM_TRACE_SEED`,
 `src/codegen_mc.rs::exact_summary_line`,
 `src/codegen_mc.rs::CounterexampleFormat`

@@ -13,8 +13,8 @@ make up this area:
 | File | Lines | Role |
 |---|---|---|
 | `src/ir.rs` | 1432 | IR types + hand-written per-type JSON (de)serialization (`IrJson`) |
-| `src/json_rw.rs` | 961 (24 unit tests) | the ONLY JSON implementation in the toolchain: value model, writer, strict reader |
-| `src/json_schema.rs` | 767 (5 unit tests) | draft-07 schema emitter + markdown renderer + sync walker for the JSON format entries |
+| `src/json/json_rw.rs` | 961 (24 unit tests) | the ONLY JSON implementation in the toolchain: value model, writer, strict reader |
+| `src/json/json_schema.rs` | 767 (5 unit tests) | draft-07 schema emitter + markdown renderer + sync walker for the JSON format entries |
 | `src/utils/hash.rs` | 158 (2 unit tests) | hand-rolled SHA-256; the spec hash stamped into every generated artifact header |
 
 Position in the pipeline, both directions:
@@ -24,7 +24,7 @@ Position in the pipeline, both directions:
   parse and the downstream consumers (codegen, model checking, diagrams,
   info).
 - `.json` input loads the same type directly:
-  `src/frontend.rs::convert_file_to_ir` runs `src/json_rw.rs::parse` and then
+  `src/frontend.rs::convert_file_to_ir` runs `src/json/json_rw.rs::parse` and then
   `src/ir.rs::from_json`; JSON output is the mirror image in
   `src/frontend.rs::render_ir` (pretty rendering + trailing newline).
 - The canonical whole-file rendering (`src/ir.rs::to_json`) feeds the spec
@@ -47,8 +47,8 @@ Where to go next:
 - decision rationale: D10, D-P5-2, D-P6-2, D-P6-3, D-P7-8, D-P7-9 in
   [DECISIONS.md](DECISIONS.md); the user-facing version policy in [MIGRATION.md](../user/MIGRATION.md).
 
-Code: `src/ir.rs::Ir`, `src/ir.rs::IR_VERSION`, `src/json_rw.rs::Json`,
-`src/json_rw.rs::parse`, `src/json_schema.rs::SchemaDoc`,
+Code: `src/ir.rs::Ir`, `src/ir.rs::IR_VERSION`, `src/json/json_rw.rs::Json`,
+`src/json/json_rw.rs::parse`, `src/json/json_schema.rs::SchemaDoc`,
 `src/utils/hash.rs::spec_hash16`, `src/frontend.rs::convert_file_to_ir`,
 `src/codegen.rs::run`
 
@@ -191,7 +191,7 @@ Code: `src/ir.rs::IrJson`, `src/ir.rs::uint_json`, `src/ir.rs::uint_field`,
 <a id="dev:json-rw"></a>
 ## Hand-rolled JSON reader/writer
 
-`src/json_rw.rs` is the ONLY JSON implementation in the toolchain (D-P5-2):
+`src/json/json_rw.rs` is the ONLY JSON implementation in the toolchain (D-P5-2):
 every JSON document it produces or consumes - IR round-trips, all --json CLI
 outputs, training JSONL validation, benchmark reports, and the generated MC
 engines' reports - goes through it. The four contractual properties that
@@ -199,7 +199,7 @@ justified hand-rolling (key-ordering guarantee, always byte-identical text,
 zero external dependencies, stable wire format under our control) are written
 up in `dev:algorithms-ir-codegen` L3; this section covers the mechanics.
 
-**Value model.** `src/json_rw.rs::Json` has six variants: Null, Bool, Int
+**Value model.** `src/json/json_rw.rs::Json` has six variants: Null, Bool, Int
 (i64), Str, Arr(Vec<Json>), and Obj(Vec<(String, Json)>) - objects are
 ORDERED key/value vectors, so serialization order is exactly declaration
 order and the reader rejects duplicate keys. There is NO float variant
@@ -207,20 +207,20 @@ order and the reader rejects duplicate keys. There is NO float variant
 
 **Writer.** Two layouts, both pinned by tests:
 
-- compact (`src/json_rw.rs::write_compact`, also the Display form):
+- compact (`src/json/json_rw.rs::write_compact`, also the Display form):
   "key":value with no whitespace outside strings;
-- pretty (`src/json_rw.rs::write_pretty`): 2-space indent, "key": value, one
+- pretty (`src/json/json_rw.rs::write_pretty`): 2-space indent, "key": value, one
   element per line; empty objects/arrays stay inline ({} / []).
 
-String escaping (`src/json_rw.rs::write_escaped`): the seven short escapes
+String escaping (`src/json/json_rw.rs::write_escaped`): the seven short escapes
 (quote, backslash, b, t, n, f, r); every other control character
 U+0000..=U+001F as \u00XX with lowercase hex; everything else raw UTF-8
 (non-ASCII passes through unescaped). Integers render via i64 Display - no
 padding, no exponents.
 
-**Reader.** `src/json_rw.rs::parse` is a strict single-pass reader
-(`src/json_rw.rs::Reader`) whose errors carry byte offsets into the input
-(`src/json_rw.rs::JsonError`). Strictness rules, each pinned by a unit test:
+**Reader.** `src/json/json_rw.rs::parse` is a strict single-pass reader
+(`src/json/json_rw.rs::Reader`) whose errors carry byte offsets into the input
+(`src/json/json_rw.rs::JsonError`). Strictness rules, each pinned by a unit test:
 
 - no trailing garbage after the document;
 - integers only - a decimal point or exponent is a syntax error;
@@ -230,13 +230,13 @@ padding, no exponents.
 - no NaN/Infinity (unexpected character);
 - no duplicate object keys (the error points at the second occurrence's
   opening quote) and no trailing commas;
-- nesting depth capped at `src/json_rw.rs::MAX_DEPTH` (512);
+- nesting depth capped at `src/json/json_rw.rs::MAX_DEPTH` (512);
 - strings: raw control characters rejected; \uXXXX escapes decode surrogate
   pairs to non-BMP chars, and ALL escape diagnostics point at the backslash.
 
 **Typed extraction.** Option-returning helpers for consumers that do not want
 to pattern-match: get / as_str / as_int / as_bool / as_arr / as_obj on
-`src/json_rw.rs::Json`.
+`src/json/json_rw.rs::Json`.
 
 **Tests.** The 24 unit tests pin writer escaping/layout, reader error classes
 with exact byte offsets, and the round-trip property (compact AND pretty re-
@@ -250,61 +250,61 @@ and u64 integers (`src/backends/rust_mc.rs::JSON_WRITER_RUST`,
 cross-backend byte-parity tests pin that toolchain-side and generated-side
 rendering are identical for the same run data.
 
-Code: `src/json_rw.rs::Json`, `src/json_rw.rs::parse`,
-`src/json_rw.rs::MAX_DEPTH`, `src/json_rw.rs::JsonError`,
-`src/json_rw.rs::write_escaped`, `src/backends/rust_mc.rs::JSON_WRITER_RUST`,
+Code: `src/json/json_rw.rs::Json`, `src/json/json_rw.rs::parse`,
+`src/json/json_rw.rs::MAX_DEPTH`, `src/json/json_rw.rs::JsonError`,
+`src/json/json_rw.rs::write_escaped`, `src/backends/rust_mc.rs::JSON_WRITER_RUST`,
 `src/backends/c_mc.rs::JSON_WRITER_C`
 
 <a id="dev:json-schema"></a>
 ## Schema emitter + sync walker
 
-`src/json_schema.rs` (Phase 7, D-P7-8/D-P7-9) is the shared machinery behind
+`src/json/json_schema.rs` (Phase 7, D-P7-8/D-P7-9) is the shared machinery behind
 the `rfs info format` JSON entries: each entry builds a model of its document
 against the code's own key constants/writers, and this module renders it as
 a draft-07 JSON Schema or a markdown field-table document - and verifies real
 generated documents against the model.
 
-**The model.** `src/json_schema.rs::SchemaDoc` = title + description + root
+**The model.** `src/json/json_schema.rs::SchemaDoc` = title + description + root
 value model + named definitions (recursion/reuse; order = md section order)
 + extra_sections (free-form markdown appended after the definitions, for
 format aspects with no schema - never emitted into the schema). A field is a
-`src/json_schema.rs::Field` (name, type, required flag, one-line note; req /
-opt constructors); `src/json_schema.rs::FieldType` has twelve shapes: Str,
+`src/json/json_schema.rs::Field` (name, type, required flag, one-line note; req /
+opt constructors); `src/json/json_schema.rs::FieldType` has twelve shapes: Str,
 Int, Bool, Null, EnumStr (string restricted to a fixed set), Obj (named
 fields), Arr (homogeneous), Ref ($ref to a definition), TaggedUnion
-(`src/json_schema.rs::TaggedVariant`: kind + fields beyond "kind"), Nullable
+(`src/json/json_schema.rs::TaggedVariant`: kind + fields beyond "kind"), Nullable
 (key present, value may be null), FreeObj (ARBITRARY string keys, every value
 must conform - for name->value maps whose names come from the spec, e.g. the
 ce-trace vars), and Union (anyOf, no discriminator).
 
-**Draft-07 emission.** `src/json_schema.rs::emit_type` maps the model to
+**Draft-07 emission.** `src/json/json_schema.rs::emit_type` maps the model to
 schema fragments: simple types -> "type"; EnumStr -> type + enum; Obj ->
-`src/json_schema.rs::emit_object` (properties + required +
+`src/json/json_schema.rs::emit_object` (properties + required +
 additionalProperties:false at EVERY object level, so CI validators reject
 undocumented keys - the one exception is FreeObj, whose additionalProperties
 carries the inner value schema); Arr -> type + items; Ref -> $ref to
 #/definitions/name; TaggedUnion -> oneOf of objects, each with a kind enum
 field plus the variant's fields; Nullable -> simple types merge into a type
 array with null, complex types (refs/unions) use anyOf because draft-07
-ignores siblings of $ref; Union -> anyOf. `src/json_schema.rs::emit_schema`
+ignores siblings of $ref; Union -> anyOf. `src/json/json_schema.rs::emit_schema`
 wraps it in the document envelope ($schema draft-07 URI, title, description):
 an object root inlines its properties at the top level (the standard shape for
 document schemas), any other root is wrapped in allOf; definitions are always
-present. `src/json_schema.rs::emit_schema_pretty` renders through json_rw
+present. `src/json/json_schema.rs::emit_schema_pretty` renders through json_rw
 (project rule: all JSON goes through json_rw).
 
-**Markdown rendering.** `src/json_schema.rs::render_md` produces the md
+**Markdown rendering.** `src/json/json_schema.rs::render_md` produces the md
 output: title + description + a legend ([name] = the ## name section below;
 "or null" = key present with a JSON null; "no (key omitted)" = key absent),
-a ## document section (field table via `src/json_schema.rs::field_table`,
-kind table via `src/json_schema.rs::kind_table` for tagged-union roots, or a
+a ## document section (field table via `src/json/json_schema.rs::field_table`,
+kind table via `src/json/json_schema.rs::kind_table` for tagged-union roots, or a
 single type line), one ## section per definition, then the extra sections.
-The Type-column text comes from `src/json_schema.rs::type_md`.
+The Type-column text comes from `src/json/json_schema.rs::type_md`.
 
-**The sync walker (D-P7-9).** `src/json_schema.rs::walk_check` verifies that
+**The sync walker (D-P7-9).** `src/json/json_schema.rs::walk_check` verifies that
 a REAL generated document matches the model: every required key present, no
-undocumented key at any object level (`src/json_schema.rs::check_object`),
-types and enum constraints agree (`src/json_schema.rs::check_type`, which
+undocumented key at any object level (`src/json/json_schema.rs::check_object`),
+types and enum constraints agree (`src/json/json_schema.rs::check_type`, which
 resolves Refs through the definitions map, checks a tagged union's kind then
 its variant fields, checks every value of a FreeObj, and for a Union accepts
 if ANY alternative passes cleanly - otherwise reporting the shortest error
@@ -320,9 +320,9 @@ example's parse JSON against the spec-json model (the guarantee that the model
 cannot drift from the writers), plus walks over real ce-trace / mc-report /
 validate-json / info-json documents.
 
-Code: `src/json_schema.rs::SchemaDoc`, `src/json_schema.rs::FieldType`,
-`src/json_schema.rs::emit_type`, `src/json_schema.rs::emit_schema`,
-`src/json_schema.rs::render_md`, `src/json_schema.rs::walk_check`,
+Code: `src/json/json_schema.rs::SchemaDoc`, `src/json/json_schema.rs::FieldType`,
+`src/json/json_schema.rs::emit_type`, `src/json/json_schema.rs::emit_schema`,
+`src/json/json_schema.rs::render_md`, `src/json/json_schema.rs::walk_check`,
 `src/info_format.rs::spec_json_schema`, file-level `tests/info_format_test.rs`
 
 <a id="dev:spec-hash"></a>
@@ -379,7 +379,7 @@ cross-backend parity, and schema sync walks all fail on drift. Checklist:
 policy test pins the rejection message.
 4. **json_rw changes are cross-cutting.** The formatting contract (escaping,
    layout, number rendering) is pinned by the 24 unit tests in
-   `src/json_rw.rs` AND by cross-backend byte parity - the generated MC
+   `src/json/json_rw.rs` AND by cross-backend byte parity - the generated MC
    engines embed copies of the writer and must stay byte-identical. A reader
    strictness change can break .json inputs that used to load (or accept
    input that should be rejected): update the scope-limits note in the module

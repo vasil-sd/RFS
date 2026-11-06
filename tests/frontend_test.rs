@@ -49,7 +49,7 @@ fn ir_json(source: &str) -> String {
 
 /// Parse an IR JSON document text into an `Ir` (panics with the error on failure).
 fn json_ir(text: &str) -> Ir {
-    let value = rfs::json_rw::parse(text).unwrap_or_else(|e| panic!("invalid IR JSON: {e}"));
+    let value = rfs::json::json_rw::parse(text).unwrap_or_else(|e| panic!("invalid IR JSON: {e}"));
     Ir::from_json(&value).unwrap_or_else(|e| panic!("invalid IR JSON: {e}"))
 }
 
@@ -953,10 +953,10 @@ fn ir_version_read_policy_v0_loads_future_rejected() {
         "to_json writes the current version"
     );
 
-    let set_version = |mut doc: rfs::json_rw::Json, v: i64| -> rfs::json_rw::Json {
-        if let rfs::json_rw::Json::Obj(pairs) = &mut doc {
+    let set_version = |mut doc: rfs::json::json_rw::Json, v: i64| -> rfs::json::json_rw::Json {
+        if let rfs::json::json_rw::Json::Obj(pairs) = &mut doc {
             if let Some(slot) = pairs.iter_mut().find(|(k, _)| k == "ir_version") {
-                slot.1 = rfs::json_rw::Json::int(v);
+                slot.1 = rfs::json::json_rw::Json::int(v);
             }
         }
         doc
@@ -964,14 +964,14 @@ fn ir_version_read_policy_v0_loads_future_rejected() {
 
     // A v0 document (pre-Phase-6 format) still loads with unchanged content.
     let v0_text = set_version(ir.to_json().expect("to_json"), 0).to_string();
-    let value = rfs::json_rw::parse(&v0_text).expect("v0 doc parses");
+    let value = rfs::json::json_rw::parse(&v0_text).expect("v0 doc parses");
     let back: Ir = Ir::from_json(&value).expect("v0 document must still load");
     assert_eq!(back.ir_version, 0);
     assert_eq!(back.modules, ir.modules, "v0 content must load unchanged");
 
     // A future version (2) is rejected with the pinned message.
     let v2_text = set_version(ir.to_json().expect("to_json"), 2).to_string();
-    let value = rfs::json_rw::parse(&v2_text).expect("v2 doc parses");
+    let value = rfs::json::json_rw::parse(&v2_text).expect("v2 doc parses");
     let err = Ir::from_json(&value).expect_err("future version must be rejected");
     assert!(
         err.contains("unsupported IR version 2"),
@@ -1064,7 +1064,7 @@ fn info_json_parses_and_matches_pinned_example() {
     let f = example_root_dir().join("valid").join("44_token_ring.rfs");
     let opts = rfs::info::InfoOptions { json: true };
     let text = rfs::info::run_info(&f, &opts).expect("info --json");
-    let doc = rfs::json_rw::parse(&text).unwrap_or_else(|e| panic!("info JSON must parse: {e}"));
+    let doc = rfs::json::json_rw::parse(&text).unwrap_or_else(|e| panic!("info JSON must parse: {e}"));
 
     // Data consistency against the IR parsed directly from the same source.
     let ir =
@@ -1074,51 +1074,51 @@ fn info_json_parses_and_matches_pinned_example() {
 
     let modules = doc
         .get("modules")
-        .and_then(rfs::json_rw::Json::as_arr)
+        .and_then(rfs::json::json_rw::Json::as_arr)
         .expect("modules array");
     assert_eq!(modules.len(), 1);
     let jm = &modules[0];
     assert_eq!(
-        jm.get("name").and_then(rfs::json_rw::Json::as_str),
+        jm.get("name").and_then(rfs::json::json_rw::Json::as_str),
         Some(m.name.as_str())
     );
     assert_eq!(
-        jm.get("initial_state").and_then(rfs::json_rw::Json::as_str),
+        jm.get("initial_state").and_then(rfs::json::json_rw::Json::as_str),
         m.initial_state.as_deref()
     );
     assert_eq!(
-        jm.get("transitions").and_then(rfs::json_rw::Json::as_int),
+        jm.get("transitions").and_then(rfs::json::json_rw::Json::as_int),
         Some(m.transitions.len() as i64)
     );
 
     // Enums and events/outputs match the IR (names + variant counts).
     let j_enums = jm
         .get("enums")
-        .and_then(rfs::json_rw::Json::as_arr)
+        .and_then(rfs::json::json_rw::Json::as_arr)
         .expect("enums");
     assert_eq!(j_enums.len(), m.enums.len());
     for (je, e) in j_enums.iter().zip(&m.enums) {
         assert_eq!(
-            je.get("name").and_then(rfs::json_rw::Json::as_str),
+            je.get("name").and_then(rfs::json::json_rw::Json::as_str),
             Some(e.name.as_str())
         );
         let variants = je
             .get("variants")
-            .and_then(rfs::json_rw::Json::as_arr)
+            .and_then(rfs::json::json_rw::Json::as_arr)
             .expect("variants");
         assert_eq!(variants.len(), e.variants.len());
     }
     for (key, groups) in [("events", &m.events), ("outputs", &m.outputs)] {
-        let jg = jm.get(key).and_then(rfs::json_rw::Json::as_arr).expect(key);
+        let jg = jm.get(key).and_then(rfs::json::json_rw::Json::as_arr).expect(key);
         assert_eq!(jg.len(), groups.len(), "{key} count");
         for (jx, g) in jg.iter().zip(groups) {
             assert_eq!(
-                jx.get("name").and_then(rfs::json_rw::Json::as_str),
+                jx.get("name").and_then(rfs::json::json_rw::Json::as_str),
                 Some(g.name.as_str())
             );
             let variants = jx
                 .get("variants")
-                .and_then(rfs::json_rw::Json::as_arr)
+                .and_then(rfs::json::json_rw::Json::as_arr)
                 .expect("variants");
             assert_eq!(variants.len(), g.variants.len(), "{key} variant count");
         }
@@ -1128,7 +1128,7 @@ fn info_json_parses_and_matches_pinned_example() {
     // "monitored" or "skipped: <reason>"; this spec has BOTH kinds.
     let props = jm
         .get("properties")
-        .and_then(rfs::json_rw::Json::as_arr)
+        .and_then(rfs::json::json_rw::Json::as_arr)
         .expect("properties");
     assert!(!props.is_empty());
     let mut has_monitored = false;
@@ -1136,7 +1136,7 @@ fn info_json_parses_and_matches_pinned_example() {
     for jp in props {
         let status = jp
             .get("monitor_status")
-            .and_then(rfs::json_rw::Json::as_str)
+            .and_then(rfs::json::json_rw::Json::as_str)
             .expect("monitor_status");
         if status == "monitored" {
             has_monitored = true;
@@ -3554,22 +3554,22 @@ fn e2e_validate_json_parse_error_shape_and_position() {
         String::from_utf8_lossy(&out.stderr)
     );
     let stdout = String::from_utf8_lossy(&out.stdout).to_string();
-    let doc = rfs::json_rw::parse(&stdout).expect("JSON document must parse");
+    let doc = rfs::json::json_rw::parse(&stdout).expect("JSON document must parse");
 
     assert_eq!(
         doc.get("file").and_then(|v| v.as_str()),
         Some(file.display().to_string().as_str())
     );
-    assert_eq!(doc.get("ok"), Some(&rfs::json_rw::Json::Bool(false)));
+    assert_eq!(doc.get("ok"), Some(&rfs::json::json_rw::Json::Bool(false)));
     let errors = match doc.get("errors") {
-        Some(rfs::json_rw::Json::Arr(a)) => a,
+        Some(rfs::json::json_rw::Json::Arr(a)) => a,
         _ => panic!("errors must be an array: {stdout}"),
     };
     assert_eq!(errors.len(), 1);
     let e0 = &errors[0];
     assert_eq!(e0.get("kind").and_then(|v| v.as_str()), Some("parse"));
-    assert_eq!(e0.get("line"), Some(&rfs::json_rw::Json::Int(line as i64)));
-    assert_eq!(e0.get("col"), Some(&rfs::json_rw::Json::Int(col as i64)));
+    assert_eq!(e0.get("line"), Some(&rfs::json::json_rw::Json::Int(line as i64)));
+    assert_eq!(e0.get("col"), Some(&rfs::json::json_rw::Json::Int(col as i64)));
     assert_eq!(
         e0.get("message").and_then(|v| v.as_str()),
         Some(err.message.as_str())
@@ -3593,18 +3593,18 @@ fn e2e_validate_json_semantic_error_shape_pinned() {
         .expect("spawn rfs validate --json");
     assert_eq!(out.status.code(), Some(1));
     let stdout = String::from_utf8_lossy(&out.stdout).to_string();
-    let doc = rfs::json_rw::parse(&stdout).expect("JSON document must parse");
+    let doc = rfs::json::json_rw::parse(&stdout).expect("JSON document must parse");
 
-    assert_eq!(doc.get("ok"), Some(&rfs::json_rw::Json::Bool(false)));
+    assert_eq!(doc.get("ok"), Some(&rfs::json::json_rw::Json::Bool(false)));
     let errors = match doc.get("errors") {
-        Some(rfs::json_rw::Json::Arr(a)) => a,
+        Some(rfs::json::json_rw::Json::Arr(a)) => a,
         _ => panic!("errors must be an array: {stdout}"),
     };
     assert_eq!(errors.len(), 1);
     let e0 = &errors[0];
     assert_eq!(e0.get("kind").and_then(|v| v.as_str()), Some("semantic"));
-    assert_eq!(e0.get("line"), Some(&rfs::json_rw::Json::Int(0)));
-    assert_eq!(e0.get("col"), Some(&rfs::json_rw::Json::Int(0)));
+    assert_eq!(e0.get("line"), Some(&rfs::json::json_rw::Json::Int(0)));
+    assert_eq!(e0.get("col"), Some(&rfs::json::json_rw::Json::Int(0)));
     assert_eq!(
         e0.get("message").and_then(|v| v.as_str()),
         Some("module 'always_zero_bound' property 'bad': always[N] requires N >= 1")
@@ -3629,10 +3629,10 @@ fn e2e_validate_json_ok_true_on_valid_file() {
         String::from_utf8_lossy(&out.stderr)
     );
     let stdout = String::from_utf8_lossy(&out.stdout).to_string();
-    let doc = rfs::json_rw::parse(&stdout).expect("JSON document must parse");
-    assert_eq!(doc.get("ok"), Some(&rfs::json_rw::Json::Bool(true)));
+    let doc = rfs::json::json_rw::parse(&stdout).expect("JSON document must parse");
+    assert_eq!(doc.get("ok"), Some(&rfs::json::json_rw::Json::Bool(true)));
     match doc.get("errors") {
-        Some(rfs::json_rw::Json::Arr(a)) => assert!(a.is_empty(), "errors must be empty: {stdout}"),
+        Some(rfs::json::json_rw::Json::Arr(a)) => assert!(a.is_empty(), "errors must be empty: {stdout}"),
         _ => panic!("errors must be an array: {stdout}"),
     }
 }
@@ -3651,10 +3651,10 @@ fn e2e_validate_json_directory_mode_array() {
         .expect("spawn rfs validate --json (directory)");
     assert_eq!(out.status.code(), Some(1), "failing files must exit 1");
     let stdout = String::from_utf8_lossy(&out.stdout).to_string();
-    let doc = rfs::json_rw::parse(&stdout).expect("JSON array must parse");
+    let doc = rfs::json::json_rw::parse(&stdout).expect("JSON array must parse");
 
     let arr = match &doc {
-        rfs::json_rw::Json::Arr(a) => a,
+        rfs::json::json_rw::Json::Arr(a) => a,
         _ => panic!("directory mode must emit an array: {stdout}"),
     };
     // Every file in examples/invalid fails validation.
@@ -3666,9 +3666,9 @@ fn e2e_validate_json_directory_mode_array() {
     assert_eq!(arr.len(), n_files, "one document per failing file");
 
     for d in arr {
-        assert_eq!(d.get("ok"), Some(&rfs::json_rw::Json::Bool(false)));
+        assert_eq!(d.get("ok"), Some(&rfs::json::json_rw::Json::Bool(false)));
         let errors = match d.get("errors") {
-            Some(rfs::json_rw::Json::Arr(a)) if !a.is_empty() => a,
+            Some(rfs::json::json_rw::Json::Arr(a)) if !a.is_empty() => a,
             _ => panic!("failing file document must have non-empty errors: {stdout}"),
         };
         for e in errors {
@@ -3688,7 +3688,7 @@ fn ide_grammar_valid_json_and_covers_all_keywords() {
 
     let raw = std::fs::read_to_string(root.join("ide/textmate/rfs.json"))
         .expect("ide/textmate/rfs.json must exist");
-    let _doc: rfs::json_rw::Json = rfs::json_rw::parse(&raw).expect("grammar must be valid JSON");
+    let _doc: rfs::json::json_rw::Json = rfs::json::json_rw::parse(&raw).expect("grammar must be valid JSON");
 
     for kw in rfs::parser::KEYWORDS {
         assert!(raw.contains(kw), "grammar missing keyword '{kw}'");
@@ -3696,8 +3696,8 @@ fn ide_grammar_valid_json_and_covers_all_keywords() {
 
     let snip = std::fs::read_to_string(root.join("ide/snippets.rfs"))
         .expect("ide/snippets.rfs must exist");
-    let _sdoc: rfs::json_rw::Json =
-        rfs::json_rw::parse(&snip).expect("snippets must be valid JSON");
+    let _sdoc: rfs::json::json_rw::Json =
+        rfs::json::json_rw::parse(&snip).expect("snippets must be valid JSON");
 }
 
 // ---------------------------------------------------------------------------

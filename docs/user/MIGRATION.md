@@ -85,7 +85,7 @@ before the v1.1 tag (recorded in section 4). Rules:
 ### 2.3 IR JSON schema (evolution rule)
 
 The IR JSON document (`Ir::to_json`, hand-rolled deterministic writer in
-`src/json_rw.rs` - stable key order and formatting) carries an
+`src/json/json_rw.rs` - stable key order and formatting) carries an
 `ir_version` field. The evolution rule (DESIGN.md D10, implemented in
 `src/ir.rs`):
 

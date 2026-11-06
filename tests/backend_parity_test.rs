@@ -1262,12 +1262,12 @@ fn mc_json_report_parity_all_property_bearing_examples() {
         // Strict parse + canonical form (key order is the contract). The
         // document is one line; stdout carries the trailing newline.
         let doc_text = rust.1.strip_suffix('\n').unwrap_or(&rust.1);
-        let doc = rfs::json_rw::parse(doc_text)
+        let doc = rfs::json::json_rw::parse(doc_text)
             .unwrap_or_else(|e| panic!("[{name}] JSON must strict-parse: {e}\n{}", rust.1));
         // The informational peak_rss_kb field is present and non-negative in
         // BOTH backends' documents (structural parity; value not asserted).
         for (be, out) in [("rust", &rust.1), ("c", &c.1)] {
-            let d = rfs::json_rw::parse(out.trim_end())
+            let d = rfs::json::json_rw::parse(out.trim_end())
                 .unwrap_or_else(|e| panic!("[{name}] {be}: {e}"));
             let rss = d
                 .get("statistics")
@@ -1477,7 +1477,7 @@ fn mc_json_five_status_reason_cases() {
             let bin = mc_json_binary(&case.spec, backend);
             let (code, out) = run_bin(&bin, case.args);
             assert_eq!(code, want_code, "{backend} {}: {out}", case.tag);
-            let doc = rfs::json_rw::parse(&out)
+            let doc = rfs::json::json_rw::parse(&out)
                 .unwrap_or_else(|e| panic!("{backend} {}: JSON must parse: {e}\n{out}", case.tag));
             assert_eq!(
                 doc.get("status").and_then(|v| v.as_str()),
@@ -1506,7 +1506,7 @@ fn mc_json_five_status_reason_cases() {
         let bin = mc_json_binary_for("pin_liv", backend, LIV_FAIL_EV_SPEC);
         let (code, out) = run_bin(&bin, &[]);
         assert_eq!(code, 1, "{backend}: {out}");
-        let doc = rfs::json_rw::parse(&out).unwrap_or_else(|e| panic!("{backend}: {e}\n{out}"));
+        let doc = rfs::json::json_rw::parse(&out).unwrap_or_else(|e| panic!("{backend}: {e}\n{out}"));
         assert_eq!(doc.get("status").and_then(|v| v.as_str()), Some("fail"));
         assert_eq!(
             doc.get("reason").and_then(|v| v.as_str()),

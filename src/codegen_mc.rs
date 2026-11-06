@@ -368,7 +368,7 @@ pub const JSON_KEY_CE_STEPS: &str = "ce_steps";
 #[derive(Debug, Clone)]
 pub struct JsonIo {
     pub variant: String,
-    pub fields: Vec<(String, crate::json_rw::Json)>,
+    pub fields: Vec<(String, crate::json::json_rw::Json)>,
 }
 
 /// One step of a counterexample trace (mirrors one `step N` line of the
@@ -379,7 +379,7 @@ pub struct JsonStep {
     pub outputs: Vec<JsonIo>,
     pub from_state: String,
     pub to_state: String,
-    pub vars: Vec<(String, crate::json_rw::Json)>,
+    pub vars: Vec<(String, crate::json::json_rw::Json)>,
 }
 
 /// The counterexample payload (present iff the run failed).
@@ -388,14 +388,14 @@ pub enum JsonCounterexample {
     /// Property violation (incl. sample-0): the full trace.
     Trace {
         initial_state: String,
-        initial_vars: Vec<(String, crate::json_rw::Json)>,
+        initial_vars: Vec<(String, crate::json::json_rw::Json)>,
         steps: Vec<JsonStep>,
     },
     /// Liveness violation: prefix + one cycle iteration; `cycle_length` is
     /// the number of steps in `cycle`.
     Lasso {
         initial_state: String,
-        initial_vars: Vec<(String, crate::json_rw::Json)>,
+        initial_vars: Vec<(String, crate::json::json_rw::Json)>,
         prefix: Vec<JsonStep>,
         cycle: Vec<JsonStep>,
         cycle_length: i64,
@@ -404,7 +404,7 @@ pub enum JsonCounterexample {
     DeadlockConfig {
         depth: i64,
         state: String,
-        vars: Vec<(String, crate::json_rw::Json)>,
+        vars: Vec<(String, crate::json::json_rw::Json)>,
     },
 }
 
@@ -430,16 +430,16 @@ pub struct McJsonReport {
     pub counterexample: Option<JsonCounterexample>,
 }
 
-fn json_io(io: &JsonIo) -> crate::json_rw::Json {
-    use crate::json_rw::Json;
+fn json_io(io: &JsonIo) -> crate::json::json_rw::Json {
+    use crate::json::json_rw::Json;
     Json::obj(vec![
         (JSON_KEY_VARIANT.to_string(), Json::str(&io.variant)),
         (JSON_KEY_FIELDS.to_string(), Json::obj(io.fields.clone())),
     ])
 }
 
-fn json_step(step: &JsonStep) -> crate::json_rw::Json {
-    use crate::json_rw::Json;
+fn json_step(step: &JsonStep) -> crate::json::json_rw::Json {
+    use crate::json::json_rw::Json;
     Json::obj(vec![
         (JSON_KEY_INPUT.to_string(), json_io(&step.input)),
         (
@@ -467,8 +467,8 @@ impl JsonCounterexample {
 
     /// Render the counterexample object (key order per the module docs;
     /// `ce_steps` is always last).
-    pub fn to_json(&self) -> crate::json_rw::Json {
-        use crate::json_rw::Json;
+    pub fn to_json(&self) -> crate::json::json_rw::Json {
+        use crate::json::json_rw::Json;
         match self {
             JsonCounterexample::Trace {
                 initial_state,
@@ -527,8 +527,8 @@ impl JsonCounterexample {
 
 impl McJsonReport {
     /// Build the canonical JSON document (key order per the module docs).
-    pub fn to_json(&self) -> crate::json_rw::Json {
-        use crate::json_rw::Json;
+    pub fn to_json(&self) -> crate::json::json_rw::Json {
+        use crate::json::json_rw::Json;
         let mut pairs: Vec<(String, Json)> = vec![
             (JSON_KEY_STATUS.to_string(), Json::str(self.status.wire())),
             (
@@ -679,7 +679,7 @@ mod tests {
 
     /// One synthetic trace step exercising all three field types.
     fn step(input: &str, seq: i64) -> JsonStep {
-        use crate::json_rw::Json;
+        use crate::json::json_rw::Json;
         JsonStep {
             input: JsonIo {
                 variant: input.to_string(),
@@ -753,7 +753,7 @@ mod tests {
             peak_rss_kb: 3072,
             counterexample: Some(JsonCounterexample::Trace {
                 initial_state: "A".to_string(),
-                initial_vars: vec![("flag".to_string(), crate::json_rw::Json::bool(true))],
+                initial_vars: vec![("flag".to_string(), crate::json::json_rw::Json::bool(true))],
                 steps: vec![step("Req", 0), step("Ack", 1)],
             }),
         };
@@ -804,7 +804,7 @@ mod tests {
             counterexample: Some(JsonCounterexample::DeadlockConfig {
                 depth: 2,
                 state: "Term".to_string(),
-                vars: vec![("seq".to_string(), crate::json_rw::Json::int(9))],
+                vars: vec![("seq".to_string(), crate::json::json_rw::Json::int(9))],
             }),
         };
         assert_eq!(

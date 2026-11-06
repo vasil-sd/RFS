@@ -38,8 +38,8 @@ Shared infrastructure: external tools `src/ext_tool.rs::ExtTool` / `resolve`
 | Parsing RFS v0 | dev:parser-overview (+ -grammar / -expressions / -entry-error / -ebnf-model) | `src/parser.rs::parse_source`, `parse_file`; grammar model `src/ebnf_grammar.rs` (canonical text of DESIGN.md section 6) |
 | Semantic validation | dev:validator-overview (+ -fatal-pass / -typing / -warnings) | `src/validator.rs::validate_ir`, `validate_module`, `module_warnings` |
 | IR + wire format | dev:ir-model, dev:ir-wire-format | `src/ir.rs::Ir`, `to_json`, `from_json`; `IR_VERSION` read policy {0,1} (D-P5-2) |
-| JSON reader/writer | dev:json-rw | `src/json_rw.rs::parse`, `Json` (hand-rolled; the only JSON impl in the toolchain) |
-| JSON Schema emitter | dev:json-schema | `src/json_schema.rs` (draft-07 emitter + markdown renderer + sync walker, used by rfs info format) |
+| JSON reader/writer | dev:json-rw | `src/json/json_rw.rs::parse`, `Json` (hand-rolled; the only JSON impl in the toolchain) |
+| JSON Schema emitter | dev:json-schema | `src/json/json_schema.rs` (draft-07 emitter + markdown renderer + sync walker, used by rfs info format) |
 | Printing IR -> source | dev:code-map-frontend (file entry) | `src/printer.rs::print_ir` (unparser; round-trip pinned in tests) |
 | Spans / parse errors | dev:code-map-frontend (file entry) | `src/error.rs::ParseError`, `Span` |
 | Spec hash | dev:spec-hash | `src/utils/hash.rs` (hand-rolled SHA-256; generated artifact headers) |
@@ -130,8 +130,9 @@ above.
 - `src/ebnf_grammar.rs` - EBNF grammar model + renderers for IDE/tooling output
 - `src/validator.rs` - semantic validation and expression typing for RFS IR
 - `src/ir.rs` - IR types + hand-written JSON (de)serialization (pinned wire format)
-- `src/json_rw.rs` - hand-rolled JSON reader/writer (only JSON impl in the toolchain)
-- `src/json_schema.rs` - draft-07 JSON-Schema emitter + markdown renderer + sync walker
+- `src/json/mod.rs` - module root of the JSON substrate (json_rw + json_schema)
+- `src/json/json_rw.rs` - hand-rolled JSON reader/writer (only JSON impl in the toolchain)
+- `src/json/json_schema.rs` - draft-07 JSON-Schema emitter + markdown renderer + sync walker
 - `src/utils/mod.rs` - module root of the cross-cutting substrate (hash + rng)
 - `src/utils/rng.rs` - the project's single LCG generator (shared constants, top-53-bit mapping)
 - `src/codegen.rs` - codegen backend API + plugin registry (language-agnostic core)

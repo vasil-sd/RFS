@@ -137,7 +137,7 @@ file-driven example test suite extensible without changing test code.
 Consumers: the integration tests call library functions directly (e.g. the
 info-format walk runs `src/info.rs::run_info` in-process with json=true);
 `crates/rfs-build` invokes the BINARY (RFS_BIN resolution), not the library;
-external tooling goes through IR JSON (hand-rolled `src/json_rw.rs`). Full API
+external tooling goes through IR JSON (hand-rolled `src/json/json_rw.rs`). Full API
 list: [KB.md](../../KB.md) section 4.3; codegen plugin API: [CODEGEN.md](../../CODEGEN.md) +
 [codegen_core.md](codegen_core.md).
 
@@ -233,7 +233,7 @@ static `src/info_format.rs::FORMATS` holds the ten entries: spec-rfs (the RFS
 v0 EBNF grammar in md/plantuml/svg, rendered from the in-binary model in
 `src/ebnf_grammar.rs` - the canonical text of [DESIGN.md](../../DESIGN.md) section 6's fence),
 spec-json / ce-trace / mc-report / validate-json / info-json (md + draft-07
-JSON Schema via the shared emitter in `src/json_schema.rs`; schema builders
+JSON Schema via the shared emitter in `src/json/json_schema.rs`; schema builders
 `src/info_format.rs::spec_json_schema`, `ce_trace_schema`, `mc_report_schema`,
 `validate_json_schema`, `info_json_schema`; the mc-report entry's
 counterexample definition REUSES the ce-trace root through the shared

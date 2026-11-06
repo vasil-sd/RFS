@@ -17,7 +17,7 @@ use crate::ir::{
     BinOp, Expr, Formula, Ir, Module, OnError, OutputExpr, PatternExpr, PatternVariant, Type,
     UnaryOp,
 };
-use crate::json_rw::Json;
+use crate::json::json_rw::Json;
 use std::path::Path;
 
 /// Options for the `info` command.

@@ -1739,7 +1739,7 @@ mod tests {
         let source = "module m { enum State { A, B } initial A event E(Value(x: bit<8>)) output O transition A on E(Value(x)) where x == 0 { next B; emit O; } prop p : always (state == A) ; }";
         let ir = parse_source(source).expect("parse source");
         let json = ir.to_json().expect("serialize ir").to_string();
-        let value = crate::json_rw::parse(&json).expect("parse ir json");
+        let value = crate::json::json_rw::parse(&json).expect("parse ir json");
         let back = Ir::from_json(&value).expect("deserialize ir");
         assert_eq!(ir, back);
         // Full round-trips through the RFS printer as well.

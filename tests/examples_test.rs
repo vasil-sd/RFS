@@ -36,7 +36,7 @@ fn valid_examples_parse_and_roundtrip() {
             .unwrap_or_else(|e| panic!("failed to serialize IR from {}: {}", file.display(), e))
             .to_string();
 
-        let value = rfs::json_rw::parse(&json)
+        let value = rfs::json::json_rw::parse(&json)
             .unwrap_or_else(|e| panic!("failed to parse IR JSON from {}: {}", file.display(), e));
         let back: Ir = Ir::from_json(&value)
             .unwrap_or_else(|e| panic!("failed to deserialize IR from {}: {}", file.display(), e));

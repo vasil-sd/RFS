@@ -21,8 +21,8 @@ pub mod gen_spec_cmd;
 pub mod info;
 pub mod info_format;
 pub mod ir;
-pub mod json_rw;
-pub mod json_schema;
+
+pub mod json;
 pub mod mc_plan;
 pub mod mc_ref_cmd;
 pub mod monitor;

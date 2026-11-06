@@ -3,7 +3,7 @@
 //! Phase 5 task 2 removed the external JSON stack from the toolchain: every
 //! type below is serialized/deserialized by explicit `to_json`/`from_json`
 //! code built on
-//! [`crate::json_rw`]. The wire format is a PINNED CONTRACT, byte-identical
+//! [`crate::json::json_rw`]. The wire format is a PINNED CONTRACT, byte-identical
 //! to what the pre-migration (external-crate) format produced:
 //!
 //! - Structs: keys in DECLARATION order. `Option` fields serialize as
@@ -24,7 +24,7 @@
 //! tested over all valid examples there as well.
 //! Docs: dev:ir-json-rw-overview, dev:ir-model, dev:ir-wire-format, dev:algorithms-ir-codegen, llm:ir-json-rw
 
-use crate::json_rw::Json;
+use crate::json::json_rw::Json;
 
 /// The IR schema version written by this toolchain (`to_json`). v1 since
 /// Phase 6 (v1.0, D-P6-2). READ POLICY: `from_json` accepts the current

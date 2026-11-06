@@ -245,7 +245,7 @@ pub fn convert_file_to_ir(path: &Path, format: Format) -> Result<Ir, String> {
     match format {
         Format::Rfs => crate::parse_source(&text).map_err(|e| e.message),
         Format::Json => {
-            let value = crate::json_rw::parse(&text)
+            let value = crate::json::json_rw::parse(&text)
                 .map_err(|e| format!("invalid RFS IR JSON in {}: {}", path.display(), e))?;
             Ir::from_json(&value)
                 .map_err(|e| format!("invalid RFS IR JSON in {}: {}", path.display(), e))
@@ -410,7 +410,7 @@ pub fn validate_one_structured(
             }
         },
         Format::Json => {
-            let value = crate::json_rw::parse(&text)
+            let value = crate::json::json_rw::parse(&text)
                 .map_err(|e| vec![format!("invalid RFS IR JSON in {}: {}", path.display(), e)])?;
             Ir::from_json(&value)
                 .map_err(|e| vec![format!("invalid RFS IR JSON in {}: {}", path.display(), e)])?
@@ -432,27 +432,27 @@ pub fn validate_one_structured(
 
 /// One `validate --json` document (pinned shape - Phase 5 task 13):
 /// `{ "file": ..., "ok": ..., "errors": [ {kind,line,col,message} ] }`.
-fn validate_json_doc(path: &Path, errors: &[StructuredError]) -> crate::json_rw::Json {
-    crate::json_rw::Json::obj(vec![
+fn validate_json_doc(path: &Path, errors: &[StructuredError]) -> crate::json::json_rw::Json {
+    crate::json::json_rw::Json::obj(vec![
         (
             "file".to_string(),
-            crate::json_rw::Json::str(path.display().to_string()),
+            crate::json::json_rw::Json::str(path.display().to_string()),
         ),
         (
             "ok".to_string(),
-            crate::json_rw::Json::bool(errors.is_empty()),
+            crate::json::json_rw::Json::bool(errors.is_empty()),
         ),
         (
             "errors".to_string(),
-            crate::json_rw::Json::arr(
+            crate::json::json_rw::Json::arr(
                 errors
                     .iter()
                     .map(|e| {
-                        crate::json_rw::Json::obj(vec![
-                            ("kind".to_string(), crate::json_rw::Json::str(e.kind)),
-                            ("line".to_string(), crate::json_rw::Json::int(e.line as i64)),
-                            ("col".to_string(), crate::json_rw::Json::int(e.col as i64)),
-                            ("message".to_string(), crate::json_rw::Json::str(&e.message)),
+                        crate::json::json_rw::Json::obj(vec![
+                            ("kind".to_string(), crate::json::json_rw::Json::str(e.kind)),
+                            ("line".to_string(), crate::json::json_rw::Json::int(e.line as i64)),
+                            ("col".to_string(), crate::json::json_rw::Json::int(e.col as i64)),
+                            ("message".to_string(), crate::json::json_rw::Json::str(&e.message)),
                         ])
                     })
                     .collect(),
@@ -548,7 +548,7 @@ pub fn render_validate_json(
     failed: &[(PathBuf, Vec<StructuredError>)],
 ) -> String {
     let doc = if is_directory {
-        crate::json_rw::Json::arr(
+        crate::json::json_rw::Json::arr(
             failed
                 .iter()
                 .map(|(p, e)| validate_json_doc(p, e))

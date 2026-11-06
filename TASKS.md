@@ -1856,3 +1856,18 @@ PHASE 8 IS NOW COMPLETE.
 - Unexpected import site found by the compiler: gen_spec_cmd.rs imported Rng through specgen's re-export path - fixed with a direct utils::rng import. The fuzz workspace's ir_roundtrip.rs fully-qualified rfs::specgen::Rng::new was renamed in THIS commit (lockstep pulled forward from task 3, which only keeps the module-path lockstep).
 - `PHASE_11_TASK_1_STATUS.md` written per FORMATTING.md section 6.2.
 - Verification: cargo build OK; cargo test 535/535 (exactly the documented baseline - byte-identity proven); dev_docs_test 9/9 after the re-sync. Committed as one commit.
+
+## 2026-11-05 22:35 — Phase 11 task 2: json/ substrate moved (json_rw + json_schema), 177 import sites rewritten, incremental doc re-sync
+
+### Interpretation & plan
+
+- Requested: execute Phase 11 task 2 per `docs/roadmap/phase_11/tasks/PHASE_11_TASK_2.md` - move the JSON substrate into src/json/ and rewrite its import sites once, before any consumer moves.
+- Plan: git mv both files + module root; scripted use-path rewrites across src/, tests/, fuzz/; per correction 1a the manifest + doc-reference re-sync happens in this commit; cargo build && cargo test gate.
+
+### Report
+
+- `src/json/` created: json_rw.rs (pure move, byte-identical) + json_schema.rs (move + its own 10 sibling-import rewrites to crate::json::json_rw) + mod.rs with //! Docs: pointer.
+- 177 import sites rewritten across 21 files (src/, tests/, and the detached fuzz workspace's three targets - no json lockstep remains for later tasks). Two non-`::` forms the script missed: info_format.rs's grouped import (compiler-caught E0432) and an intra-doc link in ir.rs (grep-caught) - both fixed.
+- Incremental doc re-sync (correction 1a): manifest updated (2 paths + new mod.rs entry); CODE_MAP restructured - new dev:code-map-json fragment + "JSON substrate" section, json entries removed from Validator+IR (5->2, incl. task 1's leftover hash entry), Frontend area count 13->10; all live-doc refs rewritten across docs/dev + docs/llm + docs/user (roadmap history untouched by design); TASK_MAP gains the mod.rs coverage row.
+- `PHASE_11_TASK_2_STATUS.md` written per FORMATTING.md section 6.2.
+- Verification: cargo build OK; cargo test 535/535 (exactly the documented baseline); dev_docs_test 9/9 on first run after the re-sync. Committed as one commit.

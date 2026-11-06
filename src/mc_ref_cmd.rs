@@ -333,7 +333,7 @@ mod tests {
         assert!(out.ends_with('\n') && !out.ends_with("\n\n"), "{out:?}");
         let doc = out.strip_suffix('\n').unwrap();
         // Strict-parseable + canonical compact form (the wire contract).
-        let parsed = crate::json_rw::parse(doc).expect("strict parse");
+        let parsed = crate::json::json_rw::parse(doc).expect("strict parse");
         assert_eq!(parsed.to_string_compact(), doc);
     }
 

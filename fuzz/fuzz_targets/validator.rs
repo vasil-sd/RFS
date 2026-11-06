@@ -24,7 +24,7 @@ fuzz_target!(|data: &[u8]| {
     // Part 2: the remaining bytes as raw JSON text -> from_json must not
     // panic (strict parse first; malformed JSON is a clean Err).
     if let Ok(text) = std::str::from_utf8(rest) {
-        if let Ok(json) = rfs::json_rw::parse(text) {
+        if let Ok(json) = rfs::json::json_rw::parse(text) {
             let _ = rfs::Ir::from_json(&json);
         }
     }

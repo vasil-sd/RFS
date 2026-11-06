@@ -18,7 +18,7 @@
 //! undocumented key at any object level, types and enum constraints agree.
 //! Docs: dev:ir-json-rw-overview, dev:json-schema, llm:ir-json-rw
 
-use crate::json_rw::Json;
+use crate::json::json_rw::Json;
 
 /// One field of an object (or one tagged-union variant's extra fields).
 #[derive(Debug, Clone)]
@@ -641,7 +641,7 @@ mod tests {
         let doc = tiny_doc();
         let s = emit_schema_pretty(&doc);
         // Round-trips through json_rw (project rule).
-        let j = crate::json_rw::parse(&s).expect("schema must be valid JSON");
+        let j = crate::json::json_rw::parse(&s).expect("schema must be valid JSON");
         assert_eq!(
             j.get("$schema").and_then(|v| v.as_str()),
             Some("http://json-schema.org/draft-07/schema#")
@@ -664,17 +664,17 @@ mod tests {
     fn walk_check_accepts_conforming_and_rejects_drift() {
         let doc = tiny_doc();
         // Conforming.
-        let ok = crate::json_rw::parse(r#"{"a": "x", "c": {"kind": "x", "v": "p"}}"#).unwrap();
+        let ok = crate::json::json_rw::parse(r#"{"a": "x", "c": {"kind": "x", "v": "p"}}"#).unwrap();
         assert!(walk_check(&doc, &ok).is_ok());
         // Missing required key.
-        let missing = crate::json_rw::parse(r#"{"c": null}"#).unwrap();
+        let missing = crate::json::json_rw::parse(r#"{"c": null}"#).unwrap();
         let errs = walk_check(&doc, &missing).unwrap_err();
         assert!(
             errs.iter().any(|e| e.contains("missing required key 'a'")),
             "{errs:?}"
         );
         // Undocumented key.
-        let extra = crate::json_rw::parse(r#"{"a": "x", "c": null, "zzz": 1}"#).unwrap();
+        let extra = crate::json::json_rw::parse(r#"{"a": "x", "c": null, "zzz": 1}"#).unwrap();
         let errs = walk_check(&doc, &extra).unwrap_err();
         assert!(
             errs.iter().any(|e| e.contains("undocumented key 'zzz'")),
@@ -682,11 +682,11 @@ mod tests {
         );
         // Bad enum value.
         let badenum =
-            crate::json_rw::parse(r#"{"a": "x", "c": {"kind": "x", "v": "nope"}}"#).unwrap();
+            crate::json::json_rw::parse(r#"{"a": "x", "c": {"kind": "x", "v": "nope"}}"#).unwrap();
         let errs = walk_check(&doc, &badenum).unwrap_err();
         assert!(errs.iter().any(|e| e.contains("not in enum")), "{errs:?}");
         // Unknown kind.
-        let badkind = crate::json_rw::parse(r#"{"a": "x", "c": {"kind": "zzz"}}"#).unwrap();
+        let badkind = crate::json::json_rw::parse(r#"{"a": "x", "c": {"kind": "zzz"}}"#).unwrap();
         let errs = walk_check(&doc, &badkind).unwrap_err();
         assert!(
             errs.iter().any(|e| e.contains("unknown kind 'zzz'")),
@@ -719,7 +719,7 @@ mod tests {
             extra_sections: vec![("extra".into(), "body text".into())],
         };
         let s = emit_schema_pretty(&doc);
-        let j = crate::json_rw::parse(&s).expect("valid JSON");
+        let j = crate::json::json_rw::parse(&s).expect("valid JSON");
         let m = j.get("properties").unwrap().get("m").cloned().unwrap();
         assert_eq!(m.get("type").and_then(|v| v.as_str()), Some("object"));
         // Free keys: additionalProperties carries the value schema (anyOf),
@@ -737,9 +737,9 @@ mod tests {
         );
 
         // walk: arbitrary keys accepted, value types enforced.
-        let ok = crate::json_rw::parse(r#"{"m": {"a": true, "b": 3}}"#).unwrap();
+        let ok = crate::json::json_rw::parse(r#"{"m": {"a": true, "b": 3}}"#).unwrap();
         assert!(walk_check(&doc, &ok).is_ok());
-        let bad = crate::json_rw::parse(r#"{"m": {"a": "s"}}"#).unwrap();
+        let bad = crate::json::json_rw::parse(r#"{"m": {"a": "s"}}"#).unwrap();
         let errs = walk_check(&doc, &bad).unwrap_err();
         assert!(
             errs.iter().any(|e| e.contains("type mismatch at $.m.a")),

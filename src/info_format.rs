@@ -12,7 +12,7 @@
 //! Docs: dev:cli-commands-overview, dev:cli-commands-info, llm:cli-commands
 
 use crate::codegen_mc as mc;
-use crate::{ebnf_grammar, json_schema};
+use crate::{ebnf_grammar, json::json_schema};
 use json_schema::{Field, FieldType, SchemaDoc, TaggedVariant};
 
 /// One documented format.

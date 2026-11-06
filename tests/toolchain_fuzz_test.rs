@@ -135,7 +135,7 @@ fn run_mc(bin: &Path, args: &[&str], tag: &str, backend_name: &str, mode: &str) 
     }
 }
 
-fn doc_status(doc: &rfs::json_rw::Json) -> String {
+fn doc_status(doc: &rfs::json::json_rw::Json) -> String {
     doc.get("status")
         .and_then(|v| v.as_str())
         .unwrap_or("<missing>")
@@ -256,7 +256,7 @@ fn check_status_agreement(tag: &str, res: &rfs::ref_mc::RefResult) {
             r1.code, want_exit,
             "[{tag}/{backend_name}] exact exit code must mirror the status taxonomy"
         );
-        let doc = rfs::json_rw::parse(r1.stdout.trim_end()).unwrap_or_else(|e| {
+        let doc = rfs::json::json_rw::parse(r1.stdout.trim_end()).unwrap_or_else(|e| {
             panic!(
                 "[{tag}/{backend_name}] MC JSON must strict-parse: {e}\n{}",
                 r1.stdout

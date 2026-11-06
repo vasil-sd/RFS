@@ -7,52 +7,54 @@ validator, codegen core, both backends, MC engine, monitor compiler.
 <a id="dev:deps-file-level"></a>
 ## File-level dependency graph
 
-Module-level dependencies of all 71 hand-written files, derived from the
+Module-level dependencies of all 86 hand-written files, derived from the
 `use crate::` / `use super::` statements (plus verified inline `crate::x::`
 paths). Edge direction: `A --> B` reads "A uses B". The graph is split into
 per-area subgraphs to stay within the renderer's layout limits.
 
 ```mermaid
 flowchart TD
-    subgraph ROOT["root (6)"]
+    subgraph ROOT["crate root (2)"]
         lib["lib.rs"]
         main["main.rs"]
-        err["error.rs"]
-        clog["cli_log.rs"]
-        fe["frontend.rs"]
-        pr["printer.rs"]
     end
 
-    subgraph PARSER["parser (2)"]
-        par["parser.rs"]
-        ebnf["ebnf_grammar.rs"]
+    subgraph LANG["lang (6)"]
+        par["lang/parser.rs"]
+        err["lang/error.rs"]
+        ir["lang/ir.rs"]
+        pr["lang/printer.rs"]
+        val["lang/validator.rs"]
+        sg["lang/specgen.rs"]
     end
 
-    subgraph VIR["validator + IR (5)"]
-        val["validator.rs"]
-        ir["ir.rs"]
-        jr["json_rw.rs"]
-        js["json_schema.rs"]
-        sh["spec_hash.rs"]
+    subgraph JSON["json (2)"]
+        jr["json/json_rw.rs"]
+        js["json/json_schema.rs"]
     end
 
-    subgraph CGEN["codegen core (4)"]
-        cg["codegen.rs"]
-        cfs["codegen_fsm.rs"]
-        cmc["codegen_mc.rs"]
-        ct["codegen_test.rs"]
+    subgraph UTILS["utils (1)"]
+        sh["utils/hash.rs"]
     end
 
-    subgraph BACK["backends (9)"]
-        bm["backends/mod.rs"]
-        br["backends/rust.rs"]
-        brf["backends/rust_fsm.rs"]
-        brm["backends/rust_mc.rs"]
-        brt["backends/rust_test.rs"]
-        bc["backends/c.rs"]
-        bcf["backends/c_fsm.rs"]
-        bcm["backends/c_mc.rs"]
-        bct["backends/c_test.rs"]
+    subgraph CGEN["codegen core + monitor (5)"]
+        cg["codegen/mod.rs"]
+        cfs["codegen/fsm.rs"]
+        cmc["codegen/mc_concepts.rs"]
+        ct["codegen/test_plan.rs"]
+        mon["codegen/monitor.rs"]
+    end
+
+    subgraph BACK["codegen/backends (9)"]
+        bm["codegen/backends/mod.rs"]
+        br["codegen/backends/rust/mod.rs"]
+        brf["codegen/backends/rust/fsm.rs"]
+        brm["codegen/backends/rust/mc.rs"]
+        brt["codegen/backends/rust/test.rs"]
+        bc["codegen/backends/c/mod.rs"]
+        bcf["codegen/backends/c/fsm.rs"]
+        bcm["codegen/backends/c/mc.rs"]
+        bct["codegen/backends/c/test.rs"]
     end
 
     subgraph MC["MC engine (4)"]
@@ -62,27 +64,27 @@ flowchart TD
         rm["ref_mc.rs"]
     end
 
-    subgraph MON["monitor (1)"]
-        mon["monitor.rs"]
+    subgraph CLI["cli shared + info_format (5)"]
+        clog["cli/log.rs"]
+        fe["cli/frontend.rs"]
+        et["cli/ext_tool.rs"]
+        infm["cli/info_format/mod.rs"]
+        ebnf["cli/info_format/ebnf_grammar.rs"]
     end
 
-    subgraph CLI["CLI (7)"]
-        inf["info.rs"]
-        infm["info_format.rs"]
-        gsc["gen_spec_cmd.rs"]
-        tc["test_cmd.rs"]
-        mrc["mc_ref_cmd.rs"]
-        sg["specgen.rs"]
-        et["ext_tool.rs"]
+    subgraph CMDS["cli/commands (5)"]
+        inf["cli/commands/info.rs"]
+        gsc["cli/commands/gen_spec.rs"]
+        tc["cli/commands/test.rs"]
+        mrc["cli/commands/mc_ref.rs"]
+        dg["cli/commands/diagram/mod.rs"]
     end
 
-    subgraph DIAG["diagrams (6)"]
-        dg["diagram.rs"]
-        dm["diagrams/mod.rs"]
-        dot["diagrams/dot.rs"]
-        mmd["diagrams/mermaid.rs"]
-        puml["diagrams/plantuml.rs"]
-        tab["diagrams/tables.rs"]
+    subgraph DPLUG["diagram plugins (4)"]
+        dot["cli/commands/diagram/dot.rs"]
+        mmd["cli/commands/diagram/mermaid.rs"]
+        puml["cli/commands/diagram/plantuml.rs"]
+        tab["cli/commands/diagram/tables.rs"]
     end
 
     subgraph BIN["bins + training (5)"]
@@ -260,29 +262,22 @@ flowchart TD
     sg --> pr
     sg --> val
 
-    dg --> dm
     dg --> et
     dg --> fe
     dg --> ir
     dg --> val
-    dm --> et
-    dm --> inf
-    dm --> ir
+    dg --> inf
     dot --> dg
-    dot --> dm
     dot --> et
     dot --> ir
     mmd --> dg
-    mmd --> dm
     mmd --> et
     mmd --> ir
     mmd --> jr
     puml --> dg
-    puml --> dm
     puml --> et
     puml --> ir
     tab --> dg
-    tab --> dm
     tab --> inf
     tab --> ir
 
@@ -315,7 +310,7 @@ Reading the graph:
   `src/codegen/mod.rs` holds the `Backend` trait and the `BACKENDS` registry, so
   it references the backend files for their registration entries, while the
   backend files reference `src/codegen/mod.rs` for the trait - the same pattern
-  holds for `src/diagram.rs` and `src/diagrams/`. These cycles are type-level
+  holds for `src/cli/commands/diagram/mod.rs` and its plugin files. These cycles are type-level
   only and are the price of the static-registry plugin pattern.
 - **The SMT path is a clean chain.** `src/smt_emit.rs` depends only on
   `src/smt_plan.rs`, which depends on `src/mc_plan.rs`; both `*_mc` backends
@@ -335,7 +330,7 @@ Reading the graph:
 
 The parser is a nom-based recursive-descent implementation: every grammar
 rule is a function returning `IResult<&str, T>`, and the rule tree mirrors
-the EBNF grammar (rendered by `src/ebnf_grammar.rs`). Entry: `src/lang/parser.rs::parse_file`
+the EBNF grammar (rendered by `src/cli/info_format/ebnf_grammar.rs`). Entry: `src/lang/parser.rs::parse_file`
 reads the file and delegates to `src/lang/parser.rs::parse_source`, which strips
 comments (`strip_comments`), runs the nom root `rfs_source`, and maps failures
 through `nom_error_to_parse_error` / `err_at` (with the dedicated

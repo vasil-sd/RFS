@@ -17,9 +17,9 @@ module map:
 | Command | Logic entry | Deep-dive fragment |
 |---|---|---|
 | parse / validate | `src/cli/frontend.rs::run_conversion` / `src/cli/frontend.rs::run_validate` (+ `src/cli/frontend.rs::run_validate_structured` for --json) | dev:cli-commands-frontend |
-| info / info format | `src/cli/commands/info.rs::run_info` / `src/info_format.rs::FORMATS` | dev:cli-commands-info |
+| info / info format | `src/cli/commands/info.rs::run_info` / `src/cli/info_format/mod.rs::FORMATS` | dev:cli-commands-info |
 | test | `src/cli/commands/test.rs::run_test` | dev:cli-commands-test |
-| diagram | `src/diagram.rs::run_diagram` + the plugins in `src/diagrams/` | dev:cli-commands-diagram |
+| diagram | `src/cli/commands/diagram/mod.rs::run_diagram` + the plugins in `src/cli/commands/diagram/` | dev:cli-commands-diagram |
 | codegen | `src/codegen/mod.rs` registry dispatch (via `src/main.rs::cmd_codegen`) | [codegen_core.md](codegen_core.md) |
 | mc-ref | `src/cli/commands/mc_ref.rs::run_mc_ref` over `src/ref_mc.rs` | dev:cli-commands-mc-ref-gen-spec |
 | gen-spec | `src/cli/commands/gen_spec.rs::run_cli` over `src/lang/specgen.rs` | dev:cli-commands-mc-ref-gen-spec |
@@ -92,9 +92,9 @@ to ...)` for directory-mode failures (file mode reports on stderr). JSON mode
   named format cannot collide (D-P7-6); otherwise calls
   `src/cli/commands/info.rs::run_info` and prints the result.
 - `src/main.rs::run_info_format`: --list prints
-  `src/info_format.rs::list_markdown`; a name is required otherwise; unknown
+  `src/cli/info_format/mod.rs::list_markdown`; a name is required otherwise; unknown
   names get the registry's own diagnostic (it lists the remedy); the default
-  --output is the entry's first; `src/info_format.rs::render` output goes to
+  --output is the entry's first; `src/cli/info_format/mod.rs::render` output goes to
   stdout via print!.
 - `src/main.rs::cmd_test`: builds `src/cli/commands/test.rs::TestOptions` (default
   backend rust, suites [unit]); --suite is repeatable or comma-separated -
@@ -102,11 +102,11 @@ to ...)` for directory-mode failures (file mode reports on stderr). JSON mode
   preserving dedupe; tool path/args flags map onto the options; calls
   `src/cli/commands/test.rs::run_test` - a script result is printed via print!, a
   success note goes through logger.info.
-- `src/main.rs::cmd_diagram`: builds `src/diagram.rs::DiagramOptions`
+- `src/main.rs::cmd_diagram`: builds `src/cli/commands/diagram/mod.rs::DiagramOptions`
   (default format dot, renderer internal); --render accepts only svg;
   --renderer internal|external; tool overrides are routed by
   `src/main.rs::tool_override_mut` (--dot/--plantuml/--mermaid with or
-  without the -args suffix); calls `src/diagram.rs::run_diagram`.
+  without the -args suffix); calls `src/cli/commands/diagram/mod.rs::run_diagram`.
 
 Code: `src/main.rs::usage`, `src/main.rs::main`, `src/main.rs::take_format`,
 `src/main.rs::cmd_parse`, `src/main.rs::cmd_validate`, `src/main.rs::cmd_codegen`,
@@ -210,7 +210,7 @@ Code: `src/cli/frontend.rs::Format`, `src/cli/frontend.rs::normalize_abs`,
 
 
 <a id="dev:cli-commands-info"></a>
-## info + info format (`src/cli/commands/info.rs`, `src/info_format.rs`)
+## info + info format (`src/cli/commands/info.rs`, `src/cli/info_format/mod.rs`)
 
 **rfs info.** `src/cli/commands/info.rs::InfoOptions { json }`; `src/cli/commands/info.rs::run_info`
 applies the shared file contract (extension selects format, load + validate -
@@ -227,20 +227,20 @@ and ALL keys always present (empty arrays and null instead of omitted fields)
 for IDE/tooling reuse.
 
 **rfs info format.** The self-describing-format registry (Phase 7, D-P7-6):
-`src/info_format.rs::FormatInfo { name, summary, outputs, render }` - outputs
+`src/cli/info_format/mod.rs::FormatInfo { name, summary, outputs, render }` - outputs
 in preference order, the first is the default when --output is omitted. The
-static `src/info_format.rs::FORMATS` holds the ten entries: spec-rfs (the RFS
+static `src/cli/info_format/mod.rs::FORMATS` holds the ten entries: spec-rfs (the RFS
 v0 EBNF grammar in md/plantuml/svg, rendered from the in-binary model in
-`src/ebnf_grammar.rs` - the canonical text of [DESIGN.md](../../DESIGN.md) section 6's fence),
+`src/cli/info_format/ebnf_grammar.rs` - the canonical text of [DESIGN.md](../../DESIGN.md) section 6's fence),
 spec-json / ce-trace / mc-report / validate-json / info-json (md + draft-07
 JSON Schema via the shared emitter in `src/json/json_schema.rs`; schema builders
-`src/info_format.rs::spec_json_schema`, `ce_trace_schema`, `mc_report_schema`,
+`src/cli/info_format/mod.rs::spec_json_schema`, `ce_trace_schema`, `mc_report_schema`,
 `validate_json_schema`, `info_json_schema`; the mc-report entry's
 counterexample definition REUSES the ce-trace root through the shared
-`src/info_format.rs::counterexample_model()` so the two documents cannot
+`src/cli/info_format/mod.rs::counterexample_model()` so the two documents cannot
 drift), diagram-dot / diagram-puml / diagram-mmd (the exact generated-subset
 line grammars, md), artifact-header (the line-1 stamp template, md).
-`src/info_format.rs::find` / `list_markdown` / `render` - unknown names and
+`src/cli/info_format/mod.rs::find` / `list_markdown` / `render` - unknown names and
 unsupported --output values are clear errors. The D-P7-9 sync tests walk REAL
 tool output against these embedded models (drift caught in both directions):
 tests/info_format_test.rs.
@@ -248,12 +248,12 @@ tests/info_format_test.rs.
 Code: `src/cli/commands/info.rs::InfoOptions`, `src/cli/commands/info.rs::run_info`,
 `src/cli/commands/info.rs::render_text`, `src/cli/commands/info.rs::render_json`,
 `src/cli/commands/info.rs::monitor_status`, `src/cli/commands/info.rs::render_formula`,
-`src/info_format.rs::FormatInfo`, `src/info_format.rs::FORMATS`,
-`src/info_format.rs::find`, `src/info_format.rs::list_markdown`,
-`src/info_format.rs::render`, `src/info_format.rs::spec_json_schema`,
-`src/info_format.rs::ce_trace_schema`, `src/info_format.rs::mc_report_schema`,
-`src/info_format.rs::validate_json_schema`, `src/info_format.rs::info_json_schema`,
-`src/info_format.rs::counterexample_model`, `tests/info_format_test.rs`
+`src/cli/info_format/mod.rs::FormatInfo`, `src/cli/info_format/mod.rs::FORMATS`,
+`src/cli/info_format/mod.rs::find`, `src/cli/info_format/mod.rs::list_markdown`,
+`src/cli/info_format/mod.rs::render`, `src/cli/info_format/mod.rs::spec_json_schema`,
+`src/cli/info_format/mod.rs::ce_trace_schema`, `src/cli/info_format/mod.rs::mc_report_schema`,
+`src/cli/info_format/mod.rs::validate_json_schema`, `src/cli/info_format/mod.rs::info_json_schema`,
+`src/cli/info_format/mod.rs::counterexample_model`, `tests/info_format_test.rs`
 
 
 <a id="dev:cli-commands-test"></a>
@@ -386,70 +386,70 @@ Code: `src/cli/commands/mc_ref.rs::CeFormat`, `src/cli/commands/mc_ref.rs::McRef
 
 
 <a id="dev:cli-commands-diagram"></a>
-## diagram + plugins (`src/diagram.rs`, `src/diagrams/`)
+## diagram + plugins (`src/cli/commands/diagram/`)
 
-**Renderers.** `src/diagram.rs::Renderer`: Internal (pure-Rust in-process -
+**Renderers.** `src/cli/commands/diagram/mod.rs::Renderer`: Internal (pure-Rust in-process -
 the default since Phase 7, D-P7-1; no external binaries are resolved or
 invoked) | External (the format's tool resolved through ext_tool - the pre-
 Phase 7 behaviour byte-for-byte). The validated renderer for a --render svg
 run is chosen per mode with availability checked UP FRONT so execution and
 --print-script agree.
 
-**Plugin shape.** `src/diagram.rs::DiagramPlugin { name, description, ext,
+**Plugin shape.** `src/cli/commands/diagram/mod.rs::DiagramPlugin { name, description, ext,
 generate, svg_tool, plan_render, render_svg, internal_render_svg,
 internal_renderer_name }`: generate is pure-Rust text generation (deterministic;
 no I/O, no tool calls); svg_tool/render_svg/plan_render are the external path
 (None = the format has no external renderer); internal_render_svg is the Phase
 7 hook (None = no in-process renderer) with a human-readable crate name for
---print-script comments. The `src/diagram.rs::DIAGRAMS` registry holds five
-plugins: dot, puml, mmd, table, md (`src/diagrams/dot.rs::DOT_PLUGIN`,
-`src/diagrams/plantuml.rs::PUML_PLUGIN`, `src/diagrams/mermaid.rs::MMD_PLUGIN`,
-`src/diagrams/tables.rs::TABLE_PLUGIN`, `src/diagrams/tables.rs::MD_PLUGIN`).
-Adding a format = one module + one registry line. `src/diagram.rs::list_diagrams`
-/ `get_diagram`; per-tool CLI overrides in `src/diagram.rs::ToolOverride` /
-`src/diagram.rs::DiagramOptions` (format default dot; renderer default
+--print-script comments. The `src/cli/commands/diagram/mod.rs::DIAGRAMS` registry holds five
+plugins: dot, puml, mmd, table, md (`src/cli/commands/diagram/dot.rs::DOT_PLUGIN`,
+`src/cli/commands/diagram/plantuml.rs::PUML_PLUGIN`, `src/cli/commands/diagram/mermaid.rs::MMD_PLUGIN`,
+`src/cli/commands/diagram/tables.rs::TABLE_PLUGIN`, `src/cli/commands/diagram/tables.rs::MD_PLUGIN`).
+Adding a format = one module + one registry line. `src/cli/commands/diagram/mod.rs::list_diagrams`
+/ `get_diagram`; per-tool CLI overrides in `src/cli/commands/diagram/mod.rs::ToolOverride` /
+`src/cli/commands/diagram/mod.rs::DiagramOptions` (format default dot; renderer default
 Internal).
 
-**run_diagram flow.** `src/diagram.rs::run_diagram`: shared file contract on
+**run_diagram flow.** `src/cli/commands/diagram/mod.rs::run_diagram`: shared file contract on
 the FIRST module -> plugin.generate(module) pure text -> the --render svg
 preconditions are validated UP FRONT for BOTH execution and --print-script:
 --out FILE ending in .svg is required, and per-mode renderer availability
 (external: the format must have an SVG tool - "use dot, puml or mmd";
 internal: the list of formats that have one) -> --print-script renders via
-`src/diagram.rs::render_script` (heredoc writing the source + a comment naming
+`src/cli/commands/diagram/mod.rs::render_script` (heredoc writing the source + a comment naming
 the in-process crate in internal mode / the tool invocation in external mode,
 plus a temp puppeteer-config step for mermaid) -> execution: the source is
 written NEXT TO the SVG with the same stem (plantuml derives its output name
 from the input, so this keeps every format's render target exactly at out),
 then the renderer runs.
 
-**Strict error semantics.** `src/diagrams/mod.rs::render_check` (user decision
+**Strict error semantics.** `src/cli/commands/diagram/mod.rs::render_check` (user decision
 2026-10-21): any failure - spawn error or non-zero exit - becomes Err with
 diagnostic lines naming the tool and carrying its captured stderr; NO graceful
 degradation (CI/CD requirement). plantuml exits 200 on a syntax error and
 still writes an error SVG, so the gate is on the exit status, not file
 presence.
 
-**Plugins.** Shared label helpers in `src/diagrams/mod.rs` (event_label /
+**Plugins.** Shared label helpers in `src/cli/commands/diagram/mod.rs` (event_label /
 guard_label / emit_labels via the info renderers; states() = State-enum
-variants in declaration order). dot: `src/diagrams/dot.rs::generate` (fixed
+variants in declaration order). dot: `src/cli/commands/diagram/dot.rs::generate` (fixed
 3-line header, node lines with filled/fillcolor IFF initial state, edge labels
-Event [guard] -> next via `src/diagrams/dot.rs::transition_label`, dashed
-on_error edges) + `src/diagrams/dot.rs::render_svg_internal` (layout-rs:
+Event [guard] -> next via `src/cli/commands/diagram/dot.rs::transition_label`, dashed
+on_error edges) + `src/cli/commands/diagram/dot.rs::render_svg_internal` (layout-rs:
 DotParser -> GraphBuilder -> VisualGraph::do_it -> SVGWriter). plantuml:
-`src/diagrams/plantuml.rs::generate` (@startuml frame, [*] --> initial IFF
+`src/cli/commands/diagram/plantuml.rs::generate` (@startuml frame, [*] --> initial IFF
 present, event \n guard labels with the literal two-char \n, one note on link
 per emitted output - the BARE form because plantuml-core rejects the position
 word, dashed bracketed on_error edges) + render_svg_internal (plantuml-core;
 known gap: note-on-link text is not drawn). mermaid:
-`src/diagrams/mermaid.rs::generate` (stateDiagram-v2, multi-line edge labels
-carrying event/guard/emits, [on_error] prefix) + `src/diagrams/mermaid.rs::puppeteer_args`
+`src/cli/commands/diagram/mermaid.rs::generate` (stateDiagram-v2, multi-line edge labels
+carrying event/guard/emits, [on_error] prefix) + `src/cli/commands/diagram/mermaid.rs::puppeteer_args`
 / `puppeteer_json` ({"args":["--no-sandbox","--disable-dev-shm-usage"]} - mmdc
 as root cannot launch Chrome without --no-sandbox; overridable via
-RFS_MERMAID_PUPPETEER_ARGS) + `src/diagrams/mermaid.rs::script_pup_path` (the
+RFS_MERMAID_PUPPETEER_ARGS) + `src/cli/commands/diagram/mermaid.rs::script_pup_path` (the
 temp config step in scripts) + render_svg_internal (mermaid-rs-renderer
 render_strict). tables: build -> a state x event transition matrix + variable/
-event summaries; `src/diagrams/tables.rs::generate_table` /
+event summaries; `src/cli/commands/diagram/tables.rs::generate_table` /
 `generate_md`; no SVG renderer in either mode.
 
 All generators are deterministic: states in State-enum declaration order,
@@ -458,22 +458,22 @@ specs is byte-pinned in tests/frontend_test.rs; cross-renderer syntax parity
 (internal vs external - parse/render success only, never visual) lives in
 tests/diagram_render_parity_test.rs.
 
-Code: `src/diagram.rs::Renderer`, `src/diagram.rs::DiagramPlugin`,
-`src/diagram.rs::DIAGRAMS`, `src/diagram.rs::list_diagrams`,
-`src/diagram.rs::get_diagram`, `src/diagram.rs::ToolOverride`,
-`src/diagram.rs::DiagramOptions`, `src/diagram.rs::run_diagram`,
-`src/diagram.rs::render_script`, `src/diagrams/mod.rs::event_label`,
-`src/diagrams/mod.rs::guard_label`, `src/diagrams/mod.rs::emit_labels`,
-`src/diagrams/mod.rs::states`, `src/diagrams/mod.rs::render_check`,
-`src/diagrams/dot.rs::DOT_PLUGIN`, `src/diagrams/dot.rs::generate`,
-`src/diagrams/dot.rs::transition_label`, `src/diagrams/dot.rs::render_svg_internal`,
-`src/diagrams/plantuml.rs::PUML_PLUGIN`, `src/diagrams/plantuml.rs::generate`,
-`src/diagrams/plantuml.rs::render_svg_internal`, `src/diagrams/mermaid.rs::MMD_PLUGIN`,
-`src/diagrams/mermaid.rs::generate`, `src/diagrams/mermaid.rs::puppeteer_args`,
-`src/diagrams/mermaid.rs::puppeteer_json`, `src/diagrams/mermaid.rs::script_pup_path`,
-`src/diagrams/mermaid.rs::render_svg_internal`, `src/diagrams/tables.rs::TABLE_PLUGIN`,
-`src/diagrams/tables.rs::MD_PLUGIN`, `src/diagrams/tables.rs::generate_table`,
-`src/diagrams/tables.rs::generate_md`, `tests/frontend_test.rs`,
+Code: `src/cli/commands/diagram/mod.rs::Renderer`, `src/cli/commands/diagram/mod.rs::DiagramPlugin`,
+`src/cli/commands/diagram/mod.rs::DIAGRAMS`, `src/cli/commands/diagram/mod.rs::list_diagrams`,
+`src/cli/commands/diagram/mod.rs::get_diagram`, `src/cli/commands/diagram/mod.rs::ToolOverride`,
+`src/cli/commands/diagram/mod.rs::DiagramOptions`, `src/cli/commands/diagram/mod.rs::run_diagram`,
+`src/cli/commands/diagram/mod.rs::render_script`, `src/cli/commands/diagram/mod.rs::event_label`,
+`src/cli/commands/diagram/mod.rs::guard_label`, `src/cli/commands/diagram/mod.rs::emit_labels`,
+`src/cli/commands/diagram/mod.rs::states`, `src/cli/commands/diagram/mod.rs::render_check`,
+`src/cli/commands/diagram/dot.rs::DOT_PLUGIN`, `src/cli/commands/diagram/dot.rs::generate`,
+`src/cli/commands/diagram/dot.rs::transition_label`, `src/cli/commands/diagram/dot.rs::render_svg_internal`,
+`src/cli/commands/diagram/plantuml.rs::PUML_PLUGIN`, `src/cli/commands/diagram/plantuml.rs::generate`,
+`src/cli/commands/diagram/plantuml.rs::render_svg_internal`, `src/cli/commands/diagram/mermaid.rs::MMD_PLUGIN`,
+`src/cli/commands/diagram/mermaid.rs::generate`, `src/cli/commands/diagram/mermaid.rs::puppeteer_args`,
+`src/cli/commands/diagram/mermaid.rs::puppeteer_json`, `src/cli/commands/diagram/mermaid.rs::script_pup_path`,
+`src/cli/commands/diagram/mermaid.rs::render_svg_internal`, `src/cli/commands/diagram/tables.rs::TABLE_PLUGIN`,
+`src/cli/commands/diagram/tables.rs::MD_PLUGIN`, `src/cli/commands/diagram/tables.rs::generate_table`,
+`src/cli/commands/diagram/tables.rs::generate_md`, `tests/frontend_test.rs`,
 `tests/diagram_render_parity_test.rs`
 
 

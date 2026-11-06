@@ -24,9 +24,9 @@ see `dev:architecture-pipeline`); its output is the versioned IR
 (`src/lang/ir.rs::Ir`, `src/lang/ir.rs::IR_VERSION`) that every other stage consumes.
 What the IR means semantically is specified in [SEMANTICS.md](../SEMANTICS.md).
 
-Companion module: `src/ebnf_grammar.rs` (902 lines) holds the EBNF model of
+Companion module: `src/cli/info_format/ebnf_grammar.rs` (902 lines) holds the EBNF model of
 the input language - 61 rules mirroring [DESIGN.md](../../DESIGN.md) section 6 rule-for-rule -
-plus the renderers behind `rfs info format spec-rfs` (`src/info_format.rs`).
+plus the renderers behind `rfs info format spec-rfs` (`src/cli/info_format/mod.rs`).
 
 Where to go next:
 
@@ -41,7 +41,7 @@ The parser is also a toolchain-fuzz target (`fuzz/fuzz_targets/parser.rs`):
 malformed input must never panic.
 
 Code: `src/lang/parser.rs::parse_source`, `src/lang/parser.rs::parse_file`,
-`src/lang/ir.rs::Ir`, `src/ebnf_grammar.rs::GRAMMAR_RULES`,
+`src/lang/ir.rs::Ir`, `src/cli/info_format/ebnf_grammar.rs::GRAMMAR_RULES`,
 `fuzz/fuzz_targets/parser.rs`
 
 <a id="dev:parser-entry-error"></a>
@@ -274,7 +274,7 @@ Code: `src/lang/parser.rs::expr`, `src/lang/parser.rs::logic_or`,
 `src/lang/parser.rs::KEYWORDS`
 
 <a id="dev:parser-ebnf-model"></a>
-## EBNF grammar model (`src/ebnf_grammar.rs`)
+## EBNF grammar model (`src/cli/info_format/ebnf_grammar.rs`)
 
 **The model.** `RuleNode` is a 7-variant enum (Terminal, NonTerminal,
 Sequence, Choice, Optional, ZeroOrMore, OneOrMore), all variants
@@ -311,16 +311,16 @@ terminal; the md/plantuml/svg outputs are pinned. Consequence: if the parser
 language changes, update [DESIGN.md](../../DESIGN.md) section 6 and `GRAMMAR_RULES` TOGETHER -
 the sync test fails otherwise.
 
-**Consumers.** `rfs info format spec-rfs` (`src/info_format.rs`) prints from
+**Consumers.** `rfs info format spec-rfs` (`src/cli/info_format/mod.rs`) prints from
 this model. The IDE grammar (`ide/textmate/rfs.json`) is a separate
 hand-maintained artifact pinned to `KEYWORDS` by the frontend test, not
 derived from this model.
 
-Code: `src/ebnf_grammar.rs::RuleNode`, `src/ebnf_grammar.rs::GRAMMAR_RULES`,
-`src/ebnf_grammar.rs::RULE_NOTES`, `src/ebnf_grammar.rs::to_ebnf_text`,
-`src/ebnf_grammar.rs::to_md`, `src/ebnf_grammar.rs::to_plantuml_ebnf`,
-`src/ebnf_grammar.rs::to_svg`, `tests/info_format_test.rs`,
-`src/info_format.rs`
+Code: `src/cli/info_format/ebnf_grammar.rs::RuleNode`, `src/cli/info_format/ebnf_grammar.rs::GRAMMAR_RULES`,
+`src/cli/info_format/ebnf_grammar.rs::RULE_NOTES`, `src/cli/info_format/ebnf_grammar.rs::to_ebnf_text`,
+`src/cli/info_format/ebnf_grammar.rs::to_md`, `src/cli/info_format/ebnf_grammar.rs::to_plantuml_ebnf`,
+`src/cli/info_format/ebnf_grammar.rs::to_svg`, `tests/info_format_test.rs`,
+`src/cli/info_format/mod.rs`
 
 ## Changing the grammar
 
@@ -330,7 +330,7 @@ Developer checklist for changing the RFS v0 language (see also [START.md](../../
 1. Add valid + invalid examples FIRST - the file-driven suite picks them up
    without test-code changes.
 2. Update `src/lang/parser.rs` (+ its unit tests in `mod tests`).
-3. Update `src/ebnf_grammar.rs::GRAMMAR_RULES` and the [DESIGN.md](../../DESIGN.md) section 6
+3. Update `src/cli/info_format/ebnf_grammar.rs::GRAMMAR_RULES` and the [DESIGN.md](../../DESIGN.md) section 6
    fence TOGETHER - the sync test enforces rule-name parity both directions.
 4. A new keyword goes into `KEYWORDS` AND `ide/textmate/rfs.json` -
    `keyword_list_matches_parser_sites` pins the list against parser call

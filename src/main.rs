@@ -582,7 +582,7 @@ fn run_info_format(args: &[String]) -> ExitCode {
     }
 
     if list {
-        println!("{}", rfs::info_format::list_markdown());
+        println!("{}", rfs::cli::info_format::list_markdown());
         return ExitCode::SUCCESS;
     }
 
@@ -595,7 +595,7 @@ fn run_info_format(args: &[String]) -> ExitCode {
     };
 
     // Unknown names get the registry's own diagnostic (it lists the remedy).
-    let output = match rfs::info_format::find(&name) {
+    let output = match rfs::cli::info_format::find(&name) {
         Some(entry) => output.unwrap_or_else(|| entry.outputs[0].to_string()),
         None => {
             eprintln!("error: unknown format '{name}'; run `rfs info format --list` for registered formats");
@@ -603,7 +603,7 @@ fn run_info_format(args: &[String]) -> ExitCode {
         }
     };
 
-    match rfs::info_format::render(&name, &output) {
+    match rfs::cli::info_format::render(&name, &output) {
         Ok(doc) => {
             print!("{doc}");
             ExitCode::SUCCESS
@@ -770,7 +770,7 @@ fn cmd_test(args: &[String]) -> ExitCode {
 
 fn cmd_diagram(args: &[String]) -> ExitCode {
     use rfs::cli::log::{LogLevel, Logger};
-    let mut opts = rfs::diagram::DiagramOptions::default();
+    let mut opts = rfs::cli::commands::diagram::DiagramOptions::default();
     let mut log_level = LogLevel::Info;
     let mut path: Option<String> = None;
 
@@ -784,7 +784,7 @@ fn cmd_diagram(args: &[String]) -> ExitCode {
         match arg.as_str() {
             "--" => {}
             "--list" => {
-                for (name, desc) in rfs::diagram::list_diagrams() {
+                for (name, desc) in rfs::cli::commands::diagram::list_diagrams() {
                     println!("{name:<6} {desc}");
                 }
                 return ExitCode::SUCCESS;
@@ -793,7 +793,7 @@ fn cmd_diagram(args: &[String]) -> ExitCode {
                 let Some(v) = args.get(i + 1).cloned() else {
                     eprintln!(
                         "error: --format requires a value ({} )\n{}",
-                        rfs::diagram::list_diagrams()
+                        rfs::cli::commands::diagram::list_diagrams()
                             .iter()
                             .map(|(n, _)| *n)
                             .collect::<Vec<_>>()
@@ -835,8 +835,8 @@ fn cmd_diagram(args: &[String]) -> ExitCode {
                 };
                 i += 1;
                 opts.renderer = match v.as_str() {
-                    "internal" => rfs::diagram::Renderer::Internal,
-                    "external" => rfs::diagram::Renderer::External,
+                    "internal" => rfs::cli::commands::diagram::Renderer::Internal,
+                    "external" => rfs::cli::commands::diagram::Renderer::External,
                     _ => {
                         eprintln!(
                             "error: --renderer expects internal|external (got '{}')\n{}",
@@ -908,7 +908,7 @@ fn cmd_diagram(args: &[String]) -> ExitCode {
     // Fatal diagnostics bypass the logger (always stderr, drive exit code);
     // the logger carries informational progress output only.
     let logger = Logger::new(log_level);
-    match rfs::diagram::run_diagram(std::path::Path::new(&path), &opts) {
+    match rfs::cli::commands::diagram::run_diagram(std::path::Path::new(&path), &opts) {
         Ok(result) => {
             logger.debug(&result.note);
             if let Some(text) = result.stdout {
@@ -929,9 +929,9 @@ fn cmd_diagram(args: &[String]) -> ExitCode {
 /// Route a tool flag (`--dot`/`--plantuml`/`--mermaid`, with or without the
 /// `-args` suffix) to its override slot.
 fn tool_override_mut<'a>(
-    opts: &'a mut rfs::diagram::DiagramOptions,
+    opts: &'a mut rfs::cli::commands::diagram::DiagramOptions,
     flag: &str,
-) -> &'a mut rfs::diagram::ToolOverride {
+) -> &'a mut rfs::cli::commands::diagram::ToolOverride {
     match flag.strip_suffix("-args").unwrap_or(flag) {
         "--dot" => &mut opts.dot,
         "--plantuml" => &mut opts.plantuml,

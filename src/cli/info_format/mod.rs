@@ -12,7 +12,9 @@
 //! Docs: dev:cli-commands-overview, dev:cli-commands-info, llm:cli-commands
 
 use crate::codegen::mc_concepts as mc;
-use crate::{ebnf_grammar, json::json_schema};
+pub mod ebnf_grammar;
+
+use crate::json::json_schema;
 use json_schema::{Field, FieldType, SchemaDoc, TaggedVariant};
 
 /// One documented format.
@@ -1168,7 +1170,7 @@ fn info_json_render(output: &str) -> Result<String, Vec<String>> {
 // (Phase 7 task 11)
 // ---------------------------------------------------------------------------
 
-/// The documented DOT subset, derived from `diagrams/dot.rs` `generate`
+/// The documented DOT subset, derived from `cli/commands/diagram/dot.rs` `generate`
 /// (the single source of truth). The sync test over all 50 valid examples
 /// asserts that every generated line is one of the documented shapes filled
 /// with the module's IR data - no undocumented token (D-P7-9).
@@ -1249,7 +1251,7 @@ fn diagram_dot_render(output: &str) -> Result<String, Vec<String>> {
 // (Phase 7 task 12)
 // ---------------------------------------------------------------------------
 
-/// The documented PlantUML subset, derived from `diagrams/plantuml.rs`
+/// The documented PlantUML subset, derived from `cli/commands/diagram/plantuml.rs`
 /// `generate` (the single source of truth). The sync test over all 50 valid
 /// examples asserts that every generated line is one of the documented shapes
 /// filled with the module's IR data - no undocumented token (D-P7-9).
@@ -1343,7 +1345,7 @@ fn diagram_puml_render(output: &str) -> Result<String, Vec<String>> {
 // (Phase 7 task 13)
 // ---------------------------------------------------------------------------
 
-/// The documented Mermaid subset, derived from `diagrams/mermaid.rs`
+/// The documented Mermaid subset, derived from `cli/commands/diagram/mermaid.rs`
 /// `generate` (the single source of truth). The sync test over all 50 valid
 /// examples asserts that every generated line is one of the documented shapes
 /// filled with the module's IR data - no undocumented token (D-P7-9).

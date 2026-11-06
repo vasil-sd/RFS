@@ -7,10 +7,6 @@
 
 pub mod cli;
 pub mod codegen;
-pub mod diagram;
-pub mod diagrams;
-pub mod ebnf_grammar;
-pub mod info_format;
 
 pub mod json;
 pub mod lang;

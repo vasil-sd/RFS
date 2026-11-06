@@ -14,9 +14,9 @@
 
 use std::path::Path;
 
+use crate::cli::commands::diagram::{event_label, guard_label, states};
+use crate::cli::commands::diagram::{DiagramPlugin, RenderPlan};
 use crate::cli::ext_tool::{ExtTool, ResolvedTool};
-use crate::diagram::{DiagramPlugin, RenderPlan};
-use crate::diagrams::{event_label, guard_label, states};
 use crate::lang::ir::Module;
 
 /// DOT string escaping for labels: quote + escape backslash and double quote.
@@ -93,7 +93,7 @@ pub fn plan_render(tool: &ResolvedTool, src: &Path, out: &Path) -> RenderPlan {
 }
 
 pub fn render_svg(tool: &ResolvedTool, src: &Path, out: &Path) -> Result<(), Vec<String>> {
-    crate::diagrams::render_check(tool, &render_args(src, out))
+    crate::cli::commands::diagram::render_check(tool, &render_args(src, out))
 }
 
 /// Pure-Rust SVG renderer (Phase 7 task 3): parses + lays out + renders the
@@ -116,7 +116,7 @@ pub fn render_svg_internal(source: &str) -> Result<String, Vec<String>> {
     Ok(svg.finalize())
 }
 
-/// The registered plugin (one line in `crate::diagram::ALL_DIAGRAMS`).
+/// The registered plugin (one line in `crate::cli::commands::diagram::ALL_DIAGRAMS`).
 pub const DOT_PLUGIN: DiagramPlugin = DiagramPlugin {
     name: "dot",
     description: "Graphviz DOT state diagram (pure Rust generation; SVG rendered in-process by default, dot via --renderer external)",

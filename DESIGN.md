@@ -577,7 +577,7 @@ Worked example (N = 3, trigger at i, body never holds): countdown 3 -> 2 at s=i,
 ## 6. EBNF-style grammar for RFS v0 parser
 
 The following grammar defines what `rfs parse` accepts. Since Phase 7 task 5 it is
-kept in sync with the in-binary model `src/ebnf_grammar.rs` (the single source of
+kept in sync with the in-binary model `src/cli/info_format/ebnf_grammar.rs` (the single source of
 truth): the fence below is exactly the EBNF block that `rfs info format spec-rfs`
 prints, and a test (`tests/info_format_test.rs`) fails if the rule names in this
 fence drift from the model. The parser is at least as lenient as the grammar: it
@@ -2150,8 +2150,8 @@ before the fix; bounded runs now pass with millions of iterations). The
 `detect_leaks=0` merge stays pinned as defense in depth.
 
 ### D-P5-6. rfs diagram: plugin registry, strict rendering (task 8)
-State diagrams + tables as plugins mirroring the codegen backend pattern (`src/
-diagram.rs` + `src/diagrams/`): v1 formats `dot` (Graphviz), `puml` (PlantUML
+State diagrams + tables as plugins mirroring the codegen backend pattern
+(`src/cli/commands/diagram/`): v1 formats `dot` (Graphviz), `puml` (PlantUML
 state diagram - edge label `event \n guard`, emitted data via `note on link`),
 `mmd` (Mermaid stateDiagram-v2 - all info in multi-line edge labels), plus
 `table`/`md` transition tables + variable/event summaries. PRIMARY behaviour is
@@ -2492,7 +2492,7 @@ binaries. `--renderer external` keeps the pre-Phase-7 behaviour byte-for-byte
 decision 2026-10-21, `--print-script` with the tool invocation). Users who
 want the official renderers (dot/plantuml/mmdc) opt in explicitly. This is a
 v1.1 CLI addition, not a break - documented in `docs/user/MIGRATION.md`.
-Shipped: `Renderer { Internal, External }` option in `src/diagram.rs`, the
+Shipped: `Renderer { Internal, External }` option in `src/cli/commands/diagram/mod.rs`, the
 `--renderer` flag in `src/main.rs` (unknown values rejected with a clear
 error).
 
@@ -2538,7 +2538,7 @@ extra puppeteer-config step for mermaid).
 sub-mode of the existing `info` command (dispatch on first arg == "format"
 in `cmd_info`, BEFORE path handling - a file literally named `format`
 cannot collide). Registry pattern mirrors `DIAGRAMS` / `BACKENDS`: static
-`FORMATS: &[FormatInfo]` in new module `src/info_format.rs`; each format
+`FORMATS: &[FormatInfo]` in new module `src/cli/info_format/mod.rs`; each format
 task registers exactly one entry. Shipped registry (10 entries):
 `spec-rfs` (md/plantuml/svg), `spec-json`, `ce-trace`, `mc-report`,
 `validate-json`, `info-json` (md/schema), `diagram-dot`, `diagram-puml`,
@@ -2546,7 +2546,7 @@ task registers exactly one entry. Shipped registry (10 entries):
 unknown names and unsupported `--output` values are clear errors.
 
 ### D-P7-7. EBNF grammar model mirrors the parser (task 5)
-New module `src/ebnf_grammar.rs`: const-constructible
+New module `src/cli/info_format/ebnf_grammar.rs`: const-constructible
 `enum RuleNode { Terminal, NonTerminal, Sequence, Choice, Optional,
 ZeroOrMore, OneOrMore }` + `pub static GRAMMAR_RULES: &[(&str, RuleNode)]`
 with 61 rules mirroring the ACTUAL parser (incl. the lexical rules

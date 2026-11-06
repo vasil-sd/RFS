@@ -9,7 +9,7 @@ Compact card for LLM assistants working on parsing, grammar, or reserved words.
 **Responsibility.** Turns RFS v0 source text into an IR document in one pass
 (nom-based recursive descent; no separate lexer) and assembles the IR while
 parsing. Two files: `src/lang/parser.rs` (grammar + entry points) and
-`src/ebnf_grammar.rs` (EBNF model mirroring the parser, rendered by
+`src/cli/info_format/ebnf_grammar.rs` (EBNF model mirroring the parser, rendered by
 `rfs info format spec-rfs`).
 
 **Key items.**
@@ -30,8 +30,8 @@ parsing. Two files: `src/lang/parser.rs` (grammar + entry points) and
 | `src/lang/parser.rs::formula` | formula ladder entry (implies right-assoc; until left-assoc; negation tighter than until) |
 | `src/lang/parser.rs::primary_formula` | temporal atoms + fallthrough to non-boolean expr at the equality level |
 | `src/lang/parser.rs::int_lit` | u64 literals; overflow is a semantic error |
-| `src/ebnf_grammar.rs::GRAMMAR_RULES` | 61-rule EBNF model, pinned rule-for-rule to DESIGN.md section 6 + parser keywords |
-| `src/ebnf_grammar.rs::to_md` / `src/ebnf_grammar.rs::to_plantuml_ebnf` / `src/ebnf_grammar.rs::to_svg` | renderers behind rfs info format spec-rfs |
+| `src/cli/info_format/ebnf_grammar.rs::GRAMMAR_RULES` | 61-rule EBNF model, pinned rule-for-rule to DESIGN.md section 6 + parser keywords |
+| `src/cli/info_format/ebnf_grammar.rs::to_md` / `src/cli/info_format/ebnf_grammar.rs::to_plantuml_ebnf` / `src/cli/info_format/ebnf_grammar.rs::to_svg` | renderers behind rfs info format spec-rfs |
 
 **Invariants that must not break.**
 
@@ -43,7 +43,7 @@ parsing. Two files: `src/lang/parser.rs` (grammar + entry points) and
 
 **Change impact (grammar/language).** Add valid+invalid examples FIRST, then:
 `src/lang/parser.rs` (+ unit tests in its mod tests),
-`src/ebnf_grammar.rs::GRAMMAR_RULES`, DESIGN.md section 6 fence; verify with
+`src/cli/info_format/ebnf_grammar.rs::GRAMMAR_RULES`, DESIGN.md section 6 fence; verify with
 cargo test --lib parser, cargo test --test examples_test,
 cargo test --test info_format_test. Full table: llm:change-impact.
 

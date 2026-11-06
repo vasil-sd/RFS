@@ -188,8 +188,10 @@ src/cli/             log.rs level-filtered stderr logger; frontend.rs parse/vali
                      (incl. --json); ext_tool.rs external-tool resolver + --print-script
 src/cli/commands/    test.rs rfs test command (unit/fuzz suites); gen_spec.rs rfs gen-spec command
                      (task 3.4); mc_ref.rs rfs mc-ref command (task 3.3); info.rs rfs info command
-src/diagram.rs + src/diagrams/   rfs diagram plugin registry (dot/puml/mmd/table/md; Phase 7 in-process SVG)
-src/info_format.rs   rfs info format registry + embedded models (Phase 7 D-P7-6)  src/ebnf_grammar.rs EBNF RuleNode model + 61-rule GRAMMAR_RULES (D-P7-7)
+src/cli/commands/diagram/   mod.rs plugin registry + dot/plantuml/mermaid/tables plugins
+                     (dot/puml/mmd/table/md; Phase 7 in-process SVG)
+src/cli/info_format/     mod.rs rfs info format registry + embedded models (Phase 7 D-P7-6);
+                     ebnf_grammar.rs EBNF RuleNode model + 61-rule GRAMMAR_RULES (D-P7-7)
 src/mc_plan.rs       shared MC plan: abstraction, encoding, traversal, liveness obligations
 src/smt_plan.rs + src/smt_emit.rs   shared SMT spec + emitter (optional smt mode)
 src/ref_mc.rs        brute-force reference MC, independent data structures (task 3.2, D-P6-5)

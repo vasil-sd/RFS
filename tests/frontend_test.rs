@@ -1333,15 +1333,15 @@ const PIN_DIAGRAM_RFS: &str = "module pin_fsm {
   }
 }\n";
 
-fn diagram_opts(format: &str) -> rfs::diagram::DiagramOptions {
-    rfs::diagram::DiagramOptions {
+fn diagram_opts(format: &str) -> rfs::cli::commands::diagram::DiagramOptions {
+    rfs::cli::commands::diagram::DiagramOptions {
         format: format.to_string(),
         ..Default::default()
     }
 }
 
 fn diagram_stdout(spec: &std::path::Path, format: &str) -> String {
-    let result = rfs::diagram::run_diagram(spec, &diagram_opts(format))
+    let result = rfs::cli::commands::diagram::run_diagram(spec, &diagram_opts(format))
         .unwrap_or_else(|e| panic!("{format}: {e}"));
     result.stdout.expect("text mode emits stdout")
 }
@@ -1492,7 +1492,7 @@ fn diagram_all_formats_sweep_valid_examples() {
     );
     for f in &files {
         for format in ["dot", "puml", "mmd", "table", "md"] {
-            let result = rfs::diagram::run_diagram(f, &diagram_opts(format))
+            let result = rfs::cli::commands::diagram::run_diagram(f, &diagram_opts(format))
                 .unwrap_or_else(|e| panic!("{format} on {}: {e}", f.display()));
             let text = result.stdout.expect("text mode emits stdout");
             assert!(
@@ -1693,7 +1693,7 @@ fn diagram_puml_negative_control_exit_200() {
     std::fs::write(&bad, "@startuml\nthis is not valid puml @@@\n@enduml\n").unwrap();
     let svg = root.join("bad.svg");
     let tool = rfs::cli::ext_tool::ExtTool::PLANTUML.resolve(None, None);
-    let err = rfs::diagrams::plantuml::render_svg(&tool, &bad, &svg)
+    let err = rfs::cli::commands::diagram::plantuml::render_svg(&tool, &bad, &svg)
         .expect_err("syntax error must be detected");
     let joined = err.join("; ");
     assert!(joined.contains("200"), "exit code in diagnostic: {joined}");
@@ -1720,7 +1720,7 @@ fn diagram_mmd_negative_control_parse_error() {
     .unwrap();
     let svg = root.join("bad.svg");
     let tool = rfs::cli::ext_tool::ExtTool::MERMAID.resolve(None, None);
-    let err = rfs::diagrams::mermaid::render_svg(&tool, &bad, &svg)
+    let err = rfs::cli::commands::diagram::mermaid::render_svg(&tool, &bad, &svg)
         .expect_err("parse error must be detected");
     let joined = err.join("; ");
     assert!(
@@ -2311,17 +2311,17 @@ fn diagram_internal_mmd_sweep_valid_examples() {
     );
     let root = tmp_root("diag_mmd_internal_sweep");
     for f in &files {
-        let opts = rfs::diagram::DiagramOptions {
+        let opts = rfs::cli::commands::diagram::DiagramOptions {
             format: "mmd".to_string(),
             out: Some(root.join(format!(
                 "{}.svg",
                 f.file_stem().and_then(|s| s.to_str()).unwrap_or("spec")
             ))),
             render_svg: true,
-            renderer: rfs::diagram::Renderer::Internal,
+            renderer: rfs::cli::commands::diagram::Renderer::Internal,
             ..Default::default()
         };
-        rfs::diagram::run_diagram(f, &opts)
+        rfs::cli::commands::diagram::run_diagram(f, &opts)
             .unwrap_or_else(|e| panic!("internal mmd render on {}: {e}", f.display()));
     }
     cleanup(&root);
@@ -2334,8 +2334,9 @@ fn diagram_internal_mmd_sweep_valid_examples() {
 /// the hard failure is a missing/unknown diagram header.
 #[test]
 fn diagram_mmd_internal_negative_control_rejects_garbage() {
-    let err = rfs::diagrams::mermaid::render_svg_internal("this is not mermaid at all")
-        .expect_err("parse error must be detected");
+    let err =
+        rfs::cli::commands::diagram::mermaid::render_svg_internal("this is not mermaid at all")
+            .expect_err("parse error must be detected");
     assert!(!err.is_empty(), "garbage must produce diagnostics");
     let joined = err.join("; ");
     assert!(
@@ -2454,17 +2455,17 @@ fn diagram_internal_puml_sweep_valid_examples() {
     );
     let root = tmp_root("diag_puml_internal_sweep");
     for f in &files {
-        let opts = rfs::diagram::DiagramOptions {
+        let opts = rfs::cli::commands::diagram::DiagramOptions {
             format: "puml".to_string(),
             out: Some(root.join(format!(
                 "{}.svg",
                 f.file_stem().and_then(|s| s.to_str()).unwrap_or("spec")
             ))),
             render_svg: true,
-            renderer: rfs::diagram::Renderer::Internal,
+            renderer: rfs::cli::commands::diagram::Renderer::Internal,
             ..Default::default()
         };
-        rfs::diagram::run_diagram(f, &opts)
+        rfs::cli::commands::diagram::run_diagram(f, &opts)
             .unwrap_or_else(|e| panic!("internal puml render on {}: {e}", f.display()));
     }
     cleanup(&root);
@@ -2474,8 +2475,9 @@ fn diagram_internal_puml_sweep_valid_examples() {
 /// text with diagnostics (strict error semantics).
 #[test]
 fn diagram_puml_internal_negative_control_rejects_garbage() {
-    let err = rfs::diagrams::plantuml::render_svg_internal("this is not plantuml at all\n")
-        .expect_err("parse error must be detected");
+    let err =
+        rfs::cli::commands::diagram::plantuml::render_svg_internal("this is not plantuml at all\n")
+            .expect_err("parse error must be detected");
     assert!(!err.is_empty(), "garbage must produce diagnostics");
 }
 
@@ -2590,17 +2592,17 @@ fn diagram_internal_dot_sweep_valid_examples() {
     );
     let root = tmp_root("diag_dot_internal_sweep");
     for f in &files {
-        let opts = rfs::diagram::DiagramOptions {
+        let opts = rfs::cli::commands::diagram::DiagramOptions {
             format: "dot".to_string(),
             out: Some(root.join(format!(
                 "{}.svg",
                 f.file_stem().and_then(|s| s.to_str()).unwrap_or("spec")
             ))),
             render_svg: true,
-            renderer: rfs::diagram::Renderer::Internal,
+            renderer: rfs::cli::commands::diagram::Renderer::Internal,
             ..Default::default()
         };
-        rfs::diagram::run_diagram(f, &opts)
+        rfs::cli::commands::diagram::run_diagram(f, &opts)
             .unwrap_or_else(|e| panic!("internal dot render on {}: {e}", f.display()));
     }
     cleanup(&root);
@@ -2610,7 +2612,7 @@ fn diagram_internal_dot_sweep_valid_examples() {
 /// with diagnostics (strict error semantics).
 #[test]
 fn diagram_dot_internal_negative_control_rejects_garbage() {
-    let err = rfs::diagrams::dot::render_svg_internal("this is not dot at all\n")
+    let err = rfs::cli::commands::diagram::dot::render_svg_internal("this is not dot at all\n")
         .expect_err("parse error must be detected");
     assert!(!err.is_empty(), "garbage must produce diagnostics");
 }

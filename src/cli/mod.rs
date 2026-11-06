@@ -7,4 +7,5 @@
 pub mod commands;
 pub mod ext_tool;
 pub mod frontend;
+pub mod info_format;
 pub mod log;

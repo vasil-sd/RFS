@@ -21,9 +21,9 @@
 
 use std::path::Path;
 
+use crate::cli::commands::diagram::{emit_labels, event_label, guard_label, states};
+use crate::cli::commands::diagram::{DiagramPlugin, RenderPlan};
 use crate::cli::ext_tool::{sh_quote, ResolvedTool};
-use crate::diagram::{DiagramPlugin, RenderPlan};
-use crate::diagrams::{emit_labels, event_label, guard_label, states};
 use crate::lang::ir::Module;
 
 /// Default puppeteer browser args (root/container environments).
@@ -171,7 +171,7 @@ pub fn render_svg(tool: &ResolvedTool, src: &Path, out: &Path) -> Result<(), Vec
             pup.display()
         )]);
     }
-    let res = crate::diagrams::render_check(tool, &render_args(src, out, &pup));
+    let res = crate::cli::commands::diagram::render_check(tool, &render_args(src, out, &pup));
     let _ = std::fs::remove_file(&pup);
     res
 }
@@ -188,7 +188,7 @@ pub fn render_svg_internal(source: &str) -> Result<String, Vec<String>> {
     }
 }
 
-/// The registered plugin (one line in `crate::diagram::ALL_DIAGRAMS`).
+/// The registered plugin (one line in `crate::cli::commands::diagram::ALL_DIAGRAMS`).
 pub const MMD_PLUGIN: DiagramPlugin = DiagramPlugin {
     name: "mmd",
     description: "Mermaid stateDiagram-v2 (all transition info in multi-line edge labels; SVG rendered in-process by default, mmdc via --renderer external)",

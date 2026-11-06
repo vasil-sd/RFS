@@ -738,7 +738,7 @@ Table: [DESIGN.md](../../DESIGN.md) section 23, D-P5-5 - Code: `src/cli/commands
 ### D-P5-6. rfs diagram: plugin registry, strict rendering (task 8)
 
 State diagrams + tables as plugins mirroring the codegen backend pattern
-(`src/diagram.rs` + `src/diagrams/`): v1 formats `dot` (Graphviz), `puml`
+(`src/cli/commands/diagram/`): v1 formats `dot` (Graphviz), `puml`
 (PlantUML state diagram - edge label `event \n guard`, emitted data via
 `note on link`), `mmd` (Mermaid stateDiagram-v2 - all info in multi-line edge
 labels), plus `table`/`md` transition tables + variable/event summaries.
@@ -754,7 +754,7 @@ requested or throws; users compose their own fallbacks (e.g. via
 with zero external tools, and strict rendering semantics are a CI/CD
 requirement - silent fallback to a stale or missing diagram would hide broken
 pipelines.
-Table: [DESIGN.md](../../DESIGN.md) section 23, D-P5-6 - Code: `src/diagram.rs::DIAGRAMS`.
+Table: [DESIGN.md](../../DESIGN.md) section 23, D-P5-6 - Code: `src/cli/commands/diagram/mod.rs::DIAGRAMS`.
 
 ### D-P5-7. External-tool parameterization (task 3, extended task 17)
 
@@ -1156,13 +1156,13 @@ binaries. `--renderer external` keeps the pre-Phase-7 behaviour byte-for-byte
 decision 2026-10-21, `--print-script` with the tool invocation). Users who
 want the official renderers (dot/plantuml/mmdc) opt in explicitly. This is a
 v1.1 CLI addition, not a break - documented in [MIGRATION.md](../user/MIGRATION.md).
-Shipped: `Renderer { Internal, External }` option in `src/diagram.rs`, the
+Shipped: `Renderer { Internal, External }` option in `src/cli/commands/diagram/mod.rs`, the
 `--renderer` flag in `src/main.rs` (unknown values rejected with a clear
 error).
 **Why:** zero-external-binary rendering makes the default path work anywhere
 (CI containers, air-gapped machines) while the external path stays available
 byte-for-byte for users who want the official renderers.
-Table: [DESIGN.md](../../DESIGN.md) section 25, D-P7-1 - Code: `src/diagram.rs::Renderer`,
+Table: [DESIGN.md](../../DESIGN.md) section 25, D-P7-1 - Code: `src/cli/commands/diagram/mod.rs::Renderer`,
 `src/main.rs::cmd_diagram`.
 
 ### D-P7-2. `DiagramPlugin.internal_render_svg` hook (task 1)
@@ -1181,10 +1181,10 @@ dot->SVG function exists) (task 3).
 pattern uniform - formats without SVG simply stay `None`, and the hook's
 signature (source text -> SVG string) matches what the external path already
 passes to tools.
-Table: [DESIGN.md](../../DESIGN.md) section 25, D-P7-2 - Code: `src/diagram.rs::DiagramPlugin`,
-`src/diagrams/mermaid.rs::render_svg_internal`,
-`src/diagrams/plantuml.rs::render_svg_internal`,
-`src/diagrams/dot.rs::render_svg_internal`.
+Table: [DESIGN.md](../../DESIGN.md) section 25, D-P7-2 - Code: `src/cli/commands/diagram/mod.rs::DiagramPlugin`,
+`src/cli/commands/diagram/mermaid.rs::render_svg_internal`,
+`src/cli/commands/diagram/plantuml.rs::render_svg_internal`,
+`src/cli/commands/diagram/dot.rs::render_svg_internal`.
 
 ### D-P7-3. plantuml-core is a rev-pinned git dependency (task 2)
 
@@ -1203,7 +1203,7 @@ states/edge labels only and documents the gap in-test.
 crate with reproducible builds; pinning the exact rev (and documenting the
 repoint procedure) keeps offline rebuilds working from the cargo git cache.
 Table: [DESIGN.md](../../DESIGN.md) section 25, D-P7-3 - Code:
-`src/diagrams/plantuml.rs::render_svg_internal`.
+`src/cli/commands/diagram/plantuml.rs::render_svg_internal`.
 
 ### D-P7-4. mermaid-rs-renderer promoted to a regular dependency (task 1)
 
@@ -1215,7 +1215,7 @@ dependency. The docs gate keeps compiling (`render_strict` is core API).
 crate (with features trimmed to SVG-only) is what makes in-process mermaid
 rendering possible at all without adding rendering features nobody uses.
 Table: [DESIGN.md](../../DESIGN.md) section 25, D-P7-4 - Code:
-`src/diagrams/mermaid.rs::render_svg_internal`.
+`src/cli/commands/diagram/mermaid.rs::render_svg_internal`.
 
 ### D-P7-5. `--print-script` internal variant (task 1)
 
@@ -1234,7 +1234,7 @@ Table: [DESIGN.md](../../DESIGN.md) section 25, D-P7-5 - Code: `src/cli/ext_tool
 sub-mode of the existing `info` command (dispatch on first arg == "format"
 in `cmd_info`, BEFORE path handling - a file literally named `format`
 cannot collide). Registry pattern mirrors `DIAGRAMS` / `BACKENDS`: static
-`FORMATS: &[FormatInfo]` in new module `src/info_format.rs`; each format
+`FORMATS: &[FormatInfo]` in new module `src/cli/info_format/mod.rs`; each format
 task registers exactly one entry. Shipped registry (10 entries): `spec-rfs`
 (md/plantuml/svg), `spec-json`, `ce-trace`, `mc-report`, `validate-json`,
 `info-json` (md/schema), `diagram-dot`, `diagram-puml`, `diagram-mmd`,
@@ -1244,12 +1244,12 @@ unsupported `--output` values are clear errors.
 dispatch) reuses the CLI surface, and the static registry pattern mirrors the
 proven BACKENDS/DIAGRAMS registries so adding a format is one entry + one
 module.
-Table: [DESIGN.md](../../DESIGN.md) section 25, D-P7-6 - Code: `src/info_format.rs::FORMATS`,
-`src/info_format.rs::FormatInfo`, `src/main.rs::cmd_info`.
+Table: [DESIGN.md](../../DESIGN.md) section 25, D-P7-6 - Code: `src/cli/info_format/mod.rs::FORMATS`,
+`src/cli/info_format/mod.rs::FormatInfo`, `src/main.rs::cmd_info`.
 
 ### D-P7-7. EBNF grammar model mirrors the parser (task 5)
 
-New module `src/ebnf_grammar.rs`: const-constructible `enum RuleNode {
+New module `src/cli/info_format/ebnf_grammar.rs`: const-constructible `enum RuleNode {
 Terminal, NonTerminal, Sequence, Choice, Optional, ZeroOrMore, OneOrMore }`
 + `pub static GRAMMAR_RULES: &[(&str, RuleNode)]` with 61 rules mirroring the
 ACTUAL parser (incl. the lexical rules `identifier`, `letter`, `digit`,
@@ -1267,9 +1267,9 @@ test enforces rule-name parity + KEYWORDS terminal coverage.
 the only way to keep the documented grammar from drifting - [DESIGN.md](../../DESIGN.md)'s fence
 was already stale when Phase 7 started, and the sync test makes that class of
 drift a test failure.
-Table: [DESIGN.md](../../DESIGN.md) section 25, D-P7-7 - Code: `src/ebnf_grammar.rs::GRAMMAR_RULES`,
-`src/ebnf_grammar.rs::RuleNode`, `src/ebnf_grammar.rs::to_ebnf_text`,
-`src/ebnf_grammar.rs::to_svg`.
+Table: [DESIGN.md](../../DESIGN.md) section 25, D-P7-7 - Code: `src/cli/info_format/ebnf_grammar.rs::GRAMMAR_RULES`,
+`src/cli/info_format/ebnf_grammar.rs::RuleNode`, `src/cli/info_format/ebnf_grammar.rs::to_ebnf_text`,
+`src/cli/info_format/ebnf_grammar.rs::to_svg`.
 
 ### D-P7-8. JSON Schema: draft-07 via a shared emitter (tasks 6-10)
 
@@ -1373,4 +1373,4 @@ docs/user only.
 **Why:** a self-describing plain-text table and a standard error side-file do
 not need machine-readable format documentation - giving them registry entries
 would add surface to maintain without a consumer.
-Table: [DESIGN.md](../../DESIGN.md) section 25, D-P7-13 - Code: `src/info_format.rs::FORMATS`.
+Table: [DESIGN.md](../../DESIGN.md) section 25, D-P7-13 - Code: `src/cli/info_format/mod.rs::FORMATS`.

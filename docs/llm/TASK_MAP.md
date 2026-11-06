@@ -24,9 +24,9 @@ Shared infrastructure: external tools `src/cli/ext_tool.rs::ExtTool` / `resolve`
 |---|---|---|
 | parse / validate | dev:cli-commands-frontend | `src/cli/frontend.rs::run_conversion`, `plan_conversion`, `run_validate`, `run_validate_structured`, `render_validate_json`; dispatch `src/main.rs::cmd_parse` / `cmd_validate` |
 | info | dev:cli-commands-info | `src/cli/commands/info.rs::run_info`, `render_text`, `render_json`, `monitor_status`; dispatch `src/main.rs::cmd_info` |
-| info format | dev:cli-commands-info | `src/info_format.rs::FORMATS`, `find`, `list_markdown`, `render`; dispatch `src/main.rs::run_info_format` |
+| info format | dev:cli-commands-info | `src/cli/info_format/mod.rs::FORMATS`, `find`, `list_markdown`, `render`; dispatch `src/main.rs::run_info_format` |
 | test | dev:cli-commands-test | `src/cli/commands/test.rs::run_test`, `run_unit_suite`, `run_fuzz_c`, `run_fuzz_rust`, `render_script`; dispatch `src/main.rs::cmd_test` |
-| diagram | dev:cli-commands-diagram | `src/diagram.rs::run_diagram`, `DIAGRAMS`, `DiagramPlugin`; plugins `src/diagrams/dot.rs::DOT_PLUGIN`, `src/diagrams/plantuml.rs::PUML_PLUGIN`, `src/diagrams/mermaid.rs::MMD_PLUGIN`, `src/diagrams/tables.rs::TABLE_PLUGIN` / `MD_PLUGIN`; dispatch `src/main.rs::cmd_diagram` |
+| diagram | dev:cli-commands-diagram | `src/cli/commands/diagram/mod.rs::run_diagram`, `DIAGRAMS`, `DiagramPlugin`; plugins `src/cli/commands/diagram/dot.rs::DOT_PLUGIN`, `src/cli/commands/diagram/plantuml.rs::PUML_PLUGIN`, `src/cli/commands/diagram/mermaid.rs::MMD_PLUGIN`, `src/cli/commands/diagram/tables.rs::TABLE_PLUGIN` / `MD_PLUGIN`; dispatch `src/main.rs::cmd_diagram` |
 | codegen | dev:codegen-plugin-api | `src/codegen/mod.rs::parse_codegen_args`, `get_backend`, `list_backends`, `CodegenCommandKind::run`; backends `src/codegen/backends/rust/mod.rs` / `src/codegen/backends/c/mod.rs`; dispatch `src/main.rs::cmd_codegen` |
 | mc-ref | dev:cli-commands-mc-ref-gen-spec + dev:mc-engine-exact | `src/cli/commands/mc_ref.rs::run_mc_ref`, `exit_code_for`, `run_cli`; engine `src/ref_mc.rs::run` |
 | gen-spec | dev:cli-commands-mc-ref-gen-spec | `src/cli/commands/gen_spec.rs::run_cli`, `generate_random`, `mutate_base`; engine `src/lang/specgen.rs::SpecGen`, `mutate_traced` |
@@ -35,7 +35,7 @@ Shared infrastructure: external tools `src/cli/ext_tool.rs::ExtTool` / `resolve`
 
 | Concern | Read fragment | Files/functions |
 |---|---|---|
-| Parsing RFS v0 | dev:parser-overview (+ -grammar / -expressions / -entry-error / -ebnf-model) | `src/lang/parser.rs::parse_source`, `parse_file`; grammar model `src/ebnf_grammar.rs` (canonical text of DESIGN.md section 6) |
+| Parsing RFS v0 | dev:parser-overview (+ -grammar / -expressions / -entry-error / -ebnf-model) | `src/lang/parser.rs::parse_source`, `parse_file`; grammar model `src/cli/info_format/ebnf_grammar.rs` (canonical text of DESIGN.md section 6) |
 | Semantic validation | dev:validator-overview (+ -fatal-pass / -typing / -warnings) | `src/lang/validator.rs::validate_ir`, `validate_module`, `module_warnings` |
 | IR + wire format | dev:ir-model, dev:ir-wire-format | `src/lang/ir.rs::Ir`, `to_json`, `from_json`; `IR_VERSION` read policy {0,1} (D-P5-2) |
 | JSON reader/writer | dev:json-rw | `src/json/json_rw.rs::parse`, `Json` (hand-rolled; the only JSON impl in the toolchain) |
@@ -113,7 +113,7 @@ Shared infrastructure: external tools `src/cli/ext_tool.rs::ExtTool` / `resolve`
 | tests/docs_md_test.rs | mdr-stack doc-quality gate over docs/user/ | dev:index |
 | tests/library_comparison.rs | parser-library comparison (nom vs chumsky smoke) - records the decision | dev:parser-overview |
 
-## Coverage (all 87 manifest files)
+## Coverage (all 86 manifest files)
 
 Sync-gate requirement: every source file listed in tests/dev_docs_manifest.txt
 must appear below as a doc→code reference (tests/dev_docs_test.rs enforces
@@ -125,8 +125,15 @@ above.
 - `src/cli/mod.rs` - module root of the CLI surface (log + frontend + ext_tool + commands)
 - `src/cli/log.rs` - minimal stderr logging for the new CLI commands
 - `src/cli/frontend.rs` - frontend CLI logic: RFS/JSON conversion, validation dispatch
+- `src/cli/info_format/mod.rs` - rfs info format: machine-readable input/output format descriptions
+- `src/cli/info_format/ebnf_grammar.rs` - EBNF grammar model + renderers for IDE/tooling output
 - `src/cli/ext_tool.rs` - external-tool resolution, invocation, deterministic script emission
 - `src/cli/commands/mod.rs` - module root of the per-command modules (test + gen_spec + mc_ref + info)
+- `src/cli/commands/diagram/mod.rs` - rfs diagram: registry + shared label helpers (merged from diagrams/mod.rs)
+- `src/cli/commands/diagram/dot.rs` - Graphviz DOT state diagrams (pure-Rust generation)
+- `src/cli/commands/diagram/plantuml.rs` - PlantUML state diagrams (verified syntax subset)
+- `src/cli/commands/diagram/mermaid.rs` - Mermaid state diagrams (verified syntax subset)
+- `src/cli/commands/diagram/tables.rs` - transition tables + variable/event summaries (table/md formats)
 - `src/cli/commands/test.rs` - rfs test: generate + compile + run test suites in one invocation
 - `src/cli/commands/gen_spec.rs` - rfs gen-spec: write a random spec (two modes)
 - `src/cli/commands/mc_ref.rs` - rfs mc-ref: run the reference model checker in-process
@@ -134,7 +141,6 @@ above.
 - `src/lang/error.rs` - shared source spans and parse-error types
 - `src/lang/printer.rs` - IR-to-RFS source printer (unparser) and round-trip helpers
 - `src/lang/parser.rs` - RFS v0 source parser (nom-based): spec text to IR
-- `src/ebnf_grammar.rs` - EBNF grammar model + renderers for IDE/tooling output
 - `src/lang/validator.rs` - semantic validation and expression typing for RFS IR
 - `src/lang/mod.rs` - module root of the language core (parser + error + ir + printer + validator + specgen)
 - `src/lang/ir.rs` - IR types + hand-written JSON (de)serialization (pinned wire format)
@@ -162,13 +168,6 @@ above.
 - `src/smt_emit.rs` - shared SMT emitter: renders the spec into Rust (z3 crate) and C (libz3)
 - `src/ref_mc.rs` - brute-force reference model checker (ground truth, rfs mc-ref)
 - `src/codegen/monitor.rs` - PSL-to-monitor compiler: formulas to MonitorPlan
-- `src/info_format.rs` - rfs info format: machine-readable input/output format descriptions
-- `src/diagram.rs` - rfs diagram: plugin-based state-diagram/table generation
-- `src/diagrams/mod.rs` - diagram format plugins: registration entries per format
-- `src/diagrams/dot.rs` - Graphviz DOT state diagrams (pure-Rust generation)
-- `src/diagrams/mermaid.rs` - Mermaid state diagrams (verified syntax subset)
-- `src/diagrams/plantuml.rs` - PlantUML state diagrams (verified syntax subset)
-- `src/diagrams/tables.rs` - transition tables + variable/event summaries (table/md formats)
 - `src/lang/specgen.rs` - seeded random spec generator + incremental mutation
 - `crates/rfs-build/src/lib.rs` - rfs-build: the build.rs helper API for RFS codegen
 - `crates/rfs-build/tests/integration.rs` - rfs-build end-to-end test against a real spec

@@ -25,9 +25,9 @@
 
 use std::path::Path;
 
+use crate::cli::commands::diagram::{emit_labels, event_label, guard_label, states};
+use crate::cli::commands::diagram::{DiagramPlugin, RenderPlan};
 use crate::cli::ext_tool::{ExtTool, ResolvedTool};
-use crate::diagram::{DiagramPlugin, RenderPlan};
-use crate::diagrams::{emit_labels, event_label, guard_label, states};
 use crate::lang::ir::Module;
 
 /// One transition (or on_error edge) plus its emitted-data note.
@@ -104,7 +104,7 @@ pub fn render_svg(tool: &ResolvedTool, src: &Path, _out: &Path) -> Result<(), Ve
     // The exit status is the strict contract (user decision 2026-10-21);
     // plantuml derives its output name from the input, and the orchestrator
     // guarantees that is exactly `--out`.
-    crate::diagrams::render_check(tool, &render_args(src))
+    crate::cli::commands::diagram::render_check(tool, &render_args(src))
 }
 
 /// Pure-Rust SVG renderer (Phase 7 task 2): parses + lays out + renders the
@@ -118,7 +118,7 @@ pub fn render_svg_internal(source: &str) -> Result<String, Vec<String>> {
     }
 }
 
-/// The registered plugin (one line in `crate::diagram::ALL_DIAGRAMS`).
+/// The registered plugin (one line in `crate::cli::commands::diagram::ALL_DIAGRAMS`).
 pub const PUML_PLUGIN: DiagramPlugin = DiagramPlugin {
     name: "puml",
     description: "PlantUML state diagram (edge label 'event \\n guard', emitted data via note on link; SVG rendered in-process by default, plantuml via --renderer external)",

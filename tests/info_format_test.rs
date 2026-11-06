@@ -68,7 +68,7 @@ fn list_pins_all_registered_formats() {
 
     // Every registered format appears as a row, and no other names do.
     let mut expected = Vec::new();
-    for f in rfs::info_format::FORMATS {
+    for f in rfs::cli::info_format::FORMATS {
         let row_prefix = format!("| `{}` | ", f.name);
         assert!(
             text.contains(&row_prefix),
@@ -82,7 +82,7 @@ fn list_pins_all_registered_formats() {
     let rows = text.trim_end().lines().count();
     assert_eq!(
         rows,
-        2 + rfs::info_format::FORMATS.len(),
+        2 + rfs::cli::info_format::FORMATS.len(),
         "unexpected row count: {text}"
     );
 
@@ -187,7 +187,7 @@ fn spec_rfs_md_pins_all_rules_and_keywords() {
 
     // Every model rule appears in the ebnf block as `name = ... ;` and in the
     // markdown rule table.
-    for (name, _) in rfs::ebnf_grammar::GRAMMAR_RULES {
+    for (name, _) in rfs::cli::info_format::ebnf_grammar::GRAMMAR_RULES {
         assert!(
             ebnf.lines()
                 .any(|l| l.trim_start().starts_with(&format!("{name} = "))),
@@ -209,7 +209,7 @@ fn spec_rfs_md_pins_all_rules_and_keywords() {
     }
 
     // Byte-level guard: the current model has exactly 61 rules.
-    assert_eq!(rfs::ebnf_grammar::GRAMMAR_RULES.len(), 61);
+    assert_eq!(rfs::cli::info_format::ebnf_grammar::GRAMMAR_RULES.len(), 61);
 }
 
 // ---------------------------------------------------------------------------
@@ -235,7 +235,7 @@ fn spec_rfs_plantuml_pins_structure() {
     );
 
     // Every rule line: `name = body ;`.
-    for (name, _) in rfs::ebnf_grammar::GRAMMAR_RULES {
+    for (name, _) in rfs::cli::info_format::ebnf_grammar::GRAMMAR_RULES {
         assert!(
             text.lines()
                 .any(|l| l.trim_start().starts_with(&format!("{name} = "))
@@ -273,7 +273,7 @@ fn spec_rfs_svg_pins_labels() {
 
     // Every rule name is drawn as a text element (LabeledBox comment label or
     // non-terminal reference - both end `\n{name}</text>`).
-    for (name, _) in rfs::ebnf_grammar::GRAMMAR_RULES {
+    for (name, _) in rfs::cli::info_format::ebnf_grammar::GRAMMAR_RULES {
         assert!(
             text.contains(&format!("\n{name}</text>")),
             "rule {name} not drawn in the SVG"
@@ -283,9 +283,9 @@ fn spec_rfs_svg_pins_labels() {
     // One comment label per rule (LabeledBox).
     let label_count = text.matches("class=\"comment\"").count();
     assert!(
-        label_count >= rfs::ebnf_grammar::GRAMMAR_RULES.len(),
+        label_count >= rfs::cli::info_format::ebnf_grammar::GRAMMAR_RULES.len(),
         "only {label_count} comment labels for {} rules",
-        rfs::ebnf_grammar::GRAMMAR_RULES.len()
+        rfs::cli::info_format::ebnf_grammar::GRAMMAR_RULES.len()
     );
 }
 
@@ -330,7 +330,7 @@ fn design_md_fence_rule_names() -> Vec<String> {
 #[test]
 fn design_md_section6_rule_names_match_model() {
     let fence_names = design_md_fence_rule_names();
-    let model_names: Vec<&str> = rfs::ebnf_grammar::GRAMMAR_RULES
+    let model_names: Vec<&str> = rfs::cli::info_format::ebnf_grammar::GRAMMAR_RULES
         .iter()
         .map(|(n, _)| *n)
         .collect();
@@ -363,33 +363,35 @@ fn design_md_section6_rule_names_match_model() {
 // Library-level model checks
 // ---------------------------------------------------------------------------
 
-fn collect_nonterminals(node: &rfs::ebnf_grammar::RuleNode, out: &mut Vec<&str>) {
+fn collect_nonterminals(node: &rfs::cli::info_format::ebnf_grammar::RuleNode, out: &mut Vec<&str>) {
     match node {
-        rfs::ebnf_grammar::RuleNode::NonTerminal(n) => out.push(n),
-        rfs::ebnf_grammar::RuleNode::Sequence(children) => {
+        rfs::cli::info_format::ebnf_grammar::RuleNode::NonTerminal(n) => out.push(n),
+        rfs::cli::info_format::ebnf_grammar::RuleNode::Sequence(children) => {
             for c in children.iter() {
                 collect_nonterminals(c, out);
             }
         }
-        rfs::ebnf_grammar::RuleNode::Choice(alternatives) => {
+        rfs::cli::info_format::ebnf_grammar::RuleNode::Choice(alternatives) => {
             for a in alternatives.iter() {
                 collect_nonterminals(a, out);
             }
         }
-        rfs::ebnf_grammar::RuleNode::Optional(inner)
-        | rfs::ebnf_grammar::RuleNode::ZeroOrMore(inner)
-        | rfs::ebnf_grammar::RuleNode::OneOrMore(inner) => collect_nonterminals(inner, out),
-        rfs::ebnf_grammar::RuleNode::Terminal(_) => {}
+        rfs::cli::info_format::ebnf_grammar::RuleNode::Optional(inner)
+        | rfs::cli::info_format::ebnf_grammar::RuleNode::ZeroOrMore(inner)
+        | rfs::cli::info_format::ebnf_grammar::RuleNode::OneOrMore(inner) => {
+            collect_nonterminals(inner, out)
+        }
+        rfs::cli::info_format::ebnf_grammar::RuleNode::Terminal(_) => {}
     }
 }
 
 #[test]
 fn no_dangling_nonterminals() {
-    let defined: Vec<&str> = rfs::ebnf_grammar::GRAMMAR_RULES
+    let defined: Vec<&str> = rfs::cli::info_format::ebnf_grammar::GRAMMAR_RULES
         .iter()
         .map(|(n, _)| *n)
         .collect();
-    for (name, node) in rfs::ebnf_grammar::GRAMMAR_RULES {
+    for (name, node) in rfs::cli::info_format::ebnf_grammar::GRAMMAR_RULES {
         let mut refs = Vec::new();
         collect_nonterminals(node, &mut refs);
         for r in refs {
@@ -403,27 +405,32 @@ fn no_dangling_nonterminals() {
 
 #[test]
 fn keywords_appear_as_terminals_in_model() {
-    fn collect_terminals(node: &rfs::ebnf_grammar::RuleNode, out: &mut Vec<&str>) {
+    fn collect_terminals(
+        node: &rfs::cli::info_format::ebnf_grammar::RuleNode,
+        out: &mut Vec<&str>,
+    ) {
         match node {
-            rfs::ebnf_grammar::RuleNode::Terminal(t) => out.push(t),
-            rfs::ebnf_grammar::RuleNode::Sequence(children) => {
+            rfs::cli::info_format::ebnf_grammar::RuleNode::Terminal(t) => out.push(t),
+            rfs::cli::info_format::ebnf_grammar::RuleNode::Sequence(children) => {
                 for c in children.iter() {
                     collect_terminals(c, out);
                 }
             }
-            rfs::ebnf_grammar::RuleNode::Choice(alternatives) => {
+            rfs::cli::info_format::ebnf_grammar::RuleNode::Choice(alternatives) => {
                 for a in alternatives.iter() {
                     collect_terminals(a, out);
                 }
             }
-            rfs::ebnf_grammar::RuleNode::Optional(inner)
-            | rfs::ebnf_grammar::RuleNode::ZeroOrMore(inner)
-            | rfs::ebnf_grammar::RuleNode::OneOrMore(inner) => collect_terminals(inner, out),
-            rfs::ebnf_grammar::RuleNode::NonTerminal(_) => {}
+            rfs::cli::info_format::ebnf_grammar::RuleNode::Optional(inner)
+            | rfs::cli::info_format::ebnf_grammar::RuleNode::ZeroOrMore(inner)
+            | rfs::cli::info_format::ebnf_grammar::RuleNode::OneOrMore(inner) => {
+                collect_terminals(inner, out)
+            }
+            rfs::cli::info_format::ebnf_grammar::RuleNode::NonTerminal(_) => {}
         }
     }
     let mut terminals = Vec::new();
-    for (_, node) in rfs::ebnf_grammar::GRAMMAR_RULES {
+    for (_, node) in rfs::cli::info_format::ebnf_grammar::GRAMMAR_RULES {
         collect_terminals(node, &mut terminals);
     }
     for kw in rfs::lang::parser::KEYWORDS {
@@ -475,7 +482,7 @@ fn spec_json_schema_document_pin() {
 
     // All 21 named definitions present.
     let defs = doc.get("definitions").cloned().unwrap();
-    let def_names: Vec<String> = rfs::info_format::spec_json_schema()
+    let def_names: Vec<String> = rfs::cli::info_format::spec_json_schema()
         .definitions
         .iter()
         .map(|(n, _)| n.clone())
@@ -560,7 +567,7 @@ fn spec_json_md_pins_all_sections() {
     );
 
     // One section per named definition.
-    for (name, _) in rfs::info_format::spec_json_schema().definitions {
+    for (name, _) in rfs::cli::info_format::spec_json_schema().definitions {
         assert!(
             text.contains(&format!("\n## {name}\n")),
             "missing section for {name}"
@@ -574,7 +581,7 @@ fn spec_json_md_pins_all_sections() {
 
 #[test]
 fn spec_json_walk_all_valid_examples() {
-    let doc = rfs::info_format::spec_json_schema();
+    let doc = rfs::cli::info_format::spec_json_schema();
     let files = rfs::collect_rfs_files(root().join("examples/valid"))
         .expect("valid examples directory should exist");
     assert!(!files.is_empty(), "no valid examples found");
@@ -753,7 +760,7 @@ fn ce_trace_md_pins_sections() {
     }
 
     // One section per named definition.
-    for (name, _) in rfs::info_format::ce_trace_schema().definitions {
+    for (name, _) in rfs::cli::info_format::ce_trace_schema().definitions {
         assert!(
             text.contains(&format!("\n## {name}\n")),
             "missing section for {name}"
@@ -902,7 +909,7 @@ fn ce_object(bin: &Path, key: &str) -> rfs::json::json_rw::Json {
 /// The D-P7-9 walk against the ce-trace model (required keys present, no
 /// undocumented key at any object level, types + enum constraints agree).
 fn walk_ce(ce: &rfs::json::json_rw::Json, what: &str) {
-    let doc = rfs::info_format::ce_trace_schema();
+    let doc = rfs::cli::info_format::ce_trace_schema();
     if let Err(errs) = rfs::json::json_schema::walk_check(&doc, ce) {
         panic!(
             "{what}: ce-trace model out of sync with the generated report:\n{}",
@@ -1104,7 +1111,7 @@ fn enum_vals(j: &rfs::json::json_rw::Json) -> Vec<String> {
 /// The D-P7-9 walk against the mc-report model (required keys present, no
 /// undocumented key at any object level, types + enum constraints agree).
 fn walk_mc_report(rep: &rfs::json::json_rw::Json, what: &str) {
-    let doc = rfs::info_format::mc_report_schema();
+    let doc = rfs::cli::info_format::mc_report_schema();
     if let Err(errs) = rfs::json::json_schema::walk_check(&doc, rep) {
         panic!(
             "{what}: mc-report model out of sync with the generated report:\n{}",
@@ -1218,7 +1225,7 @@ fn mc_report_schema_document_pin() {
     // ce-trace document's root (shared builder - task 7).
     let ce_def = defs.get("counterexample").cloned().unwrap();
     let ce_root_emitted =
-        rfs::json::json_schema::emit_type(&rfs::info_format::ce_trace_schema().root);
+        rfs::json::json_schema::emit_type(&rfs::cli::info_format::ce_trace_schema().root);
     assert_eq!(
         ce_def.to_string_compact(),
         ce_root_emitted.to_string_compact(),
@@ -1252,7 +1259,7 @@ fn mc_report_md_pins_sections() {
 
     // One section per named definition (7: mc_metrics, mc_statistics,
     // counterexample + the four ce-* sub-schemas).
-    let defs = rfs::info_format::mc_report_schema().definitions;
+    let defs = rfs::cli::info_format::mc_report_schema().definitions;
     assert_eq!(defs.len(), 7);
     for (name, _) in defs {
         assert!(
@@ -1586,7 +1593,7 @@ fn validate_json_md_pins_sections() {
     );
 
     // One section per named definition.
-    for (name, _) in rfs::info_format::validate_json_schema().definitions {
+    for (name, _) in rfs::cli::info_format::validate_json_schema().definitions {
         assert!(
             text.contains(&format!("\n## {name}\n")),
             "missing section for {name}"
@@ -1625,7 +1632,7 @@ fn walk_validate_json(
 
 #[test]
 fn validate_json_walk_invalid_examples_both_kinds() {
-    let doc = rfs::info_format::validate_json_schema();
+    let doc = rfs::cli::info_format::validate_json_schema();
     let files = rfs::collect_rfs_files(root().join("examples/invalid"))
         .expect("invalid examples directory should exist");
     assert_eq!(files.len(), 13, "corpus changed: update the pin");
@@ -1671,7 +1678,7 @@ fn validate_json_walk_invalid_examples_both_kinds() {
 
 #[test]
 fn validate_json_walk_valid_files_ok_true() {
-    let doc = rfs::info_format::validate_json_schema();
+    let doc = rfs::cli::info_format::validate_json_schema();
     let files = rfs::collect_rfs_files(root().join("examples/valid"))
         .expect("valid examples directory should exist");
     assert!(!files.is_empty(), "no valid examples found");
@@ -1703,7 +1710,7 @@ fn validate_json_walk_valid_files_ok_true() {
 
 #[test]
 fn validate_json_walk_directory_mode() {
-    let doc = rfs::info_format::validate_json_schema();
+    let doc = rfs::cli::info_format::validate_json_schema();
 
     // All-failing directory: one object per failing file.
     let invalid_dir = root().join("examples/invalid");
@@ -1909,7 +1916,7 @@ fn info_json_md_pins_sections() {
     );
 
     // One section per named definition (9).
-    let defs = rfs::info_format::info_json_schema().definitions;
+    let defs = rfs::cli::info_format::info_json_schema().definitions;
     assert_eq!(defs.len(), 9);
     for (name, _) in &defs {
         assert!(
@@ -1943,7 +1950,7 @@ fn info_json_md_pins_sections() {
 
 #[test]
 fn info_json_walk_all_valid_examples() {
-    let doc = rfs::info_format::info_json_schema();
+    let doc = rfs::cli::info_format::info_json_schema();
     let files = rfs::collect_rfs_files(root().join("examples/valid"))
         .expect("valid examples directory should exist");
     assert!(!files.is_empty(), "no valid examples found");
@@ -2137,8 +2144,8 @@ fn check_dot_documented_subset(text: &str, m: &rfs::lang::ir::Module, what: &str
     // Edge lines: one per transition, IR order; label = <EventLabel> [guard] -> <next>.
     for t in &m.transitions {
         let line = *lines.get(idx).unwrap_or(&"<missing line>");
-        let ev = rfs::diagrams::event_label(&t.pattern);
-        let label = match rfs::diagrams::guard_label(&t.guard) {
+        let ev = rfs::cli::commands::diagram::event_label(&t.pattern);
+        let label = match rfs::cli::commands::diagram::guard_label(&t.guard) {
             None => format!("{ev} -> {}", t.next_state),
             Some(g) => format!("{ev} [{g}] -> {}", t.next_state),
         };
@@ -2190,7 +2197,7 @@ fn diagram_dot_generated_output_matches_documented_subset() {
         let ir = rfs::parse_file(path)
             .unwrap_or_else(|e| panic!("{}: valid example failed to parse: {e}", path.display()));
         for m in &ir.modules {
-            let text = rfs::diagrams::dot::generate(m);
+            let text = rfs::cli::commands::diagram::dot::generate(m);
             check_dot_documented_subset(&text, m, &path.display().to_string());
 
             for t in &m.transitions {
@@ -2306,8 +2313,8 @@ fn check_puml_documented_subset(text: &str, m: &rfs::lang::ir::Module, what: &st
 
     // Transition lines + note-on-link lines, IR order.
     for t in &m.transitions {
-        let ev = rfs::diagrams::event_label(&t.pattern);
-        let label = match rfs::diagrams::guard_label(&t.guard) {
+        let ev = rfs::cli::commands::diagram::event_label(&t.pattern);
+        let label = match rfs::cli::commands::diagram::guard_label(&t.guard) {
             None => ev.clone(),
             Some(g) => format!("{ev} \\n {g}"),
         };
@@ -2317,7 +2324,7 @@ fn check_puml_documented_subset(text: &str, m: &rfs::lang::ir::Module, what: &st
             "{what}: transition line not in the documented shape"
         );
         idx += 1;
-        for e in rfs::diagrams::emit_labels(&t.emits) {
+        for e in rfs::cli::commands::diagram::emit_labels(&t.emits) {
             assert_eq!(
                 lines.get(idx).copied(),
                 Some(format!("note on link : emits {e}").as_str()),
@@ -2329,14 +2336,14 @@ fn check_puml_documented_subset(text: &str, m: &rfs::lang::ir::Module, what: &st
 
     // on_error edges: IFF declared, one per state to the fallback target.
     if let Some(on) = &m.on_error {
-        for s in rfs::diagrams::states(m) {
+        for s in rfs::cli::commands::diagram::states(m) {
             assert_eq!(
                 lines.get(idx).copied(),
                 Some(format!("{s} -[dashed]-> {} : on_error", on.next_state).as_str()),
                 "{what}: on_error edge line not in the documented shape"
             );
             idx += 1;
-            for e in rfs::diagrams::emit_labels(&on.emits) {
+            for e in rfs::cli::commands::diagram::emit_labels(&on.emits) {
                 assert_eq!(
                     lines.get(idx).copied(),
                     Some(format!("note on link : emits {e}").as_str()),
@@ -2368,7 +2375,7 @@ fn diagram_puml_generated_output_matches_documented_subset() {
         let ir = rfs::parse_file(path)
             .unwrap_or_else(|e| panic!("{}: valid example failed to parse: {e}", path.display()));
         for m in &ir.modules {
-            let text = rfs::diagrams::plantuml::generate(m);
+            let text = rfs::cli::commands::diagram::plantuml::generate(m);
             check_puml_documented_subset(&text, m, &path.display().to_string());
 
             for t in &m.transitions {
@@ -2481,13 +2488,13 @@ fn check_mmd_documented_subset(text: &str, m: &rfs::lang::ir::Module, what: &str
 
     // Transition lines, IR order: label = <EventLabel> [ \n <guard>] [ \n emits <O>]*.
     for t in &m.transitions {
-        let ev = rfs::diagrams::event_label(&t.pattern);
+        let ev = rfs::cli::commands::diagram::event_label(&t.pattern);
         let mut label = ev;
-        if let Some(g) = rfs::diagrams::guard_label(&t.guard) {
+        if let Some(g) = rfs::cli::commands::diagram::guard_label(&t.guard) {
             label.push_str(" \\n ");
             label.push_str(&g);
         }
-        for e in rfs::diagrams::emit_labels(&t.emits) {
+        for e in rfs::cli::commands::diagram::emit_labels(&t.emits) {
             label.push_str(&format!(" \\n emits {e}"));
         }
         assert_eq!(
@@ -2500,9 +2507,9 @@ fn check_mmd_documented_subset(text: &str, m: &rfs::lang::ir::Module, what: &str
 
     // on_error edges: IFF declared, one per state to the fallback target.
     if let Some(on) = &m.on_error {
-        for s in rfs::diagrams::states(m) {
+        for s in rfs::cli::commands::diagram::states(m) {
             let mut label = String::from("[on_error]");
-            for e in rfs::diagrams::emit_labels(&on.emits) {
+            for e in rfs::cli::commands::diagram::emit_labels(&on.emits) {
                 label.push_str(&format!(" \\n emits {e}"));
             }
             assert_eq!(
@@ -2535,7 +2542,7 @@ fn diagram_mmd_generated_output_matches_documented_subset() {
         let ir = rfs::parse_file(path)
             .unwrap_or_else(|e| panic!("{}: valid example failed to parse: {e}", path.display()));
         for m in &ir.modules {
-            let text = rfs::diagrams::mermaid::generate(m);
+            let text = rfs::cli::commands::diagram::mermaid::generate(m);
             check_mmd_documented_subset(&text, m, &path.display().to_string());
 
             for t in &m.transitions {

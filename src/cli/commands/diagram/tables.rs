@@ -7,8 +7,8 @@
 //! an external renderer (no `--render` support).
 //! Docs: dev:cli-commands-overview, dev:cli-commands-diagram, llm:cli-commands
 
-use crate::diagram::DiagramPlugin;
-use crate::diagrams::{emit_labels, event_label, guard_label, states};
+use crate::cli::commands::diagram::DiagramPlugin;
+use crate::cli::commands::diagram::{emit_labels, event_label, guard_label, states};
 use crate::lang::ir::{ConstructorGroup, ConstructorVariant, Module};
 
 /// One transition inside a matrix cell.
@@ -363,7 +363,7 @@ pub fn generate_md(m: &Module) -> String {
     render_md(&build(m))
 }
 
-/// The registered plugins (one line each in `crate::diagram::ALL_DIAGRAMS`).
+/// The registered plugins (one line each in `crate::cli::commands::diagram::ALL_DIAGRAMS`).
 pub const TABLE_PLUGIN: DiagramPlugin = DiagramPlugin {
     name: "table",
     description: "Transition table + variable/event summary (plain text)",

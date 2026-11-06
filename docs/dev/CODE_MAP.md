@@ -5,11 +5,9 @@ File-by-file map of the 71 hand-written source files: `src/` (49), `crates/`
 links both ways. The pointer scope is driven by `tests/dev_docs_manifest.txt`.
 
 <a id="dev:code-map-frontend"></a>
-## Root area - crate root + remaining top-level leaves (3 files)
+## Crate root (2 files)
 
-### Root (2)
-
-- `src/lib.rs` - crate root: declares the 14-root-module tree and re-exports the
+- `src/lib.rs` - crate root: declares the 10-root-module tree and re-exports the
   public API (`src/lang/parser.rs::parse_source`, `src/lang/parser.rs::parse_file`,
   `src/lang/printer.rs::print_ir`, `src/lang/ir.rs::Ir`, `src/lang/error.rs::ParseError`,
   `src/lang/error.rs::Span`, plus the frontend conversion/validation surface).
@@ -19,11 +17,6 @@ links both ways. The pointer scope is driven by `tests/dev_docs_manifest.txt`.
   commands (`parse`, `validate`, `info`, `test`, `diagram`, `codegen`,
   `mc-ref`, `gen-spec`) + usage text; key item `src/main.rs::main`. Owner of
   `dev:code-map-cli`.
-### Parser (1)
-
-- `src/ebnf_grammar.rs` - EBNF grammar model + renderers for IDE/tooling
-  output: `src/ebnf_grammar.rs::RuleNode`, `to_ebnf_text`, `to_md`,
-  `to_plantuml_ebnf`, `to_svg`.
 
 <a id="dev:code-map-lang"></a>
 ## Language core (`src/lang/`) (7 files)
@@ -137,10 +130,13 @@ links both ways. The pointer scope is driven by `tests/dev_docs_manifest.txt`.
   `dev:monitor-compiler-overview` / `llm:monitor-compiler`.
 
 <a id="dev:code-map-cli-surface"></a>
-## CLI surface (`src/cli/`) (9 files)
+## CLI surface (`src/cli/`) (16 files)
+
+### Shared infrastructure (4)
 
 - `src/cli/mod.rs` - module root of the CLI surface: shared infrastructure
-  (`log`, `frontend`, `ext_tool`) + the per-command modules (`commands`).
+  (`log`, `frontend`, `ext_tool`, `info_format`) + the per-command modules
+  (`commands`).
 - `src/cli/log.rs` - minimal stderr logging for the CLI commands:
   `src/cli/log.rs::LogLevel` + `src/cli/log.rs::Logger`.
 - `src/cli/frontend.rs` - frontend CLI logic behind `rfs parse` / `rfs validate`:
@@ -151,9 +147,11 @@ links both ways. The pointer scope is driven by `tests/dev_docs_manifest.txt`.
   `src/cli/frontend.rs::validate_one`).
 - `src/cli/ext_tool.rs` - external-tool resolution, invocation, deterministic
   script emission: `ExtTool`, `ResolvedTool`, `Script`, `sh_quote`.
+
+### Commands (5)
+
 - `src/cli/commands/mod.rs` - module root of the per-command modules (`test`,
-  `gen_spec`, `mc_ref`, `info`; the `diagram` + `info_format` clusters join in
-  Phase 11 task 7).
+  `gen_spec`, `mc_ref`, `info`, `diagram`).
 - `src/cli/commands/test.rs` - `rfs test`: generate + compile + run test suites
   in one invocation: `TestSuite`, `TestOptions`, `run_test`, outcome
   `TestOutcome`; compiles via `src/cli/ext_tool.rs::ExtTool` (rustc/gcc).
@@ -165,35 +163,38 @@ links both ways. The pointer scope is driven by `tests/dev_docs_manifest.txt`.
   with text / JSON rendering (`render_text`, `render_json`). Deep dive:
   `dev:cli-commands-overview` / `llm:cli-commands`.
 
-<a id="dev:code-map-cli"></a>
-## Diagrams + bins area (12 files)
+### Diagram cluster (5)
 
-### CLI commands (1)
+- `src/cli/commands/diagram/mod.rs` - `rfs diagram`: plugin-based state-diagram/
+  table generation: `DiagramPlugin`, registry `DIAGRAMS`, render planning
+  `RenderPlan`, `list_diagrams` + the shared label helpers (`event_label`,
+  `guard_label`, `emit_labels`, `states`, `render_check`) merged in from the
+  old `src/cli/commands/diagram/mod.rs` (Phase 11 task 7 - the phase's one genuine merge).
+- `src/cli/commands/diagram/dot.rs` - Graphviz DOT state diagrams (pure-Rust
+  generation): `generate`, external rendering `plan_render` / `render_svg`.
+- `src/cli/commands/diagram/plantuml.rs` - PlantUML state diagrams (verified
+  syntax subset): `generate`, external `plan_render` / `render_svg` +
+  in-process `render_svg_internal`.
+- `src/cli/commands/diagram/mermaid.rs` - Mermaid state diagrams (verified
+  syntax subset): `generate`, mmdc/Puppeteer argument handling
+  (`puppeteer_args`, `DEFAULT_PUPPETEER_ARGS`), external rendering
+  `plan_render` / `render_svg`.
+- `src/cli/commands/diagram/tables.rs` - transition tables + variable/event
+  summaries: `generate_table`, `generate_md`, plugins `TABLE_PLUGIN` /
+  `MD_PLUGIN`.
 
-- `src/info_format.rs` - `rfs info format`: machine-readable input/output
+### Info-format cluster (2)
+
+- `src/cli/info_format/mod.rs` - `rfs info format`: machine-readable input/output
   format descriptions: `FormatInfo`, embedded draft-07 schemas
   (`spec_json_schema`, `ce_trace_schema`, `mc_report_schema`) + the
   counterexample-model description (`counterexample_model`).
+- `src/cli/info_format/ebnf_grammar.rs` - EBNF grammar model + renderers for
+  IDE/tooling output: `RuleNode`, `to_ebnf_text`, `to_md`, `to_plantuml_ebnf`,
+  `to_svg`.
 
-### Diagrams (6)
-
-- `src/diagram.rs` - `rfs diagram`: plugin-based state-diagram/table
-  generation: `DiagramPlugin`, registry `DIAGRAMS`, render planning
-  `RenderPlan`, `list_diagrams`.
-- `src/diagrams/mod.rs` - diagram format plugins: registration entries per
-  format + shared label helpers (`event_label`, `guard_label`,
-  `emit_labels`, `states`).
-- `src/diagrams/dot.rs` - Graphviz DOT state diagrams (pure-Rust generation):
-  `generate`, external rendering `plan_render` / `render_svg`.
-- `src/diagrams/mermaid.rs` - Mermaid state diagrams (verified syntax subset):
-  `generate`, mmdc/Puppeteer argument handling (`puppeteer_args`,
-  `DEFAULT_PUPPETEER_ARGS`), external rendering `plan_render` /
-  `render_svg`.
-- `src/diagrams/plantuml.rs` - PlantUML state diagrams (verified syntax
-  subset): `generate`, external `plan_render` / `render_svg` + in-process
-  `render_svg_internal`.
-- `src/diagrams/tables.rs` - transition tables + variable/event summaries:
-  `generate_table`, `generate_md`, plugins `TABLE_PLUGIN` / `MD_PLUGIN`.
+<a id="dev:code-map-cli"></a>
+## Bins + training area (5 files)
 
 ### Bins + training (5)
 

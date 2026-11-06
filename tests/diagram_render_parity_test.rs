@@ -105,11 +105,11 @@ fn valid_examples() -> Vec<PathBuf> {
 
 /// Generate the diagram source text in-process (text mode, no rendering).
 fn generate_source(spec: &Path, format: &str) -> String {
-    let opts = rfs::diagram::DiagramOptions {
+    let opts = rfs::cli::commands::diagram::DiagramOptions {
         format: format.to_string(),
         ..Default::default()
     };
-    rfs::diagram::run_diagram(spec, &opts)
+    rfs::cli::commands::diagram::run_diagram(spec, &opts)
         .unwrap_or_else(|e| panic!("generate {format} for {}: {e}", spec.display()))
         .stdout
         .expect("text mode emits stdout")
@@ -119,9 +119,9 @@ fn generate_source(spec: &Path, format: &str) -> String {
 /// semantics: Err = diagnostics).
 fn internal_render(format: &str, source: &str) -> String {
     let result = match format {
-        "dot" => rfs::diagrams::dot::render_svg_internal(source),
-        "puml" => rfs::diagrams::plantuml::render_svg_internal(source),
-        "mmd" => rfs::diagrams::mermaid::render_svg_internal(source),
+        "dot" => rfs::cli::commands::diagram::dot::render_svg_internal(source),
+        "puml" => rfs::cli::commands::diagram::plantuml::render_svg_internal(source),
+        "mmd" => rfs::cli::commands::diagram::mermaid::render_svg_internal(source),
         _ => panic!("unknown format {format}"),
     };
     result.unwrap_or_else(|errs| panic!("internal {format} render failed: {}", errs.join("; ")))
@@ -340,21 +340,23 @@ fn parity_print_script_internal_mmd_pinned() {
 
 #[test]
 fn parity_negative_control_dot_rejects_garbage() {
-    let err = rfs::diagrams::dot::render_svg_internal("this is not dot at all\n")
+    let err = rfs::cli::commands::diagram::dot::render_svg_internal("this is not dot at all\n")
         .expect_err("parse error must be detected");
     assert!(!err.is_empty(), "garbage must produce diagnostics");
 }
 
 #[test]
 fn parity_negative_control_puml_rejects_garbage() {
-    let err = rfs::diagrams::plantuml::render_svg_internal("this is not plantuml at all\n")
-        .expect_err("parse error must be detected");
+    let err =
+        rfs::cli::commands::diagram::plantuml::render_svg_internal("this is not plantuml at all\n")
+            .expect_err("parse error must be detected");
     assert!(!err.is_empty(), "garbage must produce diagnostics");
 }
 
 #[test]
 fn parity_negative_control_mmd_rejects_garbage() {
-    let err = rfs::diagrams::mermaid::render_svg_internal("this is not mermaid at all\n")
-        .expect_err("parse error must be detected");
+    let err =
+        rfs::cli::commands::diagram::mermaid::render_svg_internal("this is not mermaid at all\n")
+            .expect_err("parse error must be detected");
     assert!(!err.is_empty(), "garbage must produce diagnostics");
 }

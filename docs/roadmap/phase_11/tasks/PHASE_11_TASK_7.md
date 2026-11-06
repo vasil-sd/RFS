@@ -102,3 +102,11 @@ cargo build && cargo test green; src/diagrams/ gone from the tree.
 
 ## Non-goals
 - No diagram/info-format behavior change; plugin output byte-identical.
+
+## Task corrections
+
+| Correction | Description + rationale |
+|------------|-------------------------|
+| Absorbed info_format/mod.rs needed its child declaration (E0255) | The original `use crate::{ebnf_grammar, json::json_schema};` grouped import became a self-referential re-import once the file became `cli/info_format/mod.rs` with a `pub mod ebnf_grammar;` child - the compiler rejected the duplicate definition. Fixed by declaring the child and dropping it from the use list (`use crate::json::json_schema;`). Same lesson as tasks 4/5 (absorbed mod.rs files need explicit sibling declarations), now also covering the import side. |
+| DEPENDENCIES.md file-level mermaid graph fully rebuilt | The graph's node labels are BARE file names (no `src/` prefix), so none of the tasks 1-6 path scripts ever touched it - every moved file still carried its pre-Phase-11 label (root (6) with error.rs/cli_log.rs/frontend.rs, specgen inside the CLI subgraph, monitor as its own subgraph, ...). Rebuilt in this commit: all ~35 stale labels updated to current locations, subgraphs restructured to the post-task-7 tree (crate root 2 / lang 6 / json 2 / utils 1 / codegen core+monitor 5 / codegen/backends 9 / cli shared+info_format 5 / cli/commands 5 / diagram plugins 4 / MC engine 4 / bins 5), the merged `dm` node deleted with its seven edges resolved (dm-->inf became dg-->inf; the rest subsumed by existing dg edges), intro count 71 -> 86. Edge semantics otherwise preserved (174 -> 167 edges). |
+| Directory-level `src/diagrams/` mentions fixed by hand | The scripted rewrite only matched full file paths; seven docs carried directory-form mentions (`src/diagrams/`, `src/diagrams/<fmt>.rs`, the line-wrapped `src/\ndiagram.rs` in DESIGN.md) that were fixed individually (KB x2, DESIGN x1, START tree block, ARCHITECTURE x3, DECISIONS x1, DEPENDENCIES x1, cli_commands x2, CHANGE_IMPACT x1, llm/cli_commands x1). |

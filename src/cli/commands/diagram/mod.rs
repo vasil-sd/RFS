@@ -3,9 +3,11 @@
 //!
 //! Mirrors the codegen backend pattern (`crate::codegen`): every output format
 //! is a registered [`DiagramPlugin`] - static data + function pointers, one
-//! module per format under `crate::diagrams`. Adding a new diagram format means
-//! adding one module and one line to `ALL_DIAGRAMS`; no other code changes
-//! (user requirement 2026-10-21).
+//! module per format in this directory (`dot`, `plantuml`, `mermaid`,
+//! `tables`). Adding a new diagram format means adding one module and one line
+//! to `ALL_DIAGRAMS`; no other code changes (user requirement 2026-10-21).
+//! The shared label helpers at the bottom of this file were merged in from the
+//! old `crate::diagrams` module root (Phase 11 task 7).
 //!
 //! PRIMARY behaviour is pure-Rust text generation with NO external tool calls.
 //! `--render svg` renders IN-PROCESS by default (`--renderer internal`, Phase
@@ -23,9 +25,13 @@
 
 use std::path::{Path, PathBuf};
 
+pub mod dot;
+pub mod mermaid;
+pub mod plantuml;
+pub mod tables;
+
 use crate::cli::ext_tool::{sh_quote, ExtTool, ResolvedTool, Script};
-use crate::diagrams;
-use crate::lang::ir::{Ir, Module};
+use crate::lang::ir::{EventPattern, Expr, Ir, Module, OutputExpr};
 
 /// Pure render-plan construction for `--print-script` (argv + prelude steps,
 /// no execution).
@@ -95,11 +101,11 @@ pub struct RenderPlan {
 
 /// The registry of all diagram formats (the plugin table).
 const ALL_DIAGRAMS: &[&DiagramPlugin] = &[
-    &diagrams::dot::DOT_PLUGIN,
-    &diagrams::plantuml::PUML_PLUGIN,
-    &diagrams::mermaid::MMD_PLUGIN,
-    &diagrams::tables::TABLE_PLUGIN,
-    &diagrams::tables::MD_PLUGIN,
+    &crate::cli::commands::diagram::dot::DOT_PLUGIN,
+    &crate::cli::commands::diagram::plantuml::PUML_PLUGIN,
+    &crate::cli::commands::diagram::mermaid::MMD_PLUGIN,
+    &crate::cli::commands::diagram::tables::TABLE_PLUGIN,
+    &crate::cli::commands::diagram::tables::MD_PLUGIN,
 ];
 
 pub static DIAGRAMS: &[&DiagramPlugin] = ALL_DIAGRAMS;
@@ -410,4 +416,58 @@ fn render_script<'a>(
     }
 
     script.render()
+}
+
+// ---------------------------------------------------------------------------
+// Shared label helpers (merged from the old `crate::diagrams` module root,
+// Phase 11 task 7 - the phase's one genuine merge)
+// ---------------------------------------------------------------------------
+
+/// Event group + variant as a diagram label: `Go`, `Req(Value(x))`.
+pub fn event_label(p: &EventPattern) -> String {
+    crate::cli::commands::info::render_pattern_variant_group(&p.group, &p.variant)
+}
+
+/// Guard expression as a label (None when the transition has no guard).
+pub fn guard_label(g: &Option<Expr>) -> Option<String> {
+    g.as_ref().map(crate::cli::commands::info::render_expr)
+}
+
+/// Emitted outputs as labels: `Grant(G(node, frame))`.
+pub fn emit_labels(emits: &[OutputExpr]) -> Vec<String> {
+    emits
+        .iter()
+        .map(crate::cli::commands::info::render_output)
+        .collect()
+}
+
+/// All states of a validated module: State-enum variants in declaration order
+/// (the validator guarantees the enum exists and is non-empty once transitions
+/// are present; an empty module simply yields no states).
+pub fn states(m: &Module) -> Vec<&str> {
+    m.enums
+        .iter()
+        .find(|e| e.name == "State")
+        .map(|e| e.variants.iter().map(String::as_str).collect())
+        .unwrap_or_default()
+}
+
+/// Execute a renderer tool with STRICT error semantics (user decision
+/// 2026-10-21): any failure - spawn error or non-zero exit - becomes `Err`
+/// with diagnostic lines naming the tool and carrying its captured stderr.
+pub(crate) fn render_check(tool: &ResolvedTool, args: &[String]) -> Result<(), Vec<String>> {
+    match tool.run(args) {
+        Err(e) => Err(vec![format!("failed to run {}: {e}", tool.name)]),
+        Ok(o) if !o.success() => Err(vec![format!(
+            "{} exited with {}{}",
+            tool.name,
+            o.status,
+            if o.stderr.trim().is_empty() {
+                String::new()
+            } else {
+                format!(": {}", o.stderr.trim())
+            }
+        )]),
+        Ok(_) => Ok(()),
+    }
 }

@@ -31,7 +31,7 @@ Position in the pipeline, both directions:
   hash stamped into every generated artifact header (`src/codegen/mod.rs::run`,
   see the spec-hash section below), and the field model of the `spec-json`
   format entry is derived from the same writers
-  (`src/info_format.rs::spec_json_schema`).
+  (`src/cli/info_format/mod.rs::spec_json_schema`).
 
 Other consumers: `src/lang/printer.rs::roundtrip_rfs` (rfs -> json -> IR equality
 behind the printer's round-trip guarantee), the generated MC engines'
@@ -310,7 +310,7 @@ its variant fields, checks every value of a FreeObj, and for a Union accepts
 if ANY alternative passes cleanly - otherwise reporting the shortest error
 list). It returns ALL violations; empty means in sync.
 
-**Consumers.** The five JSON format entries in `src/info_format.rs` build
+**Consumers.** The five JSON format entries in `src/cli/info_format/mod.rs` build
 their models here: spec-json (the IR v1 document - its field model is derived
 from `src/lang/ir.rs` to_json, the single source of truth), ce-trace, mc-report,
 validate-json, info-json. Each renders as md or schema via rfs info format;
@@ -323,7 +323,7 @@ validate-json / info-json documents.
 Code: `src/json/json_schema.rs::SchemaDoc`, `src/json/json_schema.rs::FieldType`,
 `src/json/json_schema.rs::emit_type`, `src/json/json_schema.rs::emit_schema`,
 `src/json/json_schema.rs::render_md`, `src/json/json_schema.rs::walk_check`,
-`src/info_format.rs::spec_json_schema`, file-level `tests/info_format_test.rs`
+`src/cli/info_format/mod.rs::spec_json_schema`, file-level `tests/info_format_test.rs`
 
 <a id="dev:spec-hash"></a>
 ## Spec hash
@@ -370,7 +370,7 @@ cross-backend parity, and schema sync walks all fail on drift. Checklist:
    error. A BREAKING change must bump the constant, update the round-trip
    tests, and update [MIGRATION.md](../user/MIGRATION.md) (the read policy is D-P6-2).
 2. **Update the model in lockstep.** Any change to `src/lang/ir.rs` to_json /
-   from_json must be mirrored in `src/info_format.rs::spec_json_schema` -
+   from_json must be mirrored in `src/cli/info_format/mod.rs::spec_json_schema` -
    spec_json_walk_all_valid_examples walks every valid example's parse JSON
    and fails on drift (D-P7-9).
 3. **Expect the golden pins to fire.** ir_json_golden_compact_pins_key_order

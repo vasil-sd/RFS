@@ -43,8 +43,8 @@ intermediate on-disk representation between stages.
      `src/codegen/monitor.rs::compile_formula` into `src/codegen/monitor.rs::MonitorPlan`s
      embedded in the generated checkers.
    - *Diagrams* (state diagrams, transition tables) come from the diagram
-     plugin registry `src/diagram.rs::DIAGRAMS`, one plugin per format under
-     `src/diagrams/`; external renderers are resolved through
+     plugin registry `src/cli/commands/diagram/mod.rs::DIAGRAMS`, one plugin per format under
+     `src/cli/commands/diagram/`; external renderers are resolved through
      `src/cli/ext_tool.rs::ExtTool`.
 
 The CLI (`src/main.rs`) exposes this pipeline as eight commands: `parse` and
@@ -87,8 +87,8 @@ flowchart TD
         REF["src/ref_mc.rs (rfs mc-ref)"]
     end
 
-    subgraph DIAG["Diagrams - src/diagram.rs registry"]
-        PLUG["dot / mermaid / plantuml / tables (src/diagrams/)"]
+    subgraph DIAG["Diagrams - src/cli/commands/diagram/mod.rs registry"]
+        PLUG["dot / mermaid / plantuml / tables (src/cli/commands/diagram/)"]
         EXT["src/cli/ext_tool.rs (external renderers)"]
     end
 
@@ -123,7 +123,7 @@ flowchart TD
         PARSE["parse (src/lang/parser.rs)"]
         VALIDATE["validate (src/lang/validator.rs)"]
         CONVERT["format conversion (src/cli/frontend.rs)"]
-        INFO["rfs info (src/cli/commands/info.rs, src/info_format.rs)"]
+        INFO["rfs info (src/cli/commands/info.rs, src/cli/info_format/mod.rs)"]
     end
 
     subgraph IRCORE["IR core"]
@@ -146,8 +146,8 @@ flowchart TD
         REF["reference checker (src/ref_mc.rs)"]
     end
 
-    subgraph DIAGRAMS["Diagrams (src/diagram.rs registry)"]
-        FORMATS["dot / mermaid / plantuml / tables (src/diagrams/)"]
+    subgraph DIAGRAMS["Diagrams (src/cli/commands/diagram/mod.rs registry)"]
+        FORMATS["dot / mermaid / plantuml / tables (src/cli/commands/diagram/)"]
         RENDER["rendering (src/cli/ext_tool.rs)"]
     end
 
@@ -177,7 +177,7 @@ flowchart TD
   (`src/lang/specgen.rs`) is the only producer-side command.
 - **Two plugin registries, one pattern.** Codegen
   (`src/codegen/mod.rs::BACKENDS`, lookup `src/codegen/mod.rs::get_backend`) and
-  diagrams (`src/diagram.rs::DIAGRAMS`) both use a static registry of
+  diagrams (`src/cli/commands/diagram/mod.rs::DIAGRAMS`) both use a static registry of
   struct-plus-function-pointer entries; adding a backend or a diagram format
   means registering one entry, not touching the dispatch.
 - **Parity by construction.** The model-checking plan is computed once in

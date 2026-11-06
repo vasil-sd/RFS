@@ -13,7 +13,7 @@ The frontend turns spec text into a validated IR in two stages: a
 hand-written recursive-descent parser built on nom 8 combinators
 (`src/lang/parser.rs`) followed by whole-module semantic validation and
 expression typing (`src/lang/validator.rs`). The EBNF grammar the parser
-implements is mirrored as data in `src/ebnf_grammar.rs::GRAMMAR_RULES`
+implements is mirrored as data in `src/cli/info_format/ebnf_grammar.rs::GRAMMAR_RULES`
 (61 rules, same names and order as [DESIGN.md](../../DESIGN.md) section 6) and pinned to
 the parser by sync tests. Pipeline entry:
 `src/cli/frontend.rs::validate_one_with_warnings`.
@@ -61,7 +61,7 @@ Code: `src/lang/parser.rs::parse_source`, `src/lang/validator.rs::validate_ir`,
 **Grammar-as-functions.** Every EBNF rule is a Rust function returning
 `IResult<&str, T>`; the entry is `rfs_source = many0(module)`. The
 machine-readable mirror of the same grammar is
-`src/ebnf_grammar.rs::GRAMMAR_RULES`; sync tests enforce that the
+`src/cli/info_format/ebnf_grammar.rs::GRAMMAR_RULES`; sync tests enforce that the
 [DESIGN.md](../../DESIGN.md) section 6 fence and the parser's keyword list agree with it.
 
 **LL(1)-style decision points.** Every choice in the grammar is decided
@@ -132,7 +132,7 @@ Code: `src/lang/parser.rs::rfs_source`, `src/lang/parser.rs::module_item`,
 `src/lang/validator.rs::Env`, `src/lang/validator.rs::ExprType`,
 `src/lang/validator.rs::validate_module`,
 `src/lang/validator.rs::module_warnings`,
-`src/ebnf_grammar.rs::GRAMMAR_RULES`, `src/lang/error.rs::ParseError`
+`src/cli/info_format/ebnf_grammar.rs::GRAMMAR_RULES`, `src/lang/error.rs::ParseError`
 
 ### L3 - Implementation details (important ones emphasized)
 

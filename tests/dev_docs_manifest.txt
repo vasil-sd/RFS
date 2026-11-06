@@ -33,6 +33,11 @@ src/bin/build_training.rs
 src/bin/extract_training_snippets.rs
 src/bin/generate_code_tests.rs
 src/bin/test_generated_code.rs
+src/cli/commands/diagram/dot.rs
+src/cli/commands/diagram/mermaid.rs
+src/cli/commands/diagram/mod.rs
+src/cli/commands/diagram/plantuml.rs
+src/cli/commands/diagram/tables.rs
 src/cli/commands/gen_spec.rs
 src/cli/commands/info.rs
 src/cli/commands/mc_ref.rs
@@ -40,6 +45,8 @@ src/cli/commands/mod.rs
 src/cli/commands/test.rs
 src/cli/ext_tool.rs
 src/cli/frontend.rs
+src/cli/info_format/ebnf_grammar.rs
+src/cli/info_format/mod.rs
 src/cli/log.rs
 src/cli/mod.rs
 src/codegen/backends/c/fsm.rs
@@ -58,15 +65,7 @@ src/codegen/mod.rs
 src/codegen/monitor.rs
 src/codegen/test_plan.rs
 
-src/diagram.rs
-src/diagrams/dot.rs
-src/diagrams/mermaid.rs
-src/diagrams/mod.rs
-src/diagrams/plantuml.rs
-src/diagrams/tables.rs
-src/ebnf_grammar.rs
 
-src/info_format.rs
 
 src/json/json_rw.rs
 src/json/json_schema.rs

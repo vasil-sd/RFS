@@ -29,7 +29,7 @@ toolchain. Four files: `src/lang/ir.rs` (types + per-type to_json/from_json),
 | `src/json/json_schema.rs::render_md` | markdown field/kind tables for rfs info format --output md |
 | `src/json/json_schema.rs::walk_check` | D-P7-9 sync: required keys present, no undocumented key, types/enums agree; returns ALL violations |
 | `src/utils/hash.rs::spec_hash16` | first 16 hex of SHA-256 over the whole-file canonical IR JSON (D-P6-3); stamped into every artifact header |
-| `src/info_format.rs::spec_json_schema` | the spec-json field model, derived from ir.rs to_json - must stay in lockstep with it |
+| `src/cli/info_format/mod.rs::spec_json_schema` | the spec-json field model, derived from ir.rs to_json - must stay in lockstep with it |
 
 **Invariants that must not break.**
 
@@ -43,7 +43,7 @@ toolchain. Four files: `src/lang/ir.rs` (types + per-type to_json/from_json),
 - Spec hash input is the WHOLE file's canonical JSON - multi-module files share one hash.
 
 **Change impact (wire format).** The most constrained area in the repo:
-update `src/lang/ir.rs` to_json/from_json AND `src/info_format.rs::spec_json_schema`
+update `src/lang/ir.rs` to_json/from_json AND `src/cli/info_format/mod.rs::spec_json_schema`
 together (the walk test fails on drift); expect the golden pins + round-trip
 property + version-policy test in tests/frontend_test.rs to fire; json_rw
 formatting changes also hit cross-backend byte parity (generated MC engines

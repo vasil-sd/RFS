@@ -382,7 +382,7 @@ next to the contract documentation.
 exact-mode plan (input abstraction, state encoding, canonical traversal,
 liveness decomposition - D-P4-1) is computed once in `src/mc/plan.rs` and
 embedded as constants/tables by both backends (deep dive: task 11.1); the SMT
-path (`smt_plan.rs` / `smt_emit.rs`) is task 11.2.
+path (`src/mc/smt_plan.rs` / `src/mc/smt_emit.rs`) is task 11.2.
 
 Code: `src/codegen/mc_concepts.rs::ExactStatus`, `src/codegen/mc_concepts.rs::FailReason`,
 `src/codegen/mc_concepts.rs::exact_summary_line`, `src/codegen/mc_concepts.rs::McConfig`,

@@ -234,7 +234,7 @@ rfs codegen rust mc spec.rfs --assumes a1,a2 --out fsm_mc.rs
 
 ## 5. Shared language-agnostic modules
 
-### 5.1 `codegen_fsm.rs` (production FSM generation)
+### 5.1 `src/codegen/fsm.rs` (production FSM generation)
 
 - `build_variants(module) -> FsmVariants`: flattens grouped event/output
   declarations into per-constructor `VariantInfo { group, variant, base_name,
@@ -247,7 +247,7 @@ rfs codegen rust mc spec.rfs --assumes a1,a2 --out fsm_mc.rs
   kept for tests; monitor-compilability is decided by the shared compiler in
   `src/codegen/monitor.rs` (section 5.4), so both backends warn identically.
 
-### 5.2 `codegen_test.rs` (unit-test planning)
+### 5.2 `src/codegen/test_plan.rs` (unit-test planning)
 
 - `build_test_plan(variants, module, steps) -> TestPlan`.
   - Module-level fields (pre-existing): `steps`, `expect_progress` (true when
@@ -346,7 +346,7 @@ rfs codegen rust mc spec.rfs --assumes a1,a2 --out fsm_mc.rs
     no clang (the main artifact stays plain `gcc -Wall`; building/running the
     target is task 12).
 
-### 5.3 `codegen_mc.rs` (model-checker concepts, Phase 4)
+### 5.3 `src/codegen/mc_concepts.rs` (model-checker concepts, Phase 4)
 
 Exact mode (default):
 
@@ -380,7 +380,7 @@ Exact mode (default):
   memory_estimate_bytes, peak_rss_kb`; step objects = `input, outputs,
   from_state, to_state, vars`; the counterexample object carries
   `ce_steps` (counterexample length in steps) on every FAIL document. input/output objects = `variant, fields` (declaration
-  order). Strings use the `json_rw.rs` escaping contract; integers are
+  order). Strings use the `src/json/json_rw.rs` escaping contract; integers are
   unsigned decimal. Each backend embeds a minimal copy of the shared writer
   (Rust: value-tree writer with u64 integers - every document value is
   non-negative and bit<64> fields reach 2^64-1; C: direct-append port of the
@@ -401,7 +401,7 @@ each backend **embeds its own copy** of the plan tables and parsing helpers in
 the generated source. The formats defined here are the source of truth; keep
 the embedded copies in sync when changing them.
 
-### 5.4 `monitor.rs` (shared monitor compiler, Phase 3)
+### 5.4 `src/codegen/monitor.rs` (shared monitor compiler, Phase 3)
 
 - `compile_formula(label, is_assumption, formula) -> Result<MonitorPlan,
   String>`: compiles a property/assumption formula into a language-agnostic

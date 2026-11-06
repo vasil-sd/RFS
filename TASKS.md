@@ -1990,3 +1990,19 @@ PHASE 8 IS NOW COMPLETE.
 - Task 10's sweep is now verification-only for these names (same shape as correction 1a's re-scoping).
 - Verification: cargo build OK; cargo test 535/535 exact baseline with all three renamed binaries visible in the run output under their new names (auto-discovery proof); dev_docs_test 9/9.
 - `PHASE_11_TASK_9_STATUS.md` written per FORMATTING.md §6.2; one task correction recorded. Committed as one commit.
+
+## 2026-11-06 17:40 — Phase 11 task 10: docs<->source reference re-sync - final verification sweep (correction 1a)
+
+### Interpretation & plan
+
+- Requested: execute Phase 11 task 10 per `docs/roadmap/phase_11/tasks/PHASE_11_TASK_10.md` - the FINAL docs<->source verification sweep after correction 1a re-scoped it (tasks 1-9 already re-synced manifest + doc refs incrementally in-commit).
+- Plan: run dev_docs_test (its output = authoritative update list if anything remains); fresh grep of ALL 45 old paths (42 src + 3 test) under docs/; bare-name sweep for stragglers the prefixed greps missed; docs_md_test; verify TASKS.md + docs/roadmap/** untouched.
+
+### Report
+
+- Manifest: already final (87 entries) - dev_docs_test 9/9 on first run, zero edits needed (correction 1a held).
+- Prefixed old-path grep (all 45 paths from the plan's mapping table, under docs/ excluding roadmap history): ZERO hits.
+- Bare-name sweep found 6 stragglers no earlier task caught (their greps required the src//tests/ prefix): CODEGEN.md section headings 5.1-5.4 (`codegen_fsm.rs`/`codegen_test.rs`/`codegen_mc.rs`/`monitor.rs` -> full new paths) + prose `json_rw.rs` ref, and docs/dev/codegen_core.md's "SMT path (`smt_plan.rs` / `smt_emit.rs`)" - all fixed with full-path form.
+- Remaining grep hits verified benign: `tests/codegen_test.rs` (a different, unmoved test file) + intentional subgraph-relative mermaid labels in DEPENDENCIES.md (titles carry directory context).
+- Verification: dev_docs_test 9/9; docs_md_test 5/5 (re-run after the fixes); TASKS.md + docs/roadmap/** untouched.
+- `PHASE_11_TASK_10_STATUS.md` written per FORMATTING.md §6.2. Committed as one commit.

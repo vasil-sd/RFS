@@ -24,9 +24,9 @@ Position in the pipeline, both directions:
   parse and the downstream consumers (codegen, model checking, diagrams,
   info).
 - `.json` input loads the same type directly:
-  `src/frontend.rs::convert_file_to_ir` runs `src/json/json_rw.rs::parse` and then
+  `src/cli/frontend.rs::convert_file_to_ir` runs `src/json/json_rw.rs::parse` and then
   `src/lang/ir.rs::from_json`; JSON output is the mirror image in
-  `src/frontend.rs::render_ir` (pretty rendering + trailing newline).
+  `src/cli/frontend.rs::render_ir` (pretty rendering + trailing newline).
 - The canonical whole-file rendering (`src/lang/ir.rs::to_json`) feeds the spec
   hash stamped into every generated artifact header (`src/codegen/mod.rs::run`,
   see the spec-hash section below), and the field model of the `spec-json`
@@ -49,7 +49,7 @@ Where to go next:
 
 Code: `src/lang/ir.rs::Ir`, `src/lang/ir.rs::IR_VERSION`, `src/json/json_rw.rs::Json`,
 `src/json/json_rw.rs::parse`, `src/json/json_schema.rs::SchemaDoc`,
-`src/utils/hash.rs::spec_hash16`, `src/frontend.rs::convert_file_to_ir`,
+`src/utils/hash.rs::spec_hash16`, `src/cli/frontend.rs::convert_file_to_ir`,
 `src/codegen/mod.rs::run`
 
 <a id="dev:ir-model"></a>

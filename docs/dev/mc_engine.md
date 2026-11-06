@@ -19,7 +19,7 @@ taxonomy:
   for liveness properties (D-P4-9).
 - **Exact + liveness runtime**: the brute-force reference checker
   (`src/ref_mc.rs::run`) is an independent implementation of [SEMANTICS.md](../SEMANTICS.md) -
-  ground truth behind `rfs mc-ref` (`src/mc_ref_cmd.rs::run_mc_ref`, in-process,
+  ground truth behind `rfs mc-ref` (`src/cli/commands/mc_ref.rs::run_mc_ref`, in-process,
   no compilation) and differential testing. Both generated backends mirror its
   algorithms (Rust: [backend_rust.md](backend_rust.md); C: [backend_c.md](backend_c.md)).
 - **SMT bounded mode**: the backend-neutral spec (`src/smt_plan.rs`) rendered
@@ -34,7 +34,7 @@ LivenessViolation / Deadlock), and `src/codegen/mc_concepts.rs::exact_summary_li
 the machine-readable summary line, parity-checked across backends.
 
 Code: `src/mc_plan.rs::McPlan`, `src/mc_plan.rs::LivenessDecomposition`,
-`src/ref_mc.rs::run`, `src/mc_ref_cmd.rs::run_mc_ref`,
+`src/ref_mc.rs::run`, `src/cli/commands/mc_ref.rs::run_mc_ref`,
 `src/codegen/mc_concepts.rs::ExactStatus`, `src/codegen/mc_concepts.rs::FailReason`,
 `src/codegen/mc_concepts.rs::exact_summary_line`, `src/smt_plan.rs`,
 `src/smt_emit.rs::emit_rust_spec`, `src/smt_emit.rs::emit_c_spec`

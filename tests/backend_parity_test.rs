@@ -1506,7 +1506,8 @@ fn mc_json_five_status_reason_cases() {
         let bin = mc_json_binary_for("pin_liv", backend, LIV_FAIL_EV_SPEC);
         let (code, out) = run_bin(&bin, &[]);
         assert_eq!(code, 1, "{backend}: {out}");
-        let doc = rfs::json::json_rw::parse(&out).unwrap_or_else(|e| panic!("{backend}: {e}\n{out}"));
+        let doc =
+            rfs::json::json_rw::parse(&out).unwrap_or_else(|e| panic!("{backend}: {e}\n{out}"));
         assert_eq!(doc.get("status").and_then(|v| v.as_str()), Some("fail"));
         assert_eq!(
             doc.get("reason").and_then(|v| v.as_str()),

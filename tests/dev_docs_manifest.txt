@@ -33,7 +33,15 @@ src/bin/build_training.rs
 src/bin/extract_training_snippets.rs
 src/bin/generate_code_tests.rs
 src/bin/test_generated_code.rs
-src/cli_log.rs
+src/cli/commands/gen_spec.rs
+src/cli/commands/info.rs
+src/cli/commands/mc_ref.rs
+src/cli/commands/mod.rs
+src/cli/commands/test.rs
+src/cli/ext_tool.rs
+src/cli/frontend.rs
+src/cli/log.rs
+src/cli/mod.rs
 src/codegen/backends/c/fsm.rs
 src/codegen/backends/c/mc.rs
 src/codegen/backends/c/mod.rs
@@ -58,10 +66,6 @@ src/diagrams/plantuml.rs
 src/diagrams/tables.rs
 src/ebnf_grammar.rs
 
-src/ext_tool.rs
-src/frontend.rs
-src/gen_spec_cmd.rs
-src/info.rs
 src/info_format.rs
 
 src/json/json_rw.rs
@@ -77,14 +81,12 @@ src/lang/validator.rs
 src/lib.rs
 src/main.rs
 src/mc_plan.rs
-src/mc_ref_cmd.rs
 
 src/ref_mc.rs
 src/smt_emit.rs
 src/smt_plan.rs
 src/utils/hash.rs
 
-src/test_cmd.rs
 src/training.rs
 src/utils/mod.rs
 src/utils/rng.rs

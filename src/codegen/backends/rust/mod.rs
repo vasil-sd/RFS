@@ -15,7 +15,7 @@ pub mod fsm;
 pub mod mc;
 pub mod test;
 
-use crate::codegen::ident::{rust_binding_ident, rust_ident, snake};
+use crate::codegen::ident::{rust_ident, snake};
 use crate::codegen::{Backend, BackendCommandInfo};
 
 /// Rust integer type for a `bit<N>` width.

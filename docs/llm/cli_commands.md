@@ -18,29 +18,29 @@ print! so redirected bytes are exact.
 
 | Command | Logic entry | Deep-dive fragment |
 |---|---|---|
-| parse / validate | `src/frontend.rs::run_conversion` / `run_validate` (+ `run_validate_structured` for --json) | dev:cli-commands-frontend |
-| info / info format | `src/info.rs::run_info` / `src/info_format.rs::FORMATS` | dev:cli-commands-info |
-| test | `src/test_cmd.rs::run_test` | dev:cli-commands-test |
+| parse / validate | `src/cli/frontend.rs::run_conversion` / `run_validate` (+ `run_validate_structured` for --json) | dev:cli-commands-frontend |
+| info / info format | `src/cli/commands/info.rs::run_info` / `src/info_format.rs::FORMATS` | dev:cli-commands-info |
+| test | `src/cli/commands/test.rs::run_test` | dev:cli-commands-test |
 | diagram | `src/diagram.rs::run_diagram` + plugins in `src/diagrams/` | dev:cli-commands-diagram |
 | codegen | `src/codegen/mod.rs` registry dispatch (via `src/main.rs::cmd_codegen`) | docs/dev/codegen_core.md |
-| mc-ref | `src/mc_ref_cmd.rs::run_mc_ref` over `src/ref_mc.rs` in-process | dev:cli-commands-mc-ref-gen-spec |
-| gen-spec | `src/gen_spec_cmd.rs::run_cli` over `src/lang/specgen.rs` | dev:cli-commands-mc-ref-gen-spec |
+| mc-ref | `src/cli/commands/mc_ref.rs::run_mc_ref` over `src/ref_mc.rs` in-process | dev:cli-commands-mc-ref-gen-spec |
+| gen-spec | `src/cli/commands/gen_spec.rs::run_cli` over `src/lang/specgen.rs` | dev:cli-commands-mc-ref-gen-spec |
 
 **Key items.**
 
 | Item | Role |
 |---|---|
 | `src/main.rs::usage` / `main` | full usage text (printed by --help and on unknown/missing subcommand); the dispatch match - mc-ref/gen-spec delegate to their run_cli shells |
-| `src/frontend.rs::plan_conversion` | parse/validate mapping rules: extension replaces (never stacks), recursive dir scan, collision guard on normalized absolute paths; per-file errors collected in directory runs |
-| `src/frontend.rs::render_validate_json` | the PINNED --json document shape (file = one object, directory = array of failing files); semantic errors pinned to line/col 0/0 |
+| `src/cli/frontend.rs::plan_conversion` | parse/validate mapping rules: extension replaces (never stacks), recursive dir scan, collision guard on normalized absolute paths; per-file errors collected in directory runs |
+| `src/cli/frontend.rs::render_validate_json` | the PINNED --json document shape (file = one object, directory = array of failing files); semantic errors pinned to line/col 0/0 |
 | `src/info_format.rs::FORMATS` | ten self-describing-format entries (D-P7-6); D-P7-9 sync tests walk REAL tool output against the embedded models - drift caught in both directions |
-| `src/test_cmd.rs::run_test` | load+validate -> codegen via registry -> sequential suites (every SELECTED suite runs; failures joined); --print-script = deterministic POSIX sh, no execution |
-| `src/test_cmd.rs::run_fuzz_rust` / `run_fuzz_c` | cargo-fuzz scaffold (nightly pin, RUSTUP_TOOLCHAIN stripped) vs clang -fsanitize=fuzzer,address over the skeleton ONLY (#include pattern); ASAN_OPTIONS=detect_leaks=0 for C |
-| `src/mc_ref_cmd.rs::exit_code_for` | mirrors the generated exact binaries: 0 pass-complete / 1 fail / 2 unknown-state-limit; NOT-applicable flags documented in usage, not silently accepted |
+| `src/cli/commands/test.rs::run_test` | load+validate -> codegen via registry -> sequential suites (every SELECTED suite runs; failures joined); --print-script = deterministic POSIX sh, no execution |
+| `src/cli/commands/test.rs::run_fuzz_rust` / `run_fuzz_c` | cargo-fuzz scaffold (nightly pin, RUSTUP_TOOLCHAIN stripped) vs clang -fsanitize=fuzzer,address over the skeleton ONLY (#include pattern); ASAN_OPTIONS=detect_leaks=0 for C |
+| `src/cli/commands/mc_ref.rs::exit_code_for` | mirrors the generated exact binaries: 0 pass-complete / 1 fail / 2 unknown-state-limit; NOT-applicable flags documented in usage, not silently accepted |
 | `src/lang/specgen.rs::SpecGen` / `mutate_traced` | validity by construction (raw IR types deliberately NOT Arbitrary); mutation commits only if the candidate validates (100 redraws/step then skip); same LCG constants as the fuzz wire format |
 | `src/diagram.rs::DiagramPlugin` / `DIAGRAMS` | five plugins (dot/puml/mmd/table/md): generate is pure-Rust deterministic text; adding a format = one module + one registry line |
 | `src/diagrams/mod.rs::render_check` | STRICT error semantics: any spawn error or non-zero exit -> Err with the tool's stderr; NO graceful degradation (plantuml exits 200 on syntax errors and still writes an SVG - gate on exit status) |
-| `src/ext_tool.rs::ExtTool::resolve` | PATH precedence CLI flag > env var > bare name; args = env *_ARGS first, then --*-args; seven presets incl. CARGO_FUZZ (subcommand of cargo) |
+| `src/cli/ext_tool.rs::ExtTool::resolve` | PATH precedence CLI flag > env var > bare name; args = env *_ARGS first, then --*-args; seven presets incl. CARGO_FUZZ (subcommand of cargo) |
 
 **Invariants that must not break.**
 

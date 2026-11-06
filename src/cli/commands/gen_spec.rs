@@ -14,7 +14,7 @@
 use std::path::Path;
 use std::process::ExitCode;
 
-use crate::frontend::{self, Format};
+use crate::cli::frontend::{self, Format};
 use crate::lang::specgen::{self, Bounds, SpecGen};
 use crate::utils::rng::Rng;
 
@@ -96,7 +96,7 @@ fn usage() -> String {
 
 /// `rfs gen-spec` argument parsing + pipeline (thin shell for main.rs).
 pub fn run_cli(args: &[String]) -> ExitCode {
-    use crate::cli_log::{LogLevel, Logger};
+    use crate::cli::log::{LogLevel, Logger};
     let mut out: Option<String> = None;
     let mut seed: u64 = DEFAULT_SEED;
     let mut size: Option<String> = None;

@@ -450,9 +450,18 @@ fn validate_json_doc(path: &Path, errors: &[StructuredError]) -> crate::json::js
                     .map(|e| {
                         crate::json::json_rw::Json::obj(vec![
                             ("kind".to_string(), crate::json::json_rw::Json::str(e.kind)),
-                            ("line".to_string(), crate::json::json_rw::Json::int(e.line as i64)),
-                            ("col".to_string(), crate::json::json_rw::Json::int(e.col as i64)),
-                            ("message".to_string(), crate::json::json_rw::Json::str(&e.message)),
+                            (
+                                "line".to_string(),
+                                crate::json::json_rw::Json::int(e.line as i64),
+                            ),
+                            (
+                                "col".to_string(),
+                                crate::json::json_rw::Json::int(e.col as i64),
+                            ),
+                            (
+                                "message".to_string(),
+                                crate::json::json_rw::Json::str(&e.message),
+                            ),
                         ])
                     })
                     .collect(),

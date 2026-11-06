@@ -12,8 +12,8 @@ versioned IR, and derives its output from that IR alone - there is no
 intermediate on-disk representation between stages.
 
 1. **Input** - a spec arrives as RFS source text (`.rfs`) or as IR JSON
-   (`.json`); `src/frontend.rs::Format` maps extensions to formats and
-   `src/frontend.rs::convert_file_to_ir` loads either form into the IR.
+   (`.json`); `src/cli/frontend.rs::Format` maps extensions to formats and
+   `src/cli/frontend.rs::convert_file_to_ir` loads either form into the IR.
 2. **Parse** - RFS source is parsed by the nom-based parser,
    `src/lang/parser.rs::parse_source` (or `src/lang/parser.rs::parse_file` for a path),
    producing an `Ir` with source spans attached to every node
@@ -45,11 +45,11 @@ intermediate on-disk representation between stages.
    - *Diagrams* (state diagrams, transition tables) come from the diagram
      plugin registry `src/diagram.rs::DIAGRAMS`, one plugin per format under
      `src/diagrams/`; external renderers are resolved through
-     `src/ext_tool.rs::ExtTool`.
+     `src/cli/ext_tool.rs::ExtTool`.
 
 The CLI (`src/main.rs`) exposes this pipeline as eight commands: `parse` and
-`validate` (frontend logic in `src/frontend.rs::run_conversion` /
-`src/frontend.rs::run_validate`), `info`, `test`, `diagram`, `codegen`,
+`validate` (frontend logic in `src/cli/frontend.rs::run_conversion` /
+`src/cli/frontend.rs::run_validate`), `info`, `test`, `diagram`, `codegen`,
 `mc-ref`, and `gen-spec` (the one producer-side command: it writes a random
 spec, then parses + validates it before writing).
 
@@ -64,7 +64,7 @@ flowchart TD
         CMD["parse, validate, info, test, diagram, codegen, mc-ref, gen-spec"]
     end
 
-    subgraph FE["Frontend - src/frontend.rs"]
+    subgraph FE["Frontend - src/cli/frontend.rs"]
         CONV["run_conversion / run_validate"]
     end
 
@@ -89,7 +89,7 @@ flowchart TD
 
     subgraph DIAG["Diagrams - src/diagram.rs registry"]
         PLUG["dot / mermaid / plantuml / tables (src/diagrams/)"]
-        EXT["src/ext_tool.rs (external renderers)"]
+        EXT["src/cli/ext_tool.rs (external renderers)"]
     end
 
     IN --> CONV
@@ -122,8 +122,8 @@ flowchart TD
     subgraph FRONT["Spec frontend"]
         PARSE["parse (src/lang/parser.rs)"]
         VALIDATE["validate (src/lang/validator.rs)"]
-        CONVERT["format conversion (src/frontend.rs)"]
-        INFO["rfs info (src/info.rs, src/info_format.rs)"]
+        CONVERT["format conversion (src/cli/frontend.rs)"]
+        INFO["rfs info (src/cli/commands/info.rs, src/info_format.rs)"]
     end
 
     subgraph IRCORE["IR core"]
@@ -148,11 +148,11 @@ flowchart TD
 
     subgraph DIAGRAMS["Diagrams (src/diagram.rs registry)"]
         FORMATS["dot / mermaid / plantuml / tables (src/diagrams/)"]
-        RENDER["rendering (src/ext_tool.rs)"]
+        RENDER["rendering (src/cli/ext_tool.rs)"]
     end
 
     subgraph TOOLING["Tooling"]
-        TESTCMD["rfs test (src/test_cmd.rs)"]
+        TESTCMD["rfs test (src/cli/commands/test.rs)"]
         TRAIN["training data (src/training.rs + src/bin/)"]
         FUZZ["fuzz targets (fuzz/fuzz_targets/)"]
         CRATES["workspace crates (crates/)"]
@@ -173,7 +173,7 @@ flowchart TD
   checking, diagrams, `rfs info` - reads the validated `src/lang/ir.rs::Ir`; no
   component passes live data structures to another outside the shared helper
   modules. All file-based commands load their spec through the frontend
-  gateway `src/frontend.rs::convert_file_to_ir`; `gen-spec`
+  gateway `src/cli/frontend.rs::convert_file_to_ir`; `gen-spec`
   (`src/lang/specgen.rs`) is the only producer-side command.
 - **Two plugin registries, one pattern.** Codegen
   (`src/codegen/mod.rs::BACKENDS`, lookup `src/codegen/mod.rs::get_backend`) and
@@ -193,7 +193,7 @@ flowchart TD
   into the generated artifacts rather than being a runtime dependency.
 - **Shared external-tool layer.** Optional external tools (diagram renderers,
   rustc/gcc for compiling generated tests) are resolved and invoked through
-  `src/ext_tool.rs::ExtTool`, which can also emit a deterministic POSIX sh
+  `src/cli/ext_tool.rs::ExtTool`, which can also emit a deterministic POSIX sh
   script instead of executing (`--print-script`).
 - **Workspace crates wrap the pipeline.** `crates/rfs-build` drives the same
   compile path from dependent crates' `build.rs`; `crates/rfs-adapters`

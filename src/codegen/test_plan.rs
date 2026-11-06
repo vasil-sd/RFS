@@ -31,10 +31,10 @@
 //! Docs: dev:codegen-core-overview, dev:codegen-test-plan, dev:algorithms-ir-codegen, llm:codegen-core
 
 use crate::codegen::fsm::FsmVariants;
-use crate::lang::ir::*;
 use crate::codegen::monitor::{self, SignalAtom, SignalExpr};
-use crate::utils::rng::Rng;
+use crate::lang::ir::*;
 use crate::lang::validator::{self, Env, ExprType};
+use crate::utils::rng::Rng;
 use std::collections::HashMap;
 
 // ---------------------------------------------------------------------------
@@ -1669,7 +1669,8 @@ mod tests {
         // the fix, `test` codegen failed on BOTH backends with "not-taken
         // signature has un-evaluable output args; refusing to emit a toothless
         // test" for this fully valid spec.
-        let ir = crate::lang::specgen::SpecGen::new(24099, crate::lang::specgen::Bounds::small()).generate();
+        let ir = crate::lang::specgen::SpecGen::new(24099, crate::lang::specgen::Bounds::small())
+            .generate();
         let options = crate::codegen::BackendOptions::default();
         for backend_name in ["rust", "c"] {
             let backend = crate::codegen::get_backend(backend_name)

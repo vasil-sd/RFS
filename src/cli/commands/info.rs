@@ -13,11 +13,11 @@
 //! IDE/tooling consumers).
 //! Docs: dev:cli-commands-overview, dev:cli-commands-info, llm:cli-commands
 
+use crate::json::json_rw::Json;
 use crate::lang::ir::{
     BinOp, Expr, Formula, Ir, Module, OnError, OutputExpr, PatternExpr, PatternVariant, Type,
     UnaryOp,
 };
-use crate::json::json_rw::Json;
 use std::path::Path;
 
 /// Options for the `info` command.
@@ -33,13 +33,13 @@ pub struct InfoOptions {
 /// message for a parse/validation failure (the caller exits 1).
 pub fn run_info(path: &Path, opts: &InfoOptions) -> Result<String, String> {
     let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
-    let Some(fmt) = crate::frontend::Format::from_extension(ext) else {
+    let Some(fmt) = crate::cli::frontend::Format::from_extension(ext) else {
         return Err(format!(
             "input '{}' must have extension .rfs or .json",
             path.display()
         ));
     };
-    let ir = match crate::frontend::convert_file_to_ir(path, fmt) {
+    let ir = match crate::cli::frontend::convert_file_to_ir(path, fmt) {
         Ok(ir) => ir,
         Err(e) => return Err(format!("{}: {}", path.display(), e)),
     };

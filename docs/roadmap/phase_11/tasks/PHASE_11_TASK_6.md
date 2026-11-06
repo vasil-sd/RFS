@@ -83,3 +83,13 @@ cargo build && cargo test green.
 
 ## Non-goals
 - No CLI behavior change; diagram/info_format clusters not touched (task 7).
+
+## Task corrections
+
+| Correction | Description + rationale |
+|------------|-------------------------|
+| Root-level docs included in the re-sync (retroactive sweep) | Tasks 1-5 updated only `docs/dev/` + `docs/llm/` (+ `docs/user/`) and missed the root-level `*.md` files by mistake (user-confirmed). This task therefore also rewrote every stale source-path reference in `KB.md`, `DESIGN.md`, `BUILD.md`, `CODEGEN.md` and `START.md` - both the seven task-6 paths AND the tasks 1-5 paths those files still carried (`src/parser.rs`, `src/ir.rs`, `src/json_rw.rs`, `src/backends/*`, ...). `TASKS.md` (append-only history) and `SRC_STRUCTURE.md` / `TEST_STRUCTURE.md` (tasks 11-12 actualize them wholesale) are deliberately untouched. |
+| Pre-existing doc count bugs fixed | `docs/dev/CODE_MAP.md`'s "CLI commands (7)" header listed only 6 bullets; `docs/llm/TASK_MAP.md`'s "Coverage (all 71 manifest files)" header was stale (85 entries before this task). Both corrected while restructuring those files (now: CLI surface section with 9 bullets; coverage header 87). |
+| Unused-import trim in `src/codegen/backends/rust/mod.rs` | Task 5's ident extraction left `rust_binding_ident` imported but unused there (only `fsm.rs` uses it) - a new clippy warning line against the documented baseline (46/35), invisible to the per-task build+test gate. Removed from the import list; output-neutral, restores the baseline. |
+| `cargo fmt` normalization of accumulated path-length drift | Tasks 1-5's longer module paths pushed several lines past the 100-column limit and changed import sort order in ~20 files (e.g. `frontend.rs`'s three long `json_rw` lines, `rust/mc.rs`'s FUZZ_RUNTIME replace-chain). `cargo fmt` applied once in this commit - formatting-only, no semantic change; full suite re-run green afterwards. |
+| Environment fix: chrome-headless-shell installed | `diagram_render_parity_test::parity_external_mmd_pinned_subset` failed on the committed tree (pre-existing, not caused by this task): `mmdc` 12.0.0 is present but its puppeteer 25 browser cache was empty. Ran mmdc's bundled `puppeteer/install.mjs`, which downloaded chrome + chrome-headless-shell 156.0.8078.47 into the sandbox puppeteer cache; the suite then passed 13/13. |

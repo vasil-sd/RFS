@@ -1058,7 +1058,11 @@ fn ce_trace_walk_ref_mc_in_process() {
         let module = &ir.modules[0];
         let res = rfs::ref_mc::run(module, &rfs::ref_mc::RefConfig::default())
             .unwrap_or_else(|e| panic!("{key}: ref_mc: {e}"));
-        assert_eq!(res.status, rfs::codegen::mc_concepts::ExactStatus::Fail, "{key}");
+        assert_eq!(
+            res.status,
+            rfs::codegen::mc_concepts::ExactStatus::Fail,
+            "{key}"
+        );
         let report = rfs::ref_mc::to_json_report(&res, module).to_json();
         let ce = report
             .get("counterexample")
@@ -1213,7 +1217,8 @@ fn mc_report_schema_document_pin() {
     // No-drift pin: the counterexample definition is byte-identical to the
     // ce-trace document's root (shared builder - task 7).
     let ce_def = defs.get("counterexample").cloned().unwrap();
-    let ce_root_emitted = rfs::json::json_schema::emit_type(&rfs::info_format::ce_trace_schema().root);
+    let ce_root_emitted =
+        rfs::json::json_schema::emit_type(&rfs::info_format::ce_trace_schema().root);
     assert_eq!(
         ce_def.to_string_compact(),
         ce_root_emitted.to_string_compact(),
@@ -1425,7 +1430,10 @@ fn mc_report_walk_ref_mc_in_process() {
     let module = &ir.modules[0];
 
     let res = rfs::ref_mc::run(module, &rfs::ref_mc::RefConfig::default()).expect("ref_mc 43");
-    assert_eq!(res.status, rfs::codegen::mc_concepts::ExactStatus::PassComplete);
+    assert_eq!(
+        res.status,
+        rfs::codegen::mc_concepts::ExactStatus::PassComplete
+    );
     walk_mc_report(
         &rfs::ref_mc::to_json_report(&res, module).to_json(),
         "ref_mc/43_pass",
@@ -1459,7 +1467,10 @@ fn mc_report_walk_ref_mc_in_process() {
         ..Default::default()
     };
     let res = rfs::ref_mc::run(module, &cfg).expect("ref_mc 43 capped");
-    assert_eq!(res.status, rfs::codegen::mc_concepts::ExactStatus::UnknownStateLimit);
+    assert_eq!(
+        res.status,
+        rfs::codegen::mc_concepts::ExactStatus::UnknownStateLimit
+    );
     walk_mc_report(
         &rfs::ref_mc::to_json_report(&res, module).to_json(),
         "ref_mc/43_unknown",
@@ -1599,7 +1610,11 @@ fn validate_json_md_pins_sections() {
 
 /// The D-P7-9 walk against the validate-json model (required keys present,
 /// no undocumented key at any object level, types + enum constraints agree).
-fn walk_validate_json(doc: &rfs::json::json_schema::SchemaDoc, json: &rfs::json::json_rw::Json, what: &str) {
+fn walk_validate_json(
+    doc: &rfs::json::json_schema::SchemaDoc,
+    json: &rfs::json::json_rw::Json,
+    what: &str,
+) {
     if let Err(errs) = rfs::json::json_schema::walk_check(doc, json) {
         panic!(
             "{what}: validate-json model out of sync with the rendered document:\n{}",
@@ -1618,14 +1633,14 @@ fn validate_json_walk_invalid_examples_both_kinds() {
     let mut kinds: std::collections::HashSet<&str> = std::collections::HashSet::new();
     for path in &files {
         // File mode: one object for the input file.
-        let failed = rfs::frontend::run_validate_structured(None, path)
+        let failed = rfs::cli::frontend::run_validate_structured(None, path)
             .unwrap_or_else(|e| panic!("{}: {e:?}", path.display()));
         assert!(
             !failed.is_empty(),
             "{} must fail validation",
             path.display()
         );
-        let text = rfs::frontend::render_validate_json(path, false, &failed);
+        let text = rfs::cli::frontend::render_validate_json(path, false, &failed);
         let json = rfs::json::json_rw::parse(&text).unwrap_or_else(|e| {
             panic!(
                 "{}: rendered document is not valid JSON: {e}",
@@ -1662,11 +1677,11 @@ fn validate_json_walk_valid_files_ok_true() {
     assert!(!files.is_empty(), "no valid examples found");
 
     for path in &files {
-        let failed = rfs::frontend::run_validate_structured(None, path)
+        let failed = rfs::cli::frontend::run_validate_structured(None, path)
             .unwrap_or_else(|e| panic!("{}: {e:?}", path.display()));
         assert!(failed.is_empty(), "{} must validate clean", path.display());
         // File mode prints the object even on success: ok=true, errors=[].
-        let text = rfs::frontend::render_validate_json(path, false, &failed);
+        let text = rfs::cli::frontend::render_validate_json(path, false, &failed);
         let json = rfs::json::json_rw::parse(&text).unwrap_or_else(|e| {
             panic!(
                 "{}: rendered document is not valid JSON: {e}",
@@ -1692,11 +1707,13 @@ fn validate_json_walk_directory_mode() {
 
     // All-failing directory: one object per failing file.
     let invalid_dir = root().join("examples/invalid");
-    let failed =
-        rfs::frontend::run_validate_structured(Some(rfs::frontend::Format::Rfs), &invalid_dir)
-            .expect("directory validation should run");
+    let failed = rfs::cli::frontend::run_validate_structured(
+        Some(rfs::cli::frontend::Format::Rfs),
+        &invalid_dir,
+    )
+    .expect("directory validation should run");
     assert_eq!(failed.len(), 13, "every invalid example must fail");
-    let text = rfs::frontend::render_validate_json(&invalid_dir, true, &failed);
+    let text = rfs::cli::frontend::render_validate_json(&invalid_dir, true, &failed);
     let json = rfs::json::json_rw::parse(&text).expect("directory document must be valid JSON");
     walk_validate_json(&doc, &json, "directory mode examples/invalid");
     let arr = json.as_arr().cloned().unwrap();
@@ -1716,11 +1733,13 @@ fn validate_json_walk_directory_mode() {
 
     // All-valid directory: the array is EMPTY (valid files are omitted).
     let valid_dir = root().join("examples/valid");
-    let failed =
-        rfs::frontend::run_validate_structured(Some(rfs::frontend::Format::Rfs), &valid_dir)
-            .expect("directory validation should run");
+    let failed = rfs::cli::frontend::run_validate_structured(
+        Some(rfs::cli::frontend::Format::Rfs),
+        &valid_dir,
+    )
+    .expect("directory validation should run");
     assert!(failed.is_empty(), "all valid examples must pass");
-    let text = rfs::frontend::render_validate_json(&valid_dir, true, &failed);
+    let text = rfs::cli::frontend::render_validate_json(&valid_dir, true, &failed);
     let json = rfs::json::json_rw::parse(&text).unwrap();
     walk_validate_json(&doc, &json, "directory mode examples/valid");
     assert!(json.as_arr().cloned().unwrap().is_empty());
@@ -1937,8 +1956,11 @@ fn info_json_walk_all_valid_examples() {
 
     for path in &files {
         // The exact command path: parse + validate + render_json.
-        let text = rfs::info::run_info(path, &rfs::info::InfoOptions { json: true })
-            .unwrap_or_else(|e| panic!("{}: {e}", path.display()));
+        let text = rfs::cli::commands::info::run_info(
+            path,
+            &rfs::cli::commands::info::InfoOptions { json: true },
+        )
+        .unwrap_or_else(|e| panic!("{}: {e}", path.display()));
         let json = rfs::json::json_rw::parse(&text).unwrap_or_else(|e| {
             panic!(
                 "{}: rendered document is not valid JSON: {e}",

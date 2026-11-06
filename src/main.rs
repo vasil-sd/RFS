@@ -6,7 +6,7 @@ use std::env;
 use std::path::Path;
 use std::process::ExitCode;
 
-use rfs::{codegen, frontend, Format};
+use rfs::{cli::frontend, codegen, Format};
 
 fn usage() -> String {
     "RFS toolchain\n\nusage:\n  rfs parse --input <rfs|json> --output <rfs|json> <file-or-dir> [--target-dir DIR]\n  rfs validate [--input <rfs|json>] [--json] <file-or-dir>\n  rfs info [--json] [--log-level off|error|warn|info|debug] <spec.rfs|spec.json>\n  rfs info format --list | <name> [--output md|plantuml|svg|schema]\n  rfs test [--backend rust|c] [--suite unit|fuzz ...] [--steps N] [--rustc PATH] [--gcc PATH]\n           [--rustc-args \"...\"] [--gcc-args \"...\"] [--clang PATH] [--clang-args \"...\"]\n           [--cargo-fuzz PATH] [--cargo-fuzz-args \"...\"] [--fuzz-max-total-time SEC] [--fuzz-flags \"...\"]\n           [--print-script] [--log-level off|error|warn|info|debug] <spec.rfs|spec.json>\n  rfs diagram --list | --format dot|puml|mmd|table|md [--renderer internal|external] [options] <spec.rfs|spec.json>\n  rfs codegen --list | --help | <backend> --help\n  rfs codegen <backend> <production|test|mc> <spec.rfs|spec.json> [--out FILE] [--assumes ...] [--steps N]\n  rfs mc-ref <spec.rfs|spec.json> [--max-states N] [--timeout-sec N] [--assumes all|none|labels]\n           [--counterexample-format json|text] [--log-level off|error|warn|info|debug]\n  rfs gen-spec --out FILE.rfs [--seed N] [--size small|medium] [--max-states N] [--max-events N]\n           [--max-vars N] [--max-transitions N] [--max-props N]\n      | rfs gen-spec --base SPEC.rfs|SPEC.json --mutations K [--seed N]\n\nparse: load RFS or IR-JSON files, convert through the IR, and write formatted\n       output. With a directory input, only files matching --input are scanned;\n       without --target-dir each output is written next to its input file, with\n       --target-dir the input directory structure is preserved inside it. The\n       original extension is replaced (never stacked). Conversions whose output\n       would overwrite the input file are refused.\n\nvalidate: parse + semantically validate RFS or IR-JSON files. For a file input\n         the extension selects the format and errors go to stderr; for a\n         directory input --input is required and each failing source file gets\n         a <name>.rfs-validation.err file next to it. `--json` emits structured\n         diagnostics on stdout instead (file mode: one object; directory mode:\n         an array of one object per failing file) - the shape editor\n         integrations consume (Phase 5 task 13).\n\ninfo: static spec introspection - per module: version, initial state, enums,
@@ -69,8 +69,8 @@ fn main() -> ExitCode {
         Some("test") => cmd_test(&args[1..]),
         Some("diagram") => cmd_diagram(&args[1..]),
         Some("codegen") => cmd_codegen(&args[1..]),
-        Some("mc-ref") => rfs::mc_ref_cmd::run_cli(&args[1..]),
-        Some("gen-spec") => rfs::gen_spec_cmd::run_cli(&args[1..]),
+        Some("mc-ref") => rfs::cli::commands::mc_ref::run_cli(&args[1..]),
+        Some("gen-spec") => rfs::cli::commands::gen_spec::run_cli(&args[1..]),
         Some(first) => {
             eprintln!(
                 "error: unknown subcommand '{}'; expected parse, validate, info, test, diagram, codegen, mc-ref or gen-spec\n{}",
@@ -450,7 +450,7 @@ fn cmd_codegen(args: &[String]) -> ExitCode {
 }
 
 fn cmd_info(args: &[String]) -> ExitCode {
-    use rfs::cli_log::{LogLevel, Logger};
+    use rfs::cli::log::{LogLevel, Logger};
     // Phase 7 task 5: `rfs info format ...` - dispatch on the bare first
     // token BEFORE any path handling, so a file literally named `format`
     // cannot collide (D-P7-6).
@@ -515,8 +515,8 @@ fn cmd_info(args: &[String]) -> ExitCode {
     // Fatal diagnostics bypass the logger (always stderr, drive exit code);
     // the logger carries informational progress output only.
     let logger = Logger::new(log_level);
-    let opts = rfs::info::InfoOptions { json };
-    match rfs::info::run_info(Path::new(&path), &opts) {
+    let opts = rfs::cli::commands::info::InfoOptions { json };
+    match rfs::cli::commands::info::run_info(Path::new(&path), &opts) {
         Ok(out) => {
             logger.debug(&format!(
                 "info: rendered {} byte(s) for {}",
@@ -618,8 +618,8 @@ fn run_info_format(args: &[String]) -> ExitCode {
 /// `rfs test`: generate + compile + run the extended test suite for a spec in
 /// one invocation (Phase 5 task 7). Thin wrapper over `rfs::test_cmd`.
 fn cmd_test(args: &[String]) -> ExitCode {
-    use rfs::cli_log::{LogLevel, Logger};
-    let mut opts = rfs::test_cmd::TestOptions::default();
+    use rfs::cli::log::{LogLevel, Logger};
+    let mut opts = rfs::cli::commands::test::TestOptions::default();
     let mut log_level = LogLevel::Info;
     let mut path: Option<String> = None;
     // The first --suite replaces the default [Unit]; later ones append.
@@ -682,7 +682,7 @@ fn cmd_test(args: &[String]) -> ExitCode {
                         }
                         for part in v.split(',') {
                             let part = part.trim();
-                            match rfs::test_cmd::TestSuite::from_str(part) {
+                            match rfs::cli::commands::test::TestSuite::from_str(part) {
                                 Some(s) => {
                                     if !opts.suites.contains(&s) {
                                         opts.suites.push(s);
@@ -749,7 +749,7 @@ fn cmd_test(args: &[String]) -> ExitCode {
     // Fatal diagnostics bypass the logger (always stderr, drive exit code);
     // the logger carries informational progress output only.
     let logger = Logger::new(log_level);
-    match rfs::test_cmd::run_test(Path::new(&path), &opts, &logger) {
+    match rfs::cli::commands::test::run_test(Path::new(&path), &opts, &logger) {
         Ok(result) => {
             if let Some(script) = result.script {
                 // `print!` (not println): the script already ends with a
@@ -769,7 +769,7 @@ fn cmd_test(args: &[String]) -> ExitCode {
 }
 
 fn cmd_diagram(args: &[String]) -> ExitCode {
-    use rfs::cli_log::{LogLevel, Logger};
+    use rfs::cli::log::{LogLevel, Logger};
     let mut opts = rfs::diagram::DiagramOptions::default();
     let mut log_level = LogLevel::Info;
     let mut path: Option<String> = None;

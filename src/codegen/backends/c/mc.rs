@@ -18,8 +18,8 @@
 //! Docs: dev:backend-c-overview, dev:backend-c-mc, llm:backend-c
 
 use crate::codegen::backends::c::{c_ident, int_c_literal};
-use crate::codegen::{BackendOptions, CodegenOutput, McMode};
 use crate::codegen::fsm::{self, VariantInfo};
+use crate::codegen::{BackendOptions, CodegenOutput, McMode};
 use crate::lang::ir::*;
 use crate::mc_plan::{McPlan, ValueDomain};
 
@@ -435,7 +435,8 @@ fn exact_codegen_c(
     // 1 = json. Runtime-overridable with --counterexample-format.
     s.push_str(&format!(
         "#define DEFAULT_COUNTEREXAMPLE_FORMAT {}\n",
-        if options.counterexample_format == crate::codegen::mc_concepts::CounterexampleFormat::Json {
+        if options.counterexample_format == crate::codegen::mc_concepts::CounterexampleFormat::Json
+        {
             1
         } else {
             0
@@ -540,7 +541,8 @@ fn exact_codegen_c(
         ));
         let mut k = 0usize;
         for (i, f) in vs.fields.iter().enumerate() {
-            let cast = crate::codegen::backends::c::c_type(&vinfo.fields[i].1).map_err(|e| e.to_string())?;
+            let cast = crate::codegen::backends::c::c_type(&vinfo.fields[i].1)
+                .map_err(|e| e.to_string())?;
             if f.concrete {
                 let (_cond, val) = domain_loop(f.domain.as_ref().unwrap(), k);
                 s.push_str(&format!(
@@ -626,7 +628,9 @@ fn exact_codegen_c(
     s.push_str("}\n");
 
     // mc_step_all: every enabled transition's effect in firing order (D-P4-11).
-    s.push_str(&crate::codegen::backends::c::fsm::render_mc_step_all_c(module)?);
+    s.push_str(&crate::codegen::backends::c::fsm::render_mc_step_all_c(
+        module,
+    )?);
 
     // The BFS engine (static; see D-P4-2..6).
     s.push_str(EXACT_ENGINE_C);
@@ -654,28 +658,36 @@ fn exact_codegen_c(
             match leaf {
                 crate::mc_plan::SkeletonLeaf::Safety(f) => {
                     let name = format!("liv_p{pi}_l{li}");
-                    s.push_str(&crate::codegen::backends::c::fsm::render_liv_sample_evaluator_c(
-                        module, &name, f,
-                    )?);
+                    s.push_str(
+                        &crate::codegen::backends::c::fsm::render_liv_sample_evaluator_c(
+                            module, &name, f,
+                        )?,
+                    );
                     leaf_entries.push(format!("{{ 0, {name}, 0 }}"));
                 }
                 crate::mc_plan::SkeletonLeaf::Obligation(oi) => match &spec.obligations[*oi] {
                     crate::mc_plan::LivenessObligation::Eventually { body } => {
                         let name = format!("liv_p{pi}_l{li}");
-                        s.push_str(&crate::codegen::backends::c::fsm::render_liv_sample_evaluator_c(
-                            module, &name, body,
-                        )?);
+                        s.push_str(
+                            &crate::codegen::backends::c::fsm::render_liv_sample_evaluator_c(
+                                module, &name, body,
+                            )?,
+                        );
                         leaf_entries.push(format!("{{ 1, {name}, 0 }}"));
                     }
                     crate::mc_plan::LivenessObligation::Until { left, right } => {
                         let na = format!("liv_p{pi}_l{li}");
                         let nb = format!("liv_p{pi}_l{li}b");
-                        s.push_str(&crate::codegen::backends::c::fsm::render_liv_sample_evaluator_c(
-                            module, &na, left,
-                        )?);
-                        s.push_str(&crate::codegen::backends::c::fsm::render_liv_sample_evaluator_c(
-                            module, &nb, right,
-                        )?);
+                        s.push_str(
+                            &crate::codegen::backends::c::fsm::render_liv_sample_evaluator_c(
+                                module, &na, left,
+                            )?,
+                        );
+                        s.push_str(
+                            &crate::codegen::backends::c::fsm::render_liv_sample_evaluator_c(
+                                module, &nb, right,
+                            )?,
+                        );
                         leaf_entries.push(format!("{{ 2, {na}, {nb} }}"));
                     }
                 },

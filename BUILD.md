@@ -16,7 +16,7 @@ versions, activation env vars, and reinstall procedure: see `TOOLCHAIN.md`.
 | `Cargo.lock` | Version 4 lock file - requires a recent cargo; use the project toolchain (`TOOLCHAIN.md`). |
 | `src/` | Library + CLI source (map in `KB.md` section 4.2). |
 | `tests/` | Integration test suites (layout in section 3 below). |
-| `ide/` | IDE support (Phase 5 task 13): TextMate grammar for `.rfs` (`textmate/rfs.json`, scope `source.rfs`), snippet set (`snippets.rfs`), install notes for VS Code + Sublime (`README.md`). The parser's keyword list (`KEYWORDS` in `src/parser.rs`) is the shared source of truth - a test asserts every keyword appears in the grammar. |
+| `ide/` | IDE support (Phase 5 task 13): TextMate grammar for `.rfs` (`textmate/rfs.json`, scope `source.rfs`), snippet set (`snippets.rfs`), install notes for VS Code + Sublime (`README.md`). The parser's keyword list (`KEYWORDS` in `src/lang/parser.rs`) is the shared source of truth - a test asserts every keyword appears in the grammar. |
 | `target/rfs_codegen_tests/` | Generated aggregate unit-test crate (written by `cargo generate-code-tests`; not checked in). Its manifest carries an empty `[workspace]` table so cargo does not walk up into this repository's workspace. |
 
 ## 2. Activate the toolchain, then build
@@ -134,7 +134,7 @@ pass - required the generated-crate `[workspace]` fix, see section 1),
 `cargo test-training` (5 pass).
 
 CLI behavior rules (file/dir handling, exit codes): `KB.md` section 4.5. Codegen
-plugin API and backend docs: `CODEGEN.md`, `src/backends/RUST.md`.
+plugin API and backend docs: `CODEGEN.md`, `src/codegen/backends/RUST.md`.
 
 ## 5. Verification checklist after changes
 
@@ -182,7 +182,7 @@ generated tests (192 modules), 50 valid + 13 invalid examples, training
 aggregate **267** lines (snippets 138 valid + 128 invalid), clippy without
 errors (46 warning lines / 35 unique - dead-code in the shared test modules
 `tests/common/{prod_driver,mc_json,fail_variants}.rs` (helpers unused by each
-test binary that does not use them all) + pre-existing patterns: `src/backends/c_fsm.rs`
+test binary that does not use them all) + pre-existing patterns: `src/codegen/backends/c/fsm.rs`
 monitor rendering + naming, one each in `src/{codegen,codegen_test,test_cmd,validator}.rs`;
 zero in Phase 7's new source files and the two new test suites), fmt clean. C generated code compiles with
 `gcc -Wall`; the parity suites (Phase 3, migrated to seedless exact mode in
@@ -202,7 +202,7 @@ which fuzzes GENERATED code). Two layers:
 | Fast: in-process libFuzzer targets | root `fuzz/` cargo-fuzz workspace (detached; 4 targets: `parser`, `validator`, `ir_roundtrip`, `codegen`) | no panic on malformed-but-parseable input; JSON round-trip byte-stability; total codegen + structural invariants (task-2 header, balanced delimiters, no placeholder tokens, core symbols) | manual / nightly (`cargo +nightly fuzz run <target> -- -max_total_time=...`) |
 | Slow: seeded compile-and-run suite | `tests/toolchain_fuzz_test.rs` (part of plain `cargo test`) | 3 pinned seeds x 10 small specgen specs -> all six artifacts generated + compiled (rustc / gcc -Wall) + MC runs in exact & fuzz mode vs `ref_mc` ground truth: status agreement, NO false `PASS (complete)`, exit codes {0,1,2}, stable stderr; plus the deterministic trigger-step-0 report pin | every full test run (~30 s) |
 
-Random specs are built through `src/specgen.rs` (seed + bounds from fuzzer bytes;
+Random specs are built through `src/lang/specgen.rs` (seed + bounds from fuzzer bytes;
 validity by construction - raw IR types are deliberately NOT `Arbitrary`).
 Requirements: nightly toolchain + clang (TOOLCHAIN.md sections 7 / 7.5); the
 harness works OFFLINE (`libfuzzer-sys 0.4.13` + `arbitrary 1.5.0` are cached).

@@ -340,8 +340,9 @@ fn aggregate_codegen_succeeds_for_valid_examples_and_training_snippets() {
 
         ..codegen::BackendOptions::default()
     };
-    let crate_ = rfs::codegen::backends::rust::test::generate_aggregate_test_crate(&files, &options)
-        .expect("aggregate codegen should succeed");
+    let crate_ =
+        rfs::codegen::backends::rust::test::generate_aggregate_test_crate(&files, &options)
+            .expect("aggregate codegen should succeed");
     assert!(crate_.module_count > 0);
     assert!(crate_.lib.contains("pub mod "));
 }
@@ -853,7 +854,11 @@ fn mc_exact_flags_embedded_as_runtime_defaults() {
     let ir = parse_module(&root.join("examples/valid/02_counter.rfs"));
     let backend = codegen::get_backend("rust").unwrap();
 
-    fn gen(ir: &rfs::lang::ir::Ir, backend: &codegen::Backend, opts: &codegen::BackendOptions) -> String {
+    fn gen(
+        ir: &rfs::lang::ir::Ir,
+        backend: &codegen::Backend,
+        opts: &codegen::BackendOptions,
+    ) -> String {
         codegen::CodegenCommandKind::ModelChecker
             .run(backend, ir, opts)
             .unwrap()
@@ -1304,10 +1309,12 @@ fn c_production_no_std_is_documented_noop() {
     let ir = example_module("01_trivial_two_state.rfs");
     let module = &ir.modules[0];
     const NOTE: &str = "// --no-std accepted: the C backend is already dependency-free; the flag has no effect on this output.";
-    let std_code =
-        rfs::codegen::backends::c::fsm::generate_production(module, &codegen::BackendOptions::default())
-            .unwrap()
-            .code;
+    let std_code = rfs::codegen::backends::c::fsm::generate_production(
+        module,
+        &codegen::BackendOptions::default(),
+    )
+    .unwrap()
+    .code;
     let nostd_code = rfs::codegen::backends::c::fsm::generate_production(
         module,
         &codegen::BackendOptions {
@@ -1534,10 +1541,12 @@ fn cli_protocol_fsm_e2e_exit_codes_and_output() {
 fn protocol_fsm_emission_pins_and_default_unchanged() {
     let ir = example_module("01_trivial_two_state.rfs");
     let module = &ir.modules[0];
-    let default_code =
-        rfs::codegen::backends::rust::fsm::generate_production(module, &codegen::BackendOptions::default())
-            .unwrap()
-            .code;
+    let default_code = rfs::codegen::backends::rust::fsm::generate_production(
+        module,
+        &codegen::BackendOptions::default(),
+    )
+    .unwrap()
+    .code;
     // Default output is unchanged: no trace of the trait at all.
     assert!(!default_code.contains("ProtocolFsm"));
     assert!(!default_code.contains("rfs_adapters"));
@@ -1576,10 +1585,12 @@ fn protocol_fsm_emission_pins_and_default_unchanged() {
     assert!(t_pf < t_tests);
 
     // The C backend ignores the flag: byte-identical output.
-    let c_default =
-        rfs::codegen::backends::c::fsm::generate_production(module, &codegen::BackendOptions::default())
-            .unwrap()
-            .code;
+    let c_default = rfs::codegen::backends::c::fsm::generate_production(
+        module,
+        &codegen::BackendOptions::default(),
+    )
+    .unwrap()
+    .code;
     let c_pf = rfs::codegen::backends::c::fsm::generate_production(
         module,
         &codegen::BackendOptions {
@@ -1836,8 +1847,9 @@ fn aggregate_crate_carries_new_classes_and_stays_dependency_free() {
 
         ..codegen::BackendOptions::default()
     };
-    let crate_ = rfs::codegen::backends::rust::test::generate_aggregate_test_crate(&files(), &options)
-        .expect("aggregate codegen");
+    let crate_ =
+        rfs::codegen::backends::rust::test::generate_aggregate_test_crate(&files(), &options)
+            .expect("aggregate codegen");
     assert!(crate_.lib.contains("fn random_trace_seed12345_steps4"));
     assert!(crate_.lib.contains("fn invariant_") || crate_.lib.contains("_fires_on_violation"));
     // No libfuzzer_sys anywhere: the aggregate must compile without deps.

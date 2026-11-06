@@ -16,7 +16,7 @@ expression typing (`src/lang/validator.rs`). The EBNF grammar the parser
 implements is mirrored as data in `src/ebnf_grammar.rs::GRAMMAR_RULES`
 (61 rules, same names and order as [DESIGN.md](../../DESIGN.md) section 6) and pinned to
 the parser by sync tests. Pipeline entry:
-`src/frontend.rs::validate_one_with_warnings`.
+`src/cli/frontend.rs::validate_one_with_warnings`.
 
 ### L1 - Abstract view
 
@@ -54,7 +54,7 @@ flowchart TD
 
 Code: `src/lang/parser.rs::parse_source`, `src/lang/validator.rs::validate_ir`,
 `src/lang/validator.rs::module_warnings`,
-`src/frontend.rs::validate_one_with_warnings`
+`src/cli/frontend.rs::validate_one_with_warnings`
 
 ### L2 - Key data structures and invariants
 

@@ -10,10 +10,10 @@
 //! Docs: dev:backend-c-overview, dev:backend-c-fsm, llm:backend-c
 
 use crate::codegen::backends::c::{c_binding_ident, c_ident, c_type, int_c_literal, mask_c_expr};
-use crate::codegen::{self, BackendOptions, PropertyMonitorMode};
 use crate::codegen::fsm::{self, FsmVariants, VariantInfo};
-use crate::lang::ir::*;
 use crate::codegen::monitor::{self, AnchorRange, MonNode, MonitorPlan, SignalAtom, SignalExpr};
+use crate::codegen::{self, BackendOptions, PropertyMonitorMode};
+use crate::lang::ir::*;
 use crate::lang::validator::{self, Env, ExprType};
 use std::fmt::Write as _;
 
@@ -1783,18 +1783,23 @@ pub(crate) fn collect_liv_signal_patterns<'a>(
         output_pats: &mut Vec<&'a crate::lang::ir::OutputPattern>,
     ) {
         match sig {
-            crate::codegen::monitor::SignalExpr::Atom(crate::codegen::monitor::SignalAtom::InputIs(p)) => {
+            crate::codegen::monitor::SignalExpr::Atom(
+                crate::codegen::monitor::SignalAtom::InputIs(p),
+            ) => {
                 if !input_pats.contains(&p) {
                     input_pats.push(p);
                 }
             }
-            crate::codegen::monitor::SignalExpr::Atom(crate::codegen::monitor::SignalAtom::OutputHas(p)) => {
+            crate::codegen::monitor::SignalExpr::Atom(
+                crate::codegen::monitor::SignalAtom::OutputHas(p),
+            ) => {
                 if !output_pats.contains(&p) {
                     output_pats.push(p);
                 }
             }
             crate::codegen::monitor::SignalExpr::Not(inner) => walk(inner, input_pats, output_pats),
-            crate::codegen::monitor::SignalExpr::And(l, r) | crate::codegen::monitor::SignalExpr::Or(l, r) => {
+            crate::codegen::monitor::SignalExpr::And(l, r)
+            | crate::codegen::monitor::SignalExpr::Or(l, r) => {
                 walk(l, input_pats, output_pats);
                 walk(r, input_pats, output_pats);
             }

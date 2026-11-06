@@ -10,24 +10,24 @@ The `rfs` binary exposes EIGHT subcommands, dispatched from
 `src/main.rs::main`: `parse`, `validate`, `info` (with the Phase 7
 `info format` sub-mode), `test`, `diagram`, `codegen`, `mc-ref`, and
 `gen-spec`. The first six are parsed in `src/main.rs` itself; `mc-ref` and
-`gen-spec` delegate to thin shells (`src/mc_ref_cmd.rs::run_cli`,
-`src/gen_spec_cmd.rs::run_cli`) that own their argument parsing. Command-to-
+`gen-spec` delegate to thin shells (`src/cli/commands/mc_ref.rs::run_cli`,
+`src/cli/commands/gen_spec.rs::run_cli`) that own their argument parsing. Command-to-
 module map:
 
 | Command | Logic entry | Deep-dive fragment |
 |---|---|---|
-| parse / validate | `src/frontend.rs::run_conversion` / `src/frontend.rs::run_validate` (+ `src/frontend.rs::run_validate_structured` for --json) | dev:cli-commands-frontend |
-| info / info format | `src/info.rs::run_info` / `src/info_format.rs::FORMATS` | dev:cli-commands-info |
-| test | `src/test_cmd.rs::run_test` | dev:cli-commands-test |
+| parse / validate | `src/cli/frontend.rs::run_conversion` / `src/cli/frontend.rs::run_validate` (+ `src/cli/frontend.rs::run_validate_structured` for --json) | dev:cli-commands-frontend |
+| info / info format | `src/cli/commands/info.rs::run_info` / `src/info_format.rs::FORMATS` | dev:cli-commands-info |
+| test | `src/cli/commands/test.rs::run_test` | dev:cli-commands-test |
 | diagram | `src/diagram.rs::run_diagram` + the plugins in `src/diagrams/` | dev:cli-commands-diagram |
 | codegen | `src/codegen/mod.rs` registry dispatch (via `src/main.rs::cmd_codegen`) | [codegen_core.md](codegen_core.md) |
-| mc-ref | `src/mc_ref_cmd.rs::run_mc_ref` over `src/ref_mc.rs` | dev:cli-commands-mc-ref-gen-spec |
-| gen-spec | `src/gen_spec_cmd.rs::run_cli` over `src/lang/specgen.rs` | dev:cli-commands-mc-ref-gen-spec |
+| mc-ref | `src/cli/commands/mc_ref.rs::run_mc_ref` over `src/ref_mc.rs` | dev:cli-commands-mc-ref-gen-spec |
+| gen-spec | `src/cli/commands/gen_spec.rs::run_cli` over `src/lang/specgen.rs` | dev:cli-commands-mc-ref-gen-spec |
 
 **Exit-code convention.** 0 = success; 1 = ANY error (usage, parse,
 validation, IO, missing tool for a SELECTED suite). The generated MC binaries
 keep their own 0/1/2 status taxonomy (dev:mc-engine-exact); `rfs mc-ref`
-mirrors it (`src/mc_ref_cmd.rs::exit_code_for`).
+mirrors it (`src/cli/commands/mc_ref.rs::exit_code_for`).
 
 **Shared CLI conventions.** Argument parsing is manual (no clap): --help/-h
 prints the usage text and exits 0; an unknown option or subcommand prints an
@@ -35,7 +35,7 @@ error + the usage and exits 1; extra positional arguments are rejected.
 Generated text and scripts go to stdout with `print!` (NOT println!) so the
 bytes are reproduced exactly when redirected (codegen convention). Fatal
 diagnostics bypass the logger (always stderr, drive the exit code);
-`src/cli_log.rs::Logger` (levels via `src/cli_log.rs::LogLevel`, --log-level
+`src/cli/log.rs::Logger` (levels via `src/cli/log.rs::LogLevel`, --log-level
 off|error|warn|info|debug, default info) carries informational progress only.
 The file-input contract shared by info/test/diagram/mc-ref: the extension
 selects the format (.rfs/.json), the spec is loaded + validated before any
@@ -47,7 +47,7 @@ CLI behavior rules at file granularity: [KB.md](../../KB.md) section 4.5; extern
 documentation: docs/user/; codegen plugin API: [CODEGEN.md](../../CODEGEN.md) +
 [codegen_core.md](codegen_core.md).
 
-Code: `src/main.rs::main`, `src/cli_log.rs::LogLevel`, `src/cli_log.rs::Logger`
+Code: `src/main.rs::main`, `src/cli/log.rs::LogLevel`, `src/cli/log.rs::Logger`
 
 
 <a id="dev:cli-commands-dispatch"></a>
@@ -70,17 +70,17 @@ token is skipped, flags consume their values via helpers like
 option):
 
 - `src/main.rs::cmd_parse`: --input/--output (both required) + path + optional
-  --target-dir; calls `src/frontend.rs::run_conversion`; prints one `wrote`
+  --target-dir; calls `src/cli/frontend.rs::run_conversion`; prints one `wrote`
   line per output + a summary.
 - `src/main.rs::cmd_validate`: optional --input + --json. Text mode prints
   `valid` lines, warnings to stderr, and `invalid ... (N error(s), written
 to ...)` for directory-mode failures (file mode reports on stderr). JSON mode
-  renders the pinned document via `src/frontend.rs::render_validate_json`
+  renders the pinned document via `src/cli/frontend.rs::render_validate_json`
   with print!; exit codes are unchanged by --json.
 - `src/main.rs::cmd_codegen`: delegates to `src/codegen/mod.rs::parse_codegen_args`
   -> List / Help / BackendHelp / Generate. Generate resolves the backend,
   maps the input extension to a Format, loads via
-  `src/frontend.rs::convert_file_to_ir`, builds `src/codegen/mod.rs::BackendOptions`
+  `src/cli/frontend.rs::convert_file_to_ir`, builds `src/codegen/mod.rs::BackendOptions`
   (spec_hash starts empty - it is stamped from the whole-file canonical IR
   JSON by the command's run per D-P6-3), and calls
   `src/codegen/mod.rs::CodegenCommandKind::run`. With --out: parent directories
@@ -90,17 +90,17 @@ to ...)` for directory-mode failures (file mode reports on stderr). JSON mode
 - `src/main.rs::cmd_info`: --json/--log-level + path; dispatches on the BARE
   first token `format` BEFORE any path handling, so a spec file literally
   named format cannot collide (D-P7-6); otherwise calls
-  `src/info.rs::run_info` and prints the result.
+  `src/cli/commands/info.rs::run_info` and prints the result.
 - `src/main.rs::run_info_format`: --list prints
   `src/info_format.rs::list_markdown`; a name is required otherwise; unknown
   names get the registry's own diagnostic (it lists the remedy); the default
   --output is the entry's first; `src/info_format.rs::render` output goes to
   stdout via print!.
-- `src/main.rs::cmd_test`: builds `src/test_cmd.rs::TestOptions` (default
+- `src/main.rs::cmd_test`: builds `src/cli/commands/test.rs::TestOptions` (default
   backend rust, suites [unit]); --suite is repeatable or comma-separated -
   the FIRST occurrence replaces the default, later ones append with order-
   preserving dedupe; tool path/args flags map onto the options; calls
-  `src/test_cmd.rs::run_test` - a script result is printed via print!, a
+  `src/cli/commands/test.rs::run_test` - a script result is printed via print!, a
   success note goes through logger.info.
 - `src/main.rs::cmd_diagram`: builds `src/diagram.rs::DiagramOptions`
   (default format dot, renderer internal); --render accepts only svg;
@@ -125,7 +125,7 @@ specgen, test_cmd, training, validator); the CLI entry point is
 `src/main.rs`. Re-exports for external consumers: `src/lang/parser.rs::parse_source`
 / `src/lang/parser.rs::parse_file`, `src/lang/printer.rs::print_ir`,
 `src/lang/error.rs::ParseError` / Span, the whole IR model (ir::*), and the
-frontend API (`src/frontend.rs::Format`, run_conversion, plan_conversion,
+frontend API (`src/cli/frontend.rs::Format`, run_conversion, plan_conversion,
 convert_file_to_ir, render_ir, run_validate, validate_one,
 validate_one_with_warnings, ValidateResult, ValidateOneResult, FailedFile,
 normalize_abs, collect_files_with_ext, err_file_path, write_err_file).
@@ -135,7 +135,7 @@ are traversed recursively and results are sorted - this is what makes the
 file-driven example test suite extensible without changing test code.
 
 Consumers: the integration tests call library functions directly (e.g. the
-info-format walk runs `src/info.rs::run_info` in-process with json=true);
+info-format walk runs `src/cli/commands/info.rs::run_info` in-process with json=true);
 `crates/rfs-build` invokes the BINARY (RFS_BIN resolution), not the library;
 external tooling goes through IR JSON (hand-rolled `src/json/json_rw.rs`). Full API
 list: [KB.md](../../KB.md) section 4.3; codegen plugin API: [CODEGEN.md](../../CODEGEN.md) +
@@ -146,19 +146,19 @@ Code: `src/lib.rs::collect_rfs_files`, `src/lang/parser.rs::parse_source`,
 
 
 <a id="dev:cli-commands-frontend"></a>
-## parse + validate (`src/frontend.rs`)
+## parse + validate (`src/cli/frontend.rs`)
 
-**Format.** `src/frontend.rs::Format` (Rfs | Json): name()/ext(),
+**Format.** `src/cli/frontend.rs::Format` (Rfs | Json): name()/ext(),
 from_extension (case-insensitive), FromStr ("rfs"/"json", a clear error
 otherwise).
 
-**Path helpers.** `src/frontend.rs::normalize_abs` lexically normalizes a path
+**Path helpers.** `src/cli/frontend.rs::normalize_abs` lexically normalizes a path
 to absolute form, resolving . and .. components WITHOUT requiring the path to
-exist - the collision guard's comparison basis. `src/frontend.rs::collect_files_with_ext`
+exist - the collision guard's comparison basis. `src/cli/frontend.rs::collect_files_with_ext`
 recursively collects files with a case-insensitive extension match, sorted
 (subdirectories visited in sorted order for determinism).
 
-**Conversion.** `src/frontend.rs::plan_conversion` computes the input/output
+**Conversion.** `src/cli/frontend.rs::plan_conversion` computes the input/output
 pairs and returns ALL mapping errors (an empty error list is never returned
 with Err): a file input must carry the --input extension; a directory input is
 scanned recursively for that extension only (an empty result is an error);
@@ -166,63 +166,63 @@ output naming REPLACES the original extension, never stacks it (a.rfs ->
 a.json); without --target-dir each output is written next to its input, with
 it the input directory structure is preserved inside the target; the
 collision guard compares normalized absolute paths and refuses any conversion
-whose output would overwrite its input. `src/frontend.rs::convert_file_to_ir` /
-`src/frontend.rs::render_ir` / `src/frontend.rs::run_conversion` execute the
+whose output would overwrite its input. `src/cli/frontend.rs::convert_file_to_ir` /
+`src/cli/frontend.rs::render_ir` / `src/cli/frontend.rs::run_conversion` execute the
 plan - per-file parse errors in a directory run are collected and do not stop
 the remaining files.
 
-**Validation (text).** `src/frontend.rs::validate_one` /
-`src/frontend.rs::validate_one_with_warnings`: parse +
+**Validation (text).** `src/cli/frontend.rs::validate_one` /
+`src/cli/frontend.rs::validate_one_with_warnings`: parse +
 `src/lang/validator.rs::validate_ir`; warnings come from the Phase 2 non-fatal
 channel (`src/lang/validator.rs::module_warnings` per module). Result shapes:
-`src/frontend.rs::ValidateResult { ok_files, warnings, failed, write_errors,
-is_directory }` and `src/frontend.rs::FailedFile { path, errors, err_file }`
-(err_file is None in file mode). `src/frontend.rs::run_validate`: file mode
+`src/cli/frontend.rs::ValidateResult { ok_files, warnings, failed, write_errors,
+is_directory }` and `src/cli/frontend.rs::FailedFile { path, errors, err_file }`
+(err_file is None in file mode). `src/cli/frontend.rs::run_validate`: file mode
 reports to stderr with no side files; directory mode writes a
 <name>.rfs-validation.err text file next to each failing source
-(`src/frontend.rs::err_file_path` / `src/frontend.rs::write_err_file`); exit 1
+(`src/cli/frontend.rs::err_file_path` / `src/cli/frontend.rs::write_err_file`); exit 1
 iff any file failed or an err file could not be written.
 
-**Validation (structured, --json).** `src/frontend.rs::StructuredError {
+**Validation (structured, --json).** `src/cli/frontend.rs::StructuredError {
 kind, line, col, message }`: kind is "parse" or "semantic"; parse errors
 carry the real 1-based line/col from ParseError::line_col (which can read
 1:1 when the first module fails wholesale); semantic errors carry no span and
-are pinned to 0/0. `src/frontend.rs::validate_one_structured` mirrors the text
+are pinned to 0/0. `src/cli/frontend.rs::validate_one_structured` mirrors the text
 path's contract (Ok = structured errors, empty on success; Err = CLI-level
-misuse). `src/frontend.rs::validate_json_doc` builds the PINNED document shape
+misuse). `src/cli/frontend.rs::validate_json_doc` builds the PINNED document shape
 - one object with file / ok / errors (each error: kind, line, col, message) -
-through json_rw. `src/frontend.rs::run_validate_structured` mirrors
+through json_rw. `src/cli/frontend.rs::run_validate_structured` mirrors
 run_validate's traversal/extension contract but reports only FAILING files
 and writes NO .err side files (editors consume stdout).
-`src/frontend.rs::render_validate_json`: file mode = one object; directory
+`src/cli/frontend.rs::render_validate_json`: file mode = one object; directory
 mode = an array with one object per failing file.
 
-Code: `src/frontend.rs::Format`, `src/frontend.rs::normalize_abs`,
-`src/frontend.rs::collect_files_with_ext`, `src/frontend.rs::plan_conversion`,
-`src/frontend.rs::convert_file_to_ir`, `src/frontend.rs::render_ir`,
-`src/frontend.rs::run_conversion`, `src/frontend.rs::FailedFile`,
-`src/frontend.rs::ValidateResult`, `src/frontend.rs::validate_one`,
-`src/frontend.rs::validate_one_with_warnings`, `src/frontend.rs::StructuredError`,
-`src/frontend.rs::validate_one_structured`, `src/frontend.rs::validate_json_doc`,
-`src/frontend.rs::run_validate_structured`, `src/frontend.rs::render_validate_json`,
-`src/frontend.rs::run_validate`, `src/frontend.rs::err_file_path`,
-`src/frontend.rs::write_err_file`
+Code: `src/cli/frontend.rs::Format`, `src/cli/frontend.rs::normalize_abs`,
+`src/cli/frontend.rs::collect_files_with_ext`, `src/cli/frontend.rs::plan_conversion`,
+`src/cli/frontend.rs::convert_file_to_ir`, `src/cli/frontend.rs::render_ir`,
+`src/cli/frontend.rs::run_conversion`, `src/cli/frontend.rs::FailedFile`,
+`src/cli/frontend.rs::ValidateResult`, `src/cli/frontend.rs::validate_one`,
+`src/cli/frontend.rs::validate_one_with_warnings`, `src/cli/frontend.rs::StructuredError`,
+`src/cli/frontend.rs::validate_one_structured`, `src/cli/frontend.rs::validate_json_doc`,
+`src/cli/frontend.rs::run_validate_structured`, `src/cli/frontend.rs::render_validate_json`,
+`src/cli/frontend.rs::run_validate`, `src/cli/frontend.rs::err_file_path`,
+`src/cli/frontend.rs::write_err_file`
 
 
 <a id="dev:cli-commands-info"></a>
-## info + info format (`src/info.rs`, `src/info_format.rs`)
+## info + info format (`src/cli/commands/info.rs`, `src/info_format.rs`)
 
-**rfs info.** `src/info.rs::InfoOptions { json }`; `src/info.rs::run_info`
+**rfs info.** `src/cli/commands/info.rs::InfoOptions { json }`; `src/cli/commands/info.rs::run_info`
 applies the shared file contract (extension selects format, load + validate -
 a directory is an error) and renders a PER-MODULE static view: version header,
 initial state, enums, events/outputs with variants + field types, variables
-with types + init expressions (`src/info.rs::render_formula`), the on_error
+with types + init expressions (`src/cli/commands/info.rs::render_formula`), the on_error
 block, transition count, and properties/assumptions each with their monitor-
-subset status - `src/info.rs::monitor_status` returns "monitored" or
+subset status - `src/cli/commands/info.rs::monitor_status` returns "monitored" or
 "skipped: <reason>" from `src/codegen/monitor.rs::compile_formula` (the R1-R4 gate;
 identical classification to the backends). NO model checking, NO code
-generation. Text via `src/info.rs::render_text`; --json via
-`src/info.rs::render_json` - a machine-readable document with stable key order
+generation. Text via `src/cli/commands/info.rs::render_text`; --json via
+`src/cli/commands/info.rs::render_json` - a machine-readable document with stable key order
 and ALL keys always present (empty arrays and null instead of omitted fields)
 for IDE/tooling reuse.
 
@@ -245,9 +245,9 @@ unsupported --output values are clear errors. The D-P7-9 sync tests walk REAL
 tool output against these embedded models (drift caught in both directions):
 tests/info_format_test.rs.
 
-Code: `src/info.rs::InfoOptions`, `src/info.rs::run_info`,
-`src/info.rs::render_text`, `src/info.rs::render_json`,
-`src/info.rs::monitor_status`, `src/info.rs::render_formula`,
+Code: `src/cli/commands/info.rs::InfoOptions`, `src/cli/commands/info.rs::run_info`,
+`src/cli/commands/info.rs::render_text`, `src/cli/commands/info.rs::render_json`,
+`src/cli/commands/info.rs::monitor_status`, `src/cli/commands/info.rs::render_formula`,
 `src/info_format.rs::FormatInfo`, `src/info_format.rs::FORMATS`,
 `src/info_format.rs::find`, `src/info_format.rs::list_markdown`,
 `src/info_format.rs::render`, `src/info_format.rs::spec_json_schema`,
@@ -257,100 +257,100 @@ Code: `src/info.rs::InfoOptions`, `src/info.rs::run_info`,
 
 
 <a id="dev:cli-commands-test"></a>
-## test (`src/test_cmd.rs`)
+## test (`src/cli/commands/test.rs`)
 
-**Options.** `src/test_cmd.rs::TestSuite` (Unit | Fuzz) + from_str;
-`src/test_cmd.rs::TestOptions { backend, suites, steps, tool paths/args,
+**Options.** `src/cli/commands/test.rs::TestSuite` (Unit | Fuzz) + from_str;
+`src/cli/commands/test.rs::TestOptions { backend, suites, steps, tool paths/args,
 fuzz_max_total_time, fuzz_flags, print_script }` with Default (backend rust,
-suites [unit], 30 s fuzz budget). `src/test_cmd.rs::resolved_fuzz_flags`
+suites [unit], 30 s fuzz budget). `src/cli/commands/test.rs::resolved_fuzz_flags`
 merges the RFS_FUZZ_FLAGS env value first, then --fuzz-flags (both backends).
 
-**run_test pipeline.** `src/test_cmd.rs::run_test`: (1) load + validate under
+**run_test pipeline.** `src/cli/commands/test.rs::run_test`: (1) load + validate under
 the shared file contract; (2) resolve the backend via
-`src/codegen/mod.rs::get_backend` and the compiler preset (`src/ext_tool.rs::ExtTool`
+`src/codegen/mod.rs::get_backend` and the compiler preset (`src/cli/ext_tool.rs::ExtTool`
 RUSTC for rust, GCC for c) through ExtTool::resolve with the CLI overrides;
 (3) codegen the test artifact via the `src/codegen/mod.rs::CodegenCommandKind`
 UnitTests registry dispatch (no renderer logic duplicated); the fuzz-skeleton
 extra file is consumed by the fuzz suite when selected; (4) when --suite fuzz:
-`src/test_cmd.rs::build_fuzz_context` - a SECOND registry dispatch for the
+`src/cli/commands/test.rs::build_fuzz_context` - a SECOND registry dispatch for the
 production source + the emitted skeleton, generated BEFORE --print-script so
-both modes share them; (5) --print-script -> `src/test_cmd.rs::render_script`
-(+ `src/test_cmd.rs::render_fuzz_steps`) - deterministic POSIX sh, no
-execution; (6) execution in a temp dir (`src/test_cmd.rs::make_temp_dir`; a
+both modes share them; (5) --print-script -> `src/cli/commands/test.rs::render_script`
+(+ `src/cli/commands/test.rs::render_fuzz_steps`) - deterministic POSIX sh, no
+execution; (6) execution in a temp dir (`src/cli/commands/test.rs::make_temp_dir`; a
 Drop guard cleans it on EVERY exit path): suites run SEQUENTIALLY and every
 SELECTED suite gets to run so one invocation surfaces all problems; failures
 are joined into the error.
 
-**Unit suite.** `src/test_cmd.rs::run_unit_suite`: write the artifact, compile
+**Unit suite.** `src/cli/commands/test.rs::run_unit_suite`: write the artifact, compile
 with the resolved tool (rustc --edition 2021 --test / gcc -Wall), run the
 executable; per-test results stream on stdout (libtest lines for rust,
 PASS/FAIL lines for c).
 
-**Fuzz pipelines.** `src/test_cmd.rs::run_fuzz_c`: clang -O1
+**Fuzz pipelines.** `src/cli/commands/test.rs::run_fuzz_c`: clang -O1
 -fsanitize=fuzzer,address over fuzz_target.c ONLY - the skeleton #includes
 the production source (rfs_generated_fsm.c) under its hardcoded name, so
 compiling both files is a multiple-definition link error; a missing clang
 gives a diagnostic naming RFS_CLANG; the bounded run merges
-ASAN_OPTIONS=detect_leaks=0 (`src/test_cmd.rs::c_asan_options` - the generated
-C FSM has no free API). `src/test_cmd.rs::run_fuzz_rust`: a temp cargo-fuzz
+ASAN_OPTIONS=detect_leaks=0 (`src/cli/commands/test.rs::c_asan_options` - the generated
+C FSM has no free API). `src/cli/commands/test.rs::run_fuzz_rust`: a temp cargo-fuzz
 scaffold (the task-12 layout) - lib root = the generated production source,
 the emitted skeleton adapted into fuzz/fuzz_targets/ (its use-crate import
 rewritten to the lib name), [package.metadata] cargo-fuzz = true, libfuzzer-sys
 pinned to the local registry cache for offline builds, rust-toolchain.toml
-pinning nightly (`src/test_cmd.rs::RUST_FUZZ_TOOLCHAIN`) because cargo-fuzz
+pinning nightly (`src/cli/commands/test.rs::RUST_FUZZ_TOOLCHAIN`) because cargo-fuzz
 needs -Zsanitizer=address, with a non-nightly inherited RUSTUP_TOOLCHAIN
 stripped from the subprocess; run via cargo fuzz build + cargo fuzz run.
-`src/test_cmd.rs::run_fuzz_binary`: bounded run with -max_total_time=<N> +
+`src/cli/commands/test.rs::run_fuzz_binary`: bounded run with -max_total_time=<N> +
 the resolved extra flags; fuzzer exit 0 within budget = pass. Missing
 cargo-fuzz / a failing cargo-fuzz invocation get dedicated diagnostics
-(`src/test_cmd.rs::cargo_fuzz_missing_diagnostic`,
-`src/test_cmd.rs::cargo_fuzz_failure_diagnostic`).
+(`src/cli/commands/test.rs::cargo_fuzz_missing_diagnostic`,
+`src/cli/commands/test.rs::cargo_fuzz_failure_diagnostic`).
 
-**Scripts.** `src/test_cmd.rs::render_script` + `src/test_cmd.rs::heredoc`
+**Scripts.** `src/cli/commands/test.rs::render_script` + `src/cli/commands/test.rs::heredoc`
 emit a self-contained POSIX sh script (shebang, set -e, header with rfs
 version + spec + RESOLVED tool paths/args, generated sources embedded in
 quoted heredocs); the output is byte-pinned in tests/frontend_test.rs.
 
-Code: `src/test_cmd.rs::TestSuite`, `src/test_cmd.rs::TestOptions`,
-`src/test_cmd.rs::resolved_fuzz_flags`, `src/test_cmd.rs::run_test`,
-`src/test_cmd.rs::run_unit_suite`, `src/test_cmd.rs::build_fuzz_context`,
-`src/test_cmd.rs::run_fuzz_c`, `src/test_cmd.rs::run_fuzz_rust`,
-`src/test_cmd.rs::run_fuzz_binary`, `src/test_cmd.rs::c_asan_options`,
-`src/test_cmd.rs::cargo_fuzz_missing_diagnostic`,
-`src/test_cmd.rs::cargo_fuzz_failure_diagnostic`,
-`src/test_cmd.rs::render_script`, `src/test_cmd.rs::render_fuzz_steps`,
-`src/test_cmd.rs::heredoc`, `tests/frontend_test.rs`
+Code: `src/cli/commands/test.rs::TestSuite`, `src/cli/commands/test.rs::TestOptions`,
+`src/cli/commands/test.rs::resolved_fuzz_flags`, `src/cli/commands/test.rs::run_test`,
+`src/cli/commands/test.rs::run_unit_suite`, `src/cli/commands/test.rs::build_fuzz_context`,
+`src/cli/commands/test.rs::run_fuzz_c`, `src/cli/commands/test.rs::run_fuzz_rust`,
+`src/cli/commands/test.rs::run_fuzz_binary`, `src/cli/commands/test.rs::c_asan_options`,
+`src/cli/commands/test.rs::cargo_fuzz_missing_diagnostic`,
+`src/cli/commands/test.rs::cargo_fuzz_failure_diagnostic`,
+`src/cli/commands/test.rs::render_script`, `src/cli/commands/test.rs::render_fuzz_steps`,
+`src/cli/commands/test.rs::heredoc`, `tests/frontend_test.rs`
 
 
 <a id="dev:cli-commands-mc-ref-gen-spec"></a>
-## mc-ref + gen-spec (`src/mc_ref_cmd.rs`, `src/gen_spec_cmd.rs`, `src/lang/specgen.rs`)
+## mc-ref + gen-spec (`src/cli/commands/mc_ref.rs`, `src/cli/commands/gen_spec.rs`, `src/lang/specgen.rs`)
 
-**rfs mc-ref.** `src/mc_ref_cmd.rs::CeFormat` (Text | Json) + parse;
-`src/mc_ref_cmd.rs::McRefOptions { max_states, timeout_sec, assumes,
+**rfs mc-ref.** `src/cli/commands/mc_ref.rs::CeFormat` (Text | Json) + parse;
+`src/cli/commands/mc_ref.rs::McRefOptions { max_states, timeout_sec, assumes,
 ce_format }` with Default from the shared exact-mode constants
 (`src/codegen/mc_concepts.rs::EXACT_DEFAULT_MAX_STATES`,
-`src/codegen/mc_concepts.rs::EXACT_DEFAULT_TIMEOUT_SEC`). `src/mc_ref_cmd.rs::run_mc_ref`
+`src/codegen/mc_concepts.rs::EXACT_DEFAULT_TIMEOUT_SEC`). `src/cli/commands/mc_ref.rs::run_mc_ref`
 applies the shared file contract on the FIRST module, builds a RefConfig, and
 calls `src/ref_mc.rs::run` IN-PROCESS - no compilation (rapid prototyping in
 shell/REPL; engine deep dive: dev:mc-engine-exact). Reports are UNIFIED with
 the generated exact-mode binaries: render_text or to_json_report (one compact
 line + trailing newline - the wire contract the parity suites check).
-`src/mc_ref_cmd.rs::exit_code_for` mirrors the generated binaries: 0 pass-
+`src/cli/commands/mc_ref.rs::exit_code_for` mirrors the generated binaries: 0 pass-
 complete, 1 fail, 2 unknown-state-limit. NOT applicable flags are documented
 in the usage text: --seed/--steps/--violate (fuzz-mode concepts),
 --threads/--fast (single-threaded by construction), --nondet (ref_mc explores
-all enabled transitions by construction). `src/mc_ref_cmd.rs::run_cli` is the
+all enabled transitions by construction). `src/cli/commands/mc_ref.rs::run_cli` is the
 thin shell main.rs dispatches to.
 
-**rfs gen-spec.** `src/gen_spec_cmd.rs::DEFAULT_SEED` = 12345 (pinned);
-`src/gen_spec_cmd.rs::RandomOptions { seed, bounds }`. Two modes:
-`src/gen_spec_cmd.rs::generate_random` - SpecGen::new(seed, bounds).generate()
--> print_ir -> `src/gen_spec_cmd.rs::verify_rendered`; and
-`src/gen_spec_cmd.rs::mutate_base` - load + validate the base spec, apply K
+**rfs gen-spec.** `src/cli/commands/gen_spec.rs::DEFAULT_SEED` = 12345 (pinned);
+`src/cli/commands/gen_spec.rs::RandomOptions { seed, bounds }`. Two modes:
+`src/cli/commands/gen_spec.rs::generate_random` - SpecGen::new(seed, bounds).generate()
+-> print_ir -> `src/cli/commands/gen_spec.rs::verify_rendered`; and
+`src/cli/commands/gen_spec.rs::mutate_base` - load + validate the base spec, apply K
 seeded mutation steps to its first module (RFS modules are independent),
 render, verify. The output is ALWAYS parsed + validated before writing
 (verify_rendered re-parses + validates the rendered text; on any failure exit
-1 with a diagnostic). `src/gen_spec_cmd.rs::run_cli`: fully random mode
+1 with a diagnostic). `src/cli/commands/gen_spec.rs::run_cli`: fully random mode
 (--seed N default 12345 + --size small|medium or explicit --max-* caps)
 or incremental mutation (--base SPEC --mutations K; K=0 re-renders the base
 unchanged); --out FILE.rfs required; deterministic from the seed (same args =>
@@ -374,12 +374,12 @@ returns (ir, applied ops). `src/lang/specgen.rs::mutate` = mutate_traced without
 the trace. Consumers: rfs gen-spec, the root fuzz/ libFuzzer targets (fuzzer
 bytes -> seed + bounds), and tests/toolchain_fuzz_test.rs.
 
-Code: `src/mc_ref_cmd.rs::CeFormat`, `src/mc_ref_cmd.rs::McRefOptions`,
-`src/mc_ref_cmd.rs::run_mc_ref`, `src/mc_ref_cmd.rs::exit_code_for`,
-`src/mc_ref_cmd.rs::run_cli`, `src/gen_spec_cmd.rs::DEFAULT_SEED`,
-`src/gen_spec_cmd.rs::RandomOptions`, `src/gen_spec_cmd.rs::generate_random`,
-`src/gen_spec_cmd.rs::mutate_base`, `src/gen_spec_cmd.rs::verify_rendered`,
-`src/gen_spec_cmd.rs::run_cli`, `src/utils/rng.rs::Rng`, `src/lang/specgen.rs::Bounds`,
+Code: `src/cli/commands/mc_ref.rs::CeFormat`, `src/cli/commands/mc_ref.rs::McRefOptions`,
+`src/cli/commands/mc_ref.rs::run_mc_ref`, `src/cli/commands/mc_ref.rs::exit_code_for`,
+`src/cli/commands/mc_ref.rs::run_cli`, `src/cli/commands/gen_spec.rs::DEFAULT_SEED`,
+`src/cli/commands/gen_spec.rs::RandomOptions`, `src/cli/commands/gen_spec.rs::generate_random`,
+`src/cli/commands/gen_spec.rs::mutate_base`, `src/cli/commands/gen_spec.rs::verify_rendered`,
+`src/cli/commands/gen_spec.rs::run_cli`, `src/utils/rng.rs::Rng`, `src/lang/specgen.rs::Bounds`,
 `src/lang/specgen.rs::SpecGen`, `src/lang/specgen.rs::MutOp`, `src/lang/specgen.rs::mutate_traced`,
 `src/lang/specgen.rs::mutate`, `src/codegen/mc_concepts.rs::EXACT_DEFAULT_MAX_STATES`,
 `src/codegen/mc_concepts.rs::EXACT_DEFAULT_TIMEOUT_SEC`, `tests/toolchain_fuzz_test.rs`
@@ -478,9 +478,9 @@ Code: `src/diagram.rs::Renderer`, `src/diagram.rs::DiagramPlugin`,
 
 
 <a id="dev:cli-commands-ext-tool"></a>
-## External-tool layer (`src/ext_tool.rs`)
+## External-tool layer (`src/cli/ext_tool.rs`)
 
-**ExtTool.** `src/ext_tool.rs::ExtTool { name, env_path_var, env_args_var,
+**ExtTool.** `src/cli/ext_tool.rs::ExtTool { name, env_path_var, env_args_var,
 subcommand }`: the bare tool name is the PATH-lookup default and display name;
 the fixed subcommand is inserted right after the resolved path, before the
 extra args ("fuzz" for CARGO_FUZZ - cargo-fuzz is a SUBCOMMAND of cargo, so
@@ -488,17 +488,17 @@ the resolved path is the cargo binary; empty for plain tools). Seven presets:
 RUSTC / GCC / DOT / PLANTUML / MERMAID (mmdc) / CLANG / CARGO_FUZZ with their
 RFS_* env vars.
 
-**Resolution.** `src/ext_tool.rs::ExtTool::resolve`: PATH precedence = CLI flag
+**Resolution.** `src/cli/ext_tool.rs::ExtTool::resolve`: PATH precedence = CLI flag
 > env var > bare name on PATH (empty strings are treated as unset); args = the
 env *_ARGS value (whitespace-split) FIRST, then the CLI --*-args appended. The
-result is a `src/ext_tool.rs::ResolvedTool { name, path, subcommand,
+result is a `src/cli/ext_tool.rs::ResolvedTool { name, path, subcommand,
 extra_args }` with display_name / render (the command line) / run / run_in /
 run_in_without (env removal - how the RUSTUP_TOOLCHAIN strip works for
-cargo-fuzz). `src/ext_tool.rs::ToolOutput { status, stdout, stderr }` +
+cargo-fuzz). `src/cli/ext_tool.rs::ToolOutput { status, stdout, stderr }` +
 success.
 
-**Scripts.** `src/ext_tool.rs::sh_quote` (POSIX sh quoting) and
-`src/ext_tool.rs::Script` - the deterministic POSIX sh builder behind every
+**Scripts.** `src/cli/ext_tool.rs::sh_quote` (POSIX sh quoting) and
+`src/cli/ext_tool.rs::Script` - the deterministic POSIX sh builder behind every
 --print-script: new(command_desc, spec) writes the shebang, set -e, and a
 header comment with the rfs version + spec; with_tool records the RESOLVED
 tool paths/args in the header; step(comment, cmdline) appends one commented
@@ -506,6 +506,6 @@ step; render emits the script. Self-contained: generated sources are embedded
 in quoted heredocs by the callers (rfs test, rfs diagram --render svg);
 output is byte-pinned in tests/frontend_test.rs.
 
-Code: `src/ext_tool.rs::ExtTool`, `src/ext_tool.rs::ResolvedTool`,
-`src/ext_tool.rs::ToolOutput`, `src/ext_tool.rs::sh_quote`,
-`src/ext_tool.rs::Script`, `tests/frontend_test.rs`
+Code: `src/cli/ext_tool.rs::ExtTool`, `src/cli/ext_tool.rs::ResolvedTool`,
+`src/cli/ext_tool.rs::ToolOutput`, `src/cli/ext_tool.rs::sh_quote`,
+`src/cli/ext_tool.rs::Script`, `tests/frontend_test.rs`

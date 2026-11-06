@@ -1743,7 +1743,7 @@ outside the subset are skipped with a warning) and render the resulting
 for liveness leaves; `src/mc_plan.rs::monitor_layouts` (called from
 `src/mc_plan.rs::McPlan::compute`) calls `src/codegen/monitor.rs::compile_formula`
 to compute the monitor state layout embedded in both MC binaries;
-`src/info.rs::monitor_status` calls `src/codegen/monitor.rs::compile_formula` so
+`src/cli/commands/info.rs::monitor_status` calls `src/codegen/monitor.rs::compile_formula` so
 that `info` reports the same R1-R4 monitor-subset status as codegen; and
 `src/codegen/test_plan.rs` (tests) drives `src/codegen/monitor.rs::ReferenceMonitor` to
 cross-check generated monitors against the reference interpreter.

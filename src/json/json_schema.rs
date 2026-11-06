@@ -664,7 +664,8 @@ mod tests {
     fn walk_check_accepts_conforming_and_rejects_drift() {
         let doc = tiny_doc();
         // Conforming.
-        let ok = crate::json::json_rw::parse(r#"{"a": "x", "c": {"kind": "x", "v": "p"}}"#).unwrap();
+        let ok =
+            crate::json::json_rw::parse(r#"{"a": "x", "c": {"kind": "x", "v": "p"}}"#).unwrap();
         assert!(walk_check(&doc, &ok).is_ok());
         // Missing required key.
         let missing = crate::json::json_rw::parse(r#"{"c": null}"#).unwrap();

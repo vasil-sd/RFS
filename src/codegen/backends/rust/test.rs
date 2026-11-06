@@ -37,13 +37,13 @@
 //! Docs: dev:backend-rust-overview, dev:backend-rust-test, llm:backend-rust
 
 use crate::codegen::backends::rust::representative_input_expr;
-use crate::codegen::ident::{rust_ident, snake};
-use crate::codegen::{BackendOptions, CodegenOutput, ExtraFile};
 use crate::codegen::fsm::{self, FsmVariants, VariantInfo};
+use crate::codegen::ident::{rust_ident, snake};
 use crate::codegen::test_plan::{
     self, build_fuzz_decode, FuzzFieldStrategy, InputCase, InvariantCase, MonitorViolationCase,
     OutputCase, RandomTraceCase, TransitionExpectation, TransitionTestCase, VarValue,
 };
+use crate::codegen::{BackendOptions, CodegenOutput, ExtraFile};
 use crate::lang::ir::*;
 use std::fmt::Write as _;
 
@@ -96,8 +96,7 @@ pub(crate) fn emit_test_module(
         format!("vec![{}]", candidates.join(", "))
     };
     let definite = plan.definite_unexpected && !plan.has_on_error;
-    let on_error_assert =
-        plan.has_on_error && test_plan::has_definite_unexpected(variants, module);
+    let on_error_assert = plan.has_on_error && test_plan::has_definite_unexpected(variants, module);
     let expect_progress = plan.expect_progress;
     let _ = writeln!(
         out,
@@ -526,8 +525,9 @@ fn render_invariant_test(
     inv: &InvariantCase,
     k: usize,
 ) -> Result<String, Vec<String>> {
-    let sig = crate::codegen::backends::rust::fsm::render_signal_expr(module, variants, &inv.signal)
-        .map_err(|e| vec![format!("invariant '{}': {}", inv.label, e)])?;
+    let sig =
+        crate::codegen::backends::rust::fsm::render_signal_expr(module, variants, &inv.signal)
+            .map_err(|e| vec![format!("invariant '{}': {}", inv.label, e)])?;
     let bound = match inv.bound {
         None => "None".to_string(),
         Some(n) => format!("Some({n})"),

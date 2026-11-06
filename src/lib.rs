@@ -5,34 +5,28 @@
 //! `docs/llm/`; traceability conventions are pinned by `tests/dev_docs_test.rs`.
 //! Docs: dev:index, llm:index, dev:architecture-pipeline, dev:architecture-components, dev:architecture-hierarchy, dev:code-map-frontend, dev:cli-commands-library, dev:deps-file-level, dev:decisions-early, dev:decisions-p2-p3, dev:decisions-p4-p5, dev:decisions-p6-p7, llm:task-map, llm:change-impact
 
-pub mod cli_log;
+pub mod cli;
 pub mod codegen;
 pub mod diagram;
 pub mod diagrams;
 pub mod ebnf_grammar;
-pub mod ext_tool;
-pub mod frontend;
-pub mod gen_spec_cmd;
-pub mod info;
 pub mod info_format;
 
 pub mod json;
 pub mod lang;
 pub mod mc_plan;
-pub mod mc_ref_cmd;
 pub mod ref_mc;
 pub mod smt_emit;
 pub mod smt_plan;
-pub mod test_cmd;
 pub mod training;
 pub mod utils;
 
-pub use lang::error::{ParseError, Span};
-pub use frontend::{
+pub use cli::frontend::{
     collect_files_with_ext, convert_file_to_ir, err_file_path, normalize_abs, plan_conversion,
     render_ir, run_conversion, run_validate, validate_one, validate_one_with_warnings,
     write_err_file, FailedFile, Format, ValidateOneResult, ValidateResult,
 };
+pub use lang::error::{ParseError, Span};
 pub use lang::ir::*;
 pub use lang::parser::{parse_file, parse_source};
 pub use lang::printer::print_ir;

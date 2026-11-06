@@ -25,9 +25,9 @@
 
 use std::path::Path;
 
+use crate::cli::ext_tool::{ExtTool, ResolvedTool};
 use crate::diagram::{DiagramPlugin, RenderPlan};
 use crate::diagrams::{emit_labels, event_label, guard_label, states};
-use crate::ext_tool::{ExtTool, ResolvedTool};
 use crate::lang::ir::Module;
 
 /// One transition (or on_error edge) plus its emitted-data note.

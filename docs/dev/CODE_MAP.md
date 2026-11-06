@@ -5,11 +5,11 @@ File-by-file map of the 71 hand-written source files: `src/` (49), `crates/`
 links both ways. The pointer scope is driven by `tests/dev_docs_manifest.txt`.
 
 <a id="dev:code-map-frontend"></a>
-## Frontend area - root + parser + validator/IR (5 files)
+## Root area - crate root + remaining top-level leaves (3 files)
 
-### Root (4)
+### Root (2)
 
-- `src/lib.rs` - crate root: declares the 30-module tree and re-exports the
+- `src/lib.rs` - crate root: declares the 14-root-module tree and re-exports the
   public API (`src/lang/parser.rs::parse_source`, `src/lang/parser.rs::parse_file`,
   `src/lang/printer.rs::print_ir`, `src/lang/ir.rs::Ir`, `src/lang/error.rs::ParseError`,
   `src/lang/error.rs::Span`, plus the frontend conversion/validation surface).
@@ -19,14 +19,6 @@ links both ways. The pointer scope is driven by `tests/dev_docs_manifest.txt`.
   commands (`parse`, `validate`, `info`, `test`, `diagram`, `codegen`,
   `mc-ref`, `gen-spec`) + usage text; key item `src/main.rs::main`. Owner of
   `dev:code-map-cli`.
-- `src/cli_log.rs` - minimal stderr logging for the CLI commands:
-  `src/cli_log.rs::LogLevel` + `src/cli_log.rs::Logger`.
-- `src/frontend.rs` - frontend CLI logic behind `rfs parse` / `rfs validate`:
-  format detection (`src/frontend.rs::Format`), file collection, conversion
-  through the IR (`src/frontend.rs::convert_file_to_ir`,
-  `src/frontend.rs::render_ir`, `src/frontend.rs::run_conversion`) and
-  validation dispatch (`src/frontend.rs::run_validate`,
-  `src/frontend.rs::validate_one`).
 ### Parser (1)
 
 - `src/ebnf_grammar.rs` - EBNF grammar model + renderers for IDE/tooling
@@ -144,27 +136,44 @@ links both ways. The pointer scope is driven by `tests/dev_docs_manifest.txt`.
   an unsupported-formula fallback. Deep dive:
   `dev:monitor-compiler-overview` / `llm:monitor-compiler`.
 
-<a id="dev:code-map-cli"></a>
-## CLI + diagrams area (18 files)
+<a id="dev:code-map-cli-surface"></a>
+## CLI surface (`src/cli/`) (9 files)
 
-### CLI commands (7)
-
-- `src/info.rs` - `rfs info`: static spec introspection: `run_info` with text
-  / JSON rendering (`render_text`, `render_json`). Deep dive:
+- `src/cli/mod.rs` - module root of the CLI surface: shared infrastructure
+  (`log`, `frontend`, `ext_tool`) + the per-command modules (`commands`).
+- `src/cli/log.rs` - minimal stderr logging for the CLI commands:
+  `src/cli/log.rs::LogLevel` + `src/cli/log.rs::Logger`.
+- `src/cli/frontend.rs` - frontend CLI logic behind `rfs parse` / `rfs validate`:
+  format detection (`src/cli/frontend.rs::Format`), file collection, conversion
+  through the IR (`src/cli/frontend.rs::convert_file_to_ir`,
+  `src/cli/frontend.rs::render_ir`, `src/cli/frontend.rs::run_conversion`) and
+  validation dispatch (`src/cli/frontend.rs::run_validate`,
+  `src/cli/frontend.rs::validate_one`).
+- `src/cli/ext_tool.rs` - external-tool resolution, invocation, deterministic
+  script emission: `ExtTool`, `ResolvedTool`, `Script`, `sh_quote`.
+- `src/cli/commands/mod.rs` - module root of the per-command modules (`test`,
+  `gen_spec`, `mc_ref`, `info`; the `diagram` + `info_format` clusters join in
+  Phase 11 task 7).
+- `src/cli/commands/test.rs` - `rfs test`: generate + compile + run test suites
+  in one invocation: `TestSuite`, `TestOptions`, `run_test`, outcome
+  `TestOutcome`; compiles via `src/cli/ext_tool.rs::ExtTool` (rustc/gcc).
+- `src/cli/commands/gen_spec.rs` - `rfs gen-spec`: write a random spec (two
+  modes): `generate_random`, `mutate_base`, CLI `run_cli`.
+- `src/cli/commands/mc_ref.rs` - `rfs mc-ref`: run the reference model checker
+  in-process: `run_mc_ref`, exit-code mapping `exit_code_for`, CLI `run_cli`.
+- `src/cli/commands/info.rs` - `rfs info`: static spec introspection: `run_info`
+  with text / JSON rendering (`render_text`, `render_json`). Deep dive:
   `dev:cli-commands-overview` / `llm:cli-commands`.
+
+<a id="dev:code-map-cli"></a>
+## Diagrams + bins area (12 files)
+
+### CLI commands (1)
+
 - `src/info_format.rs` - `rfs info format`: machine-readable input/output
   format descriptions: `FormatInfo`, embedded draft-07 schemas
   (`spec_json_schema`, `ce_trace_schema`, `mc_report_schema`) + the
   counterexample-model description (`counterexample_model`).
-- `src/gen_spec_cmd.rs` - `rfs gen-spec`: write a random spec (two modes):
-  `generate_random`, `mutate_base`, CLI `run_cli`.
-- `src/test_cmd.rs` - `rfs test`: generate + compile + run test suites in one
-  invocation: `TestSuite`, `TestOptions`, `run_test`, outcome `TestOutcome`;
-  compiles via `src/ext_tool.rs::ExtTool` (rustc/gcc).
-- `src/mc_ref_cmd.rs` - `rfs mc-ref`: run the reference model checker
-  in-process: `run_mc_ref`, exit-code mapping `exit_code_for`, CLI `run_cli`.
-- `src/ext_tool.rs` - external-tool resolution, invocation, deterministic
-  script emission: `ExtTool`, `ResolvedTool`, `Script`, `sh_quote`.
 
 ### Diagrams (6)
 

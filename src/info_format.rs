@@ -856,7 +856,7 @@ fn mc_report_render(output: &str) -> Result<String, Vec<String>> {
 // ---------------------------------------------------------------------------
 
 /// The field model of the `rfs validate --json` document, derived from
-/// `frontend::validate_json_doc` / `render_validate_json` (the single source
+/// `crate::cli::frontend::validate_json_doc` / `render_validate_json` (the single source
 /// of truth for key names and order). File mode emits ONE object for the
 /// input file; directory mode emits an array of one object per FAILING file
 /// (valid files are omitted), so the root is a union of the two shapes over
@@ -884,7 +884,7 @@ pub fn validate_json_schema() -> SchemaDoc {
     let error_obj = FieldType::obj(vec![
         Field::req(
             "kind",
-            // The literals mirror the call sites in frontend.rs
+            // The literals mirror the call sites in cli/frontend.rs
             // (`StructuredError { kind: "parse" | "semantic", .. }`).
             FieldType::enum_str(&["parse", "semantic"]),
             Some("\"parse\" = RFS source rejected by the parser (line/col are the 1-based error position); \"semantic\" = parsed IR rejected by the validator, or a .json input that is not valid IR JSON in directory mode (no span: line/col are 0)"),

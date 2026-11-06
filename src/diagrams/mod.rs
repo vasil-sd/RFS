@@ -16,22 +16,25 @@ pub mod mermaid;
 pub mod plantuml;
 pub mod tables;
 
-use crate::ext_tool::ResolvedTool;
+use crate::cli::ext_tool::ResolvedTool;
 use crate::lang::ir::{EventPattern, Expr, Module, OutputExpr};
 
 /// Event group + variant as a diagram label: `Go`, `Req(Value(x))`.
 pub fn event_label(p: &EventPattern) -> String {
-    crate::info::render_pattern_variant_group(&p.group, &p.variant)
+    crate::cli::commands::info::render_pattern_variant_group(&p.group, &p.variant)
 }
 
 /// Guard expression as a label (None when the transition has no guard).
 pub fn guard_label(g: &Option<Expr>) -> Option<String> {
-    g.as_ref().map(crate::info::render_expr)
+    g.as_ref().map(crate::cli::commands::info::render_expr)
 }
 
 /// Emitted outputs as labels: `Grant(G(node, frame))`.
 pub fn emit_labels(emits: &[OutputExpr]) -> Vec<String> {
-    emits.iter().map(crate::info::render_output).collect()
+    emits
+        .iter()
+        .map(crate::cli::commands::info::render_output)
+        .collect()
 }
 
 /// All states of a validated module: State-enum variants in declaration order

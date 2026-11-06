@@ -23,9 +23,9 @@
 
 use std::path::{Path, PathBuf};
 
-use crate::cli_log::Logger;
+use crate::cli::ext_tool::{sh_quote, ExtTool, ResolvedTool, Script};
+use crate::cli::log::Logger;
 use crate::codegen::{self, Backend, BackendOptions, CodegenCommandKind, ExtraFile};
-use crate::ext_tool::{sh_quote, ExtTool, ResolvedTool, Script};
 
 /// A test suite selectable with `--suite` (Phase 5 task 17).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -122,13 +122,13 @@ pub struct TestOutcome {
 pub fn run_test(spec: &Path, opts: &TestOptions, log: &Logger) -> Result<TestOutcome, String> {
     // 1. Load + validate (same contract as `rfs info` / `rfs diagram`).
     let ext = spec.extension().and_then(|e| e.to_str()).unwrap_or("");
-    let Some(fmt) = crate::frontend::Format::from_extension(ext) else {
+    let Some(fmt) = crate::cli::frontend::Format::from_extension(ext) else {
         return Err(format!(
             "input '{}' must have extension .rfs or .json",
             spec.display()
         ));
     };
-    let ir = crate::frontend::convert_file_to_ir(spec, fmt)
+    let ir = crate::cli::frontend::convert_file_to_ir(spec, fmt)
         .map_err(|e| format!("{}: {}", spec.display(), e))?;
     if ir.modules.is_empty() {
         return Err(format!("no modules in {}", spec.display()));

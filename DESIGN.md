@@ -62,10 +62,10 @@ the same specification can be used for:
 RFS source (.rfs)  <----+  rfs parse (format conversion, review)
       |                 v
       v          IR JSON (hand-rolled json_rw)  <---- external tooling via JSON
-nom-based parser (src/parser.rs)
+nom-based parser (src/lang/parser.rs)
       |
       v
-IR v0 (src/ir.rs, hand-rolled JSON serialization)
+IR v0 (src/lang/ir.rs, hand-rolled JSON serialization)
       |
       +--> frontend CLI: rfs parse / rfs validate  [Phase 1]
       |        RFS<->JSON conversion, .rfs-validation.err reports (text mode)
@@ -73,12 +73,12 @@ IR v0 (src/ir.rs, hand-rolled JSON serialization)
       |
       +--> rfs info  [Phase 5 task 3]   static introspection (text/--json)
       |
-      +--> semantic validator (src/validator.rs)  [Phase 1]
+      +--> semantic validator (src/lang/validator.rs)  [Phase 1]
       |
       +--> codegen plugin registry: rfs codegen  [Phase 1]
-      |        core src/codegen.rs (Backend API, BACKENDS) + shared analysis
-      |        rust backend src/backends/rust*: production / test / mc
-      |        c    backend src/backends/c*:    production / test / mc (parity)
+      |        core src/codegen/mod.rs (Backend API, BACKENDS) + shared analysis
+      |        rust backend src/codegen/backends/rust/*: production / test / mc
+      |        c    backend src/codegen/backends/c/*:    production / test / mc (parity)
       |        model checker = production core + runtime executable
       |
       +--> rfs test  [Phase 5 tasks 7/17]  generate + compile + run
@@ -114,9 +114,9 @@ Because both `.rfs` sources and IR JSON files normalize to the same IR, every to
 RFS targets two languages (Rust and C, both shipped - the C backend since
 Phase 2), so code generation is built as a plugin system:
 
-- **Core (`src/codegen.rs`)**: target-language-agnostic. Defines the `Backend` value (name, description, per-command help descriptors, and one function pointer per command kind: production FSM, unit tests, bounded model checker), the compile-time registry `BACKENDS`, CLI request parsing for `rfs codegen`, and help rendering. Adding a backend means appending one static to `BACKENDS`; listing, help, and dispatch pick it up automatically.
-- **Shared analysis (`src/codegen_fsm.rs`, `codegen_test.rs`, `codegen_mc.rs`)**: IR-level logic any backend reuses — variant flattening with collision-free names, representative input values, unit-test planning (positive runs / static unexpected-input detection), model-checker configuration and run-phase/outcome taxonomy. No target-language syntax lives here.
-- **Backends (`src/backends/<lang>*.rs`)**: everything language-specific — identifier mangling, type mapping, expression lowering, and the rendering of the three commands. The Rust backend is documented in `src/backends/RUST.md`, the C backend in `src/backends/C.md`; the plugin API reference for authors (including LLM assistants) is `CODEGEN.md`. The emitted production shape (flattened enums, `Vars`, trace + assumption runtimes, `Fsm::step` signature, `--no-std` / `--with-protocol-fsm` extensions) is specified in section 10.
+- **Core (`src/codegen/mod.rs`)**: target-language-agnostic. Defines the `Backend` value (name, description, per-command help descriptors, and one function pointer per command kind: production FSM, unit tests, bounded model checker), the compile-time registry `BACKENDS`, CLI request parsing for `rfs codegen`, and help rendering. Adding a backend means appending one static to `BACKENDS`; listing, help, and dispatch pick it up automatically.
+- **Shared analysis (`src/codegen/fsm.rs`, `test_plan.rs`, `mc_concepts.rs`)**: IR-level logic any backend reuses — variant flattening with collision-free names, representative input values, unit-test planning (positive runs / static unexpected-input detection), model-checker configuration and run-phase/outcome taxonomy. No target-language syntax lives here.
+- **Backends (`src/codegen/backends/<lang>/*.rs`)**: everything language-specific — identifier mangling (shared `src/codegen/ident.rs`), type mapping, expression lowering, and the rendering of the three commands. The Rust backend is documented in `src/codegen/backends/RUST.md`, the C backend in `src/codegen/backends/C.md`; the plugin API reference for authors (including LLM assistants) is `CODEGEN.md`. The emitted production shape (flattened enums, `Vars`, trace + assumption runtimes, `Fsm::step` signature, `--no-std` / `--with-protocol-fsm` extensions) is specified in section 10.
 
 Design decisions:
 
@@ -493,7 +493,7 @@ Supported:
 - bitwise operators: `&`, `|`, `^`, `~`;
 - shifts: `<<`, `>>`.
 
-Precedence, from tighter to looser (pinned against the `src/parser.rs` expression chain `expr -> logic_or -> logic_and -> equality -> relational -> bitwise_or -> bitwise_xor -> bitwise_and -> shift -> additive -> multiplicative -> unary_expr -> primary_expr`; there is NO division operator):
+Precedence, from tighter to looser (pinned against the `src/lang/parser.rs` expression chain `expr -> logic_or -> logic_and -> equality -> relational -> bitwise_or -> bitwise_xor -> bitwise_and -> shift -> additive -> multiplicative -> unary_expr -> primary_expr`; there is NO division operator):
 
 | Precedence | Operators | Notes |
 |---:|---|---|
@@ -511,7 +511,7 @@ Precedence, from tighter to looser (pinned against the `src/parser.rs` expressio
 
 Note: relational operators bind tighter than equality. Use parentheses when mixing comparison/equality in nontrivial ways.
 
-The parser accepts this grammar; semantic type checking is the validator's job (`src/validator.rs`, section 13).
+The parser accepts this grammar; semantic type checking is the validator's job (`src/lang/validator.rs`, section 13).
 
 ### 5.10 Properties and assumptions
 
@@ -856,7 +856,7 @@ The JSON schema above is the wire form; the Rust types that carry it are:
 2. The IR must be serializable to JSON and deserializable back to an equivalent structure.
 3. The IR should be stable enough that later code generators can depend on it.
 4. Parser-specific source spans should not pollute the core IR unless a separate annotated AST is used. Phase 0 can keep spans in parser diagnostics and optionally in an extended AST, but the serializable IR should remain clean.
-5. Serialization is the hand-rolled JSON reader-writer `src/json_rw.rs` (Phase 5 task 2 - serde/serde_json removed from the whole toolchain): ordered objects, byte-identical output contract, key order pinned in `to_json`/`from_json`. Additive optional fields stay non-breaking; anything else is an `IR_VERSION` decision (D10, section 20).
+5. Serialization is the hand-rolled JSON reader-writer `src/json/json_rw.rs` (Phase 5 task 2 - serde/serde_json removed from the whole toolchain): ordered objects, byte-identical output contract, key order pinned in `to_json`/`from_json`. Additive optional fields stay non-breaking; anything else is an `IR_VERSION` decision (D10, section 20).
 
 ---
 
@@ -913,7 +913,7 @@ The parser returns the IR directly in Phase 0. If a separate AST becomes useful,
 
 ### 8.5 Parser-level checks
 
-The split: the parser enforces structural duplicates and transition-body shape; everything semantic is the validator's job (`src/validator.rs`, section 13).
+The split: the parser enforces structural duplicates and transition-body shape; everything semantic is the validator's job (`src/lang/validator.rs`, section 13).
 
 Parser validations (rejected at parse time):
 
@@ -1058,7 +1058,7 @@ Two Phase 5 extensions: `--no-std` (production only - `#![no_std]` +
 `extern crate alloc`, body byte-identical, identical public API; D-P5-9) and
 `--with-protocol-fsm` (opt-in `impl ProtocolFsm for Fsm`; the one documented
 exception to the no-dependency invariant; D-P5-11). The C backend renders the
-same surface with parity-pinned behavior. Full anatomy: `src/backends/RUST.md`
+same surface with parity-pinned behavior. Full anatomy: `src/codegen/backends/RUST.md`
 section 2 and `CODEGEN.md` section 5. The original Phase 0/1 sketch below is
 kept for history - its module-wrapper shape and `UnexpectedEvent` type were
 superseded by the shipped flat-enum + `StepError` design (Phase 1 codegen
@@ -1536,7 +1536,7 @@ Exit-code convention across all six: 0 success, 1 any error (MC generated
 binaries keep their own 0/1/2 status taxonomy). Run instructions live in
 `BUILD.md`; CLI behavior rules in `KB.md` section 4.5.
 
-Conversion rules implemented in `src/frontend.rs`:
+Conversion rules implemented in `src/cli/frontend.rs`:
 
 - a file input must carry the extension matching `--input` (`.rfs` or `.json`);
 - a directory input is scanned recursively for files with that extension only;
@@ -1842,7 +1842,7 @@ parser acceptance of `priority N;`; duplicate-`set` rejection at parse time.
 
 Phase 3 implements the PSL-like property subset with ONLINE monitors in every
 backend: each `prop`/`assume` compiles (in the shared, language-agnostic
-`src/monitor.rs`) to a per-label `MonitorPlan`, and both backends render that
+`src/codegen/monitor.rs`) to a per-label `MonitorPlan`, and both backends render that
 plan into generated monitor code with identical semantics. Decisions are
 recorded as comparison tables; the chosen option is marked.
 
@@ -1982,7 +1982,7 @@ N` (default 0 = off; documented as wall-clock only, NOT parity-guaranteed),
 `--threads N` (default 1; byte-identical results for any N), runtime-only
 `--fast` (non-parity early abort). Codegen flag `--smt-bound N` (default 10)
 for the SMT mode. Plan deviation recorded in task 10's status: the
-`--timeout-sec` help lives in `src/codegen.rs` (generic codegen help) and the
+`--timeout-sec` help lives in `src/codegen/mod.rs` (generic codegen help) and the
 per-backend command descriptions (`rust.rs`/`c.rs`) - NOT in `main.rs` usage
 text, which does not document MC flags.
 
@@ -2068,7 +2068,7 @@ RNG-driven exploration order) recorded in `PHASE_4_TASK_10B.md`.
 Record of D-P5-1..D-P5-14 as IMPLEMENTED (plan: `docs/roadmap/phase_5/PHASE_5_PLAN.md`;
 corrections below point at the recorded deviations). Full command behavior:
 `KB.md` section 4.5; codegen surface: `CODEGEN.md`; backend internals:
-`src/backends/RUST.md` / `src/backends/C.md`.
+`src/codegen/backends/RUST.md` / `src/codegen/backends/C.md`.
 
 ### D-P5-1. Workspace layout (task 1)
 The single `rfs` package became a cargo workspace with an EXPLICIT member list
@@ -2081,7 +2081,7 @@ The single `rfs` package became a cargo workspace with an EXPLICIT member list
 unchanged after the conversion.
 
 ### D-P5-2. Hand-rolled JSON reader-writer, ALL sources (task 2)
-A full hand-rolled JSON READER + WRITER (`src/json_rw.rs`) replaced
+A full hand-rolled JSON READER + WRITER (`src/json/json_rw.rs`) replaced
 serde/serde_json EVERYWHERE: IR serialization/round-trip, all `--json` CLI
 outputs (info/validate/MC counterexample), and the generated MC JSON via an
 embedded copy of the writer. Rationale (full detail in the module doc):
@@ -2173,7 +2173,7 @@ for paths and the matching `*_ARGS` vars (space-separated extra parameters);
 rfs-build uses `RFS_BIN`. Per-command CLI flags (`--rustc PATH`,
 `--rustc-args "..."`, ... incl. task 17's `--clang/--cargo-fuzz` pair, decision
 D17-1) override the env vars; without either, the bare tool name is looked up
-on PATH. One shared resolver + invocation helper (`src/ext_tool.rs`) implements
+on PATH. One shared resolver + invocation helper (`src/cli/ext_tool.rs`) implements
 the precedence (flag > env var > PATH) and renders/executes command lines
 identically for all commands; task 17 extended `ExtTool` with a fixed
 `subcommand` field (cargo-fuzz = resolved cargo path + `fuzz`, rendered before
@@ -2237,7 +2237,7 @@ is optional behind `async` - the only external dependency of the workspace
 beyond the root package, never leaking into the toolchain or generated code.
 
 ### D-P5-12. Extended test generation: one plan, both backends (tasks 4/5/6)
-The shared planner (`src/codegen_test.rs`) was extended with language-agnostic
+The shared planner (`src/codegen/test_plan.rs`) was extended with language-agnostic
 plans for per-transition unit tests (representative inputs + statically computed
 guard taken/not-taken cases; sibling-priority/shadowing rules), invariant tests
 (safety property atoms re-checked at every driven step), property-monitor debug
@@ -2338,8 +2338,8 @@ skeletons) starts with the unified line-1 comment
 `// Generated by RFS v{toolchain_version} | spec sha256:{hash16} | module {name}`
 (C: `/* ... */`). The hash is SHA-256 over the CANONICAL IR JSON of the WHOLE
 input file (deterministic key order per D-P5-2), first 16 hex chars; computed in
-`src/codegen.rs` from `Ir::to_json()` and passed to both backends. The SHA-256 is
-HAND-ROLLED (`src/spec_hash.rs`, minimal implementation with NIST test vectors) -
+`src/codegen/mod.rs` from `Ir::to_json()` and passed to both backends. The SHA-256 is
+HAND-ROLLED (`src/utils/hash.rs`, minimal implementation with NIST test vectors) -
 no new dependencies, consistent with the D-P5-2 hand-rolled-JSON stance. Crate
 version bumped 0.1.0 -> 1.0.0 (the `--print-script` header picks it up via
 `CARGO_PKG_VERSION`). Stable contract = the three FIELDS are present and correct;
@@ -2361,7 +2361,7 @@ generated + compiled (rustc / gcc -Wall) + MC runs in exact & fuzz mode vs
 `ref_mc` ground truth (status agreement, NO false `PASS (complete)`, exit codes
 {0,1,2}, stable stderr). Rationale: libFuzzer sessions are long-running and stay
 manual/nightly; the seeded suite is the CI-runnable layer. Random valid specs come
-from `src/specgen.rs` via a shared wrapper - raw IR types are deliberately NOT
+from `src/lang/specgen.rs` via a shared wrapper - raw IR types are deliberately NOT
 `Arbitrary` (validity by construction). The new targets found two real bugs,
 recorded as plan corrections 5a (planner binding-name keying - codegen FAIL on a
 fully valid spec) and 5b (C MC fuzz-mode OOB read at trigger step 0).
@@ -2371,13 +2371,13 @@ fully valid spec) and 5b (C MC fuzz-mode OOB read at trigger step 0).
 `docs/SEMANTICS.md` directly with DELIBERATELY different data structures from the
 generated engines (Vec frontier, plain HashMap configuration keys - NO bit-
 packing) and its own small property evaluator over recorded traces (different
-algorithm from `src/monitor.rs`). Shipped surface: status (pass/fail/deadlock),
+algorithm from `src/codegen/monitor.rs`). Shipped surface: status (pass/fail/deadlock),
 first-violation label + step, total state count; PLUS the public APIs added for
 the differential suites - `step_trace` (drive a fixed input sequence) and
 `verify_counterexample` (replay a generated engine's JSON counterexample against
 ref_mc's independent transition relation / monitor compilers / liveness product).
 Report rendering is UNIFIED with the generated engines per D-P6-10 (same status
-taxonomy, text format, and `src/codegen_mc.rs` JSON document model). A seeded
+taxonomy, text format, and `src/codegen/mc_concepts.rs` JSON document model). A seeded
 byte-parity sweep harness (`tests/ref_mc_sweep_test.rs`, fail-fast + parallel)
 plus a non-fail-fast diagnostic companion (`tests/ref_mc_diag_test.rs`) verify
 ref_mc against the generated Rust MC on all eligible examples + pinned specgen
@@ -2400,7 +2400,7 @@ before this task.
 ### D-P6-7. Monitor references are HAND-WRITTEN independent Rust + C in the test suite (task 4.4)
 `tests/monitor_ref_test.rs`: for benchmark specs 43/44/45, reference monitors
 written directly in the test file - an independent Rust engine AND independent C
-compiled per spec with `gcc -Wall` - deliberately NOT reusing `src/monitor.rs`
+compiled per spec with `gcc -Wall` - deliberately NOT reusing `src/codegen/monitor.rs`
 (toolchain-side, could share bugs with the generated monitors). Driven over random
 traces (seed 90717) AND crafted boundary scenarios (bit-width wraparound,
 obligation deadlines exactly at trigger+bound-1, re-trigger after clear, sticky
@@ -2431,7 +2431,7 @@ CI machines vary; Phase 4 discipline against flaky gates.
 ### D-P6-10. `rfs mc-ref`: the reference MC exposed as a CLI with UNIFIED flags and reports (tasks 3.2/3.3)
 User request (2026-10-23 plan review): expose the brute-force reference MC for
 rapid prototyping in shell/REPL without compiling a generated MC. Shipped:
-`rfs mc-ref <spec.rfs|spec.json>` (`src/mc_ref_cmd.rs`) - in-process exact
+`rfs mc-ref <spec.rfs|spec.json>` (`src/cli/commands/mc_ref.rs`) - in-process exact
 exhaustive search; FLAGS UNIFIED with the generated exact-mode binary where
 applicable: `--max-states N` (default 1000000), `--timeout-sec N` (default 0 =
 off), `--assumes all|none|labels`, `--counterexample-format json|text` (default
@@ -2449,7 +2449,7 @@ generated binary self-reports it, ref_mc reports 0).
 User request (2026-10-23 plan review): expose the spec generator too, EXTENDED
 with incremental generation from a base spec - mutating a known base "shape"
 gives much better corner-case coverage than fully random specs. Shipped:
-`rfs gen-spec` (`src/gen_spec_cmd.rs`) with two modes - fully random
+`rfs gen-spec` (`src/cli/commands/gen_spec.rs`) with two modes - fully random
 (`--seed N`, default pinned 12345, + `--size small|medium` or explicit caps
 `--max-states/--max-events/--max-vars/--max-transitions/--max-props`) and
 incremental mutation (`--base SPEC.rfs|SPEC.json --mutations K [--seed N]`,
@@ -2457,7 +2457,7 @@ applying K seeded mutation steps from the 17-op `specgen::mutate` API). The
 output is ALWAYS a valid spec: it is parsed + validated before writing (error +
 exit 1 otherwise); invalid mutation candidates are rolled back and redrawn at
 every step. Deterministic from the seed: same args => byte-identical file. The
-generator lives in `src/specgen.rs` shared with the fuzz targets and the slow
+generator lives in `src/lang/specgen.rs` shared with the fuzz targets and the slow
 toolchain-fuzz suite.
 
 ### Phase 6 execution notes (drift from plan, as shipped)
@@ -2488,7 +2488,7 @@ and sync tests that keep the documentation pinned to the code.
 `--render svg` renders IN-PROCESS by default: each format's pure-Rust SVG
 renderer runs inside the rfs binary, so production/CI needs ZERO external
 binaries. `--renderer external` keeps the pre-Phase-7 behaviour byte-for-byte
-(resolved tool via `src/ext_tool.rs`, strict errors with no fallback - user
+(resolved tool via `src/cli/ext_tool.rs`, strict errors with no fallback - user
 decision 2026-10-21, `--print-script` with the tool invocation). Users who
 want the official renderers (dot/plantuml/mmdc) opt in explicitly. This is a
 v1.1 CLI addition, not a break - documented in `docs/user/MIGRATION.md`.
@@ -2564,7 +2564,7 @@ test enforces rule-name parity + KEYWORDS terminal coverage.
 
 ### D-P7-8. JSON Schema: draft-07 via a shared emitter (tasks 6-10)
 draft-07 (widest CI-validator support), emitted by the small shared emitter
-`src/json_schema.rs` from a compact field model, with required/optional
+`src/json/json_schema.rs` from a compact field model, with required/optional
 marking and enum-constraint notes. Schema output is pretty JSON produced
 through `json_rw` (project rule: all JSON goes through json_rw). The
 mc-report model `$ref`s the ce-trace model via `definitions`. Execution
@@ -2592,7 +2592,7 @@ object level is documented - catches drift in BOTH directions without
 touching `ir.rs`.
 - ce-trace / mc-report: pinned FAIL-variant benchmark runs produce real
 reports; same walk check against models built from the `JSON_KEY_*`
-constants (in `src/codegen_mc.rs`).
+constants (in `src/codegen/mc_concepts.rs`).
 - diagram-dot / diagram-puml / diagram-mmd: coverage sync tests over all 50
 valid examples x every module - every generated line is one of the
 documented shapes filled with IR data (no undocumented tokens), plus corpus
@@ -2644,8 +2644,8 @@ docs/user only.
   unary); rule count 59 -> 61. Caught by cross-checking the model against
   the parser BEFORE writing the sync test.
 - The plan's `mc_report_json.rs` does not exist - the `JSON_KEY_*`
-  constants and the counterexample JSON builder live in `src/codegen_mc.rs`
-  (task 7); likewise the plan's `ir.rs` `render_json` lives in `src/info.rs`
+  constants and the counterexample JSON builder live in `src/codegen/mc_concepts.rs`
+  (task 7); likewise the plan's `ir.rs` `render_json` lives in `src/cli/commands/info.rs`
   (task 10). Name drift between the plan (written from the Phase 5 record)
   and the shipped tree; the constants are the same, only the home file
   differs.

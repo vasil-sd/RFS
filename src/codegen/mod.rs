@@ -617,7 +617,8 @@ pub fn parse_codegen_args(args: &[String]) -> Result<CodegenRequest, Vec<String>
                     .and_then(|v| crate::codegen::mc_concepts::CounterexampleFormat::parse(v))
                 {
                     Some(f) => counterexample_format = f,
-                    None => errors.push(crate::codegen::mc_concepts::COUNTEREXAMPLE_FORMAT_ERROR.to_string()),
+                    None => errors
+                        .push(crate::codegen::mc_concepts::COUNTEREXAMPLE_FORMAT_ERROR.to_string()),
                 }
             }
             "--with-protocol-fsm" => {

@@ -21,9 +21,9 @@
 
 use std::path::Path;
 
+use crate::cli::ext_tool::{sh_quote, ResolvedTool};
 use crate::diagram::{DiagramPlugin, RenderPlan};
 use crate::diagrams::{emit_labels, event_label, guard_label, states};
-use crate::ext_tool::{sh_quote, ResolvedTool};
 use crate::lang::ir::Module;
 
 /// Default puppeteer browser args (root/container environments).
@@ -194,7 +194,7 @@ pub const MMD_PLUGIN: DiagramPlugin = DiagramPlugin {
     description: "Mermaid stateDiagram-v2 (all transition info in multi-line edge labels; SVG rendered in-process by default, mmdc via --renderer external)",
     ext: "mmd",
     generate,
-    svg_tool: Some(crate::ext_tool::ExtTool::MERMAID),
+    svg_tool: Some(crate::cli::ext_tool::ExtTool::MERMAID),
     plan_render: Some(plan_render),
     render_svg: Some(render_svg),
     internal_render_svg: Some(render_svg_internal),

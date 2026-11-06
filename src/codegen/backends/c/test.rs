@@ -25,13 +25,13 @@
 //! Docs: dev:backend-c-overview, dev:backend-c-test, llm:backend-c
 
 use crate::codegen::backends::c::{bit_c_type, c_ident};
-use crate::codegen::ident::snake;
-use crate::codegen::{BackendOptions, CodegenOutput, ExtraFile};
 use crate::codegen::fsm::{self, FsmVariants, VariantInfo};
+use crate::codegen::ident::snake;
 use crate::codegen::test_plan::{
     self, build_fuzz_decode, FuzzFieldStrategy, InputCase, InvariantCase, MonitorViolationCase,
     OutputCase, RandomTraceCase, TransitionExpectation, TransitionTestCase, VarValue,
 };
+use crate::codegen::{BackendOptions, CodegenOutput, ExtraFile};
 use crate::lang::ir::*;
 use std::fmt::Write as _;
 
@@ -359,14 +359,13 @@ fn render_invariant_test_c(
     let mut out = String::new();
     for (i, p) in input_pats.iter().enumerate() {
         out.push_str(
-            &crate::codegen::backends::c::fsm::input_is_sample_helper_c(&prefix, i, p, variants).ok_or_else(
-                || {
+            &crate::codegen::backends::c::fsm::input_is_sample_helper_c(&prefix, i, p, variants)
+                .ok_or_else(|| {
                     vec![format!(
                         "invariant '{}': unresolvable input pattern",
                         inv.label
                     )]
-                },
-            )?,
+                })?,
         );
     }
     for (i, p) in output_pats.iter().enumerate() {

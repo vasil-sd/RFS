@@ -242,7 +242,7 @@ with defensive states must not fail, and the existing valid examples had to
 keep passing; warnings are printed by `rfs validate` and surfaced through
 codegen output warnings.
 Table: [DESIGN.md](../../DESIGN.md) section 20, D4 - Code: `src/lang/validator.rs::module_warnings`,
-`src/frontend.rs::run_validate`.
+`src/cli/frontend.rs::run_validate`.
 
 ### D5. Effective priority default - 0 (lowest)
 
@@ -700,7 +700,7 @@ reason`). File input only (`.rfs`/`.json` by extension); NO model checking.
 **Why:** cheap static introspection answers "what is in this spec" without
 running anything, and the all-keys-present JSON shape gives tooling a stable
 schema to code against.
-Table: [DESIGN.md](../../DESIGN.md) section 23, D-P5-4 - Code: `src/info.rs::run_info`.
+Table: [DESIGN.md](../../DESIGN.md) section 23, D-P5-4 - Code: `src/cli/commands/info.rs::run_info`.
 
 ### D-P5-5. rfs test: generate + compile + run (tasks 7/17)
 
@@ -733,7 +733,7 @@ before the fix). The `detect_leaks=0` merge stays pinned as defense in depth.
 spec to executed test with no manual steps; strict tool availability (error
 only for the selected suite) keeps the default path dependency-free while CI
 can opt into fuzzing.
-Table: [DESIGN.md](../../DESIGN.md) section 23, D-P5-5 - Code: `src/test_cmd.rs::run_test`.
+Table: [DESIGN.md](../../DESIGN.md) section 23, D-P5-5 - Code: `src/cli/commands/test.rs::run_test`.
 
 ### D-P5-6. rfs diagram: plugin registry, strict rendering (task 8)
 
@@ -766,7 +766,7 @@ for paths and the matching `*_ARGS` vars (space-separated extra parameters);
 rfs-build uses `RFS_BIN`. Per-command CLI flags (`--rustc PATH`,
 `--rustc-args "..."`, ... incl. task 17's `--clang/--cargo-fuzz` pair)
 override the env vars; without either, the bare tool name is looked up on
-PATH. One shared resolver + invocation helper (`src/ext_tool.rs`) implements
+PATH. One shared resolver + invocation helper (`src/cli/ext_tool.rs`) implements
 the precedence (flag > env var > PATH) and renders/executes command lines
 identically for all commands; task 17 extended `ExtTool` with a fixed
 `subcommand` field (cargo-fuzz = resolved cargo path + `fuzz`, rendered before
@@ -774,7 +774,7 @@ extra args).
 **Why:** one resolver with one documented precedence eliminates per-command
 drift in tool handling, and env-var preference lets CI pin toolchains globally
 while local overrides stay possible per invocation.
-Table: [DESIGN.md](../../DESIGN.md) section 23, D-P5-7 - Code: `src/ext_tool.rs::ExtTool`.
+Table: [DESIGN.md](../../DESIGN.md) section 23, D-P5-7 - Code: `src/cli/ext_tool.rs::ExtTool`.
 
 ### D-P5-8. --print-script: script-generation mode (task 3)
 
@@ -789,7 +789,7 @@ executed with `sh` during tasks 7/8/17 (exit 0 + self-cleanup).
 **Why:** a self-contained script makes every tool invocation reproducible and
 auditable outside rfs (CI debugging, air-gapped machines, custom wrappers)
 while the pinned output keeps the resolver's decisions visible and testable.
-Table: [DESIGN.md](../../DESIGN.md) section 23, D-P5-8 - Code: `src/ext_tool.rs::Script`.
+Table: [DESIGN.md](../../DESIGN.md) section 23, D-P5-8 - Code: `src/cli/ext_tool.rs::Script`.
 
 ### D-P5-9. no_std production codegen (task 9)
 
@@ -904,7 +904,7 @@ unchanged.
 shapes, and making the parser's keyword list the grammar's source of truth
 prevents syntax highlighting from drifting from what the parser accepts.
 Table: [DESIGN.md](../../DESIGN.md) section 23, D-P5-13 - Code: `src/lang/parser.rs::KEYWORDS`,
-`src/frontend.rs::run_validate_structured`.
+`src/cli/frontend.rs::run_validate_structured`.
 
 ### D-P5-14. Example-crate matrix (tasks 11/12)
 
@@ -1105,7 +1105,7 @@ Table: [DESIGN.md](../../DESIGN.md) section 24, D-P6-9 - Code: `tests/benchmark_
 
 User request (2026-10-23 plan review): expose the brute-force reference MC for
 rapid prototyping in shell/REPL without compiling a generated MC. Shipped:
-`rfs mc-ref <spec.rfs|spec.json>` (`src/mc_ref_cmd.rs`) - in-process exact
+`rfs mc-ref <spec.rfs|spec.json>` (`src/cli/commands/mc_ref.rs`) - in-process exact
 exhaustive search; FLAGS UNIFIED with the generated exact-mode binary where
 applicable: `--max-states N` (default 1000000), `--timeout-sec N` (default 0 =
 off), `--assumes all|none|labels`, `--counterexample-format json|text`
@@ -1122,14 +1122,14 @@ self-reports it, ref_mc reports 0).
 and unified flags + mirrored exit codes + identical report format make its
 output directly comparable to (and cross-checkable against) the generated
 engines.
-Table: [DESIGN.md](../../DESIGN.md) section 24, D-P6-10 - Code: `src/mc_ref_cmd.rs::run_mc_ref`.
+Table: [DESIGN.md](../../DESIGN.md) section 24, D-P6-10 - Code: `src/cli/commands/mc_ref.rs::run_mc_ref`.
 
 ### D-P6-11. `rfs gen-spec`: random spec generation with incremental base mutation (tasks 3.1/3.4)
 
 User request (2026-10-23 plan review): expose the spec generator too,
 EXTENDED with incremental generation from a base spec - mutating a known base
 "shape" gives much better corner-case coverage than fully random specs.
-Shipped: `rfs gen-spec` (`src/gen_spec_cmd.rs`) with two modes - fully random
+Shipped: `rfs gen-spec` (`src/cli/commands/gen_spec.rs`) with two modes - fully random
 (`--seed N`, default pinned 12345, + `--size small|medium` or explicit caps) and
 incremental mutation (`--base SPEC.rfs|SPEC.json --mutations K [--seed N]`,
 applying K seeded mutation steps from the 17-op `specgen::mutate` API). The
@@ -1144,7 +1144,7 @@ before-write + rollback guarantees the command never emits an invalid spec;
 sharing one generator across CLI/fuzz/CI keeps all random-spec sources
 identical.
 Table: [DESIGN.md](../../DESIGN.md) section 24, D-P6-11 - Code:
-`src/gen_spec_cmd.rs::generate_random`, `src/gen_spec_cmd.rs::mutate_base`,
+`src/cli/commands/gen_spec.rs::generate_random`, `src/cli/commands/gen_spec.rs::mutate_base`,
 `src/lang/specgen.rs::mutate`.
 
 ### D-P7-1. `rfs diagram --renderer internal|external`, default INTERNAL (task 1)
@@ -1152,7 +1152,7 @@ Table: [DESIGN.md](../../DESIGN.md) section 24, D-P6-11 - Code:
 `--render svg` renders IN-PROCESS by default: each format's pure-Rust SVG
 renderer runs inside the rfs binary, so production/CI needs ZERO external
 binaries. `--renderer external` keeps the pre-Phase-7 behaviour byte-for-byte
-(resolved tool via `src/ext_tool.rs`, strict errors with no fallback - user
+(resolved tool via `src/cli/ext_tool.rs`, strict errors with no fallback - user
 decision 2026-10-21, `--print-script` with the tool invocation). Users who
 want the official renderers (dot/plantuml/mmdc) opt in explicitly. This is a
 v1.1 CLI addition, not a break - documented in [MIGRATION.md](../user/MIGRATION.md).
@@ -1226,7 +1226,7 @@ extra puppeteer-config step for mermaid).
 **Why:** the script must remain an accurate record of what rfs did - in
 internal mode that is "write source, render in-process with crate X vY", and
 the pinned comment keeps the provenance visible without a tool line.
-Table: [DESIGN.md](../../DESIGN.md) section 25, D-P7-5 - Code: `src/ext_tool.rs::Script`.
+Table: [DESIGN.md](../../DESIGN.md) section 25, D-P7-5 - Code: `src/cli/ext_tool.rs::Script`.
 
 ### D-P7-6. `rfs info format` CLI shape (task 5)
 

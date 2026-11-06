@@ -11,7 +11,7 @@
 //! `--render svg` renders IN-PROCESS by default (`--renderer internal`, Phase
 //! 7): each format's pure-Rust SVG renderer runs inside the rfs binary, so no
 //! external binaries are needed. `--renderer external` invokes the format's
-//! tool (`dot` / `plantuml` / `mmdc`) resolved through `crate::ext_tool`
+//! tool (`dot` / `plantuml` / `mmdc`) resolved through `crate::cli::ext_tool`
 //! instead - the pre-Phase 7 behaviour. Strict error semantics (user decision
 //! 2026-10-21, extended to internal renderers in Phase 7): a missing renderer,
 //! an unresolvable tool, or a non-zero/failing render is an ERROR (exit 1) -
@@ -23,8 +23,8 @@
 
 use std::path::{Path, PathBuf};
 
+use crate::cli::ext_tool::{sh_quote, ExtTool, ResolvedTool, Script};
 use crate::diagrams;
-use crate::ext_tool::{sh_quote, ExtTool, ResolvedTool, Script};
 use crate::lang::ir::{Ir, Module};
 
 /// Pure render-plan construction for `--print-script` (argv + prelude steps,
@@ -45,7 +45,7 @@ pub enum Renderer {
     /// binaries are resolved or invoked.
     Internal,
     /// The format's external tool (`dot` / `plantuml` / `mmdc`) resolved
-    /// through `crate::ext_tool` (the pre-Phase 7 behaviour).
+    /// through `crate::cli::ext_tool` (the pre-Phase 7 behaviour).
     External,
 }
 
@@ -179,13 +179,13 @@ fn tool_override(plugin: &DiagramPlugin, opts: &DiagramOptions) -> ToolOverride 
 pub fn run_diagram(path: &Path, opts: &DiagramOptions) -> Result<DiagramResult, String> {
     // Load + validate (same contract as `rfs info`).
     let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
-    let Some(fmt) = crate::frontend::Format::from_extension(ext) else {
+    let Some(fmt) = crate::cli::frontend::Format::from_extension(ext) else {
         return Err(format!(
             "input '{}' must have extension .rfs or .json",
             path.display()
         ));
     };
-    let ir: Ir = match crate::frontend::convert_file_to_ir(path, fmt) {
+    let ir: Ir = match crate::cli::frontend::convert_file_to_ir(path, fmt) {
         Ok(ir) => ir,
         Err(e) => return Err(format!("{}: {}", path.display(), e)),
     };

@@ -25,10 +25,10 @@
 
 use std::collections::HashSet;
 
-use crate::codegen::AssumptionSelection;
 use crate::codegen::fsm::{build_variants, representative_values, RepValue, VariantInfo};
-use crate::lang::ir::*;
 use crate::codegen::monitor::{compile_formula, MonNode, MonitorPlan};
+use crate::codegen::AssumptionSelection;
+use crate::lang::ir::*;
 
 // ---------------------------------------------------------------------------
 // Input abstraction (D-P4-3)

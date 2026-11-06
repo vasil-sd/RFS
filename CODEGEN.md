@@ -3,7 +3,7 @@
 This document describes the code generation (codegen) subsystem of RFS in enough
 detail that an LLM assistant can extend it without reading the whole codebase.
 Companion documents: `DESIGN.md` (semantics and design rationale), `KB.md`
-(knowledge base / project state), `src/backends/RUST.md` (Rust backend
+(knowledge base / project state), `src/codegen/backends/RUST.md` (Rust backend
 architecture).
 
 ## 1. Purpose
@@ -13,7 +13,7 @@ The subsystem is organized so that:
 
 - one **common, target-language-agnostic core** defines the plugin API, the CLI
   surface, and the shared analysis helpers;
-- each **target language is a self-contained plugin** under `src/backends/`
+- each **target language is a self-contained plugin** under `src/codegen/backends/`
   (currently: Rust and C);
 - adding a new backend never requires changing the core beyond appending one
   entry to the registry table.
@@ -22,34 +22,34 @@ The subsystem is organized so that:
 
 | File | Responsibility |
 |---|---|
-| `src/codegen.rs` | Plugin API (`Backend`, `BACKENDS`, `get_backend`, ...), shared option/output types, CLI request parsing for `rfs codegen`, help rendering. **This is the only file a new backend must touch (registry table).** |
-| `src/codegen_fsm.rs` | Language-agnostic helpers for *production FSM* generation: variant flattening (`build_variants`, `VariantInfo`, `FsmVariants`), representative field values; legacy Phase 1 formula-subset helpers kept for tests (monitor-compilability now comes from `src/monitor.rs`). |
-| `src/codegen_test.rs` | Language-agnostic *unit-test planning*: `TestPlan`, `build_test_plan`, static unexpected-input detection (`has_definite_unexpected`, `is_deadlocked_initial`). Decides **what** to test; backends render **how**. |
-| `src/codegen_mc.rs` | Language-agnostic *exact-mode* concepts (Phase 4): status taxonomy (`ExactStatus`: pass-complete / fail / unknown-state-limit) + its wire strings, the pinned summary-line format, codegen-time flag defaults (`EXACT_DEFAULT_MAX_STATES/THREADS/TIMEOUT_SEC`, `SMT_DEFAULT_BOUND`) and their CLI wire format; legacy fuzz-mode types retained for `--mode fuzz`. |
+| `src/codegen/mod.rs` | Plugin API (`Backend`, `BACKENDS`, `get_backend`, ...), shared option/output types, CLI request parsing for `rfs codegen`, help rendering. **This is the only file a new backend must touch (registry table).** |
+| `src/codegen/fsm.rs` | Language-agnostic helpers for *production FSM* generation: variant flattening (`build_variants`, `VariantInfo`, `FsmVariants`), representative field values; legacy Phase 1 formula-subset helpers kept for tests (monitor-compilability now comes from `src/codegen/monitor.rs`). |
+| `src/codegen/test_plan.rs` | Language-agnostic *unit-test planning*: `TestPlan`, `build_test_plan`, static unexpected-input detection (`has_definite_unexpected`, `is_deadlocked_initial`). Decides **what** to test; backends render **how**. |
+| `src/codegen/mc_concepts.rs` | Language-agnostic *exact-mode* concepts (Phase 4): status taxonomy (`ExactStatus`: pass-complete / fail / unknown-state-limit) + its wire strings, the pinned summary-line format, codegen-time flag defaults (`EXACT_DEFAULT_MAX_STATES/THREADS/TIMEOUT_SEC`, `SMT_DEFAULT_BOUND`) and their CLI wire format; legacy fuzz-mode types retained for `--mode fuzz`. |
 | `src/mc_plan.rs` | Phase 4 *shared MC plan* (D-P4-1): computed once in the Rust tool - input-abstraction analysis, state-encoding layout, canonical traversal spec, liveness obligation decomposition - and embedded as constants/tables by BOTH backends. |
 | `src/smt_plan.rs` / `src/smt_emit.rs` | Phase 4 task 11 (optional SMT mode): backend-neutral `SmtSpec` + IR->spec conversion with shared v1-scope rejections; shared emitter rendering one spec into BOTH backends' z3 constraint sections. |
-| `src/monitor.rs` | Phase 3 *shared monitor compiler*: formula -> per-label `MonitorPlan` (language-agnostic); restrictions R1-R4; reference interpreter used only by tests. Both backends render the same plan. See section 5.4. |
-| `src/backends/mod.rs` | Module root for backend plugins. |
-| `src/backends/rust.rs` | Rust backend plugin entry: the `RUST_BACKEND` registration value plus shared Rust-specific helpers (identifier mangling, type mapping). |
-| `src/backends/rust_fsm.rs` | Rust backend: production FSM source generation. |
-| `src/backends/rust_test.rs` | Rust backend: unit-test source generation + aggregate test-crate helper for tooling. |
-| `src/backends/rust_mc.rs` | Rust backend: model-checker executable - production FSM core + exact BFS engine (default, from the embedded plan) + legacy fuzz runtime + SMT-mode branch; all dispatched by the generated binary's `--mode`. |
-| `src/backends/c.rs` | C backend plugin entry: the `C_BACKEND` registration value plus shared C helpers (identifier mangling, fixed-width type mapping). See `src/backends/C.md`. |
-| `src/backends/c_fsm.rs` | C backend: production FSM source generation (tagged-union inputs/outputs, priority-ordered arms, on_error fallback, simultaneous updates, online monitors rendered from the shared MonitorPlan - parity with Rust). |
-| `src/backends/c_test.rs` | C backend: plain-assert unit-test executable generation. |
-| `src/backends/c_mc.rs` | C backend: mirror of the Rust exact engine (pthreads + C11 atomics for `--threads`, same summary line/counterexample format, gcc -Wall clean) + fuzz runtime + SMT-mode branch linking libz3. |
+| `src/codegen/monitor.rs` | Phase 3 *shared monitor compiler*: formula -> per-label `MonitorPlan` (language-agnostic); restrictions R1-R4; reference interpreter used only by tests. Both backends render the same plan. See section 5.4. |
+| `src/codegen/backends/mod.rs` | Module root for backend plugins. |
+| `src/codegen/backends/rust/mod.rs` | Rust backend plugin entry: the `RUST_BACKEND` registration value plus shared Rust-specific helpers (identifier mangling, type mapping). |
+| `src/codegen/backends/rust/fsm.rs` | Rust backend: production FSM source generation. |
+| `src/codegen/backends/rust/test.rs` | Rust backend: unit-test source generation + aggregate test-crate helper for tooling. |
+| `src/codegen/backends/rust/mc.rs` | Rust backend: model-checker executable - production FSM core + exact BFS engine (default, from the embedded plan) + legacy fuzz runtime + SMT-mode branch; all dispatched by the generated binary's `--mode`. |
+| `src/codegen/backends/c/mod.rs` | C backend plugin entry: the `C_BACKEND` registration value plus shared C helpers (identifier mangling, fixed-width type mapping). See `src/backends/C.md`. |
+| `src/codegen/backends/c/fsm.rs` | C backend: production FSM source generation (tagged-union inputs/outputs, priority-ordered arms, on_error fallback, simultaneous updates, online monitors rendered from the shared MonitorPlan - parity with Rust). |
+| `src/codegen/backends/c/test.rs` | C backend: plain-assert unit-test executable generation. |
+| `src/codegen/backends/c/mc.rs` | C backend: mirror of the Rust exact engine (pthreads + C11 atomics for `--threads`, same summary line/counterexample format, gcc -Wall clean) + fuzz runtime + SMT-mode branch linking libz3. |
 
 ### Placement rule (where does new code go?)
 
 1. If the logic depends on a target language's syntax, identifiers, or types →
-   the backend module (`src/backends/<lang>*.rs`).
+   the backend module (`src/codegen/backends/<lang>/*.rs`).
 2. If it is pure IR analysis that any backend would reuse (variant flattening,
    coverage/unexpected-input analysis, MC configuration semantics) → the
    matching `codegen_*.rs` core module.
 3. If it concerns CLI parsing, help text, or registry mechanics →
-   `src/codegen.rs`.
+   `src/codegen/mod.rs`.
 
-## 3. Plugin API (`src/codegen.rs`)
+## 3. Plugin API (`src/codegen/mod.rs`)
 
 ### 3.1 Core types
 
@@ -245,7 +245,7 @@ rfs codegen rust mc spec.rfs --assumes a1,a2 --out fsm_mc.rs
   candidate inputs for tests/model checking.
 - Legacy Phase 1 formula-subset helpers (`contains_liveness`, `safety_formula_inner`)
   kept for tests; monitor-compilability is decided by the shared compiler in
-  `src/monitor.rs` (section 5.4), so both backends warn identically.
+  `src/codegen/monitor.rs` (section 5.4), so both backends warn identically.
 
 ### 5.2 `codegen_test.rs` (unit-test planning)
 
@@ -420,22 +420,23 @@ the embedded copies in sync when changing them.
 
 ## 6. Adding a new backend (checklist)
 
-1. Create `src/backends/<lang>.rs` with shared helpers and one module per
-   command (`<lang>_fsm.rs`, `<lang>_test.rs`, `<lang>_mc.rs`), mirroring the
-   Rust backend's layout.
+1. Create `src/codegen/backends/<lang>/mod.rs` with shared helpers plus one
+   file per command (`fsm.rs`, `test.rs`, `mc.rs`), mirroring the Rust
+   backend's layout.
 2. Implement the three functions with the exact signature
    `fn(&Module, &BackendOptions) -> Result<CodegenOutput, Vec<String>>`.
-   Reuse `codegen_fsm` / `codegen_test` / `codegen_mc` for analysis; only the
+   Reuse `codegen::fsm` / `codegen::test_plan` / `codegen::mc_concepts` for
+   analysis; only the
    rendering is new.
 3. Define `pub static <LANG>_BACKEND: Backend` with name, description, and a
    `commands` slice containing one `BackendCommandInfo` per command (name must
    be exactly `production`, `test`, or `mc`).
-4. Append the static to `BACKENDS` in `src/codegen.rs`. That is the only core
+4. Append the static to `BACKENDS` in `src/codegen/mod.rs`. That is the only core
    change; `--list`, `--help`, and dispatch pick the backend up automatically.
 5. Add tests: registry visibility, per-command generation over
    `examples/valid/*` with output markers, and (recommended) compile-and-run a
    generated artifact for at least one example, as done for Rust.
-6. Document the backend in `src/backends/<LANG>.md` and link it from this file
+6. Document the backend in `src/codegen/backends/<LANG>.md` and link it from this file
    and `KB.md`.
 
 ## 7. Pre-plugin API (removed)
@@ -509,7 +510,7 @@ checks; keep any such checks aligned with section 4.2 above.
    behavior for the same spec and inputs; new backend features land in every
    backend in the same change and are covered by cross-backend differential
    tests.
-6. Property/assumption monitors are compiled ONCE by the shared `src/monitor.rs`
+6. Property/assumption monitors are compiled ONCE by the shared `src/codegen/monitor.rs`
    and rendered by every backend: monitor semantics (D-P3-3) and out-of-subset
    warning text must be identical across backends (D-P3-5).
 7. Artifact provenance header (Phase 6 task 2.3, D-P6-3): EVERY generated
@@ -517,7 +518,7 @@ checks; keep any such checks aligned with section 4.2 above.
    with a line-1 comment carrying three FIELDS - the toolchain version that
    generated it (`env!("CARGO_PKG_VERSION")`), the spec hash (SHA-256 of the
    canonical IR JSON of the whole input file, first 16 hex chars, computed in
-   `src/codegen.rs` from `Ir::to_json()` via the hand-rolled `src/spec_hash.rs`),
+   `src/codegen/mod.rs` from `Ir::to_json()` via the hand-rolled `src/utils/hash.rs`),
    and the module name. The stable contract is that the fields are present and
    correct; the exact line wording may change in a MINOR bump (pin the fields,
    not the text - `docs/user/MIGRATION.md` section 2.5).

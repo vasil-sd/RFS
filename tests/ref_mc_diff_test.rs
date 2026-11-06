@@ -224,7 +224,9 @@ fn doc_status(doc: &rfs::json::json_rw::Json) -> String {
         .to_string()
 }
 
-fn doc_fail(doc: &rfs::json::json_rw::Json) -> Option<(rfs::codegen::mc_concepts::FailReason, String, usize)> {
+fn doc_fail(
+    doc: &rfs::json::json_rw::Json,
+) -> Option<(rfs::codegen::mc_concepts::FailReason, String, usize)> {
     let reason = doc.get("reason")?.as_str()?;
     let label = doc.get("label")?.as_str()?.to_string();
     let step = doc.get("step")?.as_int()? as usize;
@@ -439,7 +441,10 @@ fn compare_one(name: &str, ir: &rfs::Ir) {
             (Some((reason, label, step)), Some((rref, lref, sref))) => {
                 assert_eq!(reason, *rref, "[{name}/{backend_name}] reason diverges");
                 // Label ground truth: the minimal-depth violation set.
-                if matches!(reason, rfs::codegen::mc_concepts::FailReason::PropertyViolation) {
+                if matches!(
+                    reason,
+                    rfs::codegen::mc_concepts::FailReason::PropertyViolation
+                ) {
                     let labels = rfs::ref_mc::minimal_violation_labels(module, &ref_cfg())
                         .unwrap_or_else(|e| panic!("[{name}] minimal labels: {e}"));
                     assert!(
@@ -544,7 +549,10 @@ fn tiny_state_limit_never_pass_complete() {
         },
     )
     .expect("ref run");
-    assert_eq!(res.status, rfs::codegen::mc_concepts::ExactStatus::UnknownStateLimit);
+    assert_eq!(
+        res.status,
+        rfs::codegen::mc_concepts::ExactStatus::UnknownStateLimit
+    );
 
     for backend_name in ["rust", "c"] {
         let bin = mc_json_binary("44_token_ring.rfs", backend_name, &ir);

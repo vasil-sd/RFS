@@ -14,9 +14,9 @@
 
 use std::path::Path;
 
+use crate::cli::ext_tool::{ExtTool, ResolvedTool};
 use crate::diagram::{DiagramPlugin, RenderPlan};
 use crate::diagrams::{event_label, guard_label, states};
-use crate::ext_tool::{ExtTool, ResolvedTool};
 use crate::lang::ir::Module;
 
 /// DOT string escaping for labels: quote + escape backslash and double quote.

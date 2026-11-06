@@ -8,12 +8,14 @@
 //! for the generated-code anatomy and design decisions.
 //! Docs: dev:backend-rust-overview, dev:backend-rust-fsm, llm:backend-rust
 
-use crate::codegen::backends::rust::{bit_rust_type, mask_expr, representative_input_expr, rust_type};
-use crate::codegen::ident::{rust_binding_ident, rust_ident, snake};
-use crate::codegen::{AssumptionSelection, BackendOptions, CodegenOutput, PropertyMonitorMode};
+use crate::codegen::backends::rust::{
+    bit_rust_type, mask_expr, representative_input_expr, rust_type,
+};
 use crate::codegen::fsm::{self, FsmVariants, VariantInfo};
-use crate::lang::ir::*;
+use crate::codegen::ident::{rust_binding_ident, rust_ident, snake};
 use crate::codegen::monitor::{self, AnchorRange, MonNode, MonitorPlan, SignalAtom, SignalExpr};
+use crate::codegen::{AssumptionSelection, BackendOptions, CodegenOutput, PropertyMonitorMode};
+use crate::lang::ir::*;
 use crate::lang::validator::{self, Env, ExprType};
 use std::collections::{HashMap, HashSet};
 use std::fmt::Write as _;

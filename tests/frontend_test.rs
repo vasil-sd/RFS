@@ -7,7 +7,7 @@ use std::path::{Path, PathBuf};
 
 mod common;
 
-use rfs::{frontend, lang::printer, Format, Ir};
+use rfs::{cli::frontend, lang::printer, Format, Ir};
 
 const VALID_RFS: &str =
     "module m { enum State { A, B } initial A event Go transition A on Go { next B; } }";
@@ -1026,8 +1026,11 @@ fn info_text_on_all_valid_examples() {
     let files = rfs::collect_rfs_files(&dir).expect("valid examples directory");
     assert!(files.len() >= 20, "expected the valid examples set");
     for f in &files {
-        let out = rfs::info::run_info(f, &rfs::info::InfoOptions { json: false })
-            .unwrap_or_else(|e| panic!("info failed on {}: {}", f.display(), e));
+        let out = rfs::cli::commands::info::run_info(
+            f,
+            &rfs::cli::commands::info::InfoOptions { json: false },
+        )
+        .unwrap_or_else(|e| panic!("info failed on {}: {}", f.display(), e));
         assert!(
             !out.trim().is_empty(),
             "empty info output for {}",
@@ -1062,9 +1065,10 @@ fn info_json_parses_and_matches_pinned_example() {
     // Pinned example: exercises BOTH monitor statuses (safety props are
     // monitored; top-level eventually/until liveness is skipped R1-R4).
     let f = example_root_dir().join("valid").join("44_token_ring.rfs");
-    let opts = rfs::info::InfoOptions { json: true };
-    let text = rfs::info::run_info(&f, &opts).expect("info --json");
-    let doc = rfs::json::json_rw::parse(&text).unwrap_or_else(|e| panic!("info JSON must parse: {e}"));
+    let opts = rfs::cli::commands::info::InfoOptions { json: true };
+    let text = rfs::cli::commands::info::run_info(&f, &opts).expect("info --json");
+    let doc =
+        rfs::json::json_rw::parse(&text).unwrap_or_else(|e| panic!("info JSON must parse: {e}"));
 
     // Data consistency against the IR parsed directly from the same source.
     let ir =
@@ -1083,11 +1087,13 @@ fn info_json_parses_and_matches_pinned_example() {
         Some(m.name.as_str())
     );
     assert_eq!(
-        jm.get("initial_state").and_then(rfs::json::json_rw::Json::as_str),
+        jm.get("initial_state")
+            .and_then(rfs::json::json_rw::Json::as_str),
         m.initial_state.as_deref()
     );
     assert_eq!(
-        jm.get("transitions").and_then(rfs::json::json_rw::Json::as_int),
+        jm.get("transitions")
+            .and_then(rfs::json::json_rw::Json::as_int),
         Some(m.transitions.len() as i64)
     );
 
@@ -1109,7 +1115,10 @@ fn info_json_parses_and_matches_pinned_example() {
         assert_eq!(variants.len(), e.variants.len());
     }
     for (key, groups) in [("events", &m.events), ("outputs", &m.outputs)] {
-        let jg = jm.get(key).and_then(rfs::json::json_rw::Json::as_arr).expect(key);
+        let jg = jm
+            .get(key)
+            .and_then(rfs::json::json_rw::Json::as_arr)
+            .expect(key);
         assert_eq!(jg.len(), groups.len(), "{key} count");
         for (jx, g) in jg.iter().zip(groups) {
             assert_eq!(
@@ -1683,7 +1692,7 @@ fn diagram_puml_negative_control_exit_200() {
     let bad = root.join("bad.puml");
     std::fs::write(&bad, "@startuml\nthis is not valid puml @@@\n@enduml\n").unwrap();
     let svg = root.join("bad.svg");
-    let tool = rfs::ext_tool::ExtTool::PLANTUML.resolve(None, None);
+    let tool = rfs::cli::ext_tool::ExtTool::PLANTUML.resolve(None, None);
     let err = rfs::diagrams::plantuml::render_svg(&tool, &bad, &svg)
         .expect_err("syntax error must be detected");
     let joined = err.join("; ");
@@ -1710,7 +1719,7 @@ fn diagram_mmd_negative_control_parse_error() {
     )
     .unwrap();
     let svg = root.join("bad.svg");
-    let tool = rfs::ext_tool::ExtTool::MERMAID.resolve(None, None);
+    let tool = rfs::cli::ext_tool::ExtTool::MERMAID.resolve(None, None);
     let err = rfs::diagrams::mermaid::render_svg(&tool, &bad, &svg)
         .expect_err("parse error must be detected");
     let joined = err.join("; ");
@@ -3568,8 +3577,14 @@ fn e2e_validate_json_parse_error_shape_and_position() {
     assert_eq!(errors.len(), 1);
     let e0 = &errors[0];
     assert_eq!(e0.get("kind").and_then(|v| v.as_str()), Some("parse"));
-    assert_eq!(e0.get("line"), Some(&rfs::json::json_rw::Json::Int(line as i64)));
-    assert_eq!(e0.get("col"), Some(&rfs::json::json_rw::Json::Int(col as i64)));
+    assert_eq!(
+        e0.get("line"),
+        Some(&rfs::json::json_rw::Json::Int(line as i64))
+    );
+    assert_eq!(
+        e0.get("col"),
+        Some(&rfs::json::json_rw::Json::Int(col as i64))
+    );
     assert_eq!(
         e0.get("message").and_then(|v| v.as_str()),
         Some(err.message.as_str())
@@ -3632,7 +3647,9 @@ fn e2e_validate_json_ok_true_on_valid_file() {
     let doc = rfs::json::json_rw::parse(&stdout).expect("JSON document must parse");
     assert_eq!(doc.get("ok"), Some(&rfs::json::json_rw::Json::Bool(true)));
     match doc.get("errors") {
-        Some(rfs::json::json_rw::Json::Arr(a)) => assert!(a.is_empty(), "errors must be empty: {stdout}"),
+        Some(rfs::json::json_rw::Json::Arr(a)) => {
+            assert!(a.is_empty(), "errors must be empty: {stdout}")
+        }
         _ => panic!("errors must be an array: {stdout}"),
     }
 }
@@ -3688,7 +3705,8 @@ fn ide_grammar_valid_json_and_covers_all_keywords() {
 
     let raw = std::fs::read_to_string(root.join("ide/textmate/rfs.json"))
         .expect("ide/textmate/rfs.json must exist");
-    let _doc: rfs::json::json_rw::Json = rfs::json::json_rw::parse(&raw).expect("grammar must be valid JSON");
+    let _doc: rfs::json::json_rw::Json =
+        rfs::json::json_rw::parse(&raw).expect("grammar must be valid JSON");
 
     for kw in rfs::lang::parser::KEYWORDS {
         assert!(raw.contains(kw), "grammar missing keyword '{kw}'");
@@ -3719,9 +3737,9 @@ fn rustc_on_path() -> Option<String> {
 
 fn mc_ref_run(
     spec: &Path,
-    opts: &rfs::mc_ref_cmd::McRefOptions,
+    opts: &rfs::cli::commands::mc_ref::McRefOptions,
 ) -> (std::process::ExitCode, String) {
-    rfs::mc_ref_cmd::run_mc_ref(spec, opts)
+    rfs::cli::commands::mc_ref::run_mc_ref(spec, opts)
         .unwrap_or_else(|e| panic!("mc-ref failed on {:?}: {e}", spec))
 }
 
@@ -3752,18 +3770,18 @@ fn mc_ref_exit_codes_pinned_for_all_three_statuses() {
         ),
     );
 
-    let (code, out) = mc_ref_run(&pass, &rfs::mc_ref_cmd::McRefOptions::default());
+    let (code, out) = mc_ref_run(&pass, &rfs::cli::commands::mc_ref::McRefOptions::default());
     assert_eq!(code, std::process::ExitCode::SUCCESS, "{out}");
     assert!(
         out.starts_with("PASS (complete)\nmodel-check summary: status=pass-complete"),
         "{out}"
     );
 
-    let (code, out) = mc_ref_run(&fail, &rfs::mc_ref_cmd::McRefOptions::default());
+    let (code, out) = mc_ref_run(&fail, &rfs::cli::commands::mc_ref::McRefOptions::default());
     assert_eq!(code, std::process::ExitCode::FAILURE, "{out}");
     assert!(out.contains("status=fail"), "{out}");
 
-    let opts = rfs::mc_ref_cmd::McRefOptions {
+    let opts = rfs::cli::commands::mc_ref::McRefOptions {
         max_states: Some(1),
         ..Default::default()
     };
@@ -3785,24 +3803,27 @@ fn mc_ref_flag_errors_are_usage_failures() {
 
     // No spec file.
     assert_eq!(
-        rfs::mc_ref_cmd::run_cli(&[]),
+        rfs::cli::commands::mc_ref::run_cli(&[]),
         std::process::ExitCode::FAILURE
     );
     // Unknown option.
     assert_eq!(
-        rfs::mc_ref_cmd::run_cli(&[spec.to_string_lossy().into_owned(), "--bogus".to_string()]),
+        rfs::cli::commands::mc_ref::run_cli(&[
+            spec.to_string_lossy().into_owned(),
+            "--bogus".to_string()
+        ]),
         std::process::ExitCode::FAILURE
     );
     // --max-states without a value / non-numeric.
     assert_eq!(
-        rfs::mc_ref_cmd::run_cli(&[
+        rfs::cli::commands::mc_ref::run_cli(&[
             spec.to_string_lossy().into_owned(),
             "--max-states".to_string()
         ]),
         std::process::ExitCode::FAILURE
     );
     assert_eq!(
-        rfs::mc_ref_cmd::run_cli(&[
+        rfs::cli::commands::mc_ref::run_cli(&[
             spec.to_string_lossy().into_owned(),
             "--max-states".to_string(),
             "abc".to_string()
@@ -3811,7 +3832,7 @@ fn mc_ref_flag_errors_are_usage_failures() {
     );
     // Bad --counterexample-format / --log-level.
     assert_eq!(
-        rfs::mc_ref_cmd::run_cli(&[
+        rfs::cli::commands::mc_ref::run_cli(&[
             spec.to_string_lossy().into_owned(),
             "--counterexample-format".to_string(),
             "xml".to_string()
@@ -3819,7 +3840,7 @@ fn mc_ref_flag_errors_are_usage_failures() {
         std::process::ExitCode::FAILURE
     );
     assert_eq!(
-        rfs::mc_ref_cmd::run_cli(&[
+        rfs::cli::commands::mc_ref::run_cli(&[
             spec.to_string_lossy().into_owned(),
             "--log-level".to_string(),
             "loud".to_string()
@@ -3829,7 +3850,7 @@ fn mc_ref_flag_errors_are_usage_failures() {
     // Unparseable spec -> error (exit 1).
     let bad = write_file(&root, "bad.rfs", UNPARSEABLE_RFS);
     assert_eq!(
-        rfs::mc_ref_cmd::run_cli(&[bad.to_string_lossy().into_owned()]),
+        rfs::cli::commands::mc_ref::run_cli(&[bad.to_string_lossy().into_owned()]),
         std::process::ExitCode::FAILURE
     );
 
@@ -3895,12 +3916,12 @@ fn mc_ref_output_agrees_with_generated_binary_text_and_json() {
             (
                 "text",
                 Vec::<String>::new(),
-                rfs::mc_ref_cmd::CeFormat::Text,
+                rfs::cli::commands::mc_ref::CeFormat::Text,
             ),
             (
                 "json",
                 vec!["--counterexample-format".to_string(), "json".to_string()],
-                rfs::mc_ref_cmd::CeFormat::Json,
+                rfs::cli::commands::mc_ref::CeFormat::Json,
             ),
         ] {
             let gr = std::process::Command::new(&bin)
@@ -3908,7 +3929,7 @@ fn mc_ref_output_agrees_with_generated_binary_text_and_json() {
                 .output()
                 .expect("run mc bin");
             let gen_out = String::from_utf8_lossy(&gr.stdout).into_owned();
-            let opts = rfs::mc_ref_cmd::McRefOptions {
+            let opts = rfs::cli::commands::mc_ref::McRefOptions {
                 ce_format: fmt,
                 ..Default::default()
             };
@@ -3937,7 +3958,7 @@ fn mc_ref_output_agrees_with_generated_binary_text_and_json() {
 
 fn gen_spec_run(args: &[&str]) -> std::process::ExitCode {
     let strs: Vec<String> = args.iter().map(|s| s.to_string()).collect();
-    rfs::gen_spec_cmd::run_cli(&strs)
+    rfs::cli::commands::gen_spec::run_cli(&strs)
 }
 
 #[test]

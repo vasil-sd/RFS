@@ -7,7 +7,6 @@
 /// Rust keywords that require raw-identifier mangling (`r#...`).
 pub(crate) const RUST_KEYWORDS: &[&str] = &[
     "as", "break", "const", "continue", "crate", "else", "enum", "extern", "false", "fn", "for",
-
     "if", "impl", "in", "let", "loop", "match", "mod", "move", "mut", "pub", "ref", "return",
     "self", "Self", "static", "struct", "super", "trait", "true", "type", "unsafe", "use", "where",
     "while",
@@ -71,4 +70,3 @@ pub(crate) fn snake(name: &str) -> String {
     }
     out
 }
-

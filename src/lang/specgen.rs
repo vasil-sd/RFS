@@ -15,8 +15,8 @@ use crate::lang::ir::{
     FieldDecl, Formula, Ir, Module, OnError, OutputExpr, OutputPattern, PatternExpr, PatternField,
     PatternVariant, Property, Transition, Type, UnaryOp, VarDecl, IR_VERSION,
 };
-use crate::utils::rng::Rng;
 use crate::lang::validator;
+use crate::utils::rng::Rng;
 
 // ---------------------------------------------------------------------------
 // Bounds

@@ -79,9 +79,11 @@ pub fn generate_model_checker(
     out.push_str(&exact);
     // The __LCG_*__ placeholders are filled from the shared pub consts so the
     // emitted runtime stays in one RNG family with utils::rng by construction.
-    out.push_str(&FUZZ_RUNTIME
-        .replace("__LCG_MULT__", &crate::utils::rng::LCG_MULT.to_string())
-        .replace("__LCG_ADD__", &crate::utils::rng::LCG_ADD.to_string()));
+    out.push_str(
+        &FUZZ_RUNTIME
+            .replace("__LCG_MULT__", &crate::utils::rng::LCG_MULT.to_string())
+            .replace("__LCG_ADD__", &crate::utils::rng::LCG_ADD.to_string()),
+    );
     out.push_str(MAIN_DISPATCH);
     Ok(CodegenOutput {
         code: out,
@@ -127,7 +129,8 @@ fn exact_codegen(
     // 1 = json. Runtime-overridable with --counterexample-format.
     s.push_str(&format!(
         "const DEFAULT_COUNTEREXAMPLE_FORMAT: u8 = {};\n",
-        if options.counterexample_format == crate::codegen::mc_concepts::CounterexampleFormat::Json {
+        if options.counterexample_format == crate::codegen::mc_concepts::CounterexampleFormat::Json
+        {
             1
         } else {
             0
@@ -262,7 +265,9 @@ fn exact_codegen(
     s.push_str("    buf\n}\n");
 
     // mc_step_all: every enabled transition's effect in firing order (D-P4-11).
-    s.push_str(&crate::codegen::backends::rust::fsm::render_mc_step_all(module)?);
+    s.push_str(&crate::codegen::backends::rust::fsm::render_mc_step_all(
+        module,
+    )?);
 
     // The BFS engine (static; see D-P4-2..6).
     s.push_str(EXACT_ENGINE);
@@ -290,37 +295,41 @@ fn exact_codegen(
             match leaf {
                 crate::mc_plan::SkeletonLeaf::Safety(f) => {
                     let name = format!("liv_p{pi}_l{li}");
-                    s.push_str(&crate::codegen::backends::rust::fsm::render_sample_formula_evaluator(
-                        module, &name, f,
-                    )?);
+                    s.push_str(
+                        &crate::codegen::backends::rust::fsm::render_sample_formula_evaluator(
+                            module, &name, f,
+                        )?,
+                    );
                     leaf_entries.push(format!(
                         "LivLeaf {{ kind: 0, eval_a: {name}, eval_b: None }}"
                     ));
                 }
-                crate::mc_plan::SkeletonLeaf::Obligation(oi) => match &spec.obligations[*oi] {
-                    crate::mc_plan::LivenessObligation::Eventually { body } => {
-                        let name = format!("liv_p{pi}_l{li}");
-                        s.push_str(&crate::codegen::backends::rust::fsm::render_sample_formula_evaluator(
+                crate::mc_plan::SkeletonLeaf::Obligation(oi) => {
+                    match &spec.obligations[*oi] {
+                        crate::mc_plan::LivenessObligation::Eventually { body } => {
+                            let name = format!("liv_p{pi}_l{li}");
+                            s.push_str(&crate::codegen::backends::rust::fsm::render_sample_formula_evaluator(
                             module, &name, body,
                         )?);
-                        leaf_entries.push(format!(
-                            "LivLeaf {{ kind: 1, eval_a: {name}, eval_b: None }}"
-                        ));
-                    }
-                    crate::mc_plan::LivenessObligation::Until { left, right } => {
-                        let na = format!("liv_p{pi}_l{li}");
-                        let nb = format!("liv_p{pi}_l{li}b");
-                        s.push_str(&crate::codegen::backends::rust::fsm::render_sample_formula_evaluator(
+                            leaf_entries.push(format!(
+                                "LivLeaf {{ kind: 1, eval_a: {name}, eval_b: None }}"
+                            ));
+                        }
+                        crate::mc_plan::LivenessObligation::Until { left, right } => {
+                            let na = format!("liv_p{pi}_l{li}");
+                            let nb = format!("liv_p{pi}_l{li}b");
+                            s.push_str(&crate::codegen::backends::rust::fsm::render_sample_formula_evaluator(
                             module, &na, left,
                         )?);
-                        s.push_str(&crate::codegen::backends::rust::fsm::render_sample_formula_evaluator(
+                            s.push_str(&crate::codegen::backends::rust::fsm::render_sample_formula_evaluator(
                             module, &nb, right,
                         )?);
-                        leaf_entries.push(format!(
-                            "LivLeaf {{ kind: 2, eval_a: {na}, eval_b: Some({nb}) }}"
-                        ));
+                            leaf_entries.push(format!(
+                                "LivLeaf {{ kind: 2, eval_a: {na}, eval_b: Some({nb}) }}"
+                            ));
+                        }
                     }
-                },
+                }
             }
         }
         s.push_str(&format!(
@@ -502,7 +511,9 @@ fn rep_expr(v: &crate::codegen::fsm::RepValue) -> String {
             .map(|s| rust_ident(s))
             .collect::<Vec<_>>()
             .join("::"),
-        crate::codegen::fsm::RepValue::EnumEmpty(name) => format!("{}::__Empty__", rust_ident(name)),
+        crate::codegen::fsm::RepValue::EnumEmpty(name) => {
+            format!("{}::__Empty__", rust_ident(name))
+        }
         crate::codegen::fsm::RepValue::EnumUnknown(name) => {
             format!("{}::__Unknown__", rust_ident(name))
         }

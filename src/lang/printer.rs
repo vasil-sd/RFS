@@ -511,7 +511,8 @@ pub fn roundtrip_rfs(source: &str) -> Result<(Ir, String), String> {
         .to_json()
         .map_err(|e| format!("rfs -> json failed: {}", e))?
         .to_string();
-    let value = crate::json::json_rw::parse(&json).map_err(|e| format!("json parse failed: {}", e))?;
+    let value =
+        crate::json::json_rw::parse(&json).map_err(|e| format!("json parse failed: {}", e))?;
     let ir2 = Ir::from_json(&value).map_err(|e| format!("json -> IR failed: {}", e))?;
     if ir1 != ir2 {
         return Err("round-trip rfs -> json -> IR changed the IR".to_string());
@@ -530,7 +531,8 @@ pub fn roundtrip_rfs(source: &str) -> Result<(Ir, String), String> {
 /// Returns the parsed IR and the printed RFS text. Re-parsing the printed RFS
 /// yields an IR equal to the original JSON document.
 pub fn roundtrip_json(json: &str) -> Result<(Ir, String), String> {
-    let value = crate::json::json_rw::parse(json).map_err(|e| format!("invalid RFS IR JSON: {}", e))?;
+    let value =
+        crate::json::json_rw::parse(json).map_err(|e| format!("invalid RFS IR JSON: {}", e))?;
     let ir1 = Ir::from_json(&value).map_err(|e| format!("invalid RFS IR JSON: {}", e))?;
     let rfs1 = print_ir(&ir1);
     let ir2 = crate::parse_source(&rfs1)
@@ -542,7 +544,8 @@ pub fn roundtrip_json(json: &str) -> Result<(Ir, String), String> {
         .to_json()
         .map_err(|e| format!("IR -> json failed: {}", e))?
         .to_string();
-    let value2 = crate::json::json_rw::parse(&json2).map_err(|e| format!("json parse failed: {}", e))?;
+    let value2 =
+        crate::json::json_rw::parse(&json2).map_err(|e| format!("json parse failed: {}", e))?;
     let ir3 = Ir::from_json(&value2).map_err(|e| format!("json -> IR failed: {}", e))?;
     if ir2 != ir3 {
         return Err("round-trip rfs -> json changed the IR".to_string());

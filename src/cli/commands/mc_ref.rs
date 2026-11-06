@@ -25,7 +25,7 @@
 use std::path::Path;
 use std::process::ExitCode;
 
-use crate::frontend::{self, Format};
+use crate::cli::frontend::{self, Format};
 use crate::ref_mc::{self, RefConfig};
 
 /// Counterexample report format on the wire.
@@ -139,7 +139,7 @@ fn usage() -> String {
 
 /// `rfs mc-ref` argument parsing + pipeline (thin shell for main.rs).
 pub fn run_cli(args: &[String]) -> ExitCode {
-    use crate::cli_log::{LogLevel, Logger};
+    use crate::cli::log::{LogLevel, Logger};
     let mut opts = McRefOptions::default();
     let mut log_level = LogLevel::Info;
     let mut path: Option<String> = None;

@@ -47,7 +47,13 @@ fn group_line(g: &ConstructorGroup) -> String {
             ConstructorVariant::Struct { name, fields } => {
                 let inner: Vec<String> = fields
                     .iter()
-                    .map(|f| format!("{}: {}", f.name, crate::info::render_type(&f.ty)))
+                    .map(|f| {
+                        format!(
+                            "{}: {}",
+                            f.name,
+                            crate::cli::commands::info::render_type(&f.ty)
+                        )
+                    })
                     .collect();
                 format!("{name}({})", inner.join(", "))
             }
@@ -120,8 +126,8 @@ fn build(m: &Module) -> TableData {
             .map(|v| {
                 (
                     v.name.clone(),
-                    crate::info::render_type(&v.ty),
-                    crate::info::render_expr(&v.init),
+                    crate::cli::commands::info::render_type(&v.ty),
+                    crate::cli::commands::info::render_expr(&v.init),
                 )
             })
             .collect(),

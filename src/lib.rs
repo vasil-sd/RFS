@@ -10,10 +10,7 @@ pub mod codegen;
 
 pub mod json;
 pub mod lang;
-pub mod mc_plan;
-pub mod ref_mc;
-pub mod smt_emit;
-pub mod smt_plan;
+pub mod mc;
 pub mod training;
 pub mod utils;
 

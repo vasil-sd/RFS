@@ -213,19 +213,19 @@ fn run_one(tag: &str, ir: &rfs::Ir) {
 
     // 4. ref_mc ground truth + generated-engine runs.
     let module = &parsed.modules[0];
-    let cfg = rfs::ref_mc::RefConfig {
+    let cfg = rfs::mc::ref_mc::RefConfig {
         max_states: MAX_STATES,
         timeout_sec: TIMEOUT_SEC,
         assume_arg: "all".to_string(),
     };
-    match rfs::ref_mc::run(module, &cfg) {
+    match rfs::mc::ref_mc::run(module, &cfg) {
         Ok(res) => check_status_agreement(tag, &res),
         Err(e) => check_sample0_assumption_abort(tag, &e),
     }
 }
 
 /// Exact + fuzz runs of BOTH generated engines vs the ref_mc verdict.
-fn check_status_agreement(tag: &str, res: &rfs::ref_mc::RefResult) {
+fn check_status_agreement(tag: &str, res: &rfs::mc::ref_mc::RefResult) {
     let want_exit = match res.status {
         rfs::codegen::mc_concepts::ExactStatus::PassComplete => 0,
         rfs::codegen::mc_concepts::ExactStatus::Fail => 1,

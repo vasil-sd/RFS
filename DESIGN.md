@@ -1131,11 +1131,11 @@ fuzz engine is retained behind `--mode fuzz`. An optional SMT-based bounded
 mode (`--mode smt-bounded`) landed in task 11 (D-P4-12).
 
 Architecture (D-P4-1): per-backend GENERATED engines + ONE shared codegen-time
-plan module. `src/mc_plan.rs` computes the plan once in the Rust tool - input
+plan module. `src/mc/plan.rs` computes the plan once in the Rust tool - input
 abstraction analysis, state-encoding layout, canonical traversal spec,
 liveness obligation decomposition - and both backends embed it as constants/
 tables in the generated binary, so behavior is identical by construction.
-The SMT mode uses the same pattern via `src/smt_plan.rs` + `src/smt_emit.rs`
+The SMT mode uses the same pattern via `src/mc/smt_plan.rs` + `src/mc/smt_emit.rs`
 (both backends render the SAME shared spec into structurally identical z3
 constraints).
 
@@ -1143,7 +1143,7 @@ constraints).
 rfs codegen <rust|c> mc spec.rfs
    |
    v
-codegen-time plan (src/mc_plan.rs): abstraction, encoding, traversal, obligations
+codegen-time plan (src/mc/plan.rs): abstraction, encoding, traversal, obligations
    |  embedded as constants/tables in BOTH generated binaries
    v
 generated self-contained MC binary (per-backend runtime)
@@ -1259,7 +1259,7 @@ initial sample and position k ≥ 1 is the sample of step k:
   Strong (standard) until is expressible as `p until q && eventually q`.
 
 **Obligation decomposition.** Each liveness property is decomposed at codegen
-time (`src/mc_plan.rs`) into a top-level BOOLEAN SKELETON whose leaves are
+time (`src/mc/plan.rs`) into a top-level BOOLEAN SKELETON whose leaves are
 obligations or safety subformulas:
 
 - safety leaf s: true on π iff s holds at every position of π;
@@ -1373,7 +1373,7 @@ evaluations. Typical top-level skeletons have 1–3 leaves.
 feature pulls in the optional z3 dependency and the parity tests; default
 builds are unaffected. The generated binary is standalone (no FSM core):
 k-step unrolling of the transition system over bitvectors from a SHARED plan
-(`src/smt_plan.rs`) rendered by a SHARED emitter (`src/smt_emit.rs`) - both
+(`src/mc/smt_plan.rs`) rendered by a SHARED emitter (`src/mc/smt_emit.rs`) - both
 backends build structurally identical z3 constraints against the SAME libz3
 5.3.1 (TOOLCHAIN.md section 5), so results are byte-identical by construction.
 Liveness uses k-liveness (never + cycle query); exact-MC shift semantics
@@ -1940,10 +1940,10 @@ Record of D-P4-1..D-P4-14 as IMPLEMENTED (plan: `docs/roadmap/phase_4/PHASE_4_PL
 corrections below point at the recorded deviations). Full semantics: section 11.
 
 ### D-P4-1. Architecture: shared codegen-time plan, per-backend generated engines
-As planned. `src/mc_plan.rs` computes the plan once (abstraction, encoding,
+As planned. `src/mc/plan.rs` computes the plan once (abstraction, encoding,
 traversal spec, obligation decomposition); both backends embed it as
 constants/tables, so behavior is identical by construction. The SMT mode reuses
-the pattern via `src/smt_plan.rs` + `src/smt_emit.rs`.
+the pattern via `src/mc/smt_plan.rs` + `src/mc/smt_emit.rs`.
 
 ### D-P4-2. Exact engine: level-synchronous BFS over configurations
 As planned. Configurations = (state index, packed vars, monitor states);
@@ -2367,7 +2367,7 @@ recorded as plan corrections 5a (planner binding-name keying - codegen FAIL on a
 fully valid spec) and 5b (C MC fuzz-mode OOB read at trigger step 0).
 
 ### D-P6-5. The brute-force reference MC is an independent public lib module (task 3.2)
-`src/ref_mc.rs`: naive exhaustive reachable-state exploration implementing
+`src/mc/ref_mc.rs`: naive exhaustive reachable-state exploration implementing
 `docs/SEMANTICS.md` directly with DELIBERATELY different data structures from the
 generated engines (Vec frontier, plain HashMap configuration keys - NO bit-
 packing) and its own small property evaluator over recorded traces (different

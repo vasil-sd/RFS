@@ -54,7 +54,7 @@ model-checkable (no unbounded data, floats, or arbitrary functions in the core).
   `PHASE_5_STATUS.md`; tasks 1-14 of 16 + user-added task 17). Phase 5 added: the cargo WORKSPACE (`rfs` root package
   + `crates/rfs-build` build.rs helper + `crates/rfs-adapters` ProtocolFsm/
   adapters + example crates; C projects Makefile-driven non-members), hand-
-  rolled JSON reader-writer `src/json_rw.rs` replacing serde EVERYWHERE (ordered
+  rolled JSON reader-writer `src/json/json_rw.rs` replacing serde EVERYWHERE (ordered
   objects, byte-identical output contract), three new CLI commands - `rfs info`
   (static introspection, text/`--json`), `rfs test` (generate + compile + run
   unit AND libFuzzer fuzz suites for both backends), `rfs diagram` (dot/puml/
@@ -80,7 +80,7 @@ model-checkable (no unbounded data, floats, or arbitrary functions in the core).
   `docs/user/MIGRATION.md`), two new CLI commands (`rfs mc-ref` in-process
   reference MC with unified flags/exit codes 0/1/2; `rfs gen-spec` random /
   base-mutated spec generation, always validated before write) on independent
-  infrastructure (`src/ref_mc.rs`, `src/specgen.rs`), differential soundness
+  infrastructure (`src/mc/ref_mc.rs`, `src/lang/specgen.rs`), differential soundness
   suites (ref-MC byte-parity sweep + differential vs both backends, forced-
   violation parity, production-FSM cross-backend parity, hand-written monitor
   references, PSL translation via an independent evaluator +
@@ -192,9 +192,9 @@ src/cli/commands/diagram/   mod.rs plugin registry + dot/plantuml/mermaid/tables
                      (dot/puml/mmd/table/md; Phase 7 in-process SVG)
 src/cli/info_format/     mod.rs rfs info format registry + embedded models (Phase 7 D-P7-6);
                      ebnf_grammar.rs EBNF RuleNode model + 61-rule GRAMMAR_RULES (D-P7-7)
-src/mc_plan.rs       shared MC plan: abstraction, encoding, traversal, liveness obligations
-src/smt_plan.rs + src/smt_emit.rs   shared SMT spec + emitter (optional smt mode)
-src/ref_mc.rs        brute-force reference MC, independent data structures (task 3.2, D-P6-5)
+src/mc/plan.rs       shared MC plan: abstraction, encoding, traversal, liveness obligations
+src/mc/smt_plan.rs + src/mc/smt_emit.rs   shared SMT spec + emitter (optional smt mode)
+src/mc/ref_mc.rs        brute-force reference MC, independent data structures (task 3.2, D-P6-5)
 src/main.rs          CLI arg parsing + dispatch (8 subcommands)
 src/training.rs      snippet extraction + aggregation
 src/bin/             build_training, extract_training_snippets, generate_code_tests, test_generated_code
@@ -314,7 +314,7 @@ Before changing language syntax:
 
 Before changing IR:
 
-1. Check the hand-written `to_json`/`from_json` in `src/ir.rs` (hand-rolled
+1. Check the hand-written `to_json`/`from_json` in `src/lang/ir.rs` (hand-rolled
    JSON per D-P5-2 - key order is pinned; additive optional fields stay
    non-breaking).
 2. Decide whether the change is backward compatible.

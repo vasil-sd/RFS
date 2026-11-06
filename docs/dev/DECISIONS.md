@@ -89,8 +89,8 @@ codes 0/1/2 - so bounded runs are never presented as full proof.
 **Why:** complete for small finite systems and yields counterexamples, which
 is the right core guarantee; symbolic approaches handle larger state spaces
 but add significant implementation complexity, so they stay optional.
-Table: [DESIGN.md](../../DESIGN.md) section 9.7 - Code: `src/mc_plan.rs::McPlan`,
-`src/codegen/backends/rust/mc.rs::exact_codegen`, `src/ref_mc.rs::run`.
+Table: [DESIGN.md](../../DESIGN.md) section 9.7 - Code: `src/mc/plan.rs::McPlan`,
+`src/codegen/backends/rust/mc.rs::exact_codegen`, `src/mc/ref_mc.rs::run`.
 
 ### 9.8 Production integration style - pure `step` function + trait adapters
 
@@ -125,7 +125,7 @@ extension.
 directly into MC (they prune exploration), while staying optional so
 stronger, assumption-free verification remains available.
 Table: [DESIGN.md](../../DESIGN.md) section 9.10 - Code: `src/codegen/mod.rs::AssumptionSelection`,
-`src/mc_plan.rs::McPlan`.
+`src/mc/plan.rs::McPlan`.
 
 ### 9.11 Composition - single endpoint FSM (v0/v1)
 
@@ -438,15 +438,15 @@ to the implementing code.
 
 ### D-P4-1. Architecture: shared codegen-time plan, per-backend generated engines
 
-`src/mc_plan.rs` computes the plan once (abstraction, encoding, traversal spec,
+`src/mc/plan.rs` computes the plan once (abstraction, encoding, traversal spec,
 obligation decomposition); both backends embed it as constants/tables, so
 behavior is identical by construction. The SMT mode reuses the pattern via
-`src/smt_plan.rs` + `src/smt_emit.rs`.
+`src/mc/smt_plan.rs` + `src/mc/smt_emit.rs`.
 **Why:** one plan rendered twice makes cross-backend parity a construction
 guarantee rather than a test hope - the differential suites then only need to
 pin rendering, not semantics.
-Table: [DESIGN.md](../../DESIGN.md) section 22, D-P4-1 - Code: `src/mc_plan.rs::McPlan`,
-`src/smt_plan.rs::build_smt_spec`, `src/smt_emit.rs::emit_rust_spec`.
+Table: [DESIGN.md](../../DESIGN.md) section 22, D-P4-1 - Code: `src/mc/plan.rs::McPlan`,
+`src/mc/smt_plan.rs::build_smt_spec`, `src/mc/smt_emit.rs::emit_rust_spec`.
 
 ### D-P4-2. Exact engine: level-synchronous BFS over configurations
 
@@ -460,7 +460,7 @@ reachable-state search: it terminates on finite state spaces, finds the
 SHORTEST counterexample by construction, and canonical ordering makes results
 reproducible across backends and runs.
 Table: [DESIGN.md](../../DESIGN.md) section 22, D-P4-2 - Code: `src/codegen/backends/rust/mc.rs::exact_codegen`,
-`src/ref_mc.rs::run`, `src/mc_plan.rs::TraversalSpec`.
+`src/mc/ref_mc.rs::run`, `src/mc/plan.rs::TraversalSpec`.
 
 ### D-P4-3. Input abstraction
 
@@ -472,8 +472,8 @@ values count as references). Soundness arguments for safety and liveness:
 **Why:** unreferenced fields cannot influence behavior, so collapsing them to
 one representative value shrinks the state space without losing any reachable
 behavioral distinction - the main scalability win for payload-heavy protocols.
-Table: [DESIGN.md](../../DESIGN.md) section 22, D-P4-3 - Code: `src/mc_plan.rs::InputAbstraction`,
-`src/mc_plan.rs::collect_input_is_refs`.
+Table: [DESIGN.md](../../DESIGN.md) section 22, D-P4-3 - Code: `src/mc/plan.rs::InputAbstraction`,
+`src/mc/plan.rs::collect_input_is_refs`.
 
 ### D-P4-4. Statuses and summary line
 
@@ -507,7 +507,7 @@ explores everything.
 **Why:** assumptions declare environment guarantees; pruning on them verifies
 the protocol under its contract, while the escape hatch keeps
 assumption-free (stress) verification available without spec edits.
-Table: [DESIGN.md](../../DESIGN.md) section 22, D-P4-6 - Code: `src/mc_plan.rs::McPlan`,
+Table: [DESIGN.md](../../DESIGN.md) section 22, D-P4-6 - Code: `src/mc/plan.rs::McPlan`,
 `src/codegen/mod.rs::AssumptionSelection`.
 
 ### D-P4-7. Modes and flags
@@ -552,7 +552,7 @@ warning, MC-only).
 atoms keeps the liveness algorithm (per-leaf progress automata) tractable and
 the monitor/MC split clean - monitors stay online-decidable, liveness stays an
 MC feature.
-Table: [DESIGN.md](../../DESIGN.md) section 22, D-P4-9 - Code: `src/mc_plan.rs::LivenessDecomposition`.
+Table: [DESIGN.md](../../DESIGN.md) section 22, D-P4-9 - Code: `src/mc/plan.rs::LivenessDecomposition`.
 
 ### D-P4-10. Liveness algorithm: per-leaf progress automata on the completed graph
 
@@ -568,8 +568,8 @@ corrected weak-until equation was validated against brute force before being
 trusted, and the bounded mode preserves soundness by never claiming
 pass-complete on a truncated analysis.
 Table: [DESIGN.md](../../DESIGN.md) section 22, D-P4-10 - Code:
-`src/mc_plan.rs::LivenessDecomposition`, `src/codegen/backends/rust/mc.rs::exact_codegen`,
-`src/ref_mc.rs::run`.
+`src/mc/plan.rs::LivenessDecomposition`, `src/codegen/backends/rust/mc.rs::exact_codegen`,
+`src/mc/ref_mc.rs::run`.
 
 ### D-P4-11. Fairness policy
 
@@ -601,8 +601,8 @@ oversized-literal comparison wrap, z3 5.3.1 C API deltas).
 bitvectors, and deriving it from the SAME shared plan keeps Rust/C parity by
 construction; feature-gating keeps the default toolchain dependency-free, and
 labeling every PASS incomplete preserves the soundness discipline of D-P4-4.
-Table: [DESIGN.md](../../DESIGN.md) section 22, D-P4-12 - Code: `src/smt_plan.rs::build_smt_spec`,
-`src/smt_emit.rs::emit_c_spec`.
+Table: [DESIGN.md](../../DESIGN.md) section 22, D-P4-12 - Code: `src/mc/smt_plan.rs::build_smt_spec`,
+`src/mc/smt_emit.rs::emit_c_spec`.
 
 ### D-P4-13. Benchmarks
 
@@ -1015,7 +1015,7 @@ Table: [DESIGN.md](../../DESIGN.md) section 24, D-P6-4 - Code: `fuzz/fuzz_target
 
 ### D-P6-5. The brute-force reference MC is an independent public lib module (task 3.2)
 
-`src/ref_mc.rs`: naive exhaustive reachable-state exploration implementing
+`src/mc/ref_mc.rs`: naive exhaustive reachable-state exploration implementing
 [SEMANTICS.md](../SEMANTICS.md) directly with DELIBERATELY different data structures from
 the generated engines (Vec frontier, plain HashMap configuration keys - NO
 bit-packing) and its own small property evaluator over recorded traces
@@ -1032,8 +1032,8 @@ generated Rust MC on all eligible examples + pinned specgen seeds.
 **Why:** an independent implementation is what makes the differential results
 meaningful - shared code would share bugs, so the reference deliberately
 re-implements everything with different structures and algorithms.
-Table: [DESIGN.md](../../DESIGN.md) section 24, D-P6-5 - Code: `src/ref_mc.rs::run`,
-`src/ref_mc.rs::step_trace`, `src/ref_mc.rs::verify_counterexample`.
+Table: [DESIGN.md](../../DESIGN.md) section 24, D-P6-5 - Code: `src/mc/ref_mc.rs::run`,
+`src/mc/ref_mc.rs::step_trace`, `src/mc/ref_mc.rs::verify_counterexample`.
 
 ### D-P6-6. Production-FSM cross-backend parity via thin drivers + identical seeded scripts (task 4.3)
 

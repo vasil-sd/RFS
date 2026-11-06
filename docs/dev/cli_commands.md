@@ -21,7 +21,7 @@ module map:
 | test | `src/cli/commands/test.rs::run_test` | dev:cli-commands-test |
 | diagram | `src/cli/commands/diagram/mod.rs::run_diagram` + the plugins in `src/cli/commands/diagram/` | dev:cli-commands-diagram |
 | codegen | `src/codegen/mod.rs` registry dispatch (via `src/main.rs::cmd_codegen`) | [codegen_core.md](codegen_core.md) |
-| mc-ref | `src/cli/commands/mc_ref.rs::run_mc_ref` over `src/ref_mc.rs` | dev:cli-commands-mc-ref-gen-spec |
+| mc-ref | `src/cli/commands/mc_ref.rs::run_mc_ref` over `src/mc/ref_mc.rs` | dev:cli-commands-mc-ref-gen-spec |
 | gen-spec | `src/cli/commands/gen_spec.rs::run_cli` over `src/lang/specgen.rs` | dev:cli-commands-mc-ref-gen-spec |
 
 **Exit-code convention.** 0 = success; 1 = ANY error (usage, parse,
@@ -331,7 +331,7 @@ ce_format }` with Default from the shared exact-mode constants
 (`src/codegen/mc_concepts.rs::EXACT_DEFAULT_MAX_STATES`,
 `src/codegen/mc_concepts.rs::EXACT_DEFAULT_TIMEOUT_SEC`). `src/cli/commands/mc_ref.rs::run_mc_ref`
 applies the shared file contract on the FIRST module, builds a RefConfig, and
-calls `src/ref_mc.rs::run` IN-PROCESS - no compilation (rapid prototyping in
+calls `src/mc/ref_mc.rs::run` IN-PROCESS - no compilation (rapid prototyping in
 shell/REPL; engine deep dive: dev:mc-engine-exact). Reports are UNIFIED with
 the generated exact-mode binaries: render_text or to_json_report (one compact
 line + trailing newline - the wire contract the parity suites check).

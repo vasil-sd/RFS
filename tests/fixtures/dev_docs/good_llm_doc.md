@@ -5,4 +5,4 @@
 ## Card
 
 One-line role: positive control for the sync gate. Key item:
-`src/mc_plan.rs::boolean_over_atoms`.
+`src/mc/plan.rs::boolean_over_atoms`.

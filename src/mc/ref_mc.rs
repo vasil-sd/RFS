@@ -13,7 +13,7 @@
 //!   different code);
 //! - representative inputs computed independently from the IR (the rule of
 //!   SEMANTICS.md section 9.3, reimplemented - not imported from
-//!   `src/mc_plan.rs`);
+//!   `src/mc/plan.rs`);
 //! - liveness via SCC analysis of its own product graph (iterative Tarjan +
 //!   self-loop check), different from the generated engine's BFS + stay-edge
 //!   subgraph + Kosaraju construction.
@@ -4954,9 +4954,9 @@ mod tests {
     // search/evaluation code (task file "Other information").
     #[test]
     fn independence_import_audit() {
-        let src = std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/src/ref_mc.rs"))
+        let src = std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/src/mc/ref_mc.rs"))
             .expect("read self");
-        for forbidden in ["mc_plan", "monitor", "codegen::fsm", "printer", "backends"] {
+        for forbidden in ["mc::plan", "monitor", "codegen::fsm", "printer", "backends"] {
             assert!(
                 !src.lines().any(|l| {
                     let t = l.trim();

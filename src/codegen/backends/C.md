@@ -1,7 +1,7 @@
 # C Codegen Backend
 
 Architecture and design decisions of the C target-language backend
-(`src/backends/c*.rs`). For the generic plugin API see `CODEGEN.md` at the
+(`src/codegen/backends/c/*.rs`). For the generic plugin API see `CODEGEN.md` at the
 repository root; for semantics see `DESIGN.md`; for the reference implementation
 see `RUST.md`.
 

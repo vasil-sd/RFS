@@ -14,7 +14,7 @@
 //! Docs: dev:mc-engine-overview, dev:mc-engine-smt, dev:algorithms-mc-engine, llm:mc-engine
 
 use crate::lang::ir::{Expr, Formula, Module};
-use crate::mc_plan::{McPlan, ValueDomain};
+use crate::mc::plan::{McPlan, ValueDomain};
 
 /// Expression node over (state, vars, payload fields) with references already
 /// resolved to indices. Mirrors the IR expression language.
@@ -452,7 +452,7 @@ fn fi_concrete(class: &SmtClass, name: &str) -> usize {
 fn convert_expr(
     e: &Expr,
     ctx: &ExprCtx,
-    variant: &crate::mc_plan::VariantInputSpec,
+    variant: &crate::mc::plan::VariantInputSpec,
 ) -> Result<Se, String> {
     match e {
         Expr::Int { value } => Ok(Se::Lit {
@@ -483,8 +483,8 @@ fn convert_expr(
                             .find(|fs| fs.name == *name)
                             .expect("field listed in class");
                         let (width, is_b) = match &fs.domain {
-                            Some(crate::mc_plan::ValueDomain::Bool) => (1u32, true),
-                            Some(crate::mc_plan::ValueDomain::Int { max }) => {
+                            Some(crate::mc::plan::ValueDomain::Bool) => (1u32, true),
+                            Some(crate::mc::plan::ValueDomain::Int { max }) => {
                                 (ceil_log2((*max as usize) + 1), false)
                             }
                             _ => unreachable!("concrete field domain"),
@@ -566,7 +566,7 @@ fn convert_formula(f: &Formula, ctx: &ExprCtx) -> Result<Sf, String> {
     match f {
         Formula::Expr { expr } => {
             // No payload context in properties: use an empty variant view.
-            let variant = crate::mc_plan::VariantInputSpec {
+            let variant = crate::mc::plan::VariantInputSpec {
                 group: String::new(),
                 variant: String::new(),
                 unique_name: String::new(),

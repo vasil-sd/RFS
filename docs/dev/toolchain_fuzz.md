@@ -106,7 +106,7 @@ IS the "no invalid target-language code" check). The MC binaries run in exact
 mode (shared small --max-states cap) AND fuzz mode; per spec the suite asserts:
 exit codes mirror the status taxonomy {0 pass-complete, 1 fail, 2 unknown-
 state-limit} and fuzz-mode runs stay in {0,1,2}; NO FALSE PASS - where
-`src/ref_mc.rs` (independent ground truth, D-P6-5) says Fail, a generated
+`src/mc/ref_mc.rs` (independent ground truth, D-P6-5) says Fail, a generated
 engine must NOT say pass-complete, with full status agreement per the task
 4.1 semantics; STABLE DIAGNOSTICS - each MC binary run twice yields byte-
 identical stderr. One documented asymmetry is handled like Phase 6 task 4.1:

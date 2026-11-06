@@ -45,8 +45,8 @@ statement:
   reference:
 
   ```text
-  src/mc_plan.rs              file-level reference
-  src/mc_plan.rs::some_item   item-level reference
+  src/mc/plan.rs              file-level reference
+  src/mc/plan.rs::some_item   item-level reference
   ```
 
 - **code-to-doc pointers**: every manifest-listed source file carries exactly

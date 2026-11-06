@@ -306,7 +306,7 @@ Conventions observed here (they bit us once - keep them when editing):
   SHADOWS the libFuzzer runtime's main: the binary then exits silently with
   code 0 without fuzzing.
 - libFuzzer args go AFTER `--` (`cargo fuzz run <t> -- -max_total_time=10`).
-- Random valid specs come from `src/specgen.rs` via the shared wrapper in
+- Random valid specs come from `src/lang/specgen.rs` via the shared wrapper in
   `fuzz/fuzz_targets/common.rs` (fuzzer bytes -> seed + bounds); raw IR types
   are deliberately NOT made `Arbitrary`.
 - The CI-runnable layer is `tests/toolchain_fuzz_test.rs` (plain `cargo test`);

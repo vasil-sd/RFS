@@ -20,71 +20,71 @@ flowchart TD
     end
 
     subgraph LANG["lang (6)"]
-        par["lang/parser.rs"]
-        err["lang/error.rs"]
-        ir["lang/ir.rs"]
-        pr["lang/printer.rs"]
-        val["lang/validator.rs"]
-        sg["lang/specgen.rs"]
+        par["parser.rs"]
+        err["error.rs"]
+        ir["ir.rs"]
+        pr["printer.rs"]
+        val["validator.rs"]
+        sg["specgen.rs"]
     end
 
     subgraph JSON["json (2)"]
-        jr["json/json_rw.rs"]
-        js["json/json_schema.rs"]
+        jr["json_rw.rs"]
+        js["json_schema.rs"]
     end
 
     subgraph UTILS["utils (1)"]
-        sh["utils/hash.rs"]
+        sh["hash.rs"]
     end
 
     subgraph CGEN["codegen core + monitor (5)"]
-        cg["codegen/mod.rs"]
-        cfs["codegen/fsm.rs"]
-        cmc["codegen/mc_concepts.rs"]
-        ct["codegen/test_plan.rs"]
-        mon["codegen/monitor.rs"]
+        cg["mod.rs"]
+        cfs["fsm.rs"]
+        cmc["mc_concepts.rs"]
+        ct["test_plan.rs"]
+        mon["monitor.rs"]
     end
 
     subgraph BACK["codegen/backends (9)"]
-        bm["codegen/backends/mod.rs"]
-        br["codegen/backends/rust/mod.rs"]
-        brf["codegen/backends/rust/fsm.rs"]
-        brm["codegen/backends/rust/mc.rs"]
-        brt["codegen/backends/rust/test.rs"]
-        bc["codegen/backends/c/mod.rs"]
-        bcf["codegen/backends/c/fsm.rs"]
-        bcm["codegen/backends/c/mc.rs"]
-        bct["codegen/backends/c/test.rs"]
+        bm["backends/mod.rs"]
+        br["rust/mod.rs"]
+        brf["rust/fsm.rs"]
+        brm["rust/mc.rs"]
+        brt["rust/test.rs"]
+        bc["c/mod.rs"]
+        bcf["c/fsm.rs"]
+        bcm["c/mc.rs"]
+        bct["c/test.rs"]
     end
 
-    subgraph MC["MC engine (4)"]
-        mp["mc_plan.rs"]
+    subgraph MC["mc (4)"]
+        mp["plan.rs"]
         sp["smt_plan.rs"]
         se["smt_emit.rs"]
         rm["ref_mc.rs"]
     end
 
     subgraph CLI["cli shared + info_format (5)"]
-        clog["cli/log.rs"]
-        fe["cli/frontend.rs"]
-        et["cli/ext_tool.rs"]
-        infm["cli/info_format/mod.rs"]
-        ebnf["cli/info_format/ebnf_grammar.rs"]
+        clog["log.rs"]
+        fe["frontend.rs"]
+        et["ext_tool.rs"]
+        infm["info_format/mod.rs"]
+        ebnf["info_format/ebnf_grammar.rs"]
     end
 
     subgraph CMDS["cli/commands (5)"]
-        inf["cli/commands/info.rs"]
-        gsc["cli/commands/gen_spec.rs"]
-        tc["cli/commands/test.rs"]
-        mrc["cli/commands/mc_ref.rs"]
-        dg["cli/commands/diagram/mod.rs"]
+        inf["info.rs"]
+        gsc["gen_spec.rs"]
+        tc["test.rs"]
+        mrc["mc_ref.rs"]
+        dg["diagram/mod.rs"]
     end
 
     subgraph DPLUG["diagram plugins (4)"]
-        dot["cli/commands/diagram/dot.rs"]
-        mmd["cli/commands/diagram/mermaid.rs"]
-        puml["cli/commands/diagram/plantuml.rs"]
-        tab["cli/commands/diagram/tables.rs"]
+        dot["dot.rs"]
+        mmd["mermaid.rs"]
+        puml["plantuml.rs"]
+        tab["tables.rs"]
     end
 
     subgraph BIN["bins + training (5)"]
@@ -312,10 +312,10 @@ Reading the graph:
   backend files reference `src/codegen/mod.rs` for the trait - the same pattern
   holds for `src/cli/commands/diagram/mod.rs` and its plugin files. These cycles are type-level
   only and are the price of the static-registry plugin pattern.
-- **The SMT path is a clean chain.** `src/smt_emit.rs` depends only on
-  `src/smt_plan.rs`, which depends on `src/mc_plan.rs`; both `*_mc` backends
+- **The SMT path is a clean chain.** `src/mc/smt_emit.rs` depends only on
+  `src/mc/smt_plan.rs`, which depends on `src/mc/plan.rs`; both `*_mc` backends
   consume the chain, and nothing else does.
-- **The reference checker stays independent.** `src/ref_mc.rs` depends on the
+- **The reference checker stays independent.** `src/mc/ref_mc.rs` depends on the
   IR, `src/json/json_rw.rs`, the parser, and the shared report concepts in
   `src/codegen/mc_concepts.rs` - never on the backends or the codegen registry.
 - **Workspace crates are standalone.** `rfs-build` and `rfs-adapters` have no
@@ -922,12 +922,12 @@ additionally uses `src/codegen/backends/rust/mod.rs::bit_rust_type` /
 `src/codegen/backends/rust/mc.rs::generate_model_checker` rejects `--no-std` and
 `--with-protocol-fsm` with the pinned errors from `src/codegen/mod.rs`; in
 `smt-bounded` mode it renders a standalone z3 binary from the shared plan
-(`src/smt_plan.rs::build_smt_spec` + `src/smt_emit.rs::emit_rust_spec`).
+(`src/mc/smt_plan.rs::build_smt_spec` + `src/mc/smt_emit.rs::emit_rust_spec`).
 Otherwise it reuses the production FSM core
 (`src/codegen/backends/rust/fsm.rs::generate_core` with `Always` monitors) and
 appends the exact-mode runtime rendered by
 `src/codegen/backends/rust/mc.rs::exact_codegen` from the codegen-time plan
-(`src/mc_plan.rs::McPlan`): the canonical `all_inputs` enumeration (via
+(`src/mc/plan.rs::McPlan`): the canonical `all_inputs` enumeration (via
 `domain_iter` / `rep_expr`), the `config_bytes` packing (via
 `var_value_expr`), the shared `mc_step_all`
 (`src/codegen/backends/rust/fsm.rs::render_mc_step_all`), the static BFS engine, the
@@ -963,7 +963,7 @@ flowchart TD
 ```
 
 `flatten_skeleton` is recursive (self-edge omitted). `exact_codegen`
-additionally calls `src/mc_plan.rs::LivenessDecomposition::compute` and the
+additionally calls `src/mc/plan.rs::LivenessDecomposition::compute` and the
 `src/codegen/backends/rust/mod.rs` helpers; `json_renderers_rust` calls
 `src/codegen/fsm.rs::build_variants`; `domain_iter` / `rep_expr` /
 `var_value_expr` use `src/codegen/ident.rs::rust_ident`.
@@ -1230,12 +1230,12 @@ calls `src/codegen/ident.rs::snake` for test-name normalization;
 `src/codegen/backends/c/mc.rs::generate_model_checker` rejects `--no-std` and
 `--with-protocol-fsm` with the pinned errors from `src/codegen/mod.rs`; in
 `smt-bounded` mode it renders a standalone z3 binary from the shared plan
-(`src/smt_plan.rs::build_smt_spec` + `src/smt_emit.rs::emit_c_spec`).
+(`src/mc/smt_plan.rs::build_smt_spec` + `src/mc/smt_emit.rs::emit_c_spec`).
 Otherwise it reuses the production FSM core
 (`src/codegen/backends/c/fsm.rs::generate_core` with `Always` monitors) and appends
 the exact-mode runtime rendered by
 `src/codegen/backends/c/mc.rs::exact_codegen_c` from the codegen-time plan
-(`src/mc_plan.rs::McPlan`): the shared trace/vars printers
+(`src/mc/plan.rs::McPlan`): the shared trace/vars printers
 (`shared_printers` -> `print_value_c`, byte-identical to the Rust MC's
 Debug format), the canonical `all_inputs` enumeration (via `domain_loop` /
 `rep_value_c` / `domain_size`), the `config_bytes` packing (via
@@ -1282,18 +1282,18 @@ flowchart TD
 ```
 
 `flatten_skeleton_c` is recursive (self-edge omitted). `exact_codegen_c`
-additionally calls `src/mc_plan.rs::LivenessDecomposition::compute` and the
+additionally calls `src/mc/plan.rs::LivenessDecomposition::compute` and the
 `src/codegen/backends/c/mod.rs` helpers; `shared_printers` / `json_renderers_c` call
 `src/codegen/fsm.rs::build_variants`; `domain_loop` / `rep_value_c` /
 `rep_input_c` / `var_value_c` use `src/codegen/backends/c/mod.rs::c_ident` /
 `src/codegen/backends/c/mod.rs::int_c_literal` / `src/codegen/backends/c/mod.rs::c_type`.
 
 <a id="dev:deps-fn-mc-engine"></a>
-### MC plan (`src/mc_plan.rs`)
+### MC plan (`src/mc/plan.rs`)
 
-`src/mc_plan.rs::McPlan` is the codegen-time plan computed once per module
+`src/mc/plan.rs::McPlan` is the codegen-time plan computed once per module
 and embedded as tables in both MC binaries (D-P4-1..3):
-`src/mc_plan.rs::McPlan::compute` builds the input abstraction
+`src/mc/plan.rs::McPlan::compute` builds the input abstraction
 (`referenced_fields` decides which payload fields stay concrete - referenced
 by guards/emit args/assignment values via `used_identifiers` /
 `collect_paths`, or constrained by `input_is` literals via
@@ -1302,9 +1302,9 @@ values), the configuration encoding (`monitor_layouts` -> `layout_for` ->
 `walk_node` assigns node ids and persistent-state bits; `config_encoding`
 packs state + vars + monitors into a byte layout via `type_bits` /
 `ceil_log2`), and the traversal spec (`traversal_spec`: canonical value
-domains + per-state firing order). `src/mc_plan.rs::LivenessDecomposition`
+domains + per-state firing order). `src/mc/plan.rs::LivenessDecomposition`
 (D-P4-9) decomposes liveness-bearing properties:
-`src/mc_plan.rs::LivenessDecomposition::compute` -> `contains_liveness` +
+`src/mc/plan.rs::LivenessDecomposition::compute` -> `contains_liveness` +
 `decompose_top` (obligations anywhere in the boolean skeleton; every other
 leaf must be `boolean_over_atoms`), producing the obligations + skeleton
 that both backends' liveness engines render.
@@ -1349,9 +1349,9 @@ flowchart TD
 additionally calls `src/codegen/fsm.rs::build_variants`; `monitor_layouts`
 calls `src/codegen/monitor.rs::compile_formula`.
 
-### Reference model checker (`src/ref_mc.rs`)
+### Reference model checker (`src/mc/ref_mc.rs`)
 
-`src/ref_mc.rs::run` is the independent ground-truth engine (imports only
+`src/mc/ref_mc.rs::run` is the independent ground-truth engine (imports only
 the IR + `src/codegen/mc_concepts.rs` report concepts - no backend code): it compiles
 the safety monitors with its own compiler (`compile_formula` ->
 `compile_check` -> `compile_signal`), decomposes liveness properties
@@ -1368,15 +1368,15 @@ progress automata: `leaf_signals` -> `compile_signal`, `leaf_bits` ->
 `eval_sig`, `prod_delta` limit vectors, `skel_eval`), and the
 counterexample is rendered by `trace_steps` + `liv_note`.
 
-The public surface around `run`: `src/ref_mc.rs::verify_counterexample`
+The public surface around `run`: `src/mc/ref_mc.rs::verify_counterexample`
 independently re-checks a reported counterexample (replay via
 `step_trace` -> `match_effect`, configuration checks via
 `check_initial` / `check_step_config`, property confirmation via
 `property_confirms_at` -> `mon_step`, liveness via `verify_lasso` ->
 `skel_eval` / `prod_delta`, deadlock via `verify_deadlock` ->
-`mon_from_key`); `src/ref_mc.rs::minimal_violation_labels` re-runs the BFS
+`mon_from_key`); `src/mc/ref_mc.rs::minimal_violation_labels` re-runs the BFS
 to collect all violated labels (`collect_min_labels`);
-`src/ref_mc.rs::render_text` / `src/ref_mc.rs::to_json_report` render the
+`src/mc/ref_mc.rs::render_text` / `src/mc/ref_mc.rs::to_json_report` render the
 unified report (`render_text_impl` -> `render_vars` / `render_input` /
 `render_output`). Expression evaluation is its own: `eval_expr` (with
 `bool_of` / `val_eq` / `mask`) typed by `expr_type` -> `binary_type` ->
@@ -1537,17 +1537,17 @@ flowchart TD
 `bin_prec` / `bin_str`, `needs_parens`, `expr_has_boolean_op`,
 `print_pattern_*`).
 
-### SMT bounded path (`src/smt_plan.rs` + `src/smt_emit.rs`)
+### SMT bounded path (`src/mc/smt_plan.rs` + `src/mc/smt_emit.rs`)
 
-`src/smt_plan.rs::build_smt_spec` converts a validated module +
-`src/mc_plan.rs::McPlan` into the language-agnostic `SmtSpec` (classes,
+`src/mc/smt_plan.rs::build_smt_spec` converts a validated module +
+`src/mc/plan.rs::McPlan` into the language-agnostic `SmtSpec` (classes,
 transitions, properties) shared by both SMT emitters: `convert_expr` /
 `convert_formula` lower IR expressions/formulas into the `Se` / `Sf` AST
 (concrete fields resolved via `fi_concrete`, variant names via
 `variant_name`, property tags via `formula_tag`), and `se_type` /
 `bit_op_type` compute the SMT-level types (mirroring the validator's
-`bit_op_type`). `src/smt_emit.rs::emit_rust_spec` and
-`src/smt_emit.rs::emit_c_spec` render the standalone z3 binaries from the
+`bit_op_type`). `src/mc/smt_emit.rs::emit_rust_spec` and
+`src/mc/smt_emit.rs::emit_c_spec` render the standalone z3 binaries from the
 same `SmtSpec`: `render_sf_rust` / `render_sf_c` render property formulas,
 `render_se_rust` / `render_se_c` render expressions (dispatching to
 `render_bool_bin_rust` / `render_bool_bin_c` for boolean ops,
@@ -1735,8 +1735,8 @@ outside the subset are skipped with a warning) and render the resulting
 `src/codegen/backends/rust/fsm.rs::render_sample_formula_evaluator` and
 `src/codegen/backends/c/fsm.rs::render_liv_sample_evaluator_c` call
 `src/codegen/monitor.rs::formula_to_signal` to render per-sample boolean evaluators
-for liveness leaves; `src/mc_plan.rs::monitor_layouts` (called from
-`src/mc_plan.rs::McPlan::compute`) calls `src/codegen/monitor.rs::compile_formula`
+for liveness leaves; `src/mc/plan.rs::monitor_layouts` (called from
+`src/mc/plan.rs::McPlan::compute`) calls `src/codegen/monitor.rs::compile_formula`
 to compute the monitor state layout embedded in both MC binaries;
 `src/cli/commands/info.rs::monitor_status` calls `src/codegen/monitor.rs::compile_formula` so
 that `info` reports the same R1-R4 monitor-subset status as codegen; and
@@ -1744,8 +1744,8 @@ that `info` reports the same R1-R4 monitor-subset status as codegen; and
 cross-check generated monitors against the reference interpreter.
 
 The SMT bounded path does not use the monitor compiler:
-`src/smt_plan.rs::build_smt_spec` lowers formulas directly into its own
-`Se` / `Sf` AST (see `dev:deps-fn-mc-engine`). Likewise `src/ref_mc.rs`
+`src/mc/smt_plan.rs::build_smt_spec` lowers formulas directly into its own
+`Se` / `Sf` AST (see `dev:deps-fn-mc-engine`). Likewise `src/mc/ref_mc.rs`
 carries its own independent monitor compiler (private `compile_formula` /
 `compile_check` / `compile_signal` over its own `Mon` / `Sig` types) as
 ground truth for the reference model checker. The monitor compiler in

@@ -88,7 +88,7 @@ active, every `.rfs` file gets syntax highlighting + snippets.
 
 ## Keeping the grammar in sync
 
-The parser's keyword list (`KEYWORDS` in `src/parser.rs`) is the single source
+The parser's keyword list (`KEYWORDS` in `src/lang/parser.rs`) is the single source
 of truth; a test asserts every keyword appears in this grammar (and that the
 list matches the parser's call sites). When the language grows, update the
 grammar and the test will tell you what is missing.

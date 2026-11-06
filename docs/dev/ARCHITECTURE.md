@@ -35,9 +35,9 @@ intermediate on-disk representation between stages.
      `src/codegen/backends/c/mod.rs`; shared codegen helpers live in
      `src/codegen/fsm.rs`, `src/codegen/mc_concepts.rs` and `src/codegen/test_plan.rs`.
    - *Model checking* plans are computed once per spec by
-     `src/mc_plan.rs::McPlan` and embedded in both backends' checker
-     binaries; the SMT path is rendered from `src/smt_plan.rs` by
-     `src/smt_emit.rs`, and `src/ref_mc.rs::run` provides the in-process
+     `src/mc/plan.rs::McPlan` and embedded in both backends' checker
+     binaries; the SMT path is rendered from `src/mc/smt_plan.rs` by
+     `src/mc/smt_emit.rs`, and `src/mc/ref_mc.rs::run` provides the in-process
      reference checker behind `rfs mc-ref`.
    - *Monitors* for PSL properties are compiled by
      `src/codegen/monitor.rs::compile_formula` into `src/codegen/monitor.rs::MonitorPlan`s
@@ -81,10 +81,10 @@ flowchart TD
     end
 
     subgraph MCE["MC engine support"]
-        MCP["src/mc_plan.rs (McPlan)"]
-        SMT["src/smt_plan.rs + src/smt_emit.rs"]
+        MCP["src/mc/plan.rs (McPlan)"]
+        SMT["src/mc/smt_plan.rs + src/mc/smt_emit.rs"]
         MON["src/codegen/monitor.rs (compile_formula)"]
-        REF["src/ref_mc.rs (rfs mc-ref)"]
+        REF["src/mc/ref_mc.rs (rfs mc-ref)"]
     end
 
     subgraph DIAG["Diagrams - src/cli/commands/diagram/mod.rs registry"]
@@ -140,10 +140,10 @@ flowchart TD
     end
 
     subgraph MCENG["Model checking"]
-        PLAN["McPlan (src/mc_plan.rs)"]
-        SMT["SMT path (src/smt_plan.rs, src/smt_emit.rs)"]
+        PLAN["McPlan (src/mc/plan.rs)"]
+        SMT["SMT path (src/mc/smt_plan.rs, src/mc/smt_emit.rs)"]
         MON["monitors (src/codegen/monitor.rs)"]
-        REF["reference checker (src/ref_mc.rs)"]
+        REF["reference checker (src/mc/ref_mc.rs)"]
     end
 
     subgraph DIAGRAMS["Diagrams (src/cli/commands/diagram/mod.rs registry)"]
@@ -181,11 +181,11 @@ flowchart TD
   struct-plus-function-pointer entries; adding a backend or a diagram format
   means registering one entry, not touching the dispatch.
 - **Parity by construction.** The model-checking plan is computed once in
-  Rust (`src/mc_plan.rs::McPlan`) and embedded in BOTH backends' checker
+  Rust (`src/mc/plan.rs::McPlan`) and embedded in BOTH backends' checker
   binaries, and the SMT spec is rendered from one backend-neutral source
-  (`src/smt_plan.rs`) into Rust (z3) and C (libz3) by `src/smt_emit.rs` - so
+  (`src/mc/smt_plan.rs`) into Rust (z3) and C (libz3) by `src/mc/smt_emit.rs` - so
   Rust/C checker behavior cannot drift apart at the plan level.
-- **Independent ground truth.** The reference checker `src/ref_mc.rs::run`
+- **Independent ground truth.** The reference checker `src/mc/ref_mc.rs::run`
   deliberately shares no code with the generated checkers; it is the oracle
   that cross-checks them (`rfs mc-ref`).
 - **Monitors are embedded, not linked.** `src/codegen/monitor.rs::compile_formula`

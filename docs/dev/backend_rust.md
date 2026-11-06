@@ -409,8 +409,8 @@ shapes:
 
 1. SmtBounded mode: a standalone z3-based binary - no FSM core, no exact/fuzz
    runtimes. The file = v1.0 header + the shared spec section
-   (`src/smt_emit.rs::emit_rust_spec` over
-   `src/smt_plan.rs::build_smt_spec(module, McPlan::compute(...))`, so both
+   (`src/mc/smt_emit.rs::emit_rust_spec` over
+   `src/mc/smt_plan.rs::build_smt_spec(module, McPlan::compute(...))`, so both
    backends build structurally identical constraints) + SMT_ENGINE_RUST with
    {BOUND} replaced by options.mc_smt_bound.
 2. Exact / fuzz (default): the production FSM core via generate_core (no unit
@@ -446,7 +446,7 @@ shapes:
   max_depth={}` + on fail ` reason={} label={} step={}` (deadlock uses
   label=- and the dead config's depth as step);
 - JSON_WRITER_RUST + json_renderers_rust - see below;
-- liveness (D-P4-9/10/11): `src/mc_plan.rs::LivenessDecomposition` compute
+- liveness (D-P4-9/10/11): `src/mc/plan.rs::LivenessDecomposition` compute
   (diagnostics become codegen WARNINGS), LIV_ENGINE, per-property leaf
   evaluators liv_p<i>_l<j>[b] via render_sample_formula_evaluator (Safety
   kind 0 / Eventually kind 1 / Until kind 2 with eval_b), flatten_skeleton
@@ -576,7 +576,7 @@ event lines).
 
 **Embedded-copy rule.** Because the generated binary cannot depend on this
 crate, rust_mc.rs embeds its own copies of the plan tables, parsing helpers,
-and JSON writer. The formats in `src/codegen/mc_concepts.rs` / `src/mc_plan.rs` are
+and JSON writer. The formats in `src/codegen/mc_concepts.rs` / `src/mc/plan.rs` are
 the SOURCE OF TRUTH - when a wire format changes, update both backends'
 emitters in the same change and extend the tests ([CODEGEN.md](../../CODEGEN.md) section 9).
 

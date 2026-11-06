@@ -79,3 +79,12 @@ cargo build && cargo test green; grep proves ref_mc has no intra-mc/ imports.
 
 ## Non-goals
 - No MC behavior change; test files not touched yet (task 9).
+
+## Task corrections
+
+| Correction | Description + rationale |
+|------------|-------------------------|
+| ref_mc independence audit updated in two places (task-4 lesson, 2nd occurrence) | The audit reads its own file via `concat!(env!("CARGO_MANIFEST_DIR"), "/src/ref_mc.rs")` - the path broke with the move and now points at `/src/mc/ref_mc.rs`. Its forbidden list carried the string `"mc_plan"`, which the rename to `mc::plan` would have silently vacated; updated to `"mc::plan"` so the contract keeps biting. Both changes are inside ref_mc.rs's test module - no functionality impact. |
+| Positive-control fixtures updated (task-3 lesson, 2nd occurrence) | `tests/fixtures/dev_docs/good_doc.md` + `good_llm_doc.md` reference real source paths (`src/mc_plan.rs::boolean_over_atoms`) and must track the tree - both repointed to `src/mc/plan.rs`. The negative-control fixtures are deliberately broken and stay untouched. |
+| DEPENDENCIES.md mermaid labels shortened to subgraph-relative form | The rebuilt graph with full-path node labels (e.g. `codegen/backends/rust/mod.rs`) tripped mermaid-rs-renderer's flowchart geometry validation (`endpoint_reentries: 2` panic in docs_md_test). Shortening every restructured subgraph's labels to the original convention (subgraph title carries the directory context: `rust/mod.rs` under "codegen/backends (9)", `parser.rs` under "lang (6)", ...) fixed the layout - docs gate 5/5. |
+| Stale refs from earlier sweeps found and fixed repo-wide | A final grep for EVERY Phase-11 old path across all live *.md surfaced stragglers no previous task had touched: `docs/SEMANTICS.md` (5 refs incl. its "normative sources" paragraph), `ide/README.md`, `CODEGEN.md` + `TOOLCHAIN.md` (dir-form / single refs), `KB.md` (bare-name mentions like `mc_plan.rs` without the src/ prefix + a `src/backends/` dir mention), `src/codegen/backends/{RUST,C}.md` (tasks 1-4 refs - these docs moved with the code in task 5 without a full sweep), and three START.md stragglers from the task-6 sweep. All fixed; the repo-wide grep now returns zero hits outside roadmap history / TASKS.md / the two inventories. |

@@ -98,10 +98,10 @@ fn prep(path: PathBuf) -> Result<Prep, String> {
     if let Err(e) = rfs::lang::validator::validate_ir(&ir) {
         return Err(format!("valid example failed validation: {e:?}"));
     }
-    let cfg = rfs::ref_mc::RefConfig::default();
-    let res = rfs::ref_mc::run(module, &cfg).map_err(|e| format!("ref_mc error: {e}"))?;
-    let text = rfs::ref_mc::render_text(&res, module);
-    let json = rfs::ref_mc::to_json_report(&res, module).to_json_string();
+    let cfg = rfs::mc::ref_mc::RefConfig::default();
+    let res = rfs::mc::ref_mc::run(module, &cfg).map_err(|e| format!("ref_mc error: {e}"))?;
+    let text = rfs::mc::ref_mc::render_text(&res, module);
+    let json = rfs::mc::ref_mc::to_json_report(&res, module).to_json_string();
     let exit = res.status.exit_code() as i32;
     let backend = rfs::codegen::get_backend("rust").expect("rust backend registered");
     let opts = rfs::codegen::BackendOptions::default();

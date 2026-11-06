@@ -1,6 +1,6 @@
 //! `rfs mc-ref` command logic (Phase 6 task 3, action 5 / D-P6-10).
 //!
-//! Runs the reference model checker (`crate::ref_mc`) in-process - no
+//! Runs the reference model checker (`crate::mc::ref_mc`) in-process - no
 //! compilation: rapid prototyping in shell/REPL. The pipeline is exposed as a
 //! lib function ([`run_mc_ref`]) so integration tests can call it without
 //! spawning the binary; [`run_cli`] is the thin argument-parsing shell for
@@ -26,7 +26,7 @@ use std::path::Path;
 use std::process::ExitCode;
 
 use crate::cli::frontend::{self, Format};
-use crate::ref_mc::{self, RefConfig};
+use crate::mc::ref_mc::{self, RefConfig};
 
 /// Counterexample report format on the wire.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

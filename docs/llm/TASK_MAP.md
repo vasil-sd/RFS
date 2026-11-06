@@ -28,7 +28,7 @@ Shared infrastructure: external tools `src/cli/ext_tool.rs::ExtTool` / `resolve`
 | test | dev:cli-commands-test | `src/cli/commands/test.rs::run_test`, `run_unit_suite`, `run_fuzz_c`, `run_fuzz_rust`, `render_script`; dispatch `src/main.rs::cmd_test` |
 | diagram | dev:cli-commands-diagram | `src/cli/commands/diagram/mod.rs::run_diagram`, `DIAGRAMS`, `DiagramPlugin`; plugins `src/cli/commands/diagram/dot.rs::DOT_PLUGIN`, `src/cli/commands/diagram/plantuml.rs::PUML_PLUGIN`, `src/cli/commands/diagram/mermaid.rs::MMD_PLUGIN`, `src/cli/commands/diagram/tables.rs::TABLE_PLUGIN` / `MD_PLUGIN`; dispatch `src/main.rs::cmd_diagram` |
 | codegen | dev:codegen-plugin-api | `src/codegen/mod.rs::parse_codegen_args`, `get_backend`, `list_backends`, `CodegenCommandKind::run`; backends `src/codegen/backends/rust/mod.rs` / `src/codegen/backends/c/mod.rs`; dispatch `src/main.rs::cmd_codegen` |
-| mc-ref | dev:cli-commands-mc-ref-gen-spec + dev:mc-engine-exact | `src/cli/commands/mc_ref.rs::run_mc_ref`, `exit_code_for`, `run_cli`; engine `src/ref_mc.rs::run` |
+| mc-ref | dev:cli-commands-mc-ref-gen-spec + dev:mc-engine-exact | `src/cli/commands/mc_ref.rs::run_mc_ref`, `exit_code_for`, `run_cli`; engine `src/mc/ref_mc.rs::run` |
 | gen-spec | dev:cli-commands-mc-ref-gen-spec | `src/cli/commands/gen_spec.rs::run_cli`, `generate_random`, `mutate_base`; engine `src/lang/specgen.rs::SpecGen`, `mutate_traced` |
 
 ### Frontend core (source -> IR -> validation)
@@ -60,11 +60,11 @@ Shared infrastructure: external tools `src/cli/ext_tool.rs::ExtTool` / `resolve`
 
 | Concern | Read fragment | Files/functions |
 |---|---|---|
-| Codegen-time plan | dev:mc-engine-plan | `src/mc_plan.rs::McPlan::compute` (pure function of module + assumption selection; config encoding = the visited-set buffer) |
-| Exact bounded checker (reference) | dev:mc-engine-exact | `src/ref_mc.rs::run`, `render_text`, `to_json_report` (ground truth, D-P6-5) |
-| Liveness analysis | dev:mc-engine-liveness | `src/ref_mc.rs` (position graph, product automaton, SCCs, lasso witness) |
-| Counterexample verification | dev:mc-engine-verify | `src/ref_mc.rs::verify_counterexample`, minimal violation labels |
-| SMT bounded mode | dev:mc-engine-smt | `src/smt_plan.rs` (k-step unrolling spec), `src/smt_emit.rs` (Rust z3 + C libz3 emitter) |
+| Codegen-time plan | dev:mc-engine-plan | `src/mc/plan.rs::McPlan::compute` (pure function of module + assumption selection; config encoding = the visited-set buffer) |
+| Exact bounded checker (reference) | dev:mc-engine-exact | `src/mc/ref_mc.rs::run`, `render_text`, `to_json_report` (ground truth, D-P6-5) |
+| Liveness analysis | dev:mc-engine-liveness | `src/mc/ref_mc.rs` (position graph, product automaton, SCCs, lasso witness) |
+| Counterexample verification | dev:mc-engine-verify | `src/mc/ref_mc.rs::verify_counterexample`, minimal violation labels |
+| SMT bounded mode | dev:mc-engine-smt | `src/mc/smt_plan.rs` (k-step unrolling spec), `src/mc/smt_emit.rs` (Rust z3 + C libz3 emitter) |
 | PSL -> monitor compiler | dev:monitor-compiler-overview (+ -signals / -nodes / -compile / -reference) | `src/codegen/monitor.rs::compile_formula`, `MonitorPlan`, `ReferenceMonitor` |
 
 ### Workspace crates (deep dive dev:workspace-crates-overview)
@@ -113,7 +113,7 @@ Shared infrastructure: external tools `src/cli/ext_tool.rs::ExtTool` / `resolve`
 | tests/docs_md_test.rs | mdr-stack doc-quality gate over docs/user/ | dev:index |
 | tests/library_comparison.rs | parser-library comparison (nom vs chumsky smoke) - records the decision | dev:parser-overview |
 
-## Coverage (all 86 manifest files)
+## Coverage (all 87 manifest files)
 
 Sync-gate requirement: every source file listed in tests/dev_docs_manifest.txt
 must appear below as a doc→code reference (tests/dev_docs_test.rs enforces
@@ -163,10 +163,11 @@ above.
 - `src/codegen/backends/c/fsm.rs` - C backend: production FSM source generation
 - `src/codegen/backends/c/mc.rs` - C backend: model-checker executable generation (same wire format as Rust)
 - `src/codegen/backends/c/test.rs` - C backend: unit-test / fuzz-target generation
-- `src/mc_plan.rs` - codegen-time plan for the exact MC engine (embedded in both binaries)
-- `src/smt_plan.rs` - backend-neutral SMT spec for k-step unrolling over z3 bitvectors
-- `src/smt_emit.rs` - shared SMT emitter: renders the spec into Rust (z3 crate) and C (libz3)
-- `src/ref_mc.rs` - brute-force reference model checker (ground truth, rfs mc-ref)
+- `src/mc/mod.rs` - module root of the model-checking cluster (plan + smt pair + ref_mc)
+- `src/mc/plan.rs` - codegen-time plan for the exact MC engine (embedded in both binaries)
+- `src/mc/smt_plan.rs` - backend-neutral SMT spec for k-step unrolling over z3 bitvectors
+- `src/mc/smt_emit.rs` - shared SMT emitter: renders the spec into Rust (z3 crate) and C (libz3)
+- `src/mc/ref_mc.rs` - brute-force reference model checker (ground truth, rfs mc-ref; no intra-mc/ imports)
 - `src/codegen/monitor.rs` - PSL-to-monitor compiler: formulas to MonitorPlan
 - `src/lang/specgen.rs` - seeded random spec generator + incremental mutation
 - `crates/rfs-build/src/lib.rs` - rfs-build: the build.rs helper API for RFS codegen

@@ -42,7 +42,7 @@ one plan, rendered identically in Rust and C.
 - Pinned formats: line-1 artifact header, test names + random-trace line, fuzz decode wire format + LCG constants/seed, config_bytes layout, exact summary line + statistics block, JSON key ordering + escape contract, SMT naming/order/witness format.
 - Generated artifacts stay dependency-free and deterministic (declaration order everywhere); the fuzz skeleton stays a separate file; the aggregate crate keeps its empty [workspace] table.
 - no_std: only the header may change - the body is byte-identical (pinned by the compile sweep over all 50 valid examples x both monitor modes).
-- Generated binaries embed their own copies of plan tables / parsing helpers / JSON writer - format changes must update both backends' emitters in the same change (source of truth: src/codegen/mc_concepts.rs, src/mc_plan.rs).
+- Generated binaries embed their own copies of plan tables / parsing helpers / JSON writer - format changes must update both backends' emitters in the same change (source of truth: src/codegen/mc_concepts.rs, src/mc/plan.rs).
 
 **Change impact.** Placement rule first (CODEGEN.md section 2); verify with
 cargo test --test codegen_test + backend_parity_test + liveness_mc_test +

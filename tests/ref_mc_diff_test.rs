@@ -199,8 +199,8 @@ fn run_mc_json(bin: &Path, extra_args: &[&str]) -> (i32, rfs::json::json_rw::Jso
 // ref_mc side (in-process)
 // ---------------------------------------------------------------------------
 
-fn ref_cfg() -> rfs::ref_mc::RefConfig {
-    rfs::ref_mc::RefConfig {
+fn ref_cfg() -> rfs::mc::ref_mc::RefConfig {
+    rfs::mc::ref_mc::RefConfig {
         max_states: MAX_STATES,
         timeout_sec: TIMEOUT_SEC,
         assume_arg: "all".to_string(),
@@ -209,8 +209,11 @@ fn ref_cfg() -> rfs::ref_mc::RefConfig {
 
 /// The ref JSON document, rendered through the SAME unified report model as
 /// the generated binaries (D-P6-10) - directly comparable.
-fn ref_json_doc(module: &rfs::Module, res: &rfs::ref_mc::RefResult) -> rfs::json::json_rw::Json {
-    rfs::ref_mc::to_json_report(res, module).to_json()
+fn ref_json_doc(
+    module: &rfs::Module,
+    res: &rfs::mc::ref_mc::RefResult,
+) -> rfs::json::json_rw::Json {
+    rfs::mc::ref_mc::to_json_report(res, module).to_json()
 }
 
 // ---------------------------------------------------------------------------
@@ -359,7 +362,7 @@ fn json_ce(doc: &rfs::json::json_rw::Json) -> rfs::codegen::mc_concepts::JsonCou
 fn compare_one(name: &str, ir: &rfs::Ir) {
     let module = &ir.modules[0];
     // --- ref_mc ground truth (in-process). ---
-    let res = match rfs::ref_mc::run(module, &ref_cfg()) {
+    let res = match rfs::mc::ref_mc::run(module, &ref_cfg()) {
         Ok(r) => r,
         Err(e) => {
             // Documented asymmetry (ref_mc::run docs): an assumption already
@@ -445,7 +448,7 @@ fn compare_one(name: &str, ir: &rfs::Ir) {
                     reason,
                     rfs::codegen::mc_concepts::FailReason::PropertyViolation
                 ) {
-                    let labels = rfs::ref_mc::minimal_violation_labels(module, &ref_cfg())
+                    let labels = rfs::mc::ref_mc::minimal_violation_labels(module, &ref_cfg())
                         .unwrap_or_else(|e| panic!("[{name}] minimal labels: {e}"));
                     assert!(
                         !labels.is_empty() && labels.contains(&label),
@@ -474,7 +477,7 @@ fn compare_one(name: &str, ir: &rfs::Ir) {
                 // deadlock CEs use the run's terminal monitor projection to
                 // re-derive the SEMANTICS 8.4 pruning judgment).
                 let ce = json_ce(&doc);
-                rfs::ref_mc::verify_counterexample(
+                rfs::mc::ref_mc::verify_counterexample(
                     module,
                     &ref_cfg(),
                     reason,
@@ -540,9 +543,9 @@ fn tiny_state_limit_never_pass_complete() {
     let ir = rfs::parse_source(&src).expect("parse");
     let module = &ir.modules[0];
 
-    let res = rfs::ref_mc::run(
+    let res = rfs::mc::ref_mc::run(
         module,
-        &rfs::ref_mc::RefConfig {
+        &rfs::mc::ref_mc::RefConfig {
             max_states: 1000,
             timeout_sec: TIMEOUT_SEC,
             assume_arg: "all".to_string(),
@@ -591,7 +594,7 @@ fn mc_ref_cli_matches_in_process_and_generated_engine() {
         let module = &ir.modules[0];
 
         // In-process ground truth.
-        let res = rfs::ref_mc::run(module, &ref_cfg()).expect("ref run");
+        let res = rfs::mc::ref_mc::run(module, &ref_cfg()).expect("ref run");
         assert_eq!(want_exit, res.status.exit_code(), "pinned exit for {rel}");
         let want_doc = ref_json_doc(module, &res).to_string_compact();
 

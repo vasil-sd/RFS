@@ -2,7 +2,7 @@
 
 Normative semantics of the RFS v1 language surface as implemented by the
 toolchain. This document is the reference that Phase 6 tasks implement and test
-against: the brute-force reference model checker (`src/ref_mc.rs`, task 3.2) and
+against: the brute-force reference model checker (`src/mc/ref_mc.rs`, task 3.2) and
 the independent evaluators (tasks 4.4/4.5) are coded directly from it, so any
 document/implementation mismatch surfaces as a test failure.
 
@@ -120,7 +120,7 @@ expression atoms, and assignment values must type-check as shown above.
     guard (one uniform form for literal and variable amounts), multiplication
     computes in a uint64_t-wide intermediate, and
     `examples/valid/50_wide_ops.rfs` + `tests/wide_ops_parity_test.rs` pin the
-    boundary behavior cross-backend (see `src/backends/C.md` section 4).
+    boundary behavior cross-backend (see `src/codegen/backends/C.md` section 4).
     Generated C is now well-defined for all inputs.
 
 ### 2.3 Events and outputs
@@ -683,7 +683,7 @@ successor of that input is pruned by an active assumption monitor. Notes:
 ### 9.1 Architecture
 
 The model checker is GENERATED per backend from ONE shared codegen-time plan
-(`src/mc_plan.rs`): input abstraction analysis, configuration encoding layout,
+(`src/mc/plan.rs`): input abstraction analysis, configuration encoding layout,
 canonical traversal spec, and liveness obligation decomposition are computed
 once in the Rust tool and embedded as constants/tables in BOTH generated
 binaries, so behavior is identical by construction. The generated MC binary
@@ -894,15 +894,16 @@ completeness guarantees above apply to exact mode only.
 ## 10. Cross-references
 
 **Normative sources this document was verified against (implementation ground
-truth):** `src/mc_plan.rs` (abstraction analysis, configuration encoding,
-canonical traversal spec, liveness decomposition), `src/monitor.rs` (MonitorPlan
-compiler + reference interpreter - the executable spec of section 5),
-`src/codegen_mc.rs` (status taxonomy, summary line, forced-violation wire
-format, phase strategy, JSON report model), `src/backends/rust_fsm.rs` /
-`c_fsm.rs` (transition lowering, simultaneous updates, on_error, step/commit,
-monitor rendering), `src/backends/rust_mc.rs` / `c_mc.rs` (exact engine,
-liveness engine, fuzz runtime), `src/validator.rs` + `src/parser.rs` (accepted
-surface: priorities, duplicates, patterns, typing).
+truth):** `src/mc/plan.rs` (abstraction analysis, configuration encoding,
+canonical traversal spec, liveness decomposition), `src/codegen/monitor.rs`
+(MonitorPlan compiler + reference interpreter - the executable spec of section
+5), `src/codegen/mc_concepts.rs` (status taxonomy, summary line, forced-violation
+wire format, phase strategy, JSON report model),
+`src/codegen/backends/rust/fsm.rs` / `c/fsm.rs` (transition lowering,
+simultaneous updates, on_error, step/commit, monitor rendering),
+`src/codegen/backends/rust/mc.rs` / `c/mc.rs` (exact engine, liveness engine,
+fuzz runtime), `src/lang/validator.rs` + `src/lang/parser.rs` (accepted surface:
+priorities, duplicates, patterns, typing).
 
 **Design documents:** `DESIGN.md` sections 2-4 (architecture, core semantics,
 MC constraints), 11 (model-checking plan incl. liveness algorithm and the
@@ -917,7 +918,7 @@ decisions D1-D10: priorities, on_error, version header, C type mapping), 21
 `docs/user/PROPERTIES.md`, `docs/user/MODEL_CHECKING.md` derive their semantics
 from this document; `docs/user/FAQ.md` covers abstraction and assumptions.
 
-**Executable references:** the brute-force reference MC (`src/ref_mc.rs`,
+**Executable references:** the brute-force reference MC (`src/mc/ref_mc.rs`,
 Phase 6 task 3.2) implements sections 2-9 directly with deliberately different
 data structures; the differential suites (Phase 6 tasks 4.x) cross-check it
 against the generated engines.

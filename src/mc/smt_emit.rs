@@ -18,7 +18,7 @@
 //! backends build structurally identical formulas.
 //! Docs: dev:mc-engine-overview, dev:mc-engine-smt, dev:algorithms-mc-engine, llm:mc-engine
 
-use crate::smt_plan::{se_type, Sb, Se, SeType, Sf, SmtSpec};
+use crate::mc::smt_plan::{se_type, Sb, Se, SeType, Sf, SmtSpec};
 
 /// Global concrete-field ordering: all classes in order, fields within a class
 /// in order. Both emitters use this index for the `fld` step-variable arrays.
@@ -444,7 +444,7 @@ pub fn emit_rust_spec(spec: &SmtSpec) -> String {
         "const N_CLASSES: usize = {};\n",
         spec.classes.len()
     ));
-    let cls_bits = crate::smt_plan::ceil_log2_pub(spec.classes.len());
+    let cls_bits = crate::mc::smt_plan::ceil_log2_pub(spec.classes.len());
     s.push_str(&format!("const CLS_BITS: u32 = {cls_bits};\n"));
     let fnames: Vec<String> = spec
         .classes
@@ -498,7 +498,7 @@ pub fn emit_rust_spec(spec: &SmtSpec) -> String {
         "/// 0 = always (safety), 1 = eventually (liveness).\nconst PROP_KINDS: &[u8] = &{:?};\n",
         spec.properties
             .iter()
-            .map(|p| u8::from(p.kind == crate::smt_plan::SmtPropKind::Eventually))
+            .map(|p| u8::from(p.kind == crate::mc::smt_plan::SmtPropKind::Eventually))
             .collect::<Vec<_>>()
     ));
 
@@ -1070,7 +1070,7 @@ pub fn emit_c_spec(spec: &SmtSpec) -> String {
         c_str_list(&cnames)
     ));
     s.push_str(&format!("#define N_CLASSES {0}u\n", spec.classes.len()));
-    let cls_bits = crate::smt_plan::ceil_log2_pub(spec.classes.len());
+    let cls_bits = crate::mc::smt_plan::ceil_log2_pub(spec.classes.len());
     s.push_str(&format!("#define CLS_BITS {cls_bits}u\n"));
     let fnames: Vec<String> = spec
         .classes
@@ -1148,7 +1148,7 @@ pub fn emit_c_spec(spec: &SmtSpec) -> String {
         .properties
         .iter()
         .map(|p| {
-            (if p.kind == crate::smt_plan::SmtPropKind::Eventually {
+            (if p.kind == crate::mc::smt_plan::SmtPropKind::Eventually {
                 1
             } else {
                 0
@@ -1285,7 +1285,7 @@ pub fn emit_c_spec(spec: &SmtSpec) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::smt_plan::{SmtClass, SmtProp, SmtPropKind, SmtTrans, SmtVar};
+    use crate::mc::smt_plan::{SmtClass, SmtProp, SmtPropKind, SmtTrans, SmtVar};
 
     /// Minimal spec for renderer tests: 2 states, vars counter(bit<8>)/flag(bool)/big(bit<16>),
     /// classes Go_F(x:bit<8>, y:bit<16>, ok:bool) and Noop().

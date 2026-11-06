@@ -380,7 +380,7 @@ next to the contract documentation.
 
 **Where exact mode actually runs.** This module holds the CONCEPTS; the shared
 exact-mode plan (input abstraction, state encoding, canonical traversal,
-liveness decomposition - D-P4-1) is computed once in `src/mc_plan.rs` and
+liveness decomposition - D-P4-1) is computed once in `src/mc/plan.rs` and
 embedded as constants/tables by both backends (deep dive: task 11.1); the SMT
 path (`smt_plan.rs` / `smt_emit.rs`) is task 11.2.
 

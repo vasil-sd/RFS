@@ -354,8 +354,8 @@ Code: `src/codegen/backends/c/fsm.rs::generate_production`,
 PRODUCTION_ONLY_ERROR`, `src/codegen/mod.rs::PROTOCOL_FSM_MC_ERROR`). Three shapes:
 
 - SmtBounded mode: a standalone libz3 binary - v1.0 header + the shared spec
-  section rendered by `src/smt_emit.rs::emit_c_spec` from
-  `src/smt_plan.rs::build_smt_spec` over `src/mc_plan.rs::McPlan` +
+  section rendered by `src/mc/smt_emit.rs::emit_c_spec` from
+  `src/mc/smt_plan.rs::build_smt_spec` over `src/mc/plan.rs::McPlan` +
   SMT_ENGINE_C with {BOUND} <- mc_smt_bound; no FSM core, no exact/fuzz
   runtimes. Both backends build identical constraints from the shared plan
   (parity by construction, D-P4-12);
@@ -408,7 +408,7 @@ no liveness properties), EXACT_RUN_C.
 
 **SMT_ENGINE_C.** C mirror of SMT_ENGINE_RUST: DEFAULT_BOUND <- {BOUND}. Parity-critical: step variables are z3 constants with FIXED names in fixed order s_i / v_i_j / ev_i / fld_i_g, constraints asserted in fixed order, queries in fixed order safety-then-liveness declaration order; two-arg Z3_mk_and/Z3_mk_or over 2-element arrays (the C counterpart of the Rust b_and/b_or wrappers - identical constraint trees). Unrolling: enabled_t = state match and class match and guard (firing order); fire_t = enabled and no earlier transition enabled (first match, prefix-OR chain); alive_i = alive_{i-1} and any_fire; next state/vars via ITE chains. Safety query viol_p = exists i<k: alive_i and not phi_p(i) -> FAIL + pinned summary line exit 1. Liveness query never_p (phi holds at no alive step) and cycle (exists a<b: identical (state, vars)) -> FAIL reason=liveness-violation + cycle length exit 1. Unknown -> UNKNOWN (solver inconclusive within bound {k}) + status=unknown exit 2. All Unsat -> PASS WITHIN BOUND {k} (incomplete - no completeness claim) + status=pass-within-bound exit 0. smt_print_trace emits the pinned witness format. Targets the z3 5.3.1 API surface (Z3_L_UNDEF, no Z3_del_solver, Z3_model_eval bool + out-ast) - one solver build shared with the Rust backend.
 
-**Embedded-copy rule.** Because the generated binary cannot depend on this crate, c_mc.rs embeds its own copies of the plan tables, parsing helpers, and JSON writer. The formats in `src/codegen/mc_concepts.rs` / `src/mc_plan.rs` are the SOURCE OF TRUTH - when a wire format changes, update both backends' emitters in the same change and extend the tests ([CODEGEN.md](../../CODEGEN.md) section 9).
+**Embedded-copy rule.** Because the generated binary cannot depend on this crate, c_mc.rs embeds its own copies of the plan tables, parsing helpers, and JSON writer. The formats in `src/codegen/mc_concepts.rs` / `src/mc/plan.rs` are the SOURCE OF TRUTH - when a wire format changes, update both backends' emitters in the same change and extend the tests ([CODEGEN.md](../../CODEGEN.md) section 9).
 
 Code: `src/codegen/backends/c/mc.rs::generate_model_checker`,
 `src/codegen/backends/c/mc.rs::shared_printers`,
@@ -433,8 +433,8 @@ Code: `src/codegen/backends/c/mc.rs::generate_model_checker`,
 `src/codegen/backends/c/mc.rs::SMT_ENGINE_C`,
 `src/codegen/mod.rs::NO_STD_PRODUCTION_ONLY_ERROR`,
 `src/codegen/mod.rs::PROTOCOL_FSM_MC_ERROR`,
-`src/mc_plan.rs::McPlan`, `src/mc_plan.rs::LivenessDecomposition`,
-`src/smt_plan.rs::build_smt_spec`, `src/smt_emit.rs::emit_c_spec`,
+`src/mc/plan.rs::McPlan`, `src/mc/plan.rs::LivenessDecomposition`,
+`src/mc/smt_plan.rs::build_smt_spec`, `src/mc/smt_emit.rs::emit_c_spec`,
 `src/codegen/fsm.rs::RepValue`, `src/utils/rng.rs::Rng`,
 `src/codegen/mc_concepts.rs::McConfig`, `src/lang/printer.rs::print_formula`,
 `src/codegen/ident.rs::rust_ident`, `src/json/json_rw.rs`
@@ -485,7 +485,7 @@ Code: `src/codegen/backends/c/test.rs::generate_unit_tests`,
 
 One plan, two renderings: both backends consume the same codegen plans
 (`src/codegen/fsm.rs::build_variants`, `src/codegen/test_plan.rs::build_test_plan`,
-`src/mc_plan.rs::McPlan`, `src/mc_plan.rs::LivenessDecomposition`, the shared
+`src/mc/plan.rs::McPlan`, `src/mc/plan.rs::LivenessDecomposition`, the shared
 SMT spec) - differences are target syntax only (placement rule: [CODEGEN.md](../../CODEGEN.md)
 section 2). The Rust twin of each file is src/codegen/backends/rust/*.rs (deep dive:
 [backend_rust.md](backend_rust.md)).
@@ -508,8 +508,8 @@ section 2). The Rust twin of each file is src/codegen/backends/rust/*.rs (deep d
   statistics block identical; JSON key ordering + escape contract identical
   (embedded copies of the same writer); lasso / deadlock / trace
   counterexample fields byte-identical.
-- SMT: same shared spec section (`src/smt_plan.rs::build_smt_spec` /
-  `src/smt_emit.rs::emit_c_spec`), fixed variable names / constraint order /
+- SMT: same shared spec section (`src/mc/smt_plan.rs::build_smt_spec` /
+  `src/mc/smt_emit.rs::emit_c_spec`), fixed variable names / constraint order /
   query order, one libz3 build (5.3.1).
 - Fuzz runtime: same LCG constants + seed defaults + phase-ordered input
   selection; same summary line.
@@ -524,9 +524,9 @@ tests/liveness_mc_test.rs (lasso fields + truncated-mode soundness),
 tests/benchmark_mc_test.rs (performance).
 
 Code: `src/codegen/fsm.rs::build_variants`,
-`src/codegen/test_plan.rs::build_test_plan`, `src/mc_plan.rs::McPlan`,
-`src/mc_plan.rs::LivenessDecomposition`,
-`src/smt_plan.rs::build_smt_spec`, `src/smt_emit.rs::emit_c_spec`,
+`src/codegen/test_plan.rs::build_test_plan`, `src/mc/plan.rs::McPlan`,
+`src/mc/plan.rs::LivenessDecomposition`,
+`src/mc/smt_plan.rs::build_smt_spec`, `src/mc/smt_emit.rs::emit_c_spec`,
 `src/codegen/ident.rs::snake`, `tests/backend_parity_test.rs`,
 `tests/prod_parity_test.rs`, `tests/wide_ops_parity_test.rs`,
 `tests/liveness_mc_test.rs`, `tests/benchmark_mc_test.rs`

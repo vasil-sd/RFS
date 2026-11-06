@@ -448,7 +448,7 @@ Refs: [parsing theory, automata, compiler construction](REFERENCES.md#parsing-au
 
 The model-checking subsystem has three engines over one codegen-time plan:
 the generated EXACT engine (Rust and C binaries rendered from `McPlan`),
-an INDEPENDENT reference checker (`src/ref_mc.rs`, ground truth for
+an INDEPENDENT reference checker (`src/mc/ref_mc.rs`, ground truth for
 differential testing and the `rfs mc-ref` command), and an optional SMT
 BOUNDED path (z3 k-step unrolling). All three report through the shared
 status taxonomy and report formats of `src/codegen/mc_concepts.rs` (section above),
@@ -504,8 +504,8 @@ flowchart TD
     LVQ -->|no| PASS
 ```
 
-Code: `src/mc_plan.rs::McPlan`, `src/ref_mc.rs::run`,
-`src/smt_plan.rs::build_smt_spec`, `src/codegen/mc_concepts.rs::ExactStatus`
+Code: `src/mc/plan.rs::McPlan`, `src/mc/ref_mc.rs::run`,
+`src/mc/smt_plan.rs::build_smt_spec`, `src/codegen/mc_concepts.rs::ExactStatus`
 
 ### L2 - Key data structures and invariants
 
@@ -564,11 +564,11 @@ only; concrete payload fields N <= 64.
 taxonomy (exit codes 0/1/2) and the parity-pinned summary line; SMT adds
 mode=smt-bounded with statuses pass-within-bound / fail / unknown.
 
-Code: `src/mc_plan.rs::InputAbstraction`,
-`src/mc_plan.rs::ConfigEncoding`, `src/mc_plan.rs::TraversalSpec`,
-`src/mc_plan.rs::LivenessDecomposition`,
-`src/mc_plan.rs::boolean_over_atoms`, `src/ref_mc.rs::RefResult`,
-`src/smt_plan.rs::SmtSpec`, `src/codegen/mc_concepts.rs::exact_summary_line`
+Code: `src/mc/plan.rs::InputAbstraction`,
+`src/mc/plan.rs::ConfigEncoding`, `src/mc/plan.rs::TraversalSpec`,
+`src/mc/plan.rs::LivenessDecomposition`,
+`src/mc/plan.rs::boolean_over_atoms`, `src/mc/ref_mc.rs::RefResult`,
+`src/mc/smt_plan.rs::SmtSpec`, `src/codegen/mc_concepts.rs::exact_summary_line`
 
 ### L3 - Implementation details (important ones emphasized)
 
@@ -579,7 +579,7 @@ Code: `src/mc_plan.rs::InputAbstraction`,
    configuration-key tuples instead of bit-packing, its own expression
    evaluator and its own online monitor compiler (same documented
    semantics as `src/codegen/monitor.rs`, different code), its own representative-
-   input rule (SEMANTICS 9.3, not imported from `src/mc_plan.rs`), and
+   input rule (SEMANTICS 9.3, not imported from `src/mc/plan.rs`), and
    iterative Tarjan SCC instead of the generated engine's BFS + stay-edge
    subgraph + Kosaraju construction. It imports only std, the IR types,
    and the shared report data types / formatting helpers - enforced by
@@ -637,11 +637,11 @@ Code: `src/mc_plan.rs::InputAbstraction`,
     them by name - z3 hash-consing returns the SAME node, so both
     backends build structurally identical formulas.
 
-Code: `src/ref_mc.rs::bnode_key`, `src/ref_mc.rs::match_effect`,
-`src/ref_mc.rs::mon_step`, `src/ref_mc.rs::liv_analyze`,
-`src/ref_mc.rs::verify_counterexample`, `src/ref_mc.rs::step_trace`,
-`src/smt_plan.rs::SmtTrans`, `src/smt_emit.rs::emit_rust_spec`,
-`src/smt_emit.rs::emit_c_spec`,
+Code: `src/mc/ref_mc.rs::bnode_key`, `src/mc/ref_mc.rs::match_effect`,
+`src/mc/ref_mc.rs::mon_step`, `src/mc/ref_mc.rs::liv_analyze`,
+`src/mc/ref_mc.rs::verify_counterexample`, `src/mc/ref_mc.rs::step_trace`,
+`src/mc/smt_plan.rs::SmtTrans`, `src/mc/smt_emit.rs::emit_rust_spec`,
+`src/mc/smt_emit.rs::emit_c_spec`,
 `src/codegen/backends/rust/mc.rs::SMT_ENGINE_RUST`
 
 Refs: [model checking, SMT/SAT solving](REFERENCES.md#model-checking-smt-sat-solving)
@@ -849,7 +849,7 @@ Code: `src/codegen/monitor.rs::SignalExpr`, `src/codegen/monitor.rs::SignalAtom`
    as generated code.
 8. **Out-of-subset handling is uniform.** `compile_formula` returns
    `Err(msg)`; the backends emit the identical warning text and generate no
-   monitor, and `src/mc_plan.rs::monitor_layouts` skips them in the MC state
+   monitor, and `src/mc/plan.rs::monitor_layouts` skips them in the MC state
    layout (no monitor, no state). The `info` command reports the same R1-R4
    status (`monitored` / `skipped: <reason>`) so it never disagrees with
    generated code. Liveness operators are a separate rejection (D-P4-8) -
@@ -857,6 +857,6 @@ Code: `src/codegen/monitor.rs::SignalExpr`, `src/codegen/monitor.rs::SignalAtom`
 
 Code: `src/codegen/monitor.rs::step_node`, `src/codegen/monitor.rs::min_trigger_at`,
 `src/codegen/backends/rust/fsm.rs::emit_monitors`,
-`src/codegen/backends/c/fsm.rs::emit_monitors`, `src/mc_plan.rs::monitor_layouts`
+`src/codegen/backends/c/fsm.rs::emit_monitors`, `src/mc/plan.rs::monitor_layouts`
 
 Refs: [model checking, SMT/SAT solving](REFERENCES.md#model-checking-smt-sat-solving)

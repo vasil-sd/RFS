@@ -1063,14 +1063,14 @@ fn ce_trace_walk_ref_mc_in_process() {
     for (key, src, want_kind) in cases {
         let ir = rfs::parse_source(&src).unwrap_or_else(|e| panic!("{key} must parse: {e}"));
         let module = &ir.modules[0];
-        let res = rfs::ref_mc::run(module, &rfs::ref_mc::RefConfig::default())
+        let res = rfs::mc::ref_mc::run(module, &rfs::mc::ref_mc::RefConfig::default())
             .unwrap_or_else(|e| panic!("{key}: ref_mc: {e}"));
         assert_eq!(
             res.status,
             rfs::codegen::mc_concepts::ExactStatus::Fail,
             "{key}"
         );
-        let report = rfs::ref_mc::to_json_report(&res, module).to_json();
+        let report = rfs::mc::ref_mc::to_json_report(&res, module).to_json();
         let ce = report
             .get("counterexample")
             .cloned()
@@ -1436,50 +1436,52 @@ fn mc_report_walk_ref_mc_in_process() {
     let ir = rfs::parse_source(&pass_src).expect("43 must parse");
     let module = &ir.modules[0];
 
-    let res = rfs::ref_mc::run(module, &rfs::ref_mc::RefConfig::default()).expect("ref_mc 43");
+    let res =
+        rfs::mc::ref_mc::run(module, &rfs::mc::ref_mc::RefConfig::default()).expect("ref_mc 43");
     assert_eq!(
         res.status,
         rfs::codegen::mc_concepts::ExactStatus::PassComplete
     );
     walk_mc_report(
-        &rfs::ref_mc::to_json_report(&res, module).to_json(),
+        &rfs::mc::ref_mc::to_json_report(&res, module).to_json(),
         "ref_mc/43_pass",
     );
 
     let ir = rfs::parse_source(common::fail_variants::RING_NO_GRANT_SRC)
         .expect("ring_no_grant must parse");
     let module = &ir.modules[0];
-    let res =
-        rfs::ref_mc::run(module, &rfs::ref_mc::RefConfig::default()).expect("ref_mc ring_no_grant");
+    let res = rfs::mc::ref_mc::run(module, &rfs::mc::ref_mc::RefConfig::default())
+        .expect("ref_mc ring_no_grant");
     assert_eq!(res.status, rfs::codegen::mc_concepts::ExactStatus::Fail);
     walk_mc_report(
-        &rfs::ref_mc::to_json_report(&res, module).to_json(),
+        &rfs::mc::ref_mc::to_json_report(&res, module).to_json(),
         "ref_mc/ring_no_grant",
     );
 
     let dl_src = common::fail_variants::spec_source("04_tcp_handshake_like.rfs");
     let ir = rfs::parse_source(&dl_src).expect("04 must parse");
     let module = &ir.modules[0];
-    let res = rfs::ref_mc::run(module, &rfs::ref_mc::RefConfig::default()).expect("ref_mc 04");
+    let res =
+        rfs::mc::ref_mc::run(module, &rfs::mc::ref_mc::RefConfig::default()).expect("ref_mc 04");
     assert_eq!(res.status, rfs::codegen::mc_concepts::ExactStatus::Fail);
     walk_mc_report(
-        &rfs::ref_mc::to_json_report(&res, module).to_json(),
+        &rfs::mc::ref_mc::to_json_report(&res, module).to_json(),
         "ref_mc/ex04_deadlock",
     );
 
     let ir = rfs::parse_source(&pass_src).expect("43 must parse");
     let module = &ir.modules[0];
-    let cfg = rfs::ref_mc::RefConfig {
+    let cfg = rfs::mc::ref_mc::RefConfig {
         max_states: 1,
         ..Default::default()
     };
-    let res = rfs::ref_mc::run(module, &cfg).expect("ref_mc 43 capped");
+    let res = rfs::mc::ref_mc::run(module, &cfg).expect("ref_mc 43 capped");
     assert_eq!(
         res.status,
         rfs::codegen::mc_concepts::ExactStatus::UnknownStateLimit
     );
     walk_mc_report(
-        &rfs::ref_mc::to_json_report(&res, module).to_json(),
+        &rfs::mc::ref_mc::to_json_report(&res, module).to_json(),
         "ref_mc/43_unknown",
     );
 }

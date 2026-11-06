@@ -79,11 +79,12 @@ src/lang/specgen.rs
 src/lang/validator.rs
 src/lib.rs
 src/main.rs
-src/mc_plan.rs
 
-src/ref_mc.rs
-src/smt_emit.rs
-src/smt_plan.rs
+src/mc/mod.rs
+src/mc/plan.rs
+src/mc/ref_mc.rs
+src/mc/smt_emit.rs
+src/mc/smt_plan.rs
 src/utils/hash.rs
 
 src/training.rs

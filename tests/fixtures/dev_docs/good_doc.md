@@ -8,7 +8,7 @@ reference below resolves, and every fragment defined here is owned by
 ## Good section
 
 The parser entry point lives in `src/lang/parser.rs`, the IR root type is
-`src/lang/ir.rs::Ir`, and `src/mc_plan.rs::boolean_over_atoms` is a real
+`src/lang/ir.rs::Ir`, and `src/mc/plan.rs::boolean_over_atoms` is a real
 top-level function.
 
 <a id="dev:fixture-second"></a>

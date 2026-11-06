@@ -1957,3 +1957,21 @@ PHASE 8 IS NOW COMPLETE.
 - DEPENDENCIES.md file-level mermaid graph FULLY REBUILT (correction): bare node labels were stale since before Phase 11 (invisible to every src/-path script) - ~35 labels updated, subgraphs restructured to the post-task-7 tree, merged dm node deleted with 7 edges resolved (dm-->inf -> dg-->inf, rest subsumed), 174->167 edges, intro count 86.
 - Verification: cargo build warning-free; cargo test 535/535 exact baseline (diagram byte-pins + cross-renderer parity prove plugin output identity); dev_docs_test 9/9; fmt clean after plugin import-order normalization; zero old-path refs grep-verified in code + all live/root docs.
 - `PHASE_11_TASK_7_STATUS.md` written per FORMATTING.md §6.2; three task corrections recorded. Committed as one commit.
+
+## 2026-11-06 16:40 — Phase 11 task 8 (complete): mc/ cluster moved - the last source move; src/ root now exactly {lib, main, training}; repo-wide stale-ref sweep finished
+
+### Interpretation & plan
+
+- Requested: execute Phase 11 task 8 per `docs/roadmap/phase_11/tasks/PHASE_11_TASK_8.md` - move mc_plan->mc/plan (renamed), smt_plan/smt_emit/ref_mc -> mc/ unrenamed, create mc/mod.rs, script the import rewrites, keep ref_mc's independence contract intact.
+- Standing user direction: root-level + all live *.md stay in sync.
+
+### Report
+
+- Moves: git mv x4 (mc/plan.rs byte-identical; smt_plan 5 + smt_emit 6 sibling import rewrites; ref_mc 6 lines = audit self-read path /src/mc/ref_mc.rs + forbidden list "mc_plan"->"mc::plan" (rename would have vacated it) + doc-comment path). NEW src/mc/mod.rs (//! Docs: -> new dev:code-map-mc fragment). lib.rs four pub-mods -> pub mod mc; (10 root modules).
+- Import sites scripted: backends/{rust,c}/mc.rs 17 each (mc_plan x16 + smt pair), cli/commands/mc_ref.rs ({self, RefConfig} form keeps unqualified calls working + bare doc mention), tests {info_format_test 15, ref_mc_diff 10, ref_mc_diag 4, ref_mc_sweep 4, toolchain_fuzz 3}. No fuzz/crates lockstep (zero refs).
+- Independence contract: grep-verified ref_mc imports nothing from within src/mc/ (only codegen::mc_concepts + lang::ir - both outside the directory); the in-file audit test passes with its updated path + forbidden list.
+- Docs re-sync: manifest 86->87; CODE_MAP new "MC engine (src/mc/) (5 files)" section + fragment, Codegen core+backends 19->15 (also fixed a pre-existing count bug - the old "MC engine (4)" subsection carried 5 bullets incl. monitor.rs, now in Codegen core (6)); TASK_MAP grouped coverage block + header 87; 425 live-doc refs rewritten (mc_engine.md 255); DEPENDENCIES.md mermaid MC subgraph retitled/relabeled - and ALL restructured subgraph labels shortened to the original subgraph-relative convention because full-path labels tripped mermaid-rs-renderer's geometry validation (endpoint_reentries panic in docs_md_test).
+- Repo-wide stale-ref sweep (final grep for EVERY Phase-11 old path): fixed stragglers no earlier task had touched - docs/SEMANTICS.md (5 refs incl. the "normative sources" paragraph), ide/README.md, TOOLCHAIN.md, CODEGEN.md dir-form ref, KB.md bare-name + dir mentions, src/codegen/backends/{RUST,C}.md (tasks 1-4 refs in the docs that moved with the code in task 5), three START.md stragglers. Live-doc tree now fully consistent: zero hits outside roadmap history / TASKS.md / the two inventories.
+- Positive-control fixtures good_doc.md + good_llm_doc.md repointed (src/mc_plan.rs::boolean_over_atoms -> src/mc/plan.rs) - second occurrence of the task-3 fixture lesson.
+- Verification: cargo build warning-free; cargo test 535/535 exact baseline (ref-MC sweep/differential/diag + toolchain-fuzz ground truth green); dev_docs_test 9/9; docs_md_test 5/5; fmt clean; full move set verified - every plan-mapping path exists at its new location and src/ root = {lib.rs, main.rs, training.rs} exactly.
+- `PHASE_11_TASK_8_STATUS.md` written per FORMATTING.md §6.2; four task corrections recorded. Committed as one commit.

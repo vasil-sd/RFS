@@ -56,12 +56,12 @@ links both ways. The pointer scope is driven by `tests/dev_docs_manifest.txt`.
   sync walker for the IR wire format: `src/json/json_schema.rs::SchemaDoc`.
 
 <a id="dev:code-map-codegen"></a>
-## Codegen core + backends (19 files)
+## Codegen core + backends (15 files)
 
 - `src/codegen/backends/mod.rs` - backend plugin modules: registration entries per
   target language.
 
-### Codegen core (5)
+### Codegen core (6)
 
 - `src/codegen/mod.rs` - codegen backend API + plugin registry: the `Backend`
   trait (name, description, commands), the static registry
@@ -83,6 +83,10 @@ links both ways. The pointer scope is driven by `tests/dev_docs_manifest.txt`.
 - `src/codegen/test_plan.rs` - unit-test planning shared by all backends:
   `TestPlan`, input/output cases (`InputCase`, `OutputCase`, `VarValue`),
   transition expectations (`TransitionExpectation`, `OnCase`).
+- `src/codegen/monitor.rs` - PSL-to-monitor compiler: formulas to
+  `src/codegen/monitor.rs::MonitorPlan` via `src/codegen/monitor.rs::compile_formula`, with
+  an unsupported-formula fallback. Deep dive:
+  `dev:monitor-compiler-overview` / `llm:monitor-compiler`.
 
 ### Rust backend (4)
 
@@ -111,23 +115,23 @@ links both ways. The pointer scope is driven by `tests/dev_docs_manifest.txt`.
 - `src/codegen/backends/c/test.rs` - C backend: unit-test / fuzz-target
   generation (`generate_unit_tests`, `emit_fuzz_target_c`).
 
-### MC engine (4)
+<a id="dev:code-map-mc"></a>
+## MC engine (`src/mc/`) (5 files)
 
-- `src/mc_plan.rs` - codegen-time plan for the exact MC engine, computed once
-  and embedded in both backends' binaries: `src/mc_plan.rs::McPlan`. Deep
+- `src/mc/mod.rs` - module root of the model-checking cluster (plan + the
+  inseparable smt_plan/smt_emit pair + the independent ref_mc engine).
+- `src/mc/plan.rs` - codegen-time plan for the exact MC engine, computed once
+  and embedded in both backends' binaries: `src/mc/plan.rs::McPlan`. Deep
   dive: `dev:mc-engine-overview` / `llm:mc-engine`.
-- `src/smt_plan.rs` - backend-neutral SMT spec for k-step unrolling over z3
+- `src/mc/smt_plan.rs` - backend-neutral SMT spec for k-step unrolling over z3
   bitvectors: `SmtSpec`, expression types `Se`, `Sb`, `Sf`, variables
   `SmtVar`.
-- `src/smt_emit.rs` - shared SMT emitter: renders the spec into Rust (z3
+- `src/mc/smt_emit.rs` - shared SMT emitter: renders the spec into Rust (z3
   crate) and C (libz3): `emit_rust_spec`, `emit_c_spec`.
-- `src/ref_mc.rs` - brute-force reference model checker, the ground truth
-  behind `rfs mc-ref`: `src/ref_mc.rs::run` with `RefConfig` / `RefResult`;
-  independent of the generated checkers (shares only IR + report concepts).
-- `src/codegen/monitor.rs` - PSL-to-monitor compiler: formulas to
-  `src/codegen/monitor.rs::MonitorPlan` via `src/codegen/monitor.rs::compile_formula`, with
-  an unsupported-formula fallback. Deep dive:
-  `dev:monitor-compiler-overview` / `llm:monitor-compiler`.
+- `src/mc/ref_mc.rs` - brute-force reference model checker, the ground truth
+  behind `rfs mc-ref`: `src/mc/ref_mc.rs::run` with `RefConfig` / `RefResult`;
+  independent of the generated checkers (shares only IR + report concepts) -
+  no intra-mc/ imports, audit-tested in-file.
 
 <a id="dev:code-map-cli-surface"></a>
 ## CLI surface (`src/cli/`) (16 files)

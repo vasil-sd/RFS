@@ -23,7 +23,7 @@ print! so redirected bytes are exact.
 | test | `src/cli/commands/test.rs::run_test` | dev:cli-commands-test |
 | diagram | `src/cli/commands/diagram/mod.rs::run_diagram` + plugins in `src/cli/commands/diagram/` | dev:cli-commands-diagram |
 | codegen | `src/codegen/mod.rs` registry dispatch (via `src/main.rs::cmd_codegen`) | docs/dev/codegen_core.md |
-| mc-ref | `src/cli/commands/mc_ref.rs::run_mc_ref` over `src/ref_mc.rs` in-process | dev:cli-commands-mc-ref-gen-spec |
+| mc-ref | `src/cli/commands/mc_ref.rs::run_mc_ref` over `src/mc/ref_mc.rs` in-process | dev:cli-commands-mc-ref-gen-spec |
 | gen-spec | `src/cli/commands/gen_spec.rs::run_cli` over `src/lang/specgen.rs` | dev:cli-commands-mc-ref-gen-spec |
 
 **Key items.**

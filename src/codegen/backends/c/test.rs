@@ -24,8 +24,8 @@
 //! require. The CLI writes it next to `--out` (stdout mode is refused).
 //! Docs: dev:backend-c-overview, dev:backend-c-test, llm:backend-c
 
-use crate::backends::c::{bit_c_type, c_ident};
-use crate::backends::rust::snake;
+use crate::codegen::backends::c::{bit_c_type, c_ident};
+use crate::codegen::ident::snake;
 use crate::codegen::{BackendOptions, CodegenOutput, ExtraFile};
 use crate::codegen::fsm::{self, FsmVariants, VariantInfo};
 use crate::codegen::test_plan::{
@@ -355,11 +355,11 @@ fn render_invariant_test_c(
     let label = snake(&inv.label);
     let prefix = format!("rfs_inv_{label}");
     let (input_pats, output_pats) =
-        crate::backends::c_fsm::collect_liv_signal_patterns(&inv.signal);
+        crate::codegen::backends::c::fsm::collect_liv_signal_patterns(&inv.signal);
     let mut out = String::new();
     for (i, p) in input_pats.iter().enumerate() {
         out.push_str(
-            &crate::backends::c_fsm::input_is_sample_helper_c(&prefix, i, p, variants).ok_or_else(
+            &crate::codegen::backends::c::fsm::input_is_sample_helper_c(&prefix, i, p, variants).ok_or_else(
                 || {
                     vec![format!(
                         "invariant '{}': unresolvable input pattern",
@@ -371,7 +371,7 @@ fn render_invariant_test_c(
     }
     for (i, p) in output_pats.iter().enumerate() {
         out.push_str(
-            &crate::backends::c_fsm::output_has_sample_helper_c(&prefix, i, p, variants)
+            &crate::codegen::backends::c::fsm::output_has_sample_helper_c(&prefix, i, p, variants)
                 .ok_or_else(|| {
                     vec![format!(
                         "invariant '{}': unresolvable output pattern",
@@ -380,7 +380,7 @@ fn render_invariant_test_c(
                 })?,
         );
     }
-    let sig = crate::backends::c_fsm::render_signal_expr_c(
+    let sig = crate::codegen::backends::c::fsm::render_signal_expr_c(
         module,
         &inv.signal,
         &prefix,
@@ -794,7 +794,7 @@ pub fn generate_unit_tests(
             crate::codegen::NO_STD_PRODUCTION_ONLY_ERROR.to_string()
         ]);
     }
-    let prod = crate::backends::c_fsm::generate_core(
+    let prod = crate::codegen::backends::c::fsm::generate_core(
         module,
         options,
         crate::codegen::PropertyMonitorMode::Always,

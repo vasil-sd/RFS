@@ -185,9 +185,9 @@ collection is an error.
 **Generation.** `src/bin/generate_code_tests.rs`: flags --test-steps N
 (default 4) and --assumes all|none|labels (default All); builds
 `src/codegen/mod.rs::BackendOptions` and calls
-`src/backends/rust_test.rs::generate_aggregate_test_crate` (the extended shared
+`src/codegen/backends/rust/test.rs::generate_aggregate_test_crate` (the extended shared
 test planner rendered by the Rust test backend - deep dive
-[backend_rust.md](backend_rust.md)), then `src/backends/rust_test.rs::write_generated_crate`
+[backend_rust.md](backend_rust.md)), then `src/codegen/backends/rust/test.rs::write_generated_crate`
 under target/rfs_codegen_tests. Warnings stream to stderr; codegen errors fail
 the build.
 
@@ -199,5 +199,5 @@ under target/ (never checked in); its size grows with spec + valid-snippet
 coverage (current counts: [KB.md](../../KB.md) section 1).
 
 Code: `src/bin/generate_code_tests.rs`, `src/bin/test_generated_code.rs`,
-`src/backends/rust_test.rs::generate_aggregate_test_crate`,
-`src/backends/rust_test.rs::write_generated_crate`
+`src/codegen/backends/rust/test.rs::generate_aggregate_test_crate`,
+`src/codegen/backends/rust/test.rs::write_generated_crate`

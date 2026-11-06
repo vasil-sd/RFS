@@ -71,9 +71,12 @@ links both ways. The pointer scope is driven by `tests/dev_docs_manifest.txt`.
   sync walker for the IR wire format: `src/json/json_schema.rs::SchemaDoc`.
 
 <a id="dev:code-map-codegen"></a>
-## Codegen core + backends (18 files)
+## Codegen core + backends (19 files)
 
-### Codegen core (4)
+- `src/codegen/backends/mod.rs` - backend plugin modules: registration entries per
+  target language.
+
+### Codegen core (5)
 
 - `src/codegen/mod.rs` - codegen backend API + plugin registry: the `Backend`
   trait (name, description, commands), the static registry
@@ -89,38 +92,39 @@ links both ways. The pointer scope is driven by `tests/dev_docs_manifest.txt`.
   backends: `McConfig`, violation reporting (`ViolationSpec`, `McPhase`,
   `McStatus`, `ExactStatus`), assume-selection parsing
   `parse_assume_selection`.
+- `src/codegen/ident.rs` - identifier-mangling utilities shared by BOTH backends
+  (`snake`, `rust_ident`, `rust_binding_ident` + the Rust keyword table) - the
+  neutral home that resolves the former C->Rust-backend coupling.
 - `src/codegen/test_plan.rs` - unit-test planning shared by all backends:
   `TestPlan`, input/output cases (`InputCase`, `OutputCase`, `VarValue`),
   transition expectations (`TransitionExpectation`, `OnCase`).
 
-### Rust backend (5)
+### Rust backend (4)
 
-- `src/backends/mod.rs` - backend plugin modules: registration entries per
-  target language.
-- `src/backends/rust.rs` - Rust backend: plugin registration
-  (`src/backends/rust.rs::RUST_BACKEND` + command info `PRODUCTION_INFO`,
-  `TEST_INFO`, `MC_INFO`) and shared Rust helpers. Deep dive:
+- `src/codegen/backends/rust/mod.rs` - Rust backend: plugin registration
+  (`src/codegen/backends/rust/mod.rs::RUST_BACKEND` + command info
+  `PRODUCTION_INFO`, `TEST_INFO`, `MC_INFO`) and shared Rust helpers. Deep dive:
   `dev:backend-rust-overview` / `llm:backend-rust`.
-- `src/backends/rust_fsm.rs` - Rust backend: production FSM source generation
-  (`src/backends/rust_fsm.rs::generate_production`).
-- `src/backends/rust_mc.rs` - Rust backend: model-checker executable
-  generation (`src/backends/rust_mc.rs::generate_model_checker`).
-- `src/backends/rust_test.rs` - Rust backend: unit-test / fuzz /
+- `src/codegen/backends/rust/fsm.rs` - Rust backend: production FSM source
+  generation (`src/codegen/backends/rust/fsm.rs::generate_production`).
+- `src/codegen/backends/rust/mc.rs` - Rust backend: model-checker executable
+  generation (`src/codegen/backends/rust/mc.rs::generate_model_checker`).
+- `src/codegen/backends/rust/test.rs` - Rust backend: unit-test / fuzz /
   aggregate-crate generation (`generate_unit_tests`, `emit_fuzz_target`,
   `generate_aggregate_test_crate`).
 
 ### C backend (4)
 
-- `src/backends/c.rs` - C backend: plugin registration
-  (`src/backends/c.rs::C_BACKEND`) and shared C helpers. Deep dive:
+- `src/codegen/backends/c/mod.rs` - C backend: plugin registration
+  (`src/codegen/backends/c/mod.rs::C_BACKEND`) and shared C helpers. Deep dive:
   `dev:backend-c-overview` / `llm:backend-c`.
-- `src/backends/c_fsm.rs` - C backend: production FSM source generation
-  (`src/backends/c_fsm.rs::generate_production`).
-- `src/backends/c_mc.rs` - C backend: model-checker executable generation
-  (`src/backends/c_mc.rs::generate_model_checker`) - same runtime wire format
-  as the Rust checker.
-- `src/backends/c_test.rs` - C backend: unit-test / fuzz-target generation
-  (`generate_unit_tests`, `emit_fuzz_target_c`).
+- `src/codegen/backends/c/fsm.rs` - C backend: production FSM source generation
+  (`src/codegen/backends/c/fsm.rs::generate_production`).
+- `src/codegen/backends/c/mc.rs` - C backend: model-checker executable
+  generation (`src/codegen/backends/c/mc.rs::generate_model_checker`) - same
+  runtime wire format as the Rust checker.
+- `src/codegen/backends/c/test.rs` - C backend: unit-test / fuzz-target
+  generation (`generate_unit_tests`, `emit_fuzz_target_c`).
 
 ### MC engine (4)
 

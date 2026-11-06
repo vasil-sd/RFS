@@ -31,8 +31,8 @@ intermediate on-disk representation between stages.
    - *Production FSM code*, *model-checker executables* and *unit/fuzz tests*
      are generated through the backend plugin registry
      `src/codegen/mod.rs::BACKENDS` (lookup: `src/codegen/mod.rs::get_backend`), with
-     the Rust and C backends registered in `src/backends/rust.rs` /
-     `src/backends/c.rs`; shared codegen helpers live in
+     the Rust and C backends registered in `src/codegen/backends/rust/mod.rs` /
+     `src/codegen/backends/c/mod.rs`; shared codegen helpers live in
      `src/codegen/fsm.rs`, `src/codegen/mc_concepts.rs` and `src/codegen/test_plan.rs`.
    - *Model checking* plans are computed once per spec by
      `src/mc_plan.rs::McPlan` and embedded in both backends' checker

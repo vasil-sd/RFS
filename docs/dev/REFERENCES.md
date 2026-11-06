@@ -19,7 +19,7 @@ work covers, then which RFS component uses it.
 
 ### Automata theory
 
-- **Hopcroft, Motwani, Ullman - Introduction to Automata Theory, Languages, and Computation (3rd ed., Cambridge University Press).** The standard reference on finite automata, regular languages, and NFA/DFA conversion. RFS uses: the generated production artifact is a finite-state machine over event inputs (`src/backends/rust_fsm.rs`, `src/backends/c_fsm.rs`); monitor check trees are evaluated as per-sample state machines over traces (`src/codegen/monitor.rs`).
+- **Hopcroft, Motwani, Ullman - Introduction to Automata Theory, Languages, and Computation (3rd ed., Cambridge University Press).** The standard reference on finite automata, regular languages, and NFA/DFA conversion. RFS uses: the generated production artifact is a finite-state machine over event inputs (`src/codegen/backends/rust/fsm.rs`, `src/codegen/backends/c/fsm.rs`); monitor check trees are evaluated as per-sample state machines over traces (`src/codegen/monitor.rs`).
 
 ### Compiler construction
 
@@ -35,8 +35,8 @@ component uses it.
 
 ### Model checking
 
-- **Clarke, Grumberg, Peled - Model Checking (MIT Press, 1999).** The standard text on model checking: state-space exploration, LTL model checking via Büchi automata, fairness, and cycle detection. RFS uses: the exact engine's reachable-state BFS (`src/mc_plan.rs`, `src/ref_mc.rs`); liveness checking by product-graph analysis with limit vectors and cycle (SCC) detection (`src/ref_mc.rs`; generated engines in `src/backends/rust_mc.rs`, `src/backends/c_mc.rs`).
-- **Robert Tarjan - "Depth-first search and linear-time algorithms for strongly-connected components" (Journal of the ACM 20(4), 1973).** The classic linear-time SCC algorithm. RFS uses: liveness cycle analysis - `src/ref_mc.rs` runs iterative Tarjan on its own product graph; the generated engines use Kosaraju's two-pass DFS over the stay-edge subgraph (`src/backends/rust_mc.rs`, `src/backends/c_mc.rs`).
+- **Clarke, Grumberg, Peled - Model Checking (MIT Press, 1999).** The standard text on model checking: state-space exploration, LTL model checking via Büchi automata, fairness, and cycle detection. RFS uses: the exact engine's reachable-state BFS (`src/mc_plan.rs`, `src/ref_mc.rs`); liveness checking by product-graph analysis with limit vectors and cycle (SCC) detection (`src/ref_mc.rs`; generated engines in `src/codegen/backends/rust/mc.rs`, `src/codegen/backends/c/mc.rs`).
+- **Robert Tarjan - "Depth-first search and linear-time algorithms for strongly-connected components" (Journal of the ACM 20(4), 1973).** The classic linear-time SCC algorithm. RFS uses: liveness cycle analysis - `src/ref_mc.rs` runs iterative Tarjan on its own product graph; the generated engines use Kosaraju's two-pass DFS over the stay-edge subgraph (`src/codegen/backends/rust/mc.rs`, `src/codegen/backends/c/mc.rs`).
 - **IEEE 1850 - Standard for Property Specification Language (PSL).** The IEEE standard defining PSL, a temporal property specification language for verification. RFS uses: the property/assumption language is a PSL-like subset - `next` / `always` / `bounded_eventually[N]` / `eventually` / `until` with standard PSL/CTL precedence (`src/lang/parser.rs`, `src/codegen/monitor.rs`).
 
 ### SMT/SAT solving

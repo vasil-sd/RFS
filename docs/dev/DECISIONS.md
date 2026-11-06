@@ -31,8 +31,8 @@ rejected as primary; diagrams are generated only; statecharts not in v0.
 **Why:** the style is familiar to Rust users, maps directly onto `match` in
 generated code, and supports bindings/guards/actions in one construct; it
 requires clear priority semantics, which 9.4 provides.
-Table: [DESIGN.md](../../DESIGN.md) section 9.2 - Code: `src/backends/rust_fsm.rs::transition_block`,
-`src/backends/c_fsm.rs::transition_block_c`.
+Table: [DESIGN.md](../../DESIGN.md) section 9.2 - Code: `src/codegen/backends/rust/fsm.rs::transition_block`,
+`src/codegen/backends/c/fsm.rs::transition_block_c`.
 
 ### 9.3 Data model - fixed-width finite types (`bool`, enums, `bit<N>`)
 
@@ -44,7 +44,7 @@ complete for small systems, and fixed-width types map directly onto primitive
 integers in both backends; unbounded or side-effecting types would make MC
 impossible or unsound.
 Table: [DESIGN.md](../../DESIGN.md) section 9.3 - Code: `src/lang/validator.rs::type_expr`,
-`src/backends/rust.rs::rust_type`, `src/backends/c.rs::c_type`.
+`src/codegen/backends/rust/mod.rs::rust_type`, `src/codegen/backends/c/mod.rs::c_type`.
 
 ### 9.4 Determinism and transition selection - explicit priorities + disjointness validation
 
@@ -90,7 +90,7 @@ codes 0/1/2 - so bounded runs are never presented as full proof.
 is the right core guarantee; symbolic approaches handle larger state spaces
 but add significant implementation complexity, so they stay optional.
 Table: [DESIGN.md](../../DESIGN.md) section 9.7 - Code: `src/mc_plan.rs::McPlan`,
-`src/backends/rust_mc.rs::exact_codegen`, `src/ref_mc.rs::run`.
+`src/codegen/backends/rust/mc.rs::exact_codegen`, `src/ref_mc.rs::run`.
 
 ### 9.8 Production integration style - pure `step` function + trait adapters
 
@@ -101,7 +101,7 @@ e.g. tokio-only rejected.
 **Why:** a pure step function is simple, testable, and has no runtime
 coupling; the adapter layer adds sync/async composability without tying the
 toolchain to any executor - the async adapter works on ANY executor.
-Table: [DESIGN.md](../../DESIGN.md) section 9.8 - Code: `src/backends/rust_fsm.rs::generate_production`,
+Table: [DESIGN.md](../../DESIGN.md) section 9.8 - Code: `src/codegen/backends/rust/fsm.rs::generate_production`,
 `crates/rfs-adapters/src/lib.rs::ProtocolFsm`.
 
 ### 9.9 Error handling in production code - `Result`-based, recoverable
@@ -113,8 +113,8 @@ or default transition is supported later.
 protocol handlers need; panicking on an unexpected event is unsafe for
 long-running services. The generated fallback path (declared `on_error` or the
 default `Err`) is emitted per backend.
-Table: [DESIGN.md](../../DESIGN.md) section 9.9 - Code: `src/backends/rust_fsm.rs::on_error_block`,
-`src/backends/c_fsm.rs::emit_fsm_impl`.
+Table: [DESIGN.md](../../DESIGN.md) section 9.9 - Code: `src/codegen/backends/rust/fsm.rs::on_error_block`,
+`src/codegen/backends/c/fsm.rs::emit_fsm_impl`.
 
 ### 9.10 Assumptions about the environment - PSL-like `assume` properties
 
@@ -149,17 +149,17 @@ in the Phase 1 status report, [PHASE_1_STATUS.md](../roadmap/phase_1/PHASE_1_STA
   wrapping `u128` intermediates masked to the declared width.** Why: exact
   fixed-width semantics without overflow UB - wider intermediates keep
   multi-operand expressions correct, and the final mask enforces the declared
-  width. Code: `src/backends/rust.rs::bit_rust_type`,
-  `src/backends/rust_fsm.rs::gen_expr`.
+  width. Code: `src/codegen/backends/rust/mod.rs::bit_rust_type`,
+  `src/codegen/backends/rust/fsm.rs::gen_expr`.
 - **Variable updates are simultaneous** (all assignment right-hand sides are
   evaluated before any variable is written). Why: matches the spec's
   mathematical semantics and avoids order-dependent surprises in
-  multi-assignment transitions. Code: `src/backends/rust_fsm.rs::transition_block`.
+  multi-assignment transitions. Code: `src/codegen/backends/rust/fsm.rs::transition_block`.
 - **Assumption violations use a trait-based handler passed to
   `step_with_handler`; the default `step` panics.** Why: production callers
   choose the policy (panic/stop/continue) explicitly while the simple API
   stays panic-by-default. Code:
-  `src/backends/rust_fsm.rs::step_with_handler`.
+  `src/codegen/backends/rust/fsm.rs::step_with_handler`.
 - **Assumption-selection option: `all`, `none`, or comma-separated labels;
   default `all`.** Why: lets MC and codegen target specific assumptions (e.g.
   stress runs with none) without editing the spec. Code:
@@ -202,8 +202,8 @@ rejected.
 **Why:** matches the "priority 10 beats priority 5" intuition and is easy to
 explain in specs; the inverted convention would leave authors wondering whether
 1 is top or bottom.
-Table: [DESIGN.md](../../DESIGN.md) section 20, D1 - Code: `src/backends/rust_fsm.rs::emit_fsm_impl`,
-`src/backends/c_fsm.rs::emit_fsm_impl`.
+Table: [DESIGN.md](../../DESIGN.md) section 20, D1 - Code: `src/codegen/backends/rust/fsm.rs::emit_fsm_impl`,
+`src/codegen/backends/c/fsm.rs::emit_fsm_impl`.
 
 ### D2. Ambiguity and duplicate detection (same state, identical event pattern)
 
@@ -254,8 +254,8 @@ group.
 **Why:** specs without priorities generate behaviorally identical code to
 Phase 1 (source order preserved within a state), so the default is invisible
 unless the author opts in.
-Table: [DESIGN.md](../../DESIGN.md) section 20, D5 - Code: `src/backends/rust_fsm.rs::emit_fsm_impl`,
-`src/backends/c_fsm.rs::emit_fsm_impl`.
+Table: [DESIGN.md](../../DESIGN.md) section 20, D5 - Code: `src/codegen/backends/rust/fsm.rs::emit_fsm_impl`,
+`src/codegen/backends/c/fsm.rs::emit_fsm_impl`.
 
 ### D6. Error handling for unexpected inputs - module-level `on_error` block
 
@@ -271,7 +271,7 @@ state, and MC-compatible (it is just a fallback arm); the wildcard form would
 clash with the existing `_` field wildcard and be easy to misuse, and an
 "ignore" policy silently drops protocol errors (bad for model checking).
 Table: [DESIGN.md](../../DESIGN.md) section 20, D6 - Code: `src/lang/ir.rs::Module`,
-`src/backends/rust_fsm.rs::on_error_block`, `src/backends/c_fsm.rs::emit_fsm_impl`.
+`src/codegen/backends/rust/fsm.rs::on_error_block`, `src/codegen/backends/c/fsm.rs::emit_fsm_impl`.
 
 ### D7. Module version header syntax - `module Name version "x.y.z" {`
 
@@ -284,8 +284,8 @@ optional, skipped when absent), printed by the RFS printer, and emitted as
 item kind for what is currently a single value was overkill while no second
 metadata key exists.
 Table: [DESIGN.md](../../DESIGN.md) section 20, D7 - Code: `src/lang/ir.rs::Module`,
-`src/lang/printer.rs::print_ir`, `src/backends/rust_fsm.rs::emit_monitors`,
-`src/backends/c_fsm.rs::emit_monitors`.
+`src/lang/printer.rs::print_ir`, `src/codegen/backends/rust/fsm.rs::emit_monitors`,
+`src/codegen/backends/c/fsm.rs::emit_monitors`.
 
 ### D8. C backend type mapping and scope
 
@@ -311,9 +311,9 @@ observable behavior as Rust for the same spec and inputs; native unsigned
 wrap-around gives bit-identical fixed-width arithmetic without wider types,
 and sharing the MC wire format makes cross-backend differential testing
 meaningful.
-Table: [DESIGN.md](../../DESIGN.md) section 20, D8 - Code: `src/backends/c.rs::c_type`,
-`src/backends/c.rs::bit_c_type`, `src/backends/c_fsm.rs::emit_monitors`,
-`src/backends/c_mc.rs::generate_model_checker`.
+Table: [DESIGN.md](../../DESIGN.md) section 20, D8 - Code: `src/codegen/backends/c/mod.rs::c_type`,
+`src/codegen/backends/c/mod.rs::bit_c_type`, `src/codegen/backends/c/fsm.rs::emit_monitors`,
+`src/codegen/backends/c/mc.rs::generate_model_checker`.
 
 ### D9. Feature flags (std/no_std, property-monitors, logging hooks) - deferred, resolved in Phase 5
 
@@ -389,7 +389,7 @@ reported through it), so all MC/test call sites - trial-step forced violations,
 monitorable mid-run and assumption pruning works online in MC (incl. liveness
 assumptions); two paths could diverge and would duplicate monitor state.
 Table: [DESIGN.md](../../DESIGN.md) section 21, D-P3-4 - Code:
-`src/backends/rust_fsm.rs::step_with_handler`, `src/codegen/monitor.rs::compile_formula`.
+`src/codegen/backends/rust/fsm.rs::step_with_handler`, `src/codegen/monitor.rs::compile_formula`.
 
 ### D-P3-5. C backend: full monitor parity
 
@@ -408,7 +408,7 @@ exactly the same observable behavior in ALL backends, with differential
 testing meaningful; Rust-only monitors would leave C MC silently skipping
 liveness assumptions and property detection.
 Table: [DESIGN.md](../../DESIGN.md) section 21, D-P3-5 - Code: `src/codegen/monitor.rs::compile_formula`,
-`src/backends/c_fsm.rs::emit_monitors`, `tests/backend_parity_test.rs`.
+`src/codegen/backends/c/fsm.rs::emit_monitors`, `tests/backend_parity_test.rs`.
 
 ### D-P3-6. CLI flag and per-language gating - `--with-property-monitors` on production only
 
@@ -423,8 +423,8 @@ fields.
 an opt-in flag (violations are the point - MC must not be able to disable
 them); one flag across backends keeps the CLI uniform.
 Table: [DESIGN.md](../../DESIGN.md) section 21, D-P3-6 - Code: `src/codegen/mod.rs::PropertyMonitorMode`,
-`src/backends/rust_fsm.rs::emit_monitors`,
-`src/backends/c_fsm.rs::render_prop_monitors`.
+`src/codegen/backends/rust/fsm.rs::emit_monitors`,
+`src/codegen/backends/c/fsm.rs::render_prop_monitors`.
 
 <a id="dev:decisions-p4-p5"></a>
 ## Phase 4 (D-P4-1..14) + Phase 5 (D-P5-1..14)
@@ -459,7 +459,7 @@ status/counterexample (parity suites pin this).
 reachable-state search: it terminates on finite state spaces, finds the
 SHORTEST counterexample by construction, and canonical ordering makes results
 reproducible across backends and runs.
-Table: [DESIGN.md](../../DESIGN.md) section 22, D-P4-2 - Code: `src/backends/rust_mc.rs::exact_codegen`,
+Table: [DESIGN.md](../../DESIGN.md) section 22, D-P4-2 - Code: `src/codegen/backends/rust/mc.rs::exact_codegen`,
 `src/ref_mc.rs::run`, `src/mc_plan.rs::TraversalSpec`.
 
 ### D-P4-3. Input abstraction
@@ -497,7 +497,7 @@ while others are enabled terminate that path and are counted as
 must fail; an unmatched input on a path where other inputs work is an
 environment misbehavior, not a spec bug - counting it keeps the signal visible
 without false failures.
-Table: [DESIGN.md](../../DESIGN.md) section 22, D-P4-5 - Code: `src/backends/rust_mc.rs::exact_codegen`,
+Table: [DESIGN.md](../../DESIGN.md) section 22, D-P4-5 - Code: `src/codegen/backends/rust/mc.rs::exact_codegen`,
 `src/codegen/mc_concepts.rs`.
 
 ### D-P4-6. Assumptions prune exploration
@@ -568,7 +568,7 @@ corrected weak-until equation was validated against brute force before being
 trusted, and the bounded mode preserves soundness by never claiming
 pass-complete on a truncated analysis.
 Table: [DESIGN.md](../../DESIGN.md) section 22, D-P4-10 - Code:
-`src/mc_plan.rs::LivenessDecomposition`, `src/backends/rust_mc.rs::exact_codegen`,
+`src/mc_plan.rs::LivenessDecomposition`, `src/codegen/backends/rust/mc.rs::exact_codegen`,
 `src/ref_mc.rs::run`.
 
 ### D-P4-11. Fairness policy
@@ -583,7 +583,7 @@ automatic; under `--nondet` an open cycle that merely avoids progress is not a
 liveness violation - strong transition fairness filters exactly those, and the
 discriminator test pins the det/nondet difference.
 Table: [DESIGN.md](../../DESIGN.md) section 22, D-P4-11 - Code:
-`src/backends/rust_mc.rs::exact_codegen`, `src/codegen/mod.rs::McMode`.
+`src/codegen/backends/rust/mc.rs::exact_codegen`, `src/codegen/mod.rs::McMode`.
 
 ### D-P4-12. SMT bounded mode (optional)
 

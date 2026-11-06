@@ -10,7 +10,7 @@ RFS code generation is a language-agnostic CORE plus per-language backends.
 The core (four files) defines the plugin API, parses the `rfs codegen` CLI,
 and computes everything that does not depend on target syntax - variant
 flattening, the unit-test plan, and the model-checker concepts. Backends
-(`src/backends/`, one module tree per language) render that data into their
+(`src/codegen/backends/`, one module tree per language) render that data into their
 own syntax. The governing principle is PARITY: one plan, rendered identically
 in Rust and C - cross-backend differential tests assert byte-identical
 artifacts and identical observable behavior for the same spec.

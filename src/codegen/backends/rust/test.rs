@@ -36,7 +36,8 @@
 //! refused - see `main.rs`).
 //! Docs: dev:backend-rust-overview, dev:backend-rust-test, llm:backend-rust
 
-use crate::backends::rust::{representative_input_expr, rust_ident, snake};
+use crate::codegen::backends::rust::representative_input_expr;
+use crate::codegen::ident::{rust_ident, snake};
 use crate::codegen::{BackendOptions, CodegenOutput, ExtraFile};
 use crate::codegen::fsm::{self, FsmVariants, VariantInfo};
 use crate::codegen::test_plan::{
@@ -58,7 +59,7 @@ pub fn generate_unit_tests(
             crate::codegen::NO_STD_PRODUCTION_ONLY_ERROR.to_string()
         ]);
     }
-    let mut result = crate::backends::rust_fsm::generate_core(
+    let mut result = crate::codegen::backends::rust::fsm::generate_core(
         module,
         options,
         true,
@@ -525,7 +526,7 @@ fn render_invariant_test(
     inv: &InvariantCase,
     k: usize,
 ) -> Result<String, Vec<String>> {
-    let sig = crate::backends::rust_fsm::render_signal_expr(module, variants, &inv.signal)
+    let sig = crate::codegen::backends::rust::fsm::render_signal_expr(module, variants, &inv.signal)
         .map_err(|e| vec![format!("invariant '{}': {}", inv.label, e)])?;
     let bound = match inv.bound {
         None => "None".to_string(),
@@ -844,7 +845,7 @@ pub fn emit_fuzz_target(
                     );
                 }
                 FuzzFieldStrategy::PayloadBytes { width } => {
-                    let ty = crate::backends::rust::bit_rust_type(*width);
+                    let ty = crate::codegen::backends::rust::bit_rust_type(*width);
                     let nbytes = payload_byte_count(*width);
                     let mask = if *width >= 64 {
                         format!("{ty}::MAX")
@@ -934,7 +935,7 @@ pub fn generate_aggregate_test_crate(
         file_options.spec_hash = crate::utils::hash::spec_hash16(&json_text);
         let file_stem = file.file_name().and_then(|s| s.to_str()).unwrap_or("file");
         for module in &ir.modules {
-            let result = crate::backends::rust_fsm::generate_core(
+            let result = crate::codegen::backends::rust::fsm::generate_core(
                 module,
                 &file_options,
                 true,
@@ -944,8 +945,8 @@ pub fn generate_aggregate_test_crate(
             let mod_name = format!(
                 "m{:03}_{}_{}",
                 count,
-                crate::backends::rust::snake(file_stem),
-                crate::backends::rust::snake(&module.name)
+                crate::codegen::ident::snake(file_stem),
+                crate::codegen::ident::snake(&module.name)
             );
             let _ = writeln!(lib, "pub mod {} {{\n{}\n}}\n", mod_name, result.code);
             count += 1;

@@ -7,7 +7,7 @@ generators that render the shared codegen plans into standalone Rust source.
 ## Overview
 
 The Rust backend is one of the two target-language backends in
-`src/backends/` (the other is C, deep dive task 10.x). It renders the
+`src/codegen/backends/` (the other is C, deep dive task 10.x). It renders the
 language-agnostic codegen plans into standalone Rust source - one self-contained
 `.rs` file per command. The governing constraint is PARITY: for the same spec
 and options, the Rust and C artifacts must agree in every pinned format and in
@@ -16,18 +16,18 @@ observable behavior; cross-backend differential tests enforce this
 
 | File | Lines | Role |
 |---|---|---|
-| `src/backends/mod.rs` | 16 | module declarations only (c*, rust*); no code |
-| `src/backends/rust.rs` | 215 (3 unit tests) | plugin entry `RUST_BACKEND` + shared Rust-specific helpers (identifier mangling, type mapping, representative-input rendering) |
-| `src/backends/rust_fsm.rs` | 1896 (no unit tests) | production FSM source generation; the core generator reused by test and mc; shared expression/signal renderers |
-| `src/backends/rust_test.rs` | 977 (no unit tests) | unit-test module rendering, the separate fuzz-target skeleton, aggregate test-crate tooling |
-| `src/backends/rust_mc.rs` | 2034 (no unit tests) | model-checker executable generation: exact engine + liveness + JSON report + fuzz runtime + SMT binary |
+| `src/codegen/backends/mod.rs` | 16 | module declarations only (c*, rust*); no code |
+| `src/codegen/backends/rust/mod.rs` | 215 (3 unit tests) | plugin entry `RUST_BACKEND` + shared Rust-specific helpers (identifier mangling, type mapping, representative-input rendering) |
+| `src/codegen/backends/rust/fsm.rs` | 1896 (no unit tests) | production FSM source generation; the core generator reused by test and mc; shared expression/signal renderers |
+| `src/codegen/backends/rust/test.rs` | 977 (no unit tests) | unit-test module rendering, the separate fuzz-target skeleton, aggregate test-crate tooling |
+| `src/codegen/backends/rust/mc.rs` | 2034 (no unit tests) | model-checker executable generation: exact engine + liveness + JSON report + fuzz runtime + SMT binary |
 
 Position in the pipeline: `src/codegen/mod.rs::CodegenCommandKind::run` dispatches
-to the backend's function pointers - `src/backends/rust.rs::RUST_BACKEND`
-wires `production` to `src/backends/rust_fsm.rs::generate_production`,
-`test` to `src/backends/rust_test.rs::generate_unit_tests`, and
-`mc` to `src/backends/rust_mc.rs::generate_model_checker`. All three entry
-points funnel into `src/backends/rust_fsm.rs::generate_core` (the shared core
+to the backend's function pointers - `src/codegen/backends/rust/mod.rs::RUST_BACKEND`
+wires `production` to `src/codegen/backends/rust/fsm.rs::generate_production`,
+`test` to `src/codegen/backends/rust/test.rs::generate_unit_tests`, and
+`mc` to `src/codegen/backends/rust/mc.rs::generate_model_checker`. All three entry
+points funnel into `src/codegen/backends/rust/fsm.rs::generate_core` (the shared core
 emitter); each command then appends its own runtime. The plugin API, the
 options bag, the dispatch rules, and the shared planning data these generators
 render are documented in [codegen_core.md](codegen_core.md) (`dev:codegen-plugin-api`,
@@ -36,7 +36,7 @@ what is Rust-specific.
 
 Where to go next:
 
-- [RUST.md](../../src/backends/RUST.md) - architecture + design decisions of the generated
+- [RUST.md](../../src/codegen/backends/RUST.md) - architecture + design decisions of the generated
   artifacts (anatomy, key decisions, known limitations);
 - [CODEGEN.md](../../CODEGEN.md) (repo root) - the extension guide: plugin API, CLI surface,
   adding-a-backend checklist, invariants;
@@ -46,16 +46,16 @@ Where to go next:
   D-P5-10 (JSON report), D-P5-11 (ProtocolFsm), D-P6-3 (artifact header) in
   [DECISIONS.md](DECISIONS.md).
 
-Code: `src/backends/rust.rs::RUST_BACKEND`,
-`src/backends/rust_fsm.rs::generate_production`,
-`src/backends/rust_test.rs::generate_unit_tests`,
-`src/backends/rust_mc.rs::generate_model_checker`,
-`src/backends/rust_fsm.rs::generate_core`
+Code: `src/codegen/backends/rust/mod.rs::RUST_BACKEND`,
+`src/codegen/backends/rust/fsm.rs::generate_production`,
+`src/codegen/backends/rust/test.rs::generate_unit_tests`,
+`src/codegen/backends/rust/mc.rs::generate_model_checker`,
+`src/codegen/backends/rust/fsm.rs::generate_core`
 
 <a id="dev:backend-rust-plugin"></a>
-## Plugin entry + shared Rust helpers (`src/backends/rust.rs`)
+## Plugin entry + shared Rust helpers (`src/codegen/backends/rust/mod.rs`)
 
-**Registration.** `src/backends/rust.rs::RUST_BACKEND` is the static
+**Registration.** `src/codegen/backends/rust/mod.rs::RUST_BACKEND` is the static
 `Backend` value appended to the registry in `src/codegen/mod.rs`: name "rust",
 one-line description, three command descriptors (PRODUCTION_INFO,
 TEST_INFO, MC_INFO - each carrying the CLI usage line and per-option help that
@@ -105,17 +105,17 @@ the test module's candidate_inputs().
 Unit tests (3): identifier_mangling, type_mapping,
 backend_registration_shape.
 
-Code: `src/backends/rust.rs::RUST_BACKEND`,
-`src/backends/rust.rs::PRODUCTION_INFO`, `src/backends/rust.rs::TEST_INFO`,
-`src/backends/rust.rs::MC_INFO`, `src/backends/rust.rs::RUST_KEYWORDS`,
-`src/backends/rust.rs::rust_ident`,
-`src/backends/rust.rs::rust_binding_ident`, `src/backends/rust.rs::snake`,
-`src/backends/rust.rs::bit_rust_type`, `src/backends/rust.rs::rust_type`,
-`src/backends/rust.rs::mask_expr`,
-`src/backends/rust.rs::representative_input_expr`
+Code: `src/codegen/backends/rust/mod.rs::RUST_BACKEND`,
+`src/codegen/backends/rust/mod.rs::PRODUCTION_INFO`, `src/codegen/backends/rust/mod.rs::TEST_INFO`,
+`src/codegen/backends/rust/mod.rs::MC_INFO`, `src/codegen/ident.rs::RUST_KEYWORDS`,
+`src/codegen/ident.rs::rust_ident`,
+`src/codegen/ident.rs::rust_binding_ident`, `src/codegen/ident.rs::snake`,
+`src/codegen/backends/rust/mod.rs::bit_rust_type`, `src/codegen/backends/rust/mod.rs::rust_type`,
+`src/codegen/backends/rust/mod.rs::mask_expr`,
+`src/codegen/backends/rust/mod.rs::representative_input_expr`
 
 <a id="dev:backend-rust-fsm"></a>
-## Production FSM generation (`src/backends/rust_fsm.rs`)
+## Production FSM generation (`src/codegen/backends/rust/fsm.rs`)
 
 **Entry points.** generate_production maps `--with-property-monitors` to
 PropertyMonitorMode Gated/Off and calls generate_core(module, options, false,
@@ -159,7 +159,7 @@ ref_mc's text/JSON value forms: rfs_render_state (fixed name - State is a
 language-reserved type) / rfs_render_e<i> per other enum (`Name::{v:?}`),
 rfs_render_input / rfs_render_output (variant + payload), rfs_render_vars.
 Declaration order throughout - deterministic artifact bytes. The enum-to-
-renderer map comes from `src/backends/rust_fsm.rs::enum_renderer_names`,
+renderer map comes from `src/codegen/backends/rust/fsm.rs::enum_renderer_names`,
 shared with the MC JSON renderer so text and JSON carry identical data.
 
 **Trace + assumption runtime.** TraceStep/Trace keep the complete execution
@@ -201,7 +201,7 @@ reference interpreter in src/codegen/monitor.rs. Per node kind (render_node):
   fail; trigger_step = min of the children's (i32::MAX to -1).
 
 Each node's per-sample signal is rendered by gen_signal to
-`src/backends/rust_fsm.rs::render_signal_expr` (pub(crate), shared with the
+`src/codegen/backends/rust/fsm.rs::render_signal_expr` (pub(crate), shared with the
 test module's invariant re-checks): VarExpr via gen_expr under a sample
 context (state = s.to_state, vars from the sample); InputIs/OutputHas via
 input_is_sample_expr / output_has_sample_expr - struct patterns bind each
@@ -279,7 +279,7 @@ must stay in lockstep with the planner's static evaluator (u128 wrapping +
 mask, shift saturation, bool bitwise = logical) - drift makes planned test
 cases disagree with generated runtime behavior.
 
-**MC/test shared renderers.** `src/backends/rust_fsm.rs::render_mc_step_all`
+**MC/test shared renderers.** `src/codegen/backends/rust/fsm.rs::render_mc_step_all`
 (pub(crate)) renders mc_step_all(state, vars, input) -> Vec<McEffect> for the
 exact MC runtime (D-P4-11): for (state, input), the effects of EVERY enabled
 transition in firing order (deterministic mode uses only the first effect;
@@ -291,24 +291,24 @@ construction. render_sample_formula_evaluator renders
 `src/codegen/monitor.rs::formula_to_signal` + gen_signal (error when the subformula
 contains temporal operators).
 
-Code: `src/backends/rust_fsm.rs::generate_production`,
-`src/backends/rust_fsm.rs::generate_core`, `src/backends/rust_fsm.rs::Gen`,
-`src/backends/rust_fsm.rs::emit_prelude`,
-`src/backends/rust_fsm.rs::emit_renderers`,
-`src/backends/rust_fsm.rs::compile_monitors`,
-`src/backends/rust_fsm.rs::render_monitor`,
-`src/backends/rust_fsm.rs::render_node`,
-`src/backends/rust_fsm.rs::render_signal_expr`,
-`src/backends/rust_fsm.rs::emit_fsm_impl`,
-`src/backends/rust_fsm.rs::transition_block`,
-`src/backends/rust_fsm.rs::pattern_block_open`,
-`src/backends/rust_fsm.rs::gen_expr`,
-`src/backends/rust_fsm.rs::render_mc_step_all`,
-`src/backends/rust_fsm.rs::render_sample_formula_evaluator`,
-`src/backends/rust_fsm.rs::enum_renderer_names`
+Code: `src/codegen/backends/rust/fsm.rs::generate_production`,
+`src/codegen/backends/rust/fsm.rs::generate_core`, `src/codegen/backends/rust/fsm.rs::Gen`,
+`src/codegen/backends/rust/fsm.rs::emit_prelude`,
+`src/codegen/backends/rust/fsm.rs::emit_renderers`,
+`src/codegen/backends/rust/fsm.rs::compile_monitors`,
+`src/codegen/backends/rust/fsm.rs::render_monitor`,
+`src/codegen/backends/rust/fsm.rs::render_node`,
+`src/codegen/backends/rust/fsm.rs::render_signal_expr`,
+`src/codegen/backends/rust/fsm.rs::emit_fsm_impl`,
+`src/codegen/backends/rust/fsm.rs::transition_block`,
+`src/codegen/backends/rust/fsm.rs::pattern_block_open`,
+`src/codegen/backends/rust/fsm.rs::gen_expr`,
+`src/codegen/backends/rust/fsm.rs::render_mc_step_all`,
+`src/codegen/backends/rust/fsm.rs::render_sample_formula_evaluator`,
+`src/codegen/backends/rust/fsm.rs::enum_renderer_names`
 
 <a id="dev:backend-rust-test"></a>
-## Unit-test, fuzz and aggregate-crate generation (`src/backends/rust_test.rs`)
+## Unit-test, fuzz and aggregate-crate generation (`src/codegen/backends/rust/test.rs`)
 
 **Entry point.** generate_unit_tests rejects `--no_std` with the pinned
 `src/codegen/mod.rs::NO_STD_PRODUCTION_ONLY_ERROR`, runs generate_core(module,
@@ -388,18 +388,18 @@ non-member manifest - Phase 5 task 1). write_generated_crate writes it to
 <root>/target/rfs_codegen_tests. This powers cargo generate-code-tests /
 cargo test-generated-code.
 
-Code: `src/backends/rust_test.rs::generate_unit_tests`,
-`src/backends/rust_test.rs::emit_test_module`,
-`src/backends/rust_test.rs::render_transition_test`,
-`src/backends/rust_test.rs::render_invariant_test`,
-`src/backends/rust_test.rs::render_monitor_test`,
-`src/backends/rust_test.rs::render_random_trace_test`,
-`src/backends/rust_test.rs::emit_fuzz_target`,
-`src/backends/rust_test.rs::generate_aggregate_test_crate`,
-`src/backends/rust_test.rs::write_generated_crate`
+Code: `src/codegen/backends/rust/test.rs::generate_unit_tests`,
+`src/codegen/backends/rust/test.rs::emit_test_module`,
+`src/codegen/backends/rust/test.rs::render_transition_test`,
+`src/codegen/backends/rust/test.rs::render_invariant_test`,
+`src/codegen/backends/rust/test.rs::render_monitor_test`,
+`src/codegen/backends/rust/test.rs::render_random_trace_test`,
+`src/codegen/backends/rust/test.rs::emit_fuzz_target`,
+`src/codegen/backends/rust/test.rs::generate_aggregate_test_crate`,
+`src/codegen/backends/rust/test.rs::write_generated_crate`
 
 <a id="dev:backend-rust-mc"></a>
-## Model-checker executable generation (`src/backends/rust_mc.rs`)
+## Model-checker executable generation (`src/codegen/backends/rust/mc.rs`)
 
 **Entry point.** generate_model_checker rejects `--no_std`
 (`src/codegen/mod.rs::NO_STD_PRODUCTION_ONLY_ERROR`) and `--with-protocol-fsm`
@@ -580,18 +580,18 @@ and JSON writer. The formats in `src/codegen/mc_concepts.rs` / `src/mc_plan.rs` 
 the SOURCE OF TRUTH - when a wire format changes, update both backends'
 emitters in the same change and extend the tests ([CODEGEN.md](../../CODEGEN.md) section 9).
 
-Code: `src/backends/rust_mc.rs::generate_model_checker`,
-`src/backends/rust_mc.rs::exact_codegen`,
-`src/backends/rust_mc.rs::json_renderers_rust`,
-`src/backends/rust_mc.rs::flatten_skeleton`,
-`src/backends/rust_mc.rs::domain_iter`, `src/backends/rust_mc.rs::rep_expr`,
-`src/backends/rust_mc.rs::var_value_expr`,
-`src/backends/rust_mc.rs::EXACT_ENGINE`, `src/backends/rust_mc.rs::LIV_ENGINE`,
-`src/backends/rust_mc.rs::JSON_WRITER_RUST`,
-`src/backends/rust_mc.rs::EXACT_RUN`,
-`src/backends/rust_mc.rs::MAIN_DISPATCH`,
-`src/backends/rust_mc.rs::FUZZ_RUNTIME`,
-`src/backends/rust_mc.rs::SMT_ENGINE_RUST`
+Code: `src/codegen/backends/rust/mc.rs::generate_model_checker`,
+`src/codegen/backends/rust/mc.rs::exact_codegen`,
+`src/codegen/backends/rust/mc.rs::json_renderers_rust`,
+`src/codegen/backends/rust/mc.rs::flatten_skeleton`,
+`src/codegen/backends/rust/mc.rs::domain_iter`, `src/codegen/backends/rust/mc.rs::rep_expr`,
+`src/codegen/backends/rust/mc.rs::var_value_expr`,
+`src/codegen/backends/rust/mc.rs::EXACT_ENGINE`, `src/codegen/backends/rust/mc.rs::LIV_ENGINE`,
+`src/codegen/backends/rust/mc.rs::JSON_WRITER_RUST`,
+`src/codegen/backends/rust/mc.rs::EXACT_RUN`,
+`src/codegen/backends/rust/mc.rs::MAIN_DISPATCH`,
+`src/codegen/backends/rust/mc.rs::FUZZ_RUNTIME`,
+`src/codegen/backends/rust/mc.rs::SMT_ENGINE_RUST`
 
 ## Changing the Rust backend
 
@@ -601,7 +601,7 @@ analysis goes to the language-agnostic modules, target syntax stays here):
 1. Parity first: a new feature lands in EVERY backend in the same change,
    with cross-backend differential tests (tests/backend_parity_test.rs;
    liveness: tests/liveness_mc_test.rs; performance:
-   tests/benchmark_mc_test.rs). The C twin of each file is src/backends/c*.rs
+   tests/benchmark_mc_test.rs). The C twin of each file is src/codegen/backends/c/*.rs
    (deep dive: task 10.x).
 2. Pinned formats that break on drift - change them only with the parity
    suite updated in the same commit:
@@ -632,5 +632,5 @@ analysis goes to the language-agnostic modules, target syntax stays here):
 7. Verify: cargo test --test codegen_test, cargo test --test
    backend_parity_test, cargo test --test liveness_mc_test, cargo test
    --test benchmark_mc_test, then the full [BUILD.md](../../BUILD.md) section 5 checklist.
-   Docs sync: [RUST.md](../../src/backends/RUST.md) (artifact design), [CODEGEN.md](../../CODEGEN.md) (if the
+   Docs sync: [RUST.md](../../src/codegen/backends/RUST.md) (artifact design), [CODEGEN.md](../../CODEGEN.md) (if the
    plugin surface changes), [KB.md](../../KB.md); training snippets if user-visible.

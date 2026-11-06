@@ -9,8 +9,12 @@
 //! - [`c_mc`]: bounded model-checker executable generation (same runtime wire
 //!   format as the Rust model checker).
 //!
-//! Architecture notes live in `backends/C.md`.
+//! Architecture notes live in `codegen/backends/C.md`.
 //! Docs: dev:backend-c-overview, dev:backend-c-plugin, llm:backend-c, dev:deps-fn-backend-c
+
+pub mod fsm;
+pub mod mc;
+pub mod test;
 
 use crate::codegen::{Backend, BackendCommandInfo};
 use crate::lang::ir::Type;
@@ -129,9 +133,9 @@ pub static C_BACKEND: Backend = Backend {
     name: "c",
     description: "C backend: production FSM, plain-assert unit tests, bounded model checker",
     commands: &[PRODUCTION_INFO, TEST_INFO, MC_INFO],
-    generate_production: crate::backends::c_fsm::generate_production,
-    generate_unit_tests: crate::backends::c_test::generate_unit_tests,
-    generate_model_checker: crate::backends::c_mc::generate_model_checker,
+    generate_production: crate::codegen::backends::c::fsm::generate_production,
+    generate_unit_tests: crate::codegen::backends::c::test::generate_unit_tests,
+    generate_model_checker: crate::codegen::backends::c::mc::generate_model_checker,
 };
 
 #[cfg(test)]

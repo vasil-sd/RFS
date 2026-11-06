@@ -8,10 +8,8 @@
 //! for the generated-code anatomy and design decisions.
 //! Docs: dev:backend-rust-overview, dev:backend-rust-fsm, llm:backend-rust
 
-use crate::backends::rust::{
-    bit_rust_type, mask_expr, representative_input_expr, rust_binding_ident, rust_ident, rust_type,
-    snake,
-};
+use crate::codegen::backends::rust::{bit_rust_type, mask_expr, representative_input_expr, rust_type};
+use crate::codegen::ident::{rust_binding_ident, rust_ident, snake};
 use crate::codegen::{AssumptionSelection, BackendOptions, CodegenOutput, PropertyMonitorMode};
 use crate::codegen::fsm::{self, FsmVariants, VariantInfo};
 use crate::lang::ir::*;
@@ -37,7 +35,7 @@ pub fn generate_production(
 
 /// Core generator shared by all three commands: validates the module, then
 /// emits the Rust FSM source. When `with_tests` is set, a unit-test module
-/// is appended (see `crate::backends::rust_test`). `prop_mode` selects the
+/// is appended (see `crate::codegen::backends::rust_test`). `prop_mode` selects the
 /// property-monitor activation (D-P3-6): production maps the CLI flag to
 /// Off/Gated; test and mc always pass Always.
 pub(crate) fn generate_core(
@@ -115,7 +113,7 @@ impl<'a> Gen<'a> {
             g.emit_protocol_fsm_impl();
         }
         if with_tests {
-            let tests = crate::backends::rust_test::emit_test_module(
+            let tests = crate::codegen::backends::rust::test::emit_test_module(
                 g.module,
                 &g.variants,
                 g.options.steps,
@@ -1319,7 +1317,7 @@ fn signal_expr_ctx(module: &Module) -> ExprCtx {
 
 /// Render a per-sample signal expression as Rust code against `s: &Sample`
 /// (shared by the monitor rendering and the invariant re-checks of the test
-/// module - see `crate::backends::rust_test`).
+/// module - see `crate::codegen::backends::rust_test`).
 pub(crate) fn render_signal_expr(
     module: &Module,
     variants: &FsmVariants,

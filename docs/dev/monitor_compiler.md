@@ -30,7 +30,7 @@ Monitor-compilability restrictions R1-R4 are enforced by
 `src/codegen/monitor.rs::compile_formula`: formulas outside the subset still parse and
 validate; codegen in every backend emits the identical skip warning
 (`property '<name>' is outside the monitor subset; skipped` /
-`assume '<name>' ...`, e.g. `src/backends/rust_fsm.rs::compile_monitors`) and
+`assume '<name>' ...`, e.g. `src/codegen/backends/rust/fsm.rs::compile_monitors`) and
 generates no monitor for that label. Liveness operators (`eventually` /
 `until`, D-P4-8) are outside the subset entirely - MC-only.
 
@@ -40,7 +40,7 @@ graph: dev:deps-fn-monitor; backend rendering: [backend_rust.md](backend_rust.md
 truth, not this plan): dev:mc-engine-exact.
 
 Code: `src/codegen/monitor.rs::compile_formula`, `src/codegen/monitor.rs::MonitorPlan`,
-`src/backends/rust_fsm.rs::compile_monitors`
+`src/codegen/backends/rust/fsm.rs::compile_monitors`
 
 
 <a id="dev:monitor-compiler-signals"></a>

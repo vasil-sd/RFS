@@ -636,18 +636,18 @@ are leaves (registry reads only). `run` additionally calls
 dispatches through the backend's function pointers, so the per-language edges
 appear in the backend graphs below.
 
-### Rust backend registration + helpers (`src/backends/rust.rs`)
+### Rust backend registration + helpers (`src/codegen/backends/rust/mod.rs`)
 
-`src/backends/rust.rs` registers `RUST_BACKEND` (three command descriptors
+`src/codegen/backends/rust/mod.rs` registers `RUST_BACKEND` (three command descriptors
 plus the three function pointers into `rust_fsm` / `rust_test` / `rust_mc`)
 and provides the Rust-specific helpers shared by all three generator modules:
-identifier mangling (`src/backends/rust.rs::rust_ident` for keywords,
-`src/backends/rust.rs::rust_binding_ident` which additionally renames pattern
+identifier mangling (`src/codegen/ident.rs::rust_ident` for keywords,
+`src/codegen/ident.rs::rust_binding_ident` which additionally renames pattern
 bindings that would shadow identifiers the generated body uses unqualified),
-name normalization (`src/backends/rust.rs::snake`), type mapping
-(`src/backends/rust.rs::rust_type` -> `src/backends/rust.rs::bit_rust_type`),
-the bit-mask expression `src/backends/rust.rs::mask_expr`, and
-`src/backends/rust.rs::representative_input_expr`, which renders a
+name normalization (`src/codegen/ident.rs::snake`), type mapping
+(`src/codegen/backends/rust/mod.rs::rust_type` -> `src/codegen/backends/rust/mod.rs::bit_rust_type`),
+the bit-mask expression `src/codegen/backends/rust/mod.rs::mask_expr`, and
+`src/codegen/backends/rust/mod.rs::representative_input_expr`, which renders a
 representative input value from `src/codegen/fsm.rs::representative_values`.
 
 ```mermaid
@@ -675,11 +675,11 @@ Isolated leaves: `snake` and `mask_expr` are called only from the other
 backend modules (rust_fsm / rust_mc / rust_test); `representative_input_expr`
 also calls `src/codegen/fsm.rs::representative_values` (external).
 
-### Rust production FSM generation (`src/backends/rust_fsm.rs`)
+### Rust production FSM generation (`src/codegen/backends/rust/fsm.rs`)
 
-`src/backends/rust_fsm.rs::generate_production` maps the
+`src/codegen/backends/rust/fsm.rs::generate_production` maps the
 `--with-property-monitors` flag to a monitor mode and delegates to
-`src/backends/rust_fsm.rs::generate_core` - the core generator shared by all
+`src/codegen/backends/rust/fsm.rs::generate_core` - the core generator shared by all
 three commands (the test and mc entry points pass `with_tests` / `Always`
 mode instead). `generate_core` re-validates the module
 (`src/lang/validator.rs::validate_module`) and then drives the `Gen` emitter:
@@ -688,34 +688,34 @@ compiles the monitors, and runs the emission pipeline in a fixed order -
 prelude (v1.0 header + no_std), enums, `Vars`, `Input`/`Output`, report
 renderers, trace/handler types, monitors, the `Fsm` impl, and optionally the
 `ProtocolFsm` impl and the test module
-(`src/backends/rust_test.rs::emit_test_module`).
+(`src/codegen/backends/rust/test.rs::emit_test_module`).
 
 Monitor rendering: `compile_monitors` compiles each property/assumption
 formula via `src/codegen/monitor.rs::compile_formula` (formulas outside the monitor
 subset are skipped with a warning); `emit_monitors` renders one `Mon_*`
 struct per plan via `render_monitor` -> `render_node` (nodes numbered in DFS
 pre-order, evaluated in post-order), where each node's per-sample signal is
-rendered by `gen_signal` -> `src/backends/rust_fsm.rs::render_signal_expr`
+rendered by `gen_signal` -> `src/codegen/backends/rust/fsm.rs::render_signal_expr`
 (recursive descent over the signal tree into `gen_expr` for variable
-expressions and `src/backends/rust_fsm.rs::input_is_sample_expr` /
-`src/backends/rust_fsm.rs::output_has_sample_expr` for pattern atoms).
+expressions and `src/codegen/backends/rust/fsm.rs::input_is_sample_expr` /
+`src/codegen/backends/rust/fsm.rs::output_has_sample_expr` for pattern atoms).
 `emit_fsm_impl` emits `Fsm::new` / `step` / `commit_step` plus the per-state
 transition blocks (`transition_block` -> `pattern_block_open` / `gen_expr` /
 `output_expr` / `pattern_block_close`) and the `on_error` fallback
-(`on_error_block`). `src/backends/rust_fsm.rs::gen_expr` is the shared
+(`on_error_block`). `src/codegen/backends/rust/fsm.rs::gen_expr` is the shared
 expression renderer: it types every subexpression via
 `src/lang/validator.rs::type_expr` and renders bit-vector arithmetic with wrapping
 ops plus width handling through `width_from_type` and the `mask_expr` /
-`bit_rust_type` helpers of `src/backends/rust.rs`.
+`bit_rust_type` helpers of `src/codegen/backends/rust/mod.rs`.
 
-The MC/test shared renderers reuse the same helpers: `src/backends/rust_fsm.rs::render_mc_step_all`
+The MC/test shared renderers reuse the same helpers: `src/codegen/backends/rust/fsm.rs::render_mc_step_all`
 renders the exact-mode `mc_step_all` (every enabled transition in firing
 order) from the same IR with the same `pattern_block_open` / `gen_expr` /
-`output_expr` helpers, and `src/backends/rust_fsm.rs::render_sample_formula_evaluator`
+`output_expr` helpers, and `src/codegen/backends/rust/fsm.rs::render_sample_formula_evaluator`
 renders a per-sample boolean evaluator for liveness leaves via
-`src/codegen/monitor.rs::formula_to_signal` + `gen_signal`. `src/backends/rust_fsm.rs::enum_renderer_names`
+`src/codegen/monitor.rs::formula_to_signal` + `gen_signal`. `src/codegen/backends/rust/fsm.rs::enum_renderer_names`
 is the shared enum -> renderer name map used by both `emit_renderers` and the
-MC JSON renderer (`src/backends/rust_mc.rs::json_renderers_rust`).
+MC JSON renderer (`src/codegen/backends/rust/mc.rs::json_renderers_rust`).
 
 ```mermaid
 flowchart TD
@@ -833,35 +833,35 @@ flowchart TD
 pipeline emitters `emit_prelude` / `emit_enums` / `emit_vars` /
 `emit_input_output` / `emit_trace_and_handlers` are leaves (string emission
 only); `emit_monitors` additionally calls
-`src/backends/rust.rs::representative_input_expr` for the `ALL_INPUTS`
-table, `render_monitor` uses `src/backends/rust.rs::snake`, and
-`pattern_block_open` uses `src/backends/rust.rs::rust_binding_ident` plus
+`src/codegen/backends/rust/mod.rs::representative_input_expr` for the `ALL_INPUTS`
+table, `render_monitor` uses `src/codegen/ident.rs::snake`, and
+`pattern_block_open` uses `src/codegen/ident.rs::rust_binding_ident` plus
 `src/lang/validator.rs::type_to_expr_type` / `Env::for_module`.
 
-### Rust unit-test generation (`src/backends/rust_test.rs`)
+### Rust unit-test generation (`src/codegen/backends/rust/test.rs`)
 
-`src/backends/rust_test.rs::generate_unit_tests` runs
-`src/backends/rust_fsm.rs::generate_core` with `with_tests` + `Always`
+`src/codegen/backends/rust/test.rs::generate_unit_tests` runs
+`src/codegen/backends/rust/fsm.rs::generate_core` with `with_tests` + `Always`
 monitor mode, then appends the libfuzzer_sys fuzz skeleton as a separate
-extra file via `src/backends/rust_test.rs::emit_fuzz_target` (decoding inputs
-per `src/codegen/test_plan.rs::build_fuzz_decode`). `src/backends/rust_test.rs::emit_test_module`
+extra file via `src/codegen/backends/rust/test.rs::emit_fuzz_target` (decoding inputs
+per `src/codegen/test_plan.rs::build_fuzz_decode`). `src/codegen/backends/rust/test.rs::emit_test_module`
 renders the `#[cfg(test)]` module from the shared plan
 (`src/codegen/test_plan.rs::build_test_plan`, with the negative-test assertion
 chosen via `src/codegen/test_plan.rs::has_definite_unexpected`): the module-level
 tests (initial state, positive drive, negative search) plus one renderer per
 plan class - `render_transition_test` (taken / not-taken),
 `render_invariant_test` (re-checks the property atom at every sample via
-`src/backends/rust_fsm.rs::render_signal_expr`), `render_monitor_test`, and
+`src/codegen/backends/rust/fsm.rs::render_signal_expr`), `render_monitor_test`, and
 `render_random_trace_test`. Literal rendering flows through
 `var_value_literal` / `vars_initializer` / `input_case_expr` /
 `output_case_full_literal` / `resolve_output_variant` / `render_outputs_assert`
 (full `assert_eq!` when every arg is statically known, otherwise the
-documented partial-match fallback). `src/backends/rust_test.rs::generate_aggregate_test_crate`
+documented partial-match fallback). `src/codegen/backends/rust/test.rs::generate_aggregate_test_crate`
 (used by the `generate_code_tests` / `test_generated_code` bins) parses each
 file (`src/lang/parser.rs::parse_file`), stamps the per-file spec hash
 (`src/utils/hash.rs::spec_hash16`), and codegens every module into its own
-`pub mod` via `src/backends/rust_fsm.rs::generate_core`;
-`src/backends/rust_test.rs::write_generated_crate` writes the crate under
+`pub mod` via `src/codegen/backends/rust/fsm.rs::generate_core`;
+`src/codegen/backends/rust/test.rs::write_generated_crate` writes the crate under
 `target/`.
 
 ```mermaid
@@ -918,28 +918,28 @@ flowchart TD
 Isolated leaves: `write_generated_crate` (std::fs only) and
 `render_random_trace_test` (pure formatting). `generate_unit_tests` and
 `generate_aggregate_test_crate` both call
-`src/backends/rust_fsm.rs::generate_core` (external); `emit_fuzz_target`
-additionally uses `src/backends/rust.rs::bit_rust_type` /
-`src/backends/rust.rs::rust_ident`.
+`src/codegen/backends/rust/fsm.rs::generate_core` (external); `emit_fuzz_target`
+additionally uses `src/codegen/backends/rust/mod.rs::bit_rust_type` /
+`src/codegen/ident.rs::rust_ident`.
 
-### Rust model-checker generation (`src/backends/rust_mc.rs`)
+### Rust model-checker generation (`src/codegen/backends/rust/mc.rs`)
 
-`src/backends/rust_mc.rs::generate_model_checker` rejects `--no-std` and
+`src/codegen/backends/rust/mc.rs::generate_model_checker` rejects `--no-std` and
 `--with-protocol-fsm` with the pinned errors from `src/codegen/mod.rs`; in
 `smt-bounded` mode it renders a standalone z3 binary from the shared plan
 (`src/smt_plan.rs::build_smt_spec` + `src/smt_emit.rs::emit_rust_spec`).
 Otherwise it reuses the production FSM core
-(`src/backends/rust_fsm.rs::generate_core` with `Always` monitors) and
+(`src/codegen/backends/rust/fsm.rs::generate_core` with `Always` monitors) and
 appends the exact-mode runtime rendered by
-`src/backends/rust_mc.rs::exact_codegen` from the codegen-time plan
+`src/codegen/backends/rust/mc.rs::exact_codegen` from the codegen-time plan
 (`src/mc_plan.rs::McPlan`): the canonical `all_inputs` enumeration (via
 `domain_iter` / `rep_expr`), the `config_bytes` packing (via
 `var_value_expr`), the shared `mc_step_all`
-(`src/backends/rust_fsm.rs::render_mc_step_all`), the static BFS engine, the
+(`src/codegen/backends/rust/fsm.rs::render_mc_step_all`), the static BFS engine, the
 JSON counterexample writer plus the per-module renderers
-(`json_renderers_rust`, sharing `src/backends/rust_fsm.rs::enum_renderer_names`
+(`json_renderers_rust`, sharing `src/codegen/backends/rust/fsm.rs::enum_renderer_names`
 with the text renderers), and the liveness engine - per-leaf sample
-evaluators rendered by `src/backends/rust_fsm.rs::render_sample_formula_evaluator`,
+evaluators rendered by `src/codegen/backends/rust/fsm.rs::render_sample_formula_evaluator`,
 skeleton expressions flattened by `flatten_skeleton`, property text via
 `src/lang/printer.rs::print_formula`. The fuzz runtime and the main dispatch are
 static string templates (no codegen-time calls).
@@ -969,26 +969,26 @@ flowchart TD
 
 `flatten_skeleton` is recursive (self-edge omitted). `exact_codegen`
 additionally calls `src/mc_plan.rs::LivenessDecomposition::compute` and the
-`src/backends/rust.rs` helpers; `json_renderers_rust` calls
+`src/codegen/backends/rust/mod.rs` helpers; `json_renderers_rust` calls
 `src/codegen/fsm.rs::build_variants`; `domain_iter` / `rep_expr` /
-`var_value_expr` use `src/backends/rust.rs::rust_ident`.
+`var_value_expr` use `src/codegen/ident.rs::rust_ident`.
 
 ## Function level - C backend + MC engine
 
 <a id="dev:deps-fn-backend-c"></a>
-### C backend registration + helpers (`src/backends/c.rs`)
+### C backend registration + helpers (`src/codegen/backends/c/mod.rs`)
 
-`src/backends/c.rs` registers `C_BACKEND` (three command descriptors plus
+`src/codegen/backends/c/mod.rs` registers `C_BACKEND` (three command descriptors plus
 the three function pointers into `c_fsm` / `c_test` / `c_mc`) and provides
 the C-specific helpers shared by all three generator modules: identifier
-mangling (`src/backends/c.rs::c_ident` for keywords,
-`src/backends/c.rs::c_binding_ident` which additionally renames pattern
+mangling (`src/codegen/backends/c/mod.rs::c_ident` for keywords,
+`src/codegen/backends/c/mod.rs::c_binding_ident` which additionally renames pattern
 bindings that would shadow identifiers the generated body uses unqualified),
-type mapping (`src/backends/c.rs::c_type` ->
-`src/backends/c.rs::bit_c_type`, which rejects widths other than 8/16/32/64
+type mapping (`src/codegen/backends/c/mod.rs::c_type` ->
+`src/codegen/backends/c/mod.rs::bit_c_type`, which rejects widths other than 8/16/32/64
 per decision D8), the in-range integer literal
-`src/backends/c.rs::int_c_literal`, and the bit-mask expression
-`src/backends/c.rs::mask_c_expr`.
+`src/codegen/backends/c/mod.rs::int_c_literal`, and the bit-mask expression
+`src/codegen/backends/c/mod.rs::mask_c_expr`.
 
 ```mermaid
 flowchart TD
@@ -1012,11 +1012,11 @@ flowchart TD
 Isolated leaves: `int_c_literal` and `mask_c_expr` are called only from the
 other backend modules (c_fsm / c_test / c_mc).
 
-### C production FSM generation (`src/backends/c_fsm.rs`)
+### C production FSM generation (`src/codegen/backends/c/fsm.rs`)
 
-`src/backends/c_fsm.rs::generate_production` maps the
+`src/codegen/backends/c/fsm.rs::generate_production` maps the
 `--with-property-monitors` flag to a monitor mode and delegates to
-`src/backends/c_fsm.rs::generate_core` - the core generator shared by all
+`src/codegen/backends/c/fsm.rs::generate_core` - the core generator shared by all
 three commands (the test and mc entry points pass `Always` mode instead).
 `generate_core` drives the `Gen` emitter: `Gen::new` first rejects
 unsupported bit widths (D8), then builds the variant table
@@ -1032,7 +1032,7 @@ outside the monitor subset are skipped with a warning); `emit_monitors`
 renders one `mon_*` struct per plan via `render_monitor` -> `render_node`
 (nodes numbered in DFS pre-order, evaluated in post-order), where each
 node's per-sample signal is rendered by `gen_signal_c` ->
-`src/backends/c_fsm.rs::render_signal_expr_c` (recursive descent over the
+`src/codegen/backends/c/fsm.rs::render_signal_expr_c` (recursive descent over the
 signal tree into `gen_expr_c` for variable expressions, referencing the
 per-monitor pattern helpers `{prefix}_in_<i>` / `{prefix}_out_<i>` emitted
 by `input_is_sample_helper_c` / `output_has_sample_helper_c` from the
@@ -1040,17 +1040,17 @@ conditions of `input_match_cond_c` / `output_match_cond_c`). `emit_fsm_impl`
 emits `fsm_new` / `fsm_free` / `rfs_commit` / `fsm_step` plus the per-state
 transition blocks (`transition_block_c` -> `gen_expr_c` /
 `output_expr_c`, with bindings as local variables via `c_binding_ident`)
-and the `on_error` fallback. `src/backends/c_fsm.rs::gen_expr_c` is the
+and the `on_error` fallback. `src/codegen/backends/c/fsm.rs::gen_expr_c` is the
 shared expression lowering: it types every subexpression via
 `src/lang/validator.rs::type_expr` and renders bit-vector arithmetic with C
 casts plus `mask_c_expr` masking (including the uint64-wide multiply and
 guarded shift forms).
 
 The MC/test shared renderers reuse the same helpers:
-`src/backends/c_fsm.rs::render_mc_step_all_c` renders the exact-mode
+`src/codegen/backends/c/fsm.rs::render_mc_step_all_c` renders the exact-mode
 `mc_step_all` (every enabled transition in firing order) via
 `render_mc_step_all_body` + `mc_pattern_cond`, and
-`src/backends/c_fsm.rs::render_liv_sample_evaluator_c` renders a per-sample
+`src/codegen/backends/c/fsm.rs::render_liv_sample_evaluator_c` renders a per-sample
 boolean evaluator for liveness leaves via
 `src/codegen/monitor.rs::formula_to_signal` + `gen_signal_c`.
 
@@ -1146,19 +1146,19 @@ cast), `collect_signal_patterns` / `collect_liv_signal_patterns` (recursive
 pattern collectors), and the method wrappers `input_is_sample_helper_c` /
 `output_has_sample_helper_c` on `Gen` (which delegate to the free
 functions). `emit_monitors` additionally calls
-`src/backends/rust.rs::snake` for label normalization; `render_monitor`
-uses `src/backends/rust.rs::snake`; `gen_expr_c` uses
-`src/backends/c.rs::bit_c_type` / `src/backends/c.rs::c_ident` /
-`src/backends/c.rs::int_c_literal` / `src/backends/c.rs::mask_c_expr`;
+`src/codegen/ident.rs::snake` for label normalization; `render_monitor`
+uses `src/codegen/ident.rs::snake`; `gen_expr_c` uses
+`src/codegen/backends/c/mod.rs::bit_c_type` / `src/codegen/backends/c/mod.rs::c_ident` /
+`src/codegen/backends/c/mod.rs::int_c_literal` / `src/codegen/backends/c/mod.rs::mask_c_expr`;
 `transition_block_c` / `mc_pattern_cond` / `render_mc_step_all_body` use
-`src/backends/c.rs::c_binding_ident` / `src/backends/c.rs::c_type` /
-`src/backends/c.rs::c_ident` / `src/backends/c.rs::int_c_literal` plus
+`src/codegen/backends/c/mod.rs::c_binding_ident` / `src/codegen/backends/c/mod.rs::c_type` /
+`src/codegen/backends/c/mod.rs::c_ident` / `src/codegen/backends/c/mod.rs::int_c_literal` plus
 `src/lang/validator.rs::Env::for_module`.
 
-### C unit-test generation (`src/backends/c_test.rs`)
+### C unit-test generation (`src/codegen/backends/c/test.rs`)
 
-`src/backends/c_test.rs::generate_unit_tests` runs
-`src/backends/c_fsm.rs::generate_core` with `Always` monitor mode, then
+`src/codegen/backends/c/test.rs::generate_unit_tests` runs
+`src/codegen/backends/c/fsm.rs::generate_core` with `Always` monitor mode, then
 appends a plain-assert harness (`main()` runs a table of test functions,
 one `PASS`/`FAIL` line each) from the shared plan
 (`src/codegen/test_plan.rs::build_test_plan`): module-level tests (initial state,
@@ -1166,13 +1166,13 @@ positive drive, `render_negative_c`'s negative search), then one renderer
 per plan class - `render_transition_test_c` (taken / not-taken via
 `render_outputs_assert_c` / `render_signature_compare_c`),
 `render_invariant_test_c` (re-checks the property atom at every sample via
-`src/backends/c_fsm.rs::render_signal_expr_c` + the pattern helpers),
+`src/codegen/backends/c/fsm.rs::render_signal_expr_c` + the pattern helpers),
 `render_monitor_test_c`, and `render_random_trace_test_c`. Literal rendering
 flows through `var_value_literal_c` / `vars_initializer_c` /
 `input_case_expr_c` / `resolve_output_variant_c`. The command also emits a
 separate `fuzz_target.c` (a libFuzzer skeleton decoding inputs per
 `src/codegen/test_plan.rs::build_fuzz_decode`) via
-`src/backends/c_test.rs::emit_fuzz_target_c`.
+`src/codegen/backends/c/test.rs::emit_fuzz_target_c`.
 
 ```mermaid
 flowchart TD
@@ -1224,32 +1224,32 @@ flowchart TD
 
 Isolated leaves: `render_random_trace_test_c` (pure formatting) and
 `render_negative_c` (calls `src/codegen/test_plan.rs::has_definite_unexpected`
-plus `src/backends/c.rs::c_ident`). `generate_unit_tests` additionally
-calls `src/backends/rust.rs::snake` for test-name normalization;
-`render_invariant_test_c` calls the `src/backends/c_fsm.rs` pattern helpers
+plus `src/codegen/backends/c/mod.rs::c_ident`). `generate_unit_tests` additionally
+calls `src/codegen/ident.rs::snake` for test-name normalization;
+`render_invariant_test_c` calls the `src/codegen/backends/c/fsm.rs` pattern helpers
 + `render_signal_expr_c` (external); `emit_fuzz_target_c` additionally uses
-`src/backends/c.rs::bit_c_type` / `src/backends/c.rs::c_ident`.
+`src/codegen/backends/c/mod.rs::bit_c_type` / `src/codegen/backends/c/mod.rs::c_ident`.
 
-### C model-checker generation (`src/backends/c_mc.rs`)
+### C model-checker generation (`src/codegen/backends/c/mc.rs`)
 
-`src/backends/c_mc.rs::generate_model_checker` rejects `--no-std` and
+`src/codegen/backends/c/mc.rs::generate_model_checker` rejects `--no-std` and
 `--with-protocol-fsm` with the pinned errors from `src/codegen/mod.rs`; in
 `smt-bounded` mode it renders a standalone z3 binary from the shared plan
 (`src/smt_plan.rs::build_smt_spec` + `src/smt_emit.rs::emit_c_spec`).
 Otherwise it reuses the production FSM core
-(`src/backends/c_fsm.rs::generate_core` with `Always` monitors) and appends
+(`src/codegen/backends/c/fsm.rs::generate_core` with `Always` monitors) and appends
 the exact-mode runtime rendered by
-`src/backends/c_mc.rs::exact_codegen_c` from the codegen-time plan
+`src/codegen/backends/c/mc.rs::exact_codegen_c` from the codegen-time plan
 (`src/mc_plan.rs::McPlan`): the shared trace/vars printers
 (`shared_printers` -> `print_value_c`, byte-identical to the Rust MC's
 Debug format), the canonical `all_inputs` enumeration (via `domain_loop` /
 `rep_value_c` / `domain_size`), the `config_bytes` packing (via
 `var_value_c`), the shared `mc_step_all`
-(`src/backends/c_fsm.rs::render_mc_step_all_c`), the static BFS engine, the
+(`src/codegen/backends/c/fsm.rs::render_mc_step_all_c`), the static BFS engine, the
 JSON counterexample writer plus the per-module renderers
 (`json_renderers_c` -> `json_value_c`), and the liveness engine - per-leaf
 sample evaluators rendered by
-`src/backends/c_fsm.rs::render_liv_sample_evaluator_c`, skeleton
+`src/codegen/backends/c/fsm.rs::render_liv_sample_evaluator_c`, skeleton
 expressions flattened by `flatten_skeleton_c`, property text via
 `src/lang/printer.rs::print_formula`. The fuzz runtime
 (`fuzz_runtime` -> `rep_inputs` -> `rep_input_c`) and the main dispatch are
@@ -1288,10 +1288,10 @@ flowchart TD
 
 `flatten_skeleton_c` is recursive (self-edge omitted). `exact_codegen_c`
 additionally calls `src/mc_plan.rs::LivenessDecomposition::compute` and the
-`src/backends/c.rs` helpers; `shared_printers` / `json_renderers_c` call
+`src/codegen/backends/c/mod.rs` helpers; `shared_printers` / `json_renderers_c` call
 `src/codegen/fsm.rs::build_variants`; `domain_loop` / `rep_value_c` /
-`rep_input_c` / `var_value_c` use `src/backends/c.rs::c_ident` /
-`src/backends/c.rs::int_c_literal` / `src/backends/c.rs::c_type`.
+`rep_input_c` / `var_value_c` use `src/codegen/backends/c/mod.rs::c_ident` /
+`src/codegen/backends/c/mod.rs::int_c_literal` / `src/codegen/backends/c/mod.rs::c_type`.
 
 <a id="dev:deps-fn-mc-engine"></a>
 ### MC plan (`src/mc_plan.rs`)
@@ -1732,13 +1732,13 @@ flowchart TD
 recursive (self-edges omitted). There are no isolated leaves: every helper
 is reachable from `compile_formula` or the reference interpreter.
 
-Consumers (edges out of this module): `src/backends/rust_fsm.rs::compile_monitors`
-and `src/backends/c_fsm.rs::compile_monitors` call
+Consumers (edges out of this module): `src/codegen/backends/rust/fsm.rs::compile_monitors`
+and `src/codegen/backends/c/fsm.rs::compile_monitors` call
 `src/codegen/monitor.rs::compile_formula` for each property/assumption (formulas
 outside the subset are skipped with a warning) and render the resulting
 `MonNode` trees (see `dev:deps-fn-codegen-rust` / `dev:deps-fn-backend-c`);
-`src/backends/rust_fsm.rs::render_sample_formula_evaluator` and
-`src/backends/c_fsm.rs::render_liv_sample_evaluator_c` call
+`src/codegen/backends/rust/fsm.rs::render_sample_formula_evaluator` and
+`src/codegen/backends/c/fsm.rs::render_liv_sample_evaluator_c` call
 `src/codegen/monitor.rs::formula_to_signal` to render per-sample boolean evaluators
 for liveness leaves; `src/mc_plan.rs::monitor_layouts` (called from
 `src/mc_plan.rs::McPlan::compute`) calls `src/codegen/monitor.rs::compile_formula`

@@ -17,12 +17,14 @@
 //!
 //! Docs: dev:codegen-core-overview, dev:codegen-plugin-api, dev:algorithms-ir-codegen, llm:codegen-core, dev:code-map-codegen, dev:deps-fn-codegen-rust
 
+pub mod backends;
 pub mod fsm;
+pub mod ident;
 pub mod mc_concepts;
 pub mod monitor;
 pub mod test_plan;
 
-use crate::backends::{c, rust};
+use crate::codegen::backends::{c, rust};
 use crate::lang::ir::{Ir, Module};
 use std::fmt::Write as _;
 

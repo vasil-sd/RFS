@@ -340,7 +340,7 @@ fn aggregate_codegen_succeeds_for_valid_examples_and_training_snippets() {
 
         ..codegen::BackendOptions::default()
     };
-    let crate_ = rfs::backends::rust_test::generate_aggregate_test_crate(&files, &options)
+    let crate_ = rfs::codegen::backends::rust::test::generate_aggregate_test_crate(&files, &options)
         .expect("aggregate codegen should succeed");
     assert!(crate_.module_count > 0);
     assert!(crate_.lib.contains("pub mod "));
@@ -1209,19 +1209,19 @@ fn test_mc_entry_points_reject_no_std() {
     for (name, result) in [
         (
             "rust test",
-            rfs::backends::rust_test::generate_unit_tests(module, &options),
+            rfs::codegen::backends::rust::test::generate_unit_tests(module, &options),
         ),
         (
             "rust mc",
-            rfs::backends::rust_mc::generate_model_checker(module, &options),
+            rfs::codegen::backends::rust::mc::generate_model_checker(module, &options),
         ),
         (
             "c test",
-            rfs::backends::c_test::generate_unit_tests(module, &options),
+            rfs::codegen::backends::c::test::generate_unit_tests(module, &options),
         ),
         (
             "c mc",
-            rfs::backends::c_mc::generate_model_checker(module, &options),
+            rfs::codegen::backends::c::mc::generate_model_checker(module, &options),
         ),
     ] {
         let errs = result.expect_err(&format!("{name} should reject no_std"));
@@ -1255,7 +1255,7 @@ fn no_std_header_pins_and_std_unchanged() {
         ..Default::default()
     };
 
-    let std_code = rfs::backends::rust_fsm::generate_production(module, &std_opts)
+    let std_code = rfs::codegen::backends::rust::fsm::generate_production(module, &std_opts)
         .unwrap()
         .code;
     let std_lines: Vec<&str> = std_code.lines().collect();
@@ -1264,7 +1264,7 @@ fn no_std_header_pins_and_std_unchanged() {
     assert!(std_lines[1].starts_with("#![allow(") && std_lines[1].ends_with(")]"));
     assert!(!std_code.contains("no_std"));
 
-    let nostd_code = rfs::backends::rust_fsm::generate_production(module, &nostd_opts)
+    let nostd_code = rfs::codegen::backends::rust::fsm::generate_production(module, &nostd_opts)
         .unwrap()
         .code;
     let nl: Vec<&str> = nostd_code.lines().collect();
@@ -1291,7 +1291,7 @@ fn no_std_header_imports_vec_macro_when_outputs_exist() {
         no_std: true,
         ..Default::default()
     };
-    let code = rfs::backends::rust_fsm::generate_production(module, &nostd_opts)
+    let code = rfs::codegen::backends::rust::fsm::generate_production(module, &nostd_opts)
         .unwrap()
         .code;
     let lines: Vec<&str> = code.lines().collect();
@@ -1305,10 +1305,10 @@ fn c_production_no_std_is_documented_noop() {
     let module = &ir.modules[0];
     const NOTE: &str = "// --no-std accepted: the C backend is already dependency-free; the flag has no effect on this output.";
     let std_code =
-        rfs::backends::c_fsm::generate_production(module, &codegen::BackendOptions::default())
+        rfs::codegen::backends::c::fsm::generate_production(module, &codegen::BackendOptions::default())
             .unwrap()
             .code;
-    let nostd_code = rfs::backends::c_fsm::generate_production(
+    let nostd_code = rfs::codegen::backends::c::fsm::generate_production(
         module,
         &codegen::BackendOptions {
             no_std: true,
@@ -1535,14 +1535,14 @@ fn protocol_fsm_emission_pins_and_default_unchanged() {
     let ir = example_module("01_trivial_two_state.rfs");
     let module = &ir.modules[0];
     let default_code =
-        rfs::backends::rust_fsm::generate_production(module, &codegen::BackendOptions::default())
+        rfs::codegen::backends::rust::fsm::generate_production(module, &codegen::BackendOptions::default())
             .unwrap()
             .code;
     // Default output is unchanged: no trace of the trait at all.
     assert!(!default_code.contains("ProtocolFsm"));
     assert!(!default_code.contains("rfs_adapters"));
 
-    let pf_code = rfs::backends::rust_fsm::generate_production(
+    let pf_code = rfs::codegen::backends::rust::fsm::generate_production(
         module,
         &codegen::BackendOptions {
             with_protocol_fsm: true,
@@ -1561,7 +1561,7 @@ fn protocol_fsm_emission_pins_and_default_unchanged() {
     assert_eq!(pf_code, format!("{default_code}\n{PF_IMPL_BLOCK}\n"));
 
     // The test artifact carries the same block (before the #[cfg(test)] module).
-    let test_code = rfs::backends::rust_test::generate_unit_tests(
+    let test_code = rfs::codegen::backends::rust::test::generate_unit_tests(
         module,
         &codegen::BackendOptions {
             with_protocol_fsm: true,
@@ -1577,10 +1577,10 @@ fn protocol_fsm_emission_pins_and_default_unchanged() {
 
     // The C backend ignores the flag: byte-identical output.
     let c_default =
-        rfs::backends::c_fsm::generate_production(module, &codegen::BackendOptions::default())
+        rfs::codegen::backends::c::fsm::generate_production(module, &codegen::BackendOptions::default())
             .unwrap()
             .code;
-    let c_pf = rfs::backends::c_fsm::generate_production(
+    let c_pf = rfs::codegen::backends::c::fsm::generate_production(
         module,
         &codegen::BackendOptions {
             with_protocol_fsm: true,
@@ -1605,11 +1605,11 @@ fn mc_entry_points_reject_protocol_fsm() {
     for (name, result) in [
         (
             "rust mc",
-            rfs::backends::rust_mc::generate_model_checker(module, &options),
+            rfs::codegen::backends::rust::mc::generate_model_checker(module, &options),
         ),
         (
             "c mc",
-            rfs::backends::c_mc::generate_model_checker(module, &options),
+            rfs::codegen::backends::c::mc::generate_model_checker(module, &options),
         ),
     ] {
         let errs = result.expect_err(&format!("{name} should reject --with-protocol-fsm"));
@@ -1836,7 +1836,7 @@ fn aggregate_crate_carries_new_classes_and_stays_dependency_free() {
 
         ..codegen::BackendOptions::default()
     };
-    let crate_ = rfs::backends::rust_test::generate_aggregate_test_crate(&files(), &options)
+    let crate_ = rfs::codegen::backends::rust::test::generate_aggregate_test_crate(&files(), &options)
         .expect("aggregate codegen");
     assert!(crate_.lib.contains("fn random_trace_seed12345_steps4"));
     assert!(crate_.lib.contains("fn invariant_") || crate_.lib.contains("_fires_on_violation"));

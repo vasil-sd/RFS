@@ -9,7 +9,7 @@
 //! exactly like the Rust backend (DESIGN.md section 19).
 //! Docs: dev:backend-c-overview, dev:backend-c-fsm, llm:backend-c
 
-use crate::backends::c::{c_binding_ident, c_ident, c_type, int_c_literal, mask_c_expr};
+use crate::codegen::backends::c::{c_binding_ident, c_ident, c_type, int_c_literal, mask_c_expr};
 use crate::codegen::{self, BackendOptions, PropertyMonitorMode};
 use crate::codegen::fsm::{self, FsmVariants, VariantInfo};
 use crate::lang::ir::*;
@@ -614,7 +614,7 @@ fn gen_expr_c(e: &Expr, env: &Env, ctx: &Ctx, module: &Module) -> Result<String,
     let ctype = |t: &ExprType| -> String {
         match t {
             ExprType::Bool => "bool".into(),
-            ExprType::Bit(w) => crate::backends::c::bit_c_type(*w)
+            ExprType::Bit(w) => crate::codegen::backends::c::bit_c_type(*w)
                 .unwrap_or("uint64_t")
                 .into(),
             ExprType::IntLit => "uint64_t".into(),
@@ -905,7 +905,7 @@ impl<'a> Gen<'a> {
     /// post-order (children before parents), mirroring the reference
     /// interpreter in `crate::codegen::monitor`.
     fn render_monitor(&self, plan: &MonitorPlan) -> Result<String, String> {
-        let m = crate::backends::rust::snake(&plan.label);
+        let m = crate::codegen::ident::snake(&plan.label);
         // Distinct InputIs/OutputHas patterns (first-seen DFS order) get one
         // helper function each.
         let mut input_pats: Vec<&EventPattern> = Vec::new();
@@ -1177,7 +1177,7 @@ impl<'a> Gen<'a> {
             .assume_plans
             .iter()
             .map(|p| {
-                let s = crate::backends::rust::snake(&p.label);
+                let s = crate::codegen::ident::snake(&p.label);
                 format!("mon_{s}_t mon_{s};")
             })
             .collect();
@@ -1185,12 +1185,12 @@ impl<'a> Gen<'a> {
             .assume_plans
             .iter()
             .map(|p| {
-                let s = crate::backends::rust::snake(&p.label);
+                let s = crate::codegen::ident::snake(&p.label);
                 format!("mon_{s}_new(&m->mon_{s});")
             })
             .collect();
         let steps: Vec<String> = self.assume_plans.iter().map(|p| {
-            let s = crate::backends::rust::snake(&p.label);
+            let s = crate::codegen::ident::snake(&p.label);
             format!(
                 "    if (mon_{s}_step(&m->mon_{s}, s, idx) && !r) {{ for (int i = 0; i < n_active; i++) {{ if (strcmp(active_assumes[i], \"{}\") == 0) {{ r = \"{}\"; break; }} }} }}",
                 p.label, p.label
@@ -1213,7 +1213,7 @@ impl<'a> Gen<'a> {
             .prop_plans
             .iter()
             .map(|p| {
-                let s = crate::backends::rust::snake(&p.label);
+                let s = crate::codegen::ident::snake(&p.label);
                 format!("mon_{s}_t mon_{s};")
             })
             .collect();
@@ -1221,12 +1221,12 @@ impl<'a> Gen<'a> {
             .prop_plans
             .iter()
             .map(|p| {
-                let s = crate::backends::rust::snake(&p.label);
+                let s = crate::codegen::ident::snake(&p.label);
                 format!("mon_{s}_new(&m->mon_{s});")
             })
             .collect();
         let steps: Vec<String> = self.prop_plans.iter().map(|p| {
-            let s = crate::backends::rust::snake(&p.label);
+            let s = crate::codegen::ident::snake(&p.label);
             format!(
                 "    if (mon_{s}_step(&m->mon_{s}, s, idx) && !found) {{ out->label = \"{}\"; out->step = idx; out->trigger_step = mon_{s}_trigger_step(&m->mon_{s}); found = 1; }}",
                 p.label

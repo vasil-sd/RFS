@@ -27,7 +27,7 @@ Shared infrastructure: external tools `src/ext_tool.rs::ExtTool` / `resolve`
 | info format | dev:cli-commands-info | `src/info_format.rs::FORMATS`, `find`, `list_markdown`, `render`; dispatch `src/main.rs::run_info_format` |
 | test | dev:cli-commands-test | `src/test_cmd.rs::run_test`, `run_unit_suite`, `run_fuzz_c`, `run_fuzz_rust`, `render_script`; dispatch `src/main.rs::cmd_test` |
 | diagram | dev:cli-commands-diagram | `src/diagram.rs::run_diagram`, `DIAGRAMS`, `DiagramPlugin`; plugins `src/diagrams/dot.rs::DOT_PLUGIN`, `src/diagrams/plantuml.rs::PUML_PLUGIN`, `src/diagrams/mermaid.rs::MMD_PLUGIN`, `src/diagrams/tables.rs::TABLE_PLUGIN` / `MD_PLUGIN`; dispatch `src/main.rs::cmd_diagram` |
-| codegen | dev:codegen-plugin-api | `src/codegen/mod.rs::parse_codegen_args`, `get_backend`, `list_backends`, `CodegenCommandKind::run`; backends `src/backends/rust.rs` / `src/backends/c.rs`; dispatch `src/main.rs::cmd_codegen` |
+| codegen | dev:codegen-plugin-api | `src/codegen/mod.rs::parse_codegen_args`, `get_backend`, `list_backends`, `CodegenCommandKind::run`; backends `src/codegen/backends/rust/mod.rs` / `src/codegen/backends/c/mod.rs`; dispatch `src/main.rs::cmd_codegen` |
 | mc-ref | dev:cli-commands-mc-ref-gen-spec + dev:mc-engine-exact | `src/mc_ref_cmd.rs::run_mc_ref`, `exit_code_for`, `run_cli`; engine `src/ref_mc.rs::run` |
 | gen-spec | dev:cli-commands-mc-ref-gen-spec | `src/gen_spec_cmd.rs::run_cli`, `generate_random`, `mutate_base`; engine `src/lang/specgen.rs::SpecGen`, `mutate_traced` |
 
@@ -53,8 +53,8 @@ Shared infrastructure: external tools `src/ext_tool.rs::ExtTool` / `resolve`
 | Production FSM helpers | dev:codegen-fsm-helpers | `src/codegen/fsm.rs` (variants, representative values shared by both backends) |
 | MC concepts | dev:codegen-mc-concepts | `src/codegen/mc_concepts.rs` (ExactStatus taxonomy, EXACT_DEFAULT_* constants, report wire format) |
 | Test planning | dev:codegen-test-plan | `src/codegen/test_plan.rs` (TestPlan shared by both backends + fuzz skeletons) |
-| Rust backend | dev:backend-rust-overview (+ -plugin / -fsm / -mc / -test) | `src/backends/rust.rs`, `rust_fsm.rs`, `rust_mc.rs`, `rust_test.rs` (aggregate crate: `generate_aggregate_test_crate`, `write_generated_crate`) |
-| C backend | dev:backend-c-overview (+ -plugin / -fsm / -mc / -test) | `src/backends/c.rs`, `c_fsm.rs`, `c_mc.rs`, `c_test.rs` (same wire format as Rust) |
+| Rust backend | dev:backend-rust-overview (+ -plugin / -fsm / -mc / -test) | `src/codegen/backends/rust/mod.rs`, `rust_fsm.rs`, `rust_mc.rs`, `rust_test.rs` (aggregate crate: `generate_aggregate_test_crate`, `write_generated_crate`) |
+| C backend | dev:backend-c-overview (+ -plugin / -fsm / -mc / -test) | `src/codegen/backends/c/mod.rs`, `c_fsm.rs`, `c_mc.rs`, `c_test.rs` (same wire format as Rust) |
 
 ### Model-checking engines + monitor compiler
 
@@ -137,18 +137,19 @@ above.
 - `src/utils/mod.rs` - module root of the cross-cutting substrate (hash + rng)
 - `src/utils/rng.rs` - the project's single LCG generator (shared constants, top-53-bit mapping)
 - `src/codegen/mod.rs` - codegen backend API + plugin registry (language-agnostic core)
+- `src/codegen/ident.rs` - identifier mangling shared by both backends (snake, rust_ident, rust_binding_ident)
 - `src/codegen/fsm.rs` - shared production-FSM codegen helpers (variants, rep values)
 - `src/codegen/mc_concepts.rs` - bounded model-checker concepts shared by all backends
 - `src/codegen/test_plan.rs` - unit-test planning (TestPlan) shared by all backends
-- `src/backends/mod.rs` - backend plugin modules: registration entries per target language
-- `src/backends/rust.rs` - Rust backend: plugin registration + shared Rust helpers
-- `src/backends/rust_fsm.rs` - Rust backend: production FSM source generation
-- `src/backends/rust_mc.rs` - Rust backend: model-checker executable generation
-- `src/backends/rust_test.rs` - Rust backend: unit-test / fuzz / aggregate-crate generation
-- `src/backends/c.rs` - C backend: plugin registration + shared C helpers
-- `src/backends/c_fsm.rs` - C backend: production FSM source generation
-- `src/backends/c_mc.rs` - C backend: model-checker executable generation (same wire format as Rust)
-- `src/backends/c_test.rs` - C backend: unit-test / fuzz-target generation
+- `src/codegen/backends/mod.rs` - backend plugin modules: registration entries per target language
+- `src/codegen/backends/rust/mod.rs` - Rust backend: plugin registration + shared Rust helpers
+- `src/codegen/backends/rust/fsm.rs` - Rust backend: production FSM source generation
+- `src/codegen/backends/rust/mc.rs` - Rust backend: model-checker executable generation
+- `src/codegen/backends/rust/test.rs` - Rust backend: unit-test / fuzz / aggregate-crate generation
+- `src/codegen/backends/c/mod.rs` - C backend: plugin registration + shared C helpers
+- `src/codegen/backends/c/fsm.rs` - C backend: production FSM source generation
+- `src/codegen/backends/c/mc.rs` - C backend: model-checker executable generation (same wire format as Rust)
+- `src/codegen/backends/c/test.rs` - C backend: unit-test / fuzz-target generation
 - `src/mc_plan.rs` - codegen-time plan for the exact MC engine (embedded in both binaries)
 - `src/smt_plan.rs` - backend-neutral SMT spec for k-step unrolling over z3 bitvectors
 - `src/smt_emit.rs` - shared SMT emitter: renders the spec into Rust (z3 crate) and C (libz3)

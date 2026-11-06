@@ -17,7 +17,7 @@
 //! warnings.
 //! Docs: dev:backend-c-overview, dev:backend-c-mc, llm:backend-c
 
-use crate::backends::c::{c_ident, int_c_literal};
+use crate::codegen::backends::c::{c_ident, int_c_literal};
 use crate::codegen::{BackendOptions, CodegenOutput, McMode};
 use crate::codegen::fsm::{self, VariantInfo};
 use crate::lang::ir::*;
@@ -63,7 +63,7 @@ pub fn generate_model_checker(
     }
     // The model checker reuses the production FSM core without unit tests.
     // Property monitors are always included (D-P3-6).
-    let prod = crate::backends::c_fsm::generate_core(
+    let prod = crate::codegen::backends::c::fsm::generate_core(
         module,
         options,
         crate::codegen::PropertyMonitorMode::Always,
@@ -130,7 +130,7 @@ fn shared_printers(module: &Module) -> String {
                     c_ident(ename).to_uppercase(),
                     c_ident(v).to_uppercase(),
                     ename,
-                    crate::backends::rust::rust_ident(v)
+                    crate::codegen::ident::rust_ident(v)
                 )
             })
             .collect();
@@ -153,7 +153,7 @@ fn shared_printers(module: &Module) -> String {
                 format!(
                     "case STATE_{}: return \"State::{}\";",
                     c_ident(v).to_uppercase(),
-                    crate::backends::rust::rust_ident(v)
+                    crate::codegen::ident::rust_ident(v)
                 )
             })
             .collect();
@@ -179,7 +179,7 @@ fn shared_printers(module: &Module) -> String {
                 let sep = if i == 0 { "" } else { ", " };
                 format!(
                     "printf(\"{sep}{name}: \"); {val}",
-                    name = crate::backends::rust::rust_ident(&v.name),
+                    name = crate::codegen::ident::rust_ident(&v.name),
                     val = print_value_c(&v.ty, &format!("v->{}", c_ident(&v.name)))
                 )
             })
@@ -200,7 +200,7 @@ fn shared_printers(module: &Module) -> String {
                 format!(
                     "case {}: printf(\"Input::{}\"); break;",
                     kind,
-                    crate::backends::rust::rust_ident(&v.unique_name)
+                    crate::codegen::ident::rust_ident(&v.unique_name)
                 )
             } else {
                 let member = format!("input_{}", v.unique_name.to_lowercase());
@@ -212,7 +212,7 @@ fn shared_printers(module: &Module) -> String {
                         let sep = if i == 0 { "" } else { ", " };
                         format!(
                             "printf(\"{sep}{name}: \"); {val}",
-                            name = crate::backends::rust::rust_ident(fname),
+                            name = crate::codegen::ident::rust_ident(fname),
                             val = print_value_c(
                                 fty,
                                 &format!("in->payload.{member}.{cf}", cf = c_ident(fname))
@@ -223,7 +223,7 @@ fn shared_printers(module: &Module) -> String {
                 format!(
                     "case {}: printf(\"Input::{} {{ \"); {parts} printf(\" }}\"); break;",
                     kind,
-                    crate::backends::rust::rust_ident(&v.unique_name),
+                    crate::codegen::ident::rust_ident(&v.unique_name),
                     parts = parts.join(" ")
                 )
             }
@@ -244,7 +244,7 @@ fn shared_printers(module: &Module) -> String {
                 format!(
                     "case {}: printf(\"Output::{}\"); break;",
                     kind,
-                    crate::backends::rust::rust_ident(&v.unique_name)
+                    crate::codegen::ident::rust_ident(&v.unique_name)
                 )
             } else {
                 let member = format!("output_{}", v.unique_name.to_lowercase());
@@ -256,7 +256,7 @@ fn shared_printers(module: &Module) -> String {
                         let sep = if i == 0 { "" } else { ", " };
                         format!(
                             "printf(\"{sep}{name}: \"); {val}",
-                            name = crate::backends::rust::rust_ident(fname),
+                            name = crate::codegen::ident::rust_ident(fname),
                             val = print_value_c(
                                 fty,
                                 &format!("outs[i].payload.{member}.{cf}", cf = c_ident(fname))
@@ -267,7 +267,7 @@ fn shared_printers(module: &Module) -> String {
                 format!(
                     "case {}: printf(\"Output::{} {{ \"); {parts} printf(\" }}\"); break;",
                     kind,
-                    crate::backends::rust::rust_ident(&v.unique_name),
+                    crate::codegen::ident::rust_ident(&v.unique_name),
                     parts = parts.join(" ")
                 )
             }
@@ -499,7 +499,7 @@ fn exact_codegen_c(
         for (i, f) in vs.fields.iter().enumerate() {
             if f.concrete {
                 if let ValueDomain::Enum { variants, .. } = f.domain.as_ref().unwrap() {
-                    let ety = crate::backends::c::c_type(&vinfo.fields[i].1)
+                    let ety = crate::codegen::backends::c::c_type(&vinfo.fields[i].1)
                         .map_err(|e| e.to_string())?;
                     let vals: Vec<String> = variants
                         .iter()
@@ -540,7 +540,7 @@ fn exact_codegen_c(
         ));
         let mut k = 0usize;
         for (i, f) in vs.fields.iter().enumerate() {
-            let cast = crate::backends::c::c_type(&vinfo.fields[i].1).map_err(|e| e.to_string())?;
+            let cast = crate::codegen::backends::c::c_type(&vinfo.fields[i].1).map_err(|e| e.to_string())?;
             if f.concrete {
                 let (_cond, val) = domain_loop(f.domain.as_ref().unwrap(), k);
                 s.push_str(&format!(
@@ -587,7 +587,7 @@ fn exact_codegen_c(
     for m in &plan.encoding.monitors {
         let agg = if m.is_assumption { "assume" } else { "prop" };
         for n in &m.nodes {
-            let base = format!("{}->mon_{}", agg, crate::backends::rust::snake(&m.label));
+            let base = format!("{}->mon_{}", agg, crate::codegen::ident::snake(&m.label));
             let nb = m.offset_bits;
             if n.pending_bits > 0 {
                 s.push_str(&format!(
@@ -626,7 +626,7 @@ fn exact_codegen_c(
     s.push_str("}\n");
 
     // mc_step_all: every enabled transition's effect in firing order (D-P4-11).
-    s.push_str(&crate::backends::c_fsm::render_mc_step_all_c(module)?);
+    s.push_str(&crate::codegen::backends::c::fsm::render_mc_step_all_c(module)?);
 
     // The BFS engine (static; see D-P4-2..6).
     s.push_str(EXACT_ENGINE_C);
@@ -654,7 +654,7 @@ fn exact_codegen_c(
             match leaf {
                 crate::mc_plan::SkeletonLeaf::Safety(f) => {
                     let name = format!("liv_p{pi}_l{li}");
-                    s.push_str(&crate::backends::c_fsm::render_liv_sample_evaluator_c(
+                    s.push_str(&crate::codegen::backends::c::fsm::render_liv_sample_evaluator_c(
                         module, &name, f,
                     )?);
                     leaf_entries.push(format!("{{ 0, {name}, 0 }}"));
@@ -662,7 +662,7 @@ fn exact_codegen_c(
                 crate::mc_plan::SkeletonLeaf::Obligation(oi) => match &spec.obligations[*oi] {
                     crate::mc_plan::LivenessObligation::Eventually { body } => {
                         let name = format!("liv_p{pi}_l{li}");
-                        s.push_str(&crate::backends::c_fsm::render_liv_sample_evaluator_c(
+                        s.push_str(&crate::codegen::backends::c::fsm::render_liv_sample_evaluator_c(
                             module, &name, body,
                         )?);
                         leaf_entries.push(format!("{{ 1, {name}, 0 }}"));
@@ -670,10 +670,10 @@ fn exact_codegen_c(
                     crate::mc_plan::LivenessObligation::Until { left, right } => {
                         let na = format!("liv_p{pi}_l{li}");
                         let nb = format!("liv_p{pi}_l{li}b");
-                        s.push_str(&crate::backends::c_fsm::render_liv_sample_evaluator_c(
+                        s.push_str(&crate::codegen::backends::c::fsm::render_liv_sample_evaluator_c(
                             module, &na, left,
                         )?);
-                        s.push_str(&crate::backends::c_fsm::render_liv_sample_evaluator_c(
+                        s.push_str(&crate::codegen::backends::c::fsm::render_liv_sample_evaluator_c(
                             module, &nb, right,
                         )?);
                         leaf_entries.push(format!("{{ 2, {na}, {nb} }}"));
@@ -765,7 +765,7 @@ fn json_renderers_c(module: &Module) -> String {
                 if vi.fields.is_empty() {
                     format!(
                         "        case {kind}: mjb_str(b, \"\\\"{}\\\",\\\"fields\\\":{{}}\"); break;",
-                        crate::backends::rust::rust_ident(&vi.unique_name)
+                        crate::codegen::ident::rust_ident(&vi.unique_name)
                     )
                 } else {
                     let member = format!("{kw}_{}", vi.unique_name.to_lowercase());
@@ -779,14 +779,14 @@ fn json_renderers_c(module: &Module) -> String {
                             format!(
                                 "mjb_str(b, \"{}\\\"{}\\\":\"); {}",
                                 sep,
-                                crate::backends::rust::rust_ident(fname),
+                                crate::codegen::ident::rust_ident(fname),
                                 json_value_c(fty, &expr)
                             )
                         })
                         .collect();
                     format!(
                         "        case {kind}: mjb_str(b, \"\\\"{}\\\",\\\"fields\\\":{{\"); {} mjb_char(b, '}}'); break;",
-                        crate::backends::rust::rust_ident(&vi.unique_name),
+                        crate::codegen::ident::rust_ident(&vi.unique_name),
                         parts.join(" ")
                     )
                 }
@@ -816,7 +816,7 @@ fn json_renderers_c(module: &Module) -> String {
                 };
                 format!(
                     "{sep}mjb_str(b, \"\\\"{}\\\":\"); {}",
-                    crate::backends::rust::rust_ident(&v.name),
+                    crate::codegen::ident::rust_ident(&v.name),
                     json_value_c(&v.ty, &format!("v->{}", c_ident(&v.name)))
                 )
             })

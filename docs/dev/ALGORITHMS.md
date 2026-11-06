@@ -642,7 +642,7 @@ Code: `src/ref_mc.rs::bnode_key`, `src/ref_mc.rs::match_effect`,
 `src/ref_mc.rs::verify_counterexample`, `src/ref_mc.rs::step_trace`,
 `src/smt_plan.rs::SmtTrans`, `src/smt_emit.rs::emit_rust_spec`,
 `src/smt_emit.rs::emit_c_spec`,
-`src/backends/rust_mc.rs::SMT_ENGINE_RUST`
+`src/codegen/backends/rust/mc.rs::SMT_ENGINE_RUST`
 
 Refs: [model checking, SMT/SAT solving](REFERENCES.md#model-checking-smt-sat-solving)
 
@@ -856,7 +856,7 @@ Code: `src/codegen/monitor.rs::SignalExpr`, `src/codegen/monitor.rs::SignalAtom`
    MC-only, not monitorable.
 
 Code: `src/codegen/monitor.rs::step_node`, `src/codegen/monitor.rs::min_trigger_at`,
-`src/backends/rust_fsm.rs::emit_monitors`,
-`src/backends/c_fsm.rs::emit_monitors`, `src/mc_plan.rs::monitor_layouts`
+`src/codegen/backends/rust/fsm.rs::emit_monitors`,
+`src/codegen/backends/c/fsm.rs::emit_monitors`, `src/mc_plan.rs::monitor_layouts`
 
 Refs: [model checking, SMT/SAT solving](REFERENCES.md#model-checking-smt-sat-solving)

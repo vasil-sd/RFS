@@ -68,7 +68,7 @@ pub fn generate_model_checker(
         ..options.clone()
     };
     let plan = McPlan::compute(module, &options.assumptions);
-    let fsm = crate::backends::rust_fsm::generate_core(
+    let fsm = crate::codegen::backends::rust::fsm::generate_core(
         module,
         &fsm_options,
         false,
@@ -97,7 +97,7 @@ fn exact_codegen(
     plan: &McPlan,
     options: &BackendOptions,
 ) -> Result<(String, Vec<String>), String> {
-    use crate::backends::rust::{rust_ident, snake};
+    use crate::codegen::backends::rust::{rust_ident, snake};
 
     let mut s = String::new();
     // Codegen-time defaults for the runtime flags (D-P4-7).
@@ -262,7 +262,7 @@ fn exact_codegen(
     s.push_str("    buf\n}\n");
 
     // mc_step_all: every enabled transition's effect in firing order (D-P4-11).
-    s.push_str(&crate::backends::rust_fsm::render_mc_step_all(module)?);
+    s.push_str(&crate::codegen::backends::rust::fsm::render_mc_step_all(module)?);
 
     // The BFS engine (static; see D-P4-2..6).
     s.push_str(EXACT_ENGINE);
@@ -290,7 +290,7 @@ fn exact_codegen(
             match leaf {
                 crate::mc_plan::SkeletonLeaf::Safety(f) => {
                     let name = format!("liv_p{pi}_l{li}");
-                    s.push_str(&crate::backends::rust_fsm::render_sample_formula_evaluator(
+                    s.push_str(&crate::codegen::backends::rust::fsm::render_sample_formula_evaluator(
                         module, &name, f,
                     )?);
                     leaf_entries.push(format!(
@@ -300,7 +300,7 @@ fn exact_codegen(
                 crate::mc_plan::SkeletonLeaf::Obligation(oi) => match &spec.obligations[*oi] {
                     crate::mc_plan::LivenessObligation::Eventually { body } => {
                         let name = format!("liv_p{pi}_l{li}");
-                        s.push_str(&crate::backends::rust_fsm::render_sample_formula_evaluator(
+                        s.push_str(&crate::codegen::backends::rust::fsm::render_sample_formula_evaluator(
                             module, &name, body,
                         )?);
                         leaf_entries.push(format!(
@@ -310,10 +310,10 @@ fn exact_codegen(
                     crate::mc_plan::LivenessObligation::Until { left, right } => {
                         let na = format!("liv_p{pi}_l{li}");
                         let nb = format!("liv_p{pi}_l{li}b");
-                        s.push_str(&crate::backends::rust_fsm::render_sample_formula_evaluator(
+                        s.push_str(&crate::codegen::backends::rust::fsm::render_sample_formula_evaluator(
                             module, &na, left,
                         )?);
-                        s.push_str(&crate::backends::rust_fsm::render_sample_formula_evaluator(
+                        s.push_str(&crate::codegen::backends::rust::fsm::render_sample_formula_evaluator(
                             module, &nb, right,
                         )?);
                         leaf_entries.push(format!(
@@ -353,12 +353,12 @@ fn exact_codegen(
 /// (Phase 5 task 10). Names use `rust_ident` - the same name source as the
 /// text report printers - so JSON and text carry identical data.
 fn json_renderers_rust(module: &Module) -> String {
-    use crate::backends::rust::rust_ident;
+    use crate::codegen::ident::rust_ident;
     let variants = crate::codegen::fsm::build_variants(module);
     // Same enum -> renderer map as emit_renderers (rust_fsm): JSON strings must
     // carry ref_mc's prefixed value forms ("Enum::Variant"), identical to text.
     let enum_fn: std::collections::HashMap<String, String> =
-        crate::backends::rust_fsm::enum_renderer_names(module)
+        crate::codegen::backends::rust::fsm::enum_renderer_names(module)
             .into_iter()
             .collect();
     let json_value = |ty: &crate::lang::ir::Type, expr: &str| -> String {
@@ -476,7 +476,7 @@ fn flatten_skeleton(
 
 /// Canonical iterator expression for a concrete field domain (D-P4-2).
 fn domain_iter(d: &ValueDomain) -> String {
-    use crate::backends::rust::rust_ident;
+    use crate::codegen::ident::rust_ident;
     match d {
         ValueDomain::Bool => "[false, true]".into(),
         ValueDomain::Int { max } => format!("0..={max}"),
@@ -493,7 +493,7 @@ fn domain_iter(d: &ValueDomain) -> String {
 
 /// Representative value expression for an abstracted field.
 fn rep_expr(v: &crate::codegen::fsm::RepValue) -> String {
-    use crate::backends::rust::rust_ident;
+    use crate::codegen::ident::rust_ident;
     match v {
         crate::codegen::fsm::RepValue::Bool(b) => b.to_string(),
         crate::codegen::fsm::RepValue::Int(i) => i.to_string(),
@@ -511,7 +511,7 @@ fn rep_expr(v: &crate::codegen::fsm::RepValue) -> String {
 
 /// Value expression for one variable slot in `config_bytes`.
 fn var_value_expr(slot: &crate::mc_plan::VarSlot, module: &Module) -> String {
-    use crate::backends::rust::rust_ident;
+    use crate::codegen::ident::rust_ident;
     let ty = module
         .vars
         .iter()

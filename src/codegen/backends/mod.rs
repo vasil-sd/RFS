@@ -7,10 +7,4 @@
 //! Docs: dev:backend-rust-overview, llm:backend-rust
 
 pub mod c;
-pub mod c_fsm;
-pub mod c_mc;
-pub mod c_test;
 pub mod rust;
-pub mod rust_fsm;
-pub mod rust_mc;
-pub mod rust_test;

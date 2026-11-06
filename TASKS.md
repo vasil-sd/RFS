@@ -1905,3 +1905,20 @@ PHASE 8 IS NOW COMPLETE.
 - Incremental doc re-sync (correction 1a): manifest 5 entries rewritten (incl. src/codegen.rs -> src/codegen/mod.rs); CODE_MAP section paths rewritten (count stays 18 - all files remain in the area) + "MC engine + monitor (5)" -> "MC engine (4)"; live-doc refs rewritten; TASK_MAP mod.rs coverage came along with the path rewrite automatically.
 - `PHASE_11_TASK_4_STATUS.md` written per FORMATTING.md section 6.2.
 - Verification: cargo build OK; cargo test 535/535 (exactly the documented baseline); dev_docs_test 9/9 first run; zero-churn grep clean. Committed as one commit.
+
+## 2026-11-06 13:27 — Phase 11 task 5: backends into codegen/backends/{rust,c}/ + ident.rs extraction - cross-backend coupling resolved
+
+### Interpretation & plan
+
+- Requested: "execute task 5" per `docs/roadmap/phase_11/tasks/PHASE_11_TASK_5.md` - move the nine backends files into codegen/backends/{rust,c}/ (language dirs, one file per artifact), extract snake/rust_ident/rust_binding_ident + RUST_KEYWORDS into NEW codegen/ident.rs so no C file imports from the Rust module.
+- Plan: extract ident first, git mv all nine, wire module declarations (lib.rs loses backends; codegen/mod.rs gains backends + ident; both language mod.rs gain sibling decls), bulk path rewrites + nested cross-sibling form, fix external sites, incremental docs re-sync per correction 1a, gate.
+
+### Report
+
+- `src/codegen/backends/`: mod.rs (decls reduced to the two language dirs) + rust/{mod,fsm,test,mc}.rs + c/{mod,fsm,test,mc}.rs; C.md/RUST.md moved with the code (small scope extension - recorded).
+- NEW `src/codegen/ident.rs` (//! Docs: dev:codegen-core-overview): the ident trio + RUST_KEYWORDS verbatim from rust.rs; ALL former crate::backends::rust::{snake,rust_ident} refs (c_fsm 7, c_test import, c_mc ~15) now point at codegen::ident - grep-verified zero c/* imports from rust/.
+- Compiler-caught wiring gaps: the absorbed language mod.rs files needed three sibling pub mod decls each; codegen/mod.rs needed BOTH pub mod backends; and pub mod ident;; cross-sibling calls needed a second rewrite pass (backends::c_fsm -> backends::c::fsm nested form).
+- External sites re-verified: tests/codegen_test.rs (18 rfs::backends::<lang>_<artifact> -> nested form) + BOTH bins (grouped root import use rfs::{backends::rust_test, ...} -> aliased codegen::backends::rust::test as rust_test, bodies untouched).
+- Docs re-sync (correction 1a): manifest 9 old paths -> 10 new sorted entries + ident.rs; CODE_MAP section 18->19 (Codegen core 4->5 with the ident entry, backends/mod.rs to section root, Rust backend 5->4, C backend rewritten); TASK_MAP paths + ident row; every live-doc src/backends/* ref rewritten incl. directory mentions, rust*.rs globs and the {rust,c}_mc.rs brace form; 22 ident-function doc refs re-pointed rust/mod.rs -> ident.rs after the bulk sed over-aimed them.
+- Verification: cargo build OK; cargo test 535/535 (exact baseline - codegen output byte-identical); dev_docs_test 9/9; zero c/* imports from rust/; moved-file diffs are import/path rewrites + the ident extraction only.
+- `PHASE_11_TASK_5_STATUS.md` written per FORMATTING.md §6.2. Committed as one commit.

@@ -20,7 +20,7 @@
 use crate::backends::c::{c_ident, int_c_literal};
 use crate::codegen::{BackendOptions, CodegenOutput, McMode};
 use crate::codegen_fsm::{self, VariantInfo};
-use crate::ir::*;
+use crate::lang::ir::*;
 use crate::mc_plan::{McPlan, ValueDomain};
 
 /// Entry point for the `mc` command of the C backend.
@@ -684,7 +684,7 @@ fn exact_codegen_c(
         s.push_str(&format!(
             "static int liv_p{pi}_skel(const unsigned char* t) {{ return {skel_expr}; }}\n"
         ));
-        let formula_text = crate::printer::print_formula(&module.properties[pi].formula);
+        let formula_text = crate::lang::printer::print_formula(&module.properties[pi].formula);
         // A liveness-bearing property always has >= 1 leaf; the dummy entry
         // keeps the C array valid in the (unreachable) zero-leaf case and is
         // never dereferenced (liv_analyze returns early for n_leaves == 0).

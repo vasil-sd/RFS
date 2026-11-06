@@ -3,7 +3,7 @@
 //! Arbitrary strategy per PHASE_6_TASK_5.md: do NOT derive `Arbitrary` over
 //! raw IR types (that would produce invalid IR). Instead this wrapper maps
 //! fuzzer bytes -> specgen seed + bounds and builds random VALID specs through
-//! the task-3 `rfs::specgen` builder (validity by construction -
+//! the task-3 `rfs::lang::specgen` builder (validity by construction -
 //! `SpecGen::generate` asserts it).
 //! Docs: dev:toolchain-fuzz-overview, dev:toolchain-fuzz-targets, llm:toolchain-fuzz
 
@@ -12,7 +12,7 @@
 #![allow(dead_code)]
 
 use arbitrary::{Arbitrary, Unstructured};
-use rfs::specgen::{Bounds, SpecGen};
+use rfs::lang::specgen::{Bounds, SpecGen};
 
 /// One random valid single-module spec derived from fuzzer bytes.
 pub struct RandSpec {

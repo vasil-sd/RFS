@@ -43,7 +43,7 @@ use crate::codegen_test::{
     self, build_fuzz_decode, FuzzFieldStrategy, InputCase, InvariantCase, MonitorViolationCase,
     OutputCase, RandomTraceCase, TransitionExpectation, TransitionTestCase, VarValue,
 };
-use crate::ir::*;
+use crate::lang::ir::*;
 use std::fmt::Write as _;
 
 /// Entry point for the `test` command: production FSM code + unit tests +
@@ -920,7 +920,7 @@ pub fn generate_aggregate_test_crate(
     let mut warnings = Vec::new();
     let mut count = 0;
     for file in files {
-        let ir = crate::parser::parse_file(file)
+        let ir = crate::lang::parser::parse_file(file)
             .map_err(|e| vec![format!("{}: {}", file.display(), e.message)])?;
         // v1.0 spec hash (D-P6-3): the WHOLE file's canonical IR JSON text
         // (deterministic per D-P5-2), one hash per artifact - stamped onto a

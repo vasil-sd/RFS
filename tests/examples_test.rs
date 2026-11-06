@@ -1,7 +1,7 @@
 use std::fs;
 use std::path::PathBuf;
 
-use rfs::{collect_rfs_files, parse_source, printer, Ir};
+use rfs::{collect_rfs_files, lang::printer, parse_source, Ir};
 
 fn example_root() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("examples")
@@ -83,7 +83,7 @@ fn invalid_examples_rejected() {
         match parse_source(&source) {
             Err(_) => {} // parse failure: rejected as expected
             Ok(ir) => assert!(
-                rfs::validator::validate_ir(&ir).is_err(),
+                rfs::lang::validator::validate_ir(&ir).is_err(),
                 "expected {} to fail validation, but it succeeded",
                 file.display()
             ),

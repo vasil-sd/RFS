@@ -178,7 +178,7 @@ trace helpers trace_state/trace_vars (position 0 is the initial configuration,
 else steps[pos-1]) + trace_push.
 
 **Expression lowering.** gen_expr_c types every subexpression via
-`src/validator.rs::type_expr` and renders:
+`src/lang/validator.rs::type_expr` and renders:
 
 - Int to int_c_literal at the expression's width; Bool to true/false;
 - Path single-segment to the Ctx name map (vars, bindings, state) or a STATE_
@@ -343,7 +343,7 @@ Code: `src/backends/c_fsm.rs::generate_production`,
 `src/backends/c_fsm.rs::mc_pattern_cond`,
 `src/backends/c_fsm.rs::render_mc_step_all_body`,
 `src/codegen_fsm.rs::build_variants`, `src/monitor.rs::compile_formula`,
-`src/monitor.rs::formula_to_signal`, `src/validator.rs::type_expr`,
+`src/monitor.rs::formula_to_signal`, `src/lang/validator.rs::type_expr`,
 `tests/wide_ops_parity_test.rs`
 
 <a id="dev:backend-c-mc"></a>
@@ -436,7 +436,7 @@ Code: `src/backends/c_mc.rs::generate_model_checker`,
 `src/mc_plan.rs::McPlan`, `src/mc_plan.rs::LivenessDecomposition`,
 `src/smt_plan.rs::build_smt_spec`, `src/smt_emit.rs::emit_c_spec`,
 `src/codegen_fsm.rs::RepValue`, `src/utils/rng.rs::Rng`,
-`src/codegen_mc.rs::McConfig`, `src/printer.rs::print_formula`,
+`src/codegen_mc.rs::McConfig`, `src/lang/printer.rs::print_formula`,
 `src/backends/rust.rs::rust_ident`, `src/json/json_rw.rs`
 
 <a id="dev:backend-c-test"></a>

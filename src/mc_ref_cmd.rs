@@ -89,7 +89,7 @@ pub fn run_mc_ref(path: &Path, opts: &McRefOptions) -> Result<(ExitCode, String)
         return Err(format!("no modules in {}", path.display()));
     }
     let module = &ir.modules[0];
-    let errors = crate::validator::validate_module(module);
+    let errors = crate::lang::validator::validate_module(module);
     if !errors.is_empty() {
         return Err(format!(
             "{}: {} validation error(s): {}",

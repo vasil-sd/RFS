@@ -27,7 +27,7 @@
 //! deterministic first-match transition firing, seedless exhaustive search.
 //!
 //! Import list (independence proof, per task file "Other information"):
-//! `std::{collections,time}`, `crate::ir::*`, and
+//! `std::{collections,time}`, `crate::lang::ir::*`, and
 //! `crate::codegen_mc::{exact_summary_line, parse_assume_selection,
 //! ExactStatus, FailReason, JsonCounterexample, JsonIo, JsonStep,
 //! McJsonReport, EXACT_DEFAULT_MAX_STATES, EXACT_DEFAULT_TIMEOUT_SEC}`
@@ -44,7 +44,7 @@ use crate::codegen_mc::{
     exact_summary_line, parse_assume_selection, ExactStatus, FailReason, JsonCounterexample,
     JsonIo, JsonStep, McJsonReport, EXACT_DEFAULT_MAX_STATES, EXACT_DEFAULT_TIMEOUT_SEC,
 };
-use crate::ir::*;
+use crate::lang::ir::*;
 
 // ---------------------------------------------------------------------------
 // Values (IR-level value representation)

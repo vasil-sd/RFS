@@ -12,9 +12,9 @@
 use crate::backends::c::{c_binding_ident, c_ident, c_type, int_c_literal, mask_c_expr};
 use crate::codegen::{self, BackendOptions, PropertyMonitorMode};
 use crate::codegen_fsm::{self, FsmVariants, VariantInfo};
-use crate::ir::*;
+use crate::lang::ir::*;
 use crate::monitor::{self, AnchorRange, MonNode, MonitorPlan, SignalAtom, SignalExpr};
-use crate::validator::{self, Env, ExprType};
+use crate::lang::validator::{self, Env, ExprType};
 use std::fmt::Write as _;
 
 /// Entry point for the `production` command: production FSM code without
@@ -1538,7 +1538,7 @@ impl<'a> Gen<'a> {
                     bound_names.push(ident.clone());
                     env.bindings.insert(
                         name.clone(),
-                        crate::validator::type_to_expr_type(&v.fields[i].1),
+                        crate::lang::validator::type_to_expr_type(&v.fields[i].1),
                     );
                     env.binding_idents.insert(name.clone(), ident);
                 }
@@ -1772,15 +1772,15 @@ pub(crate) fn render_mc_step_all_c(module: &Module) -> Result<String, String> {
 pub(crate) fn collect_liv_signal_patterns<'a>(
     sig: &'a crate::monitor::SignalExpr,
 ) -> (
-    Vec<&'a crate::ir::EventPattern>,
-    Vec<&'a crate::ir::OutputPattern>,
+    Vec<&'a crate::lang::ir::EventPattern>,
+    Vec<&'a crate::lang::ir::OutputPattern>,
 ) {
-    let mut input_pats: Vec<&'a crate::ir::EventPattern> = Vec::new();
-    let mut output_pats: Vec<&'a crate::ir::OutputPattern> = Vec::new();
+    let mut input_pats: Vec<&'a crate::lang::ir::EventPattern> = Vec::new();
+    let mut output_pats: Vec<&'a crate::lang::ir::OutputPattern> = Vec::new();
     fn walk<'a>(
         sig: &'a crate::monitor::SignalExpr,
-        input_pats: &mut Vec<&'a crate::ir::EventPattern>,
-        output_pats: &mut Vec<&'a crate::ir::OutputPattern>,
+        input_pats: &mut Vec<&'a crate::lang::ir::EventPattern>,
+        output_pats: &mut Vec<&'a crate::lang::ir::OutputPattern>,
     ) {
         match sig {
             crate::monitor::SignalExpr::Atom(crate::monitor::SignalAtom::InputIs(p)) => {
@@ -2002,7 +2002,7 @@ impl<'a> Gen<'a> {
                             bound_names.push(ident.clone());
                             env.bindings.insert(
                                 name.clone(),
-                                crate::validator::type_to_expr_type(&v.fields[i].1),
+                                crate::lang::validator::type_to_expr_type(&v.fields[i].1),
                             );
                             env.binding_idents.insert(name.clone(), ident);
                         }

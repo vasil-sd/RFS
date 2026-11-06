@@ -7,12 +7,12 @@ pinned wire-format contract at the heart of the toolchain.
 ## Overview
 
 RFS normalizes every spec into a single in-memory document - the `Ir` type
-(`src/ir.rs::Ir`) - and pins its JSON wire format byte-for-byte. Four files
+(`src/lang/ir.rs::Ir`) - and pins its JSON wire format byte-for-byte. Four files
 make up this area:
 
 | File | Lines | Role |
 |---|---|---|
-| `src/ir.rs` | 1432 | IR types + hand-written per-type JSON (de)serialization (`IrJson`) |
+| `src/lang/ir.rs` | 1432 | IR types + hand-written per-type JSON (de)serialization (`IrJson`) |
 | `src/json/json_rw.rs` | 961 (24 unit tests) | the ONLY JSON implementation in the toolchain: value model, writer, strict reader |
 | `src/json/json_schema.rs` | 767 (5 unit tests) | draft-07 schema emitter + markdown renderer + sync walker for the JSON format entries |
 | `src/utils/hash.rs` | 158 (2 unit tests) | hand-rolled SHA-256; the spec hash stamped into every generated artifact header |
@@ -25,15 +25,15 @@ Position in the pipeline, both directions:
   info).
 - `.json` input loads the same type directly:
   `src/frontend.rs::convert_file_to_ir` runs `src/json/json_rw.rs::parse` and then
-  `src/ir.rs::from_json`; JSON output is the mirror image in
+  `src/lang/ir.rs::from_json`; JSON output is the mirror image in
   `src/frontend.rs::render_ir` (pretty rendering + trailing newline).
-- The canonical whole-file rendering (`src/ir.rs::to_json`) feeds the spec
+- The canonical whole-file rendering (`src/lang/ir.rs::to_json`) feeds the spec
   hash stamped into every generated artifact header (`src/codegen.rs::run`,
   see the spec-hash section below), and the field model of the `spec-json`
   format entry is derived from the same writers
   (`src/info_format.rs::spec_json_schema`).
 
-Other consumers: `src/printer.rs::roundtrip_rfs` (rfs -> json -> IR equality
+Other consumers: `src/lang/printer.rs::roundtrip_rfs` (rfs -> json -> IR equality
 behind the printer's round-trip guarantee), the generated MC engines'
 embedded writer copies (see the reader/writer section), and the fuzz target
 `fuzz/fuzz_targets/ir_roundtrip.rs` (to_json -> from_json -> to_json byte-
@@ -47,7 +47,7 @@ Where to go next:
 - decision rationale: D10, D-P5-2, D-P6-2, D-P6-3, D-P7-8, D-P7-9 in
   [DECISIONS.md](DECISIONS.md); the user-facing version policy in [MIGRATION.md](../user/MIGRATION.md).
 
-Code: `src/ir.rs::Ir`, `src/ir.rs::IR_VERSION`, `src/json/json_rw.rs::Json`,
+Code: `src/lang/ir.rs::Ir`, `src/lang/ir.rs::IR_VERSION`, `src/json/json_rw.rs::Json`,
 `src/json/json_rw.rs::parse`, `src/json/json_schema.rs::SchemaDoc`,
 `src/utils/hash.rs::spec_hash16`, `src/frontend.rs::convert_file_to_ir`,
 `src/codegen.rs::run`
@@ -94,8 +94,8 @@ the six internally tagged enums (`Type`, `ConstructorVariant`,
 `PatternVariant`, `PatternExpr`, `Formula`, `Expr`) serialize as objects with
 a leading "kind" key, while `UnaryOp` and `BinOp` serialize as BARE strings.
 
-**Versioning.** `src/ir.rs::IR_VERSION` is 1 (v1.0, Phase 6). The read policy
-(D-P6-2) is enforced in `src/ir.rs::from_json`: documents with `ir_version`
+**Versioning.** `src/lang/ir.rs::IR_VERSION` is 1 (v1.0, Phase 6). The read policy
+(D-P6-2) is enforced in `src/lang/ir.rs::from_json`: documents with `ir_version`
 in 0..=IR_VERSION load (older toolchains' output keeps working); a HIGHER
 version is rejected with the pinned error "unsupported IR version {n} at
 $.ir_version (this toolchain reads 0..={IR_VERSION})". `to_json` always
@@ -105,13 +105,13 @@ the schema only grows, and a document carrying a kind an older reader does
 not know fails with a pinned unknown-kind error rather than a version error;
 breaking changes must bump the constant.
 
-Code: `src/ir.rs::Ir`, `src/ir.rs::Module`, `src/ir.rs::Transition`,
-`src/ir.rs::Formula`, `src/ir.rs::Expr`, `src/ir.rs::IR_VERSION`
+Code: `src/lang/ir.rs::Ir`, `src/lang/ir.rs::Module`, `src/lang/ir.rs::Transition`,
+`src/lang/ir.rs::Formula`, `src/lang/ir.rs::Expr`, `src/lang/ir.rs::IR_VERSION`
 
 <a id="dev:ir-wire-format"></a>
 ## Pinned JSON wire format
 
-Every IR type implements the private `src/ir.rs::IrJson` trait (to_json /
+Every IR type implements the private `src/lang/ir.rs::IrJson` trait (to_json /
 from_json, with a path argument that lands in every error message). The wire
 format is a PINNED CONTRACT, byte-identical to what the pre-migration
 external-crate format produced. The rules:
@@ -127,27 +127,27 @@ external-crate format produced. The rules:
    order.
 4. **Unit op variants** (`UnaryOp`, `BinOp`): bare JSON strings.
 5. **Integers**: unsigned IR fields (u32/u64/usize) render as non-negative
-   JSON numbers; `src/ir.rs::uint_json` FAILS (rather than clamps) when a
+   JSON numbers; `src/lang/ir.rs::uint_json` FAILS (rather than clamps) when a
    u64 value exceeds i64::MAX - the value model is 64-bit signed - and
-   `src/ir.rs::uint_field` rejects negative integers on read.
+   `src/lang/ir.rs::uint_field` rejects negative integers on read.
 
 Key order per struct type:
 
 | Type | Key order |
 |---|---|
-| `src/ir.rs::Ir` | ir_version, modules |
-| `src/ir.rs::Module` | name, [version], [on_error], enums, initial_state, events, outputs, vars, transitions, properties, assumptions |
-| `src/ir.rs::OnError` | next_state, emits |
-| `src/ir.rs::EnumDecl` | name, variants |
-| `src/ir.rs::FieldDecl` | name, ty |
-| `src/ir.rs::ConstructorGroup` | name, variants |
-| `src/ir.rs::VarDecl` | name, ty, init |
-| `src/ir.rs::Transition` | id, state, pattern, guard, next_state, emits, assignments, priority |
-| `src/ir.rs::EventPattern` / `src/ir.rs::OutputPattern` | group, variant |
-| `src/ir.rs::PatternField` | name, pattern |
-| `src/ir.rs::OutputExpr` | group, variant, args |
-| `src/ir.rs::Assignment` | var, value |
-| `src/ir.rs::Property` | name, formula |
+| `src/lang/ir.rs::Ir` | ir_version, modules |
+| `src/lang/ir.rs::Module` | name, [version], [on_error], enums, initial_state, events, outputs, vars, transitions, properties, assumptions |
+| `src/lang/ir.rs::OnError` | next_state, emits |
+| `src/lang/ir.rs::EnumDecl` | name, variants |
+| `src/lang/ir.rs::FieldDecl` | name, ty |
+| `src/lang/ir.rs::ConstructorGroup` | name, variants |
+| `src/lang/ir.rs::VarDecl` | name, ty, init |
+| `src/lang/ir.rs::Transition` | id, state, pattern, guard, next_state, emits, assignments, priority |
+| `src/lang/ir.rs::EventPattern` / `src/lang/ir.rs::OutputPattern` | group, variant |
+| `src/lang/ir.rs::PatternField` | name, pattern |
+| `src/lang/ir.rs::OutputExpr` | group, variant, args |
+| `src/lang/ir.rs::Assignment` | var, value |
+| `src/lang/ir.rs::Property` | name, formula |
 
 ([key] = omitted when None; every other Option field renders null.)
 
@@ -155,25 +155,25 @@ Kind values per tagged enum (fields beyond "kind", in declaration order):
 
 | Type | kind values |
 |---|---|
-| `src/ir.rs::Type` | bool - / bit: width / enum: name |
-| `src/ir.rs::ConstructorVariant` | unit: name / struct: name, fields |
-| `src/ir.rs::PatternVariant` | unit: name / struct: name, fields |
-| `src/ir.rs::PatternExpr` | wildcard - / bind: name / int: value / bool: value / enum_variant: path |
-| `src/ir.rs::Formula` | input_is: pattern / output_has: pattern / expr: expr / not: inner / and, or, implies, until: left, right / next, always, eventually: inner / bounded_always, bounded_eventually: bound, inner |
-| `src/ir.rs::Expr` | int: value / bool: value / path: path / unary: op, expr / binary: op, left, right |
+| `src/lang/ir.rs::Type` | bool - / bit: width / enum: name |
+| `src/lang/ir.rs::ConstructorVariant` | unit: name / struct: name, fields |
+| `src/lang/ir.rs::PatternVariant` | unit: name / struct: name, fields |
+| `src/lang/ir.rs::PatternExpr` | wildcard - / bind: name / int: value / bool: value / enum_variant: path |
+| `src/lang/ir.rs::Formula` | input_is: pattern / output_has: pattern / expr: expr / not: inner / and, or, implies, until: left, right / next, always, eventually: inner / bounded_always, bounded_eventually: bound, inner |
+| `src/lang/ir.rs::Expr` | int: value / bool: value / path: path / unary: op, expr / binary: op, left, right |
 
-Bare-string enums: `src/ir.rs::UnaryOp` = not, bit_not, neg;
-`src/ir.rs::BinOp` = plus, minus, star, shift_left, shift_right, eq, not_eq,
+Bare-string enums: `src/lang/ir.rs::UnaryOp` = not, bit_not, neg;
+`src/lang/ir.rs::BinOp` = plus, minus, star, shift_left, shift_right, eq, not_eq,
 lt, le, gt, ge, bit_or, bit_xor, bit_and, logic_or, logic_and.
 
-**Error shapes.** The small helper set (`src/ir.rs::field`, `str_field`,
+**Error shapes.** The small helper set (`src/lang/ir.rs::field`, `str_field`,
 `opt_str_field`, `arr_field`, `uint_field`, `bool_field`,
 `opt_uint32_field`, `str_list`) produces path-qualified messages: "expected
-{type} at {path}, got {actual}" (`src/ir.rs::type_err` with
-`src/ir.rs::json_type_name`), "missing field '{key}' at {path}", and for
+{type} at {path}, got {actual}" (`src/lang/ir.rs::type_err` with
+`src/lang/ir.rs::json_type_name`), "missing field '{key}' at {path}", and for
 tagged enums "unknown {what} kind '{got}' at {path} (expected one of: ...)"
-(`src/ir.rs::kind` + `src/ir.rs::unknown_kind`). Paths are JSONPath-style,
-rooted at "$" by the public `src/ir.rs::from_json`, e.g.
+(`src/lang/ir.rs::kind` + `src/lang/ir.rs::unknown_kind`). Paths are JSONPath-style,
+rooted at "$" by the public `src/lang/ir.rs::from_json`, e.g.
 $.modules[0].transitions[2].guard.
 
 **Pins.** `tests/frontend_test.rs` pins the exact compact and pretty text of
@@ -181,12 +181,12 @@ a representative spec (GOLDEN_SPEC_RFS: enums, bit types, unit + struct
 event/output variants, guards, emits with args, assignments, a liveness
 property), the version read policy (v0 loads, v2 rejected with the pinned
 message), and the round-trip property parse rfs -> to_json -> from_json ==
-original IR over ALL valid examples; `src/printer.rs::roundtrip_rfs`
+original IR over ALL valid examples; `src/lang/printer.rs::roundtrip_rfs`
 re-checks it through the printer.
 
-Code: `src/ir.rs::IrJson`, `src/ir.rs::uint_json`, `src/ir.rs::uint_field`,
-`src/ir.rs::kind`, `src/ir.rs::unknown_kind`, `src/ir.rs::to_json`,
-`src/ir.rs::from_json`, file-level `tests/frontend_test.rs`
+Code: `src/lang/ir.rs::IrJson`, `src/lang/ir.rs::uint_json`, `src/lang/ir.rs::uint_field`,
+`src/lang/ir.rs::kind`, `src/lang/ir.rs::unknown_kind`, `src/lang/ir.rs::to_json`,
+`src/lang/ir.rs::from_json`, file-level `tests/frontend_test.rs`
 
 <a id="dev:json-rw"></a>
 ## Hand-rolled JSON reader/writer
@@ -312,7 +312,7 @@ list). It returns ALL violations; empty means in sync.
 
 **Consumers.** The five JSON format entries in `src/info_format.rs` build
 their models here: spec-json (the IR v1 document - its field model is derived
-from `src/ir.rs` to_json, the single source of truth), ce-trace, mc-report,
+from `src/lang/ir.rs` to_json, the single source of truth), ce-trace, mc-report,
 validate-json, info-json. Each renders as md or schema via rfs info format;
 `tests/info_format_test.rs` pins the emitted documents and runs walk_check
 over real data - spec_json_walk_all_valid_examples walks EVERY valid
@@ -338,7 +338,7 @@ schedule, and the 64-round compression (`src/utils/hash.rs::sha256`).
 - `src/utils/hash.rs::sha256_hex` - full 64-character lowercase hex digest.
 - `src/utils/hash.rs::spec_hash16` (D-P6-3) - the first 16 hex chars, computed
   over the CANONICAL IR JSON text of the WHOLE input file (the
-  `src/ir.rs::to_json` rendering - deterministic key order and formatting per
+  `src/lang/ir.rs::to_json` rendering - deterministic key order and formatting per
   D-P5-2). Stable across runs and platforms; any change to the spec changes
   it.
 
@@ -365,11 +365,11 @@ This is the most constrained area in the repo - byte-pinned golden tests,
 cross-backend parity, and schema sync walks all fail on drift. Checklist:
 
 1. **Evolve per D10.** Additive optional fields (and new enum variants) do
-   NOT bump `src/ir.rs::IR_VERSION` - within one version the schema only
+   NOT bump `src/lang/ir.rs::IR_VERSION` - within one version the schema only
    grows, and an older reader meets a new kind with the pinned unknown-kind
    error. A BREAKING change must bump the constant, update the round-trip
    tests, and update [MIGRATION.md](../user/MIGRATION.md) (the read policy is D-P6-2).
-2. **Update the model in lockstep.** Any change to `src/ir.rs` to_json /
+2. **Update the model in lockstep.** Any change to `src/lang/ir.rs` to_json /
    from_json must be mirrored in `src/info_format.rs::spec_json_schema` -
    spec_json_walk_all_valid_examples walks every valid example's parse JSON
    and fails on drift (D-P7-9).

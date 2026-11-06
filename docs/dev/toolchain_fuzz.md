@@ -13,7 +13,7 @@ two-layer fuzzing decision (D-P6-4) and the training/code-test pipelines:
    `fuzz/` (package `rfs-fuzz`, never built by the outer cargo test
    --workspace) with four in-process libFuzzer targets + shared helpers, and
    the slow CI-runnable half: `tests/toolchain_fuzz_test.rs` in plain cargo
-   test. Random VALID specs come from `src/specgen.rs` through a shared
+   test. Random VALID specs come from `src/lang/specgen.rs` through a shared
    wrapper - raw IR types are deliberately NOT made Arbitrary (validity by
    construction; deep dive dev:cli-commands-mc-ref-gen-spec).
 2. **Training-data pipeline** - `src/training.rs` + two bin tools that
@@ -53,7 +53,7 @@ builder.
 **Shared wrapper.** `fuzz/fuzz_targets/common.rs::RandSpec` implements
 Arbitrary by mapping fuzzer bytes -> a u64 seed + a size flag (small vs
 medium Bounds) and building a random VALID single-module spec through
-`src/specgen.rs::SpecGen::generate` - the deliberate alternative to deriving
+`src/lang/specgen.rs::SpecGen::generate` - the deliberate alternative to deriving
 Arbitrary over raw IR types, which would produce invalid IR. `HEAD_LEN` = 9
 (8 seed bytes + 1 size flag); `fuzz/fuzz_targets/common.rs::split_head_rest`
 splits input so targets that ALSO need raw remaining bytes can do so
@@ -67,18 +67,18 @@ detached `fuzz/` workspace (empty [workspace] table + [package.metadata]
 cargo-fuzz = true; libfuzzer-sys 0.4 + arbitrary 1 + rfs by path; harness =
 false per bin):
 
-- `fuzz/fuzz_targets/parser.rs`: arbitrary bytes -> `src/parser.rs::parse_source`
+- `fuzz/fuzz_targets/parser.rs`: arbitrary bytes -> `src/lang/parser.rs::parse_source`
   must NOT panic. Non-UTF-8 input is skipped (the CLI rejects such files
   before parsing, so a &str API cannot see it). On success: semantic
   validation must not panic (valid or invalid result), and the parsed IR must
   serialize, strict-parse, and re-serialize BYTE-STABLY (to_json -> from_json
   -> to_json equality - the D-P5-2 contract on parser output).
 - `fuzz/fuzz_targets/validator.rs`: two parts over a head/rest split - random
-  VALID IRs must not panic `src/validator.rs::validate_ir`; the remaining raw
-  bytes as JSON text must not panic `src/ir.rs::Ir::from_json` (strict parse
+  VALID IRs must not panic `src/lang/validator.rs::validate_ir`; the remaining raw
+  bytes as JSON text must not panic `src/lang/ir.rs::Ir::from_json` (strict parse
   first; malformed JSON is a clean Err).
 - `fuzz/fuzz_targets/ir_roundtrip.rs`: random valid IRs, optionally mutated
-  through the task-3 `src/specgen.rs::mutate` API (the first raw byte picks k
+  through the task-3 `src/lang/specgen.rs::mutate` API (the first raw byte picks k
   in 0..4; the mutation seed derives from the remaining bytes + the golden-
   ratio constant 0x9e37_79b9) - the result must satisfy to_json -> from_json
   -> to_json byte-stability. Exhausted input = nothing to round-trip this

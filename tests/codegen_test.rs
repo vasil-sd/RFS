@@ -796,8 +796,8 @@ fn no_skip_warnings_for_in_subset_properties_both_backends() {
 }
 
 /// True iff the formula contains an `eventually`/`until` operator anywhere.
-fn formula_has_liveness(f: &rfs::ir::Formula) -> bool {
-    use rfs::ir::Formula::*;
+fn formula_has_liveness(f: &rfs::lang::ir::Formula) -> bool {
+    use rfs::lang::ir::Formula::*;
     match f {
         Eventually { .. } | Until { .. } => true,
         Not { inner }
@@ -853,7 +853,7 @@ fn mc_exact_flags_embedded_as_runtime_defaults() {
     let ir = parse_module(&root.join("examples/valid/02_counter.rfs"));
     let backend = codegen::get_backend("rust").unwrap();
 
-    fn gen(ir: &rfs::ir::Ir, backend: &codegen::Backend, opts: &codegen::BackendOptions) -> String {
+    fn gen(ir: &rfs::lang::ir::Ir, backend: &codegen::Backend, opts: &codegen::BackendOptions) -> String {
         codegen::CodegenCommandKind::ModelChecker
             .run(backend, ir, opts)
             .unwrap()

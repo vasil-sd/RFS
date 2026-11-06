@@ -9,7 +9,7 @@
 
 use crate::diagram::DiagramPlugin;
 use crate::diagrams::{emit_labels, event_label, guard_label, states};
-use crate::ir::{ConstructorGroup, ConstructorVariant, Module};
+use crate::lang::ir::{ConstructorGroup, ConstructorVariant, Module};
 
 /// One transition inside a matrix cell.
 #[derive(Debug, Clone)]

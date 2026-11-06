@@ -18,7 +18,7 @@
 //! Docs: dev:codegen-core-overview, dev:codegen-plugin-api, dev:algorithms-ir-codegen, llm:codegen-core, dev:code-map-codegen, dev:deps-fn-codegen-rust
 
 use crate::backends::{c, rust};
-use crate::ir::{Ir, Module};
+use crate::lang::ir::{Ir, Module};
 use std::fmt::Write as _;
 
 // ---------------------------------------------------------------------------

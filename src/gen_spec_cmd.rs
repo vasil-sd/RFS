@@ -15,7 +15,7 @@ use std::path::Path;
 use std::process::ExitCode;
 
 use crate::frontend::{self, Format};
-use crate::specgen::{self, Bounds, SpecGen};
+use crate::lang::specgen::{self, Bounds, SpecGen};
 use crate::utils::rng::Rng;
 
 /// The pinned default seed (documented in the usage text): deterministic
@@ -43,7 +43,7 @@ impl Default for RandomOptions {
 /// re-parse + validate the rendered text before returning it.
 pub fn generate_random(opts: &RandomOptions) -> Result<String, String> {
     let ir = SpecGen::new(opts.seed, opts.bounds.clone()).generate();
-    verify_rendered(&crate::printer::print_ir(&ir))
+    verify_rendered(&crate::lang::printer::print_ir(&ir))
 }
 
 /// Mutation mode: load + validate the base spec, apply K seeded mutation
@@ -61,7 +61,7 @@ pub fn mutate_base(base_path: &Path, k: usize, seed: u64) -> Result<String, Stri
     if ir.modules.is_empty() {
         return Err(format!("no modules in {}", base_path.display()));
     }
-    let errors = crate::validator::validate_module(&ir.modules[0]);
+    let errors = crate::lang::validator::validate_module(&ir.modules[0]);
     if !errors.is_empty() {
         return Err(format!(
             "{}: {} validation error(s): {}",
@@ -76,15 +76,15 @@ pub fn mutate_base(base_path: &Path, k: usize, seed: u64) -> Result<String, Stri
     }
     let mut rng = Rng::new(seed);
     let out_ir = specgen::mutate(&ir, &mut rng, k);
-    verify_rendered(&crate::printer::print_ir(&out_ir))
+    verify_rendered(&crate::lang::printer::print_ir(&out_ir))
 }
 
 /// D-P6-11 guard: the rendered text must parse back and validate (a failure
 /// here is a generator/mutation bug, not user error).
 fn verify_rendered(src: &str) -> Result<String, String> {
-    let ir = crate::parser::parse_source(src)
+    let ir = crate::lang::parser::parse_source(src)
         .map_err(|e| format!("generated source failed to parse: {e:?}"))?;
-    crate::validator::validate_ir(&ir)
+    crate::lang::validator::validate_ir(&ir)
         .map_err(|e| format!("generated source failed validation: {e:?}"))?;
     Ok(src.to_string())
 }
@@ -369,8 +369,8 @@ mod tests {
         let a = generate_random(&RandomOptions::default()).unwrap();
         let b = generate_random(&RandomOptions::default()).unwrap();
         assert_eq!(a, b);
-        let ir = crate::parser::parse_source(&a).unwrap();
-        crate::validator::validate_ir(&ir).unwrap();
+        let ir = crate::lang::parser::parse_source(&a).unwrap();
+        crate::lang::validator::validate_ir(&ir).unwrap();
     }
 
     #[test]
@@ -378,7 +378,7 @@ mod tests {
         let mut bounds = Bounds::small();
         bounds.max_states = 2;
         let a = generate_random(&RandomOptions { seed: 7, bounds }).unwrap();
-        let ir = crate::parser::parse_source(&a).unwrap();
+        let ir = crate::lang::parser::parse_source(&a).unwrap();
         let states = ir.modules[0]
             .enums
             .iter()
@@ -397,8 +397,8 @@ mod tests {
         std::fs::write(&base_path, src).unwrap();
         let out = mutate_base(&base_path, 0, DEFAULT_SEED).unwrap();
         // k=0 is the identity: the re-rendered base parses back to the same IR.
-        let a = crate::parser::parse_source(&out).unwrap();
-        let b = crate::parser::parse_source(src).unwrap();
+        let a = crate::lang::parser::parse_source(&out).unwrap();
+        let b = crate::lang::parser::parse_source(src).unwrap();
         assert_eq!(a, b);
     }
 

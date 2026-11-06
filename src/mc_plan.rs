@@ -27,7 +27,7 @@ use std::collections::HashSet;
 
 use crate::codegen::AssumptionSelection;
 use crate::codegen_fsm::{build_variants, representative_values, RepValue, VariantInfo};
-use crate::ir::*;
+use crate::lang::ir::*;
 use crate::monitor::{compile_formula, MonNode, MonitorPlan};
 
 // ---------------------------------------------------------------------------

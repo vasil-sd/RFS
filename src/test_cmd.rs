@@ -133,7 +133,7 @@ pub fn run_test(spec: &Path, opts: &TestOptions, log: &Logger) -> Result<TestOut
     if ir.modules.is_empty() {
         return Err(format!("no modules in {}", spec.display()));
     }
-    let errors = match crate::validator::validate_ir(&ir) {
+    let errors = match crate::lang::validator::validate_ir(&ir) {
         Ok(()) => Vec::new(),
         Err(e) => e,
     };
@@ -328,7 +328,7 @@ struct FuzzContext {
 fn build_fuzz_context(
     opts: &TestOptions,
     backend: &Backend,
-    ir: &crate::ir::Ir,
+    ir: &crate::lang::ir::Ir,
     options: &BackendOptions,
     test_out: &crate::codegen::CodegenOutput,
 ) -> Result<FuzzContext, String> {

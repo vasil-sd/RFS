@@ -25,7 +25,7 @@
 //! warning and generates no monitor for them.
 //! Docs: dev:monitor-compiler-overview, dev:monitor-compiler-signals, dev:monitor-compiler-nodes, dev:monitor-compiler-compile, dev:monitor-compiler-reference, dev:algorithms-monitor-compile, llm:monitor-compiler, dev:deps-fn-monitor
 
-use crate::ir::{EventPattern, Expr, Formula, OutputPattern};
+use crate::lang::ir::{EventPattern, Expr, Formula, OutputPattern};
 
 /// A per-sample boolean signal: a temporal-operator-free subformula.
 // Note: no Eq/Hash derive - the IR types embedded here only
@@ -593,8 +593,8 @@ fn min_trigger_at(news: &[bool], children: &[MonState]) -> i64 {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::ir::BinOp;
-    use crate::parser::parse_source;
+    use crate::lang::ir::BinOp;
+    use crate::lang::parser::parse_source;
 
     /// Parse a formula body inside a fixed test module.
     fn formula(src: &str) -> Formula {

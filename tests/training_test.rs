@@ -1,6 +1,6 @@
 use std::path::PathBuf;
 
-use rfs::{collect_rfs_files, parse_source, printer, training, Ir};
+use rfs::{collect_rfs_files, lang::printer, parse_source, training, Ir};
 
 fn project_root() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
@@ -72,7 +72,7 @@ fn extracted_training_snippets_parse_as_expected() {
                         e.rich_display()
                     )
                 });
-                rfs::validator::validate_ir(&ir).unwrap_or_else(|errors| {
+                rfs::lang::validator::validate_ir(&ir).unwrap_or_else(|errors| {
                     panic!(
                         "valid training snippet {} failed validation: {:?}",
                         file.display(),
@@ -116,7 +116,7 @@ fn extracted_training_snippets_parse_as_expected() {
                     .unwrap_or_else(|e| panic!("failed to read {}: {e}", file.display()));
                 let translation_ready = match parse_source(&source) {
                     Err(_) => false,
-                    Ok(ir) => rfs::validator::validate_ir(&ir).is_ok(),
+                    Ok(ir) => rfs::lang::validator::validate_ir(&ir).is_ok(),
                 };
                 assert!(
                     !translation_ready,

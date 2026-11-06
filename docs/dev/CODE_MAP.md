@@ -5,23 +5,20 @@ File-by-file map of the 71 hand-written source files: `src/` (49), `crates/`
 links both ways. The pointer scope is driven by `tests/dev_docs_manifest.txt`.
 
 <a id="dev:code-map-frontend"></a>
-## Frontend area - root + parser + validator/IR (10 files)
+## Frontend area - root + parser + validator/IR (5 files)
 
-### Root (6)
+### Root (4)
 
 - `src/lib.rs` - crate root: declares the 30-module tree and re-exports the
-  public API (`src/parser.rs::parse_source`, `src/parser.rs::parse_file`,
-  `src/printer.rs::print_ir`, `src/ir.rs::Ir`, `src/error.rs::ParseError`,
-  `src/error.rs::Span`, plus the frontend conversion/validation surface).
+  public API (`src/lang/parser.rs::parse_source`, `src/lang/parser.rs::parse_file`,
+  `src/lang/printer.rs::print_ir`, `src/lang/ir.rs::Ir`, `src/lang/error.rs::ParseError`,
+  `src/lang/error.rs::Span`, plus the frontend conversion/validation surface).
   Co-owner of all cross-cutting fragments (`dev:index`, `llm:index`,
   architecture, decisions, task map, change impact).
 - `src/main.rs` - CLI entry point: argument parsing and dispatch to the eight
   commands (`parse`, `validate`, `info`, `test`, `diagram`, `codegen`,
   `mc-ref`, `gen-spec`) + usage text; key item `src/main.rs::main`. Owner of
   `dev:code-map-cli`.
-- `src/error.rs` - shared source spans and parse-error types:
-  `src/error.rs::Span` (byte ranges attached to every IR node) and
-  `src/error.rs::ParseError`.
 - `src/cli_log.rs` - minimal stderr logging for the CLI commands:
   `src/cli_log.rs::LogLevel` + `src/cli_log.rs::Logger`.
 - `src/frontend.rs` - frontend CLI logic behind `rfs parse` / `rfs validate`:
@@ -30,30 +27,38 @@ links both ways. The pointer scope is driven by `tests/dev_docs_manifest.txt`.
   `src/frontend.rs::render_ir`, `src/frontend.rs::run_conversion`) and
   validation dispatch (`src/frontend.rs::run_validate`,
   `src/frontend.rs::validate_one`).
-- `src/printer.rs` - IR-to-RFS source printer (unparser): `print_ir`,
-  `print_module`, `print_expr`, `print_formula`, plus round-trip helpers
-  `roundtrip_rfs` / `roundtrip_json`.
+### Parser (1)
 
-### Parser (2)
-
-- `src/parser.rs` - RFS v0 source parser (nom-based): spec text to IR with
-  spans; entry points `src/parser.rs::parse_source` /
-  `src/parser.rs::parse_file`, `src/parser.rs::KEYWORDS` table. Deep dive:
-  `dev:parser-overview` / `llm:parser`.
 - `src/ebnf_grammar.rs` - EBNF grammar model + renderers for IDE/tooling
   output: `src/ebnf_grammar.rs::RuleNode`, `to_ebnf_text`, `to_md`,
   `to_plantuml_ebnf`, `to_svg`.
 
-### Validator + IR (2)
+<a id="dev:code-map-lang"></a>
+## Language core (`src/lang/`) (7 files)
 
-- `src/validator.rs` - semantic validation and expression typing for RFS IR:
-  `src/validator.rs::validate_ir` returns the full error list
-  (`src/validator.rs::ValidationError`), expression types via
-  `src/validator.rs::ExprType`. Deep dive: `dev:validator-overview` /
-  `llm:validator`.
-- `src/ir.rs` - IR types + pinned JSON wire format: `src/ir.rs::Ir`,
-  `src/ir.rs::Module`, `src/ir.rs::IR_VERSION`. Deep dive:
+- `src/lang/mod.rs` - module root of the language core (parse -> IR ->
+  validate -> print + the spec generator).
+- `src/lang/parser.rs` - RFS v0 source parser (nom-based): spec text to IR with
+  spans; entry points `src/lang/parser.rs::parse_source` /
+  `src/lang/parser.rs::parse_file`, `src/lang/parser.rs::KEYWORDS` table. Deep
+  dive: `dev:parser-overview` / `llm:parser`.
+- `src/lang/error.rs` - shared source spans and parse-error types:
+  `src/lang/error.rs::Span` (byte ranges attached to every IR node) and
+  `src/lang/error.rs::ParseError`.
+- `src/lang/ir.rs` - IR types + pinned JSON wire format: `src/lang/ir.rs::Ir`,
+  `src/lang/ir.rs::Module`, `src/lang/ir.rs::IR_VERSION`. Deep dive:
   `dev:ir-json-rw-overview` / `llm:ir-json-rw`.
+- `src/lang/printer.rs` - IR-to-RFS source printer (unparser):
+  `src/lang/printer.rs::print_ir`, `print_module`, `print_expr`,
+  `print_formula`, plus round-trip helpers `roundtrip_rfs` / `roundtrip_json`.
+- `src/lang/validator.rs` - semantic validation and expression typing for RFS
+  IR: `src/lang/validator.rs::validate_ir` returns the full error list
+  (`src/lang/validator.rs::ValidationError`), expression types via
+  `src/lang/validator.rs::ExprType`. Deep dive: `dev:validator-overview` /
+  `llm:validator`.
+- `src/lang/specgen.rs` - seeded random spec generator + incremental mutation:
+  `SpecGen`, `Bounds`, `mutate_traced` (`MutOp`); draws through the shared
+  `src/utils/rng.rs::Rng`.
 
 <a id="dev:code-map-json"></a>
 ## JSON substrate (`src/json/`) (3 files)
@@ -154,8 +159,6 @@ links both ways. The pointer scope is driven by `tests/dev_docs_manifest.txt`.
   compiles via `src/ext_tool.rs::ExtTool` (rustc/gcc).
 - `src/mc_ref_cmd.rs` - `rfs mc-ref`: run the reference model checker
   in-process: `run_mc_ref`, exit-code mapping `exit_code_for`, CLI `run_cli`.
-- `src/specgen.rs` - seeded random spec generator + incremental mutation:
-  `SpecGen`, deterministic `Rng`, `Bounds`, `mutate_traced` (`MutOp`).
 - `src/ext_tool.rs` - external-tool resolution, invocation, deterministic
   script emission: `ExtTool`, `ResolvedTool`, `Script`, `sh_quote`.
 
@@ -194,7 +197,7 @@ links both ways. The pointer scope is driven by `tests/dev_docs_manifest.txt`.
   code tests.
 
 <a id="dev:code-map-utils"></a>
-## Cross-cutting substrate (`src/utils/`) (2 files)
+## Cross-cutting substrate (`src/utils/`) (3 files)
 
 - `src/utils/hash.rs` - hand-rolled SHA-256 + `spec_hash16`, the D-P6-3 stamp in
   generated artifact headers; leaf primitive with no component of its own.

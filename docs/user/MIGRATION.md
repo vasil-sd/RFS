@@ -28,7 +28,7 @@ The toolchain uses calendar-free semver on the crate version (`rfs` in
 Two more version numbers travel with the toolchain and are independent of it:
 
 - The **IR schema version** (`ir_version` in IR JSON; `IR_VERSION` in
-  `src/ir.rs`). See section 2.3 for its evolution rule.
+  `src/lang/ir.rs`). See section 2.3 for its evolution rule.
 - The optional **syntax version header** inside a `.rfs` file
   (`version "X.Y"` / `version "X.Y.Z"`). This is the spec author's own
   declaration, NOT the toolchain version; see section 2.4.
@@ -87,7 +87,7 @@ before the v1.1 tag (recorded in section 4). Rules:
 The IR JSON document (`Ir::to_json`, hand-rolled deterministic writer in
 `src/json/json_rw.rs` - stable key order and formatting) carries an
 `ir_version` field. The evolution rule (DESIGN.md D10, implemented in
-`src/ir.rs`):
+`src/lang/ir.rs`):
 
 - `from_json` accepts `ir_version` in `0..=IR_VERSION` - the current version
   AND all previous minor versions keep loading; a HIGHER version is rejected
@@ -234,7 +234,7 @@ When a change touches the STABLE surface, the maintainer:
    re-pin every byte-pinned output that embeds `CARGO_PKG_VERSION`
    (grep for the old `rfs {version}` string across `src/`, `tests/`,
    `training/`).
-3. **Bump `IR_VERSION`** in `src/ir.rs` ONLY if the IR JSON schema changed;
+3. **Bump `IR_VERSION`** in `src/lang/ir.rs` ONLY if the IR JSON schema changed;
    keep the read policy `0..=IR_VERSION` (old documents must still load),
    re-pin golden JSON, and add a "v{old} document still loads" test.
 4. **Update THIS file**: extend section 2 if the stable surface grew

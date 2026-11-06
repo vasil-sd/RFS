@@ -95,7 +95,7 @@ fn prep(path: PathBuf) -> Result<Prep, String> {
         .modules
         .first()
         .ok_or_else(|| "IR has no module".to_string())?;
-    if let Err(e) = rfs::validator::validate_ir(&ir) {
+    if let Err(e) = rfs::lang::validator::validate_ir(&ir) {
         return Err(format!("valid example failed validation: {e:?}"));
     }
     let cfg = rfs::ref_mc::RefConfig::default();

@@ -13,7 +13,7 @@ toolchain fuzzing (fast in-process libFuzzer targets in the DETACHED root
 the training-data pipeline (`src/training.rs` + 2 bin tools over the
 `training/<category>/` JSONL trees), and the generated-code test harness (2
 bin tools that build an aggregate Rust unit-test crate from every valid spec).
-All random specs come from `src/specgen.rs` - raw IR types are deliberately
+All random specs come from `src/lang/specgen.rs` - raw IR types are deliberately
 NOT Arbitrary (validity by construction).
 
 **Target-to-module map.**

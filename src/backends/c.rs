@@ -13,7 +13,7 @@
 //! Docs: dev:backend-c-overview, dev:backend-c-plugin, llm:backend-c, dev:deps-fn-backend-c
 
 use crate::codegen::{Backend, BackendCommandInfo};
-use crate::ir::Type;
+use crate::lang::ir::Type;
 
 /// C keywords and common identifiers that generated names must avoid.
 pub(crate) const C_KEYWORDS: &[&str] = &[

@@ -21,7 +21,7 @@
 //!
 //! Docs: dev:code-map-frontend
 
-use crate::ir::*;
+use crate::lang::ir::*;
 use std::fmt::Write as _;
 
 /// Print an entire IR document as formatted RFS source.
@@ -803,7 +803,7 @@ module m {
             "module m { enum State { A, B } initial A event E transition A on E { next B; } prop p : always (state == A -> next (state == B)) ; }",
         )
         .expect("parse");
-        assert_eq!(ir.ir_version, crate::ir::IR_VERSION);
+        assert_eq!(ir.ir_version, crate::lang::ir::IR_VERSION);
         let json = ir.to_json().expect("serialize").to_string();
         // The document contains no liveness variant kinds.
         assert!(!json.contains("\"eventually\"") && !json.contains("\"until\""));

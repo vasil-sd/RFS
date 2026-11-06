@@ -15,18 +15,18 @@ intermediate on-disk representation between stages.
    (`.json`); `src/frontend.rs::Format` maps extensions to formats and
    `src/frontend.rs::convert_file_to_ir` loads either form into the IR.
 2. **Parse** - RFS source is parsed by the nom-based parser,
-   `src/parser.rs::parse_source` (or `src/parser.rs::parse_file` for a path),
+   `src/lang/parser.rs::parse_source` (or `src/lang/parser.rs::parse_file` for a path),
    producing an `Ir` with source spans attached to every node
-   (`src/error.rs::Span`).
-3. **Validate** - `src/validator.rs::validate_ir` runs the semantic checks
+   (`src/lang/error.rs::Span`).
+3. **Validate** - `src/lang/validator.rs::validate_ir` runs the semantic checks
    (well-formed states/events/transitions, expression typing) and returns a
    list of validation errors; a spec is usable only when that list is empty.
-4. **IR** - the normalized form is `src/ir.rs::Ir`, versioned by
-   `src/ir.rs::IR_VERSION`. Its wire format is hand-rolled JSON
+4. **IR** - the normalized form is `src/lang/ir.rs::Ir`, versioned by
+   `src/lang/ir.rs::IR_VERSION`. Its wire format is hand-rolled JSON
    (`src/json/json_rw.rs`); every generated artifact carries the spec hash
    `src/utils/hash.rs::spec_hash16` (first 16 hex chars of SHA-256 over the
    canonical IR JSON) in its header line. The IR can be printed back to RFS
-   source by `src/printer.rs::print_ir`.
+   source by `src/lang/printer.rs::print_ir`.
 5. **Targets** - everything downstream consumes the validated IR:
    - *Production FSM code*, *model-checker executables* and *unit/fuzz tests*
      are generated through the backend plugin registry
@@ -69,9 +69,9 @@ flowchart TD
     end
 
     subgraph CORE["Spec core"]
-        PARSER["src/parser.rs (nom)"]
-        VALID["src/validator.rs"]
-        IR["src/ir.rs (Ir, IR_VERSION) + json_rw / spec_hash / printer"]
+        PARSER["src/lang/parser.rs (nom)"]
+        VALID["src/lang/validator.rs"]
+        IR["src/lang/ir.rs (Ir, IR_VERSION) + json_rw / spec_hash / printer"]
     end
 
     subgraph GEN["Codegen - src/codegen.rs registry"]
@@ -116,21 +116,21 @@ flowchart TD
     RFS["RFS toolchain"]
 
     subgraph AUTHOR["Spec authoring"]
-        GEN["rfs gen-spec (src/specgen.rs)"]
+        GEN["rfs gen-spec (src/lang/specgen.rs)"]
     end
 
     subgraph FRONT["Spec frontend"]
-        PARSE["parse (src/parser.rs)"]
-        VALIDATE["validate (src/validator.rs)"]
+        PARSE["parse (src/lang/parser.rs)"]
+        VALIDATE["validate (src/lang/validator.rs)"]
         CONVERT["format conversion (src/frontend.rs)"]
         INFO["rfs info (src/info.rs, src/info_format.rs)"]
     end
 
     subgraph IRCORE["IR core"]
-        IR["Ir + IR_VERSION (src/ir.rs)"]
+        IR["Ir + IR_VERSION (src/lang/ir.rs)"]
         JSON["JSON wire format (src/json/json_rw.rs)"]
         HASH["spec hash (src/utils/hash.rs)"]
-        PRINT["print to RFS (src/printer.rs)"]
+        PRINT["print to RFS (src/lang/printer.rs)"]
     end
 
     subgraph CODEGEN["Codegen (src/codegen.rs registry)"]
@@ -170,11 +170,11 @@ flowchart TD
 ### Relationship map
 
 - **The IR is the only shared currency.** Every consumer - codegen, model
-  checking, diagrams, `rfs info` - reads the validated `src/ir.rs::Ir`; no
+  checking, diagrams, `rfs info` - reads the validated `src/lang/ir.rs::Ir`; no
   component passes live data structures to another outside the shared helper
   modules. All file-based commands load their spec through the frontend
   gateway `src/frontend.rs::convert_file_to_ir`; `gen-spec`
-  (`src/specgen.rs`) is the only producer-side command.
+  (`src/lang/specgen.rs`) is the only producer-side command.
 - **Two plugin registries, one pattern.** Codegen
   (`src/codegen.rs::BACKENDS`, lookup `src/codegen.rs::get_backend`) and
   diagrams (`src/diagram.rs::DIAGRAMS`) both use a static registry of

@@ -198,7 +198,7 @@ pub fn extract_category_snippets(category: &Path) -> Result<SnippetCounts, Strin
                 if seen.insert(snippet.clone()) {
                     match crate::parse_source(&snippet) {
                         Ok(ir) => {
-                            if crate::validator::validate_ir(&ir).is_ok() {
+                            if crate::lang::validator::validate_ir(&ir).is_ok() {
                                 valid.push(snippet);
                             } else {
                                 invalid.push(snippet);

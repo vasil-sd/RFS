@@ -17,7 +17,7 @@ pub mod plantuml;
 pub mod tables;
 
 use crate::ext_tool::ResolvedTool;
-use crate::ir::{EventPattern, Expr, Module, OutputExpr};
+use crate::lang::ir::{EventPattern, Expr, Module, OutputExpr};
 
 /// Event group + variant as a diagram label: `Go`, `Req(Value(x))`.
 pub fn event_label(p: &EventPattern) -> String {

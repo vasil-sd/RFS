@@ -7,7 +7,7 @@ the EBNF grammar model that mirrors it for IDE/tooling output.
 ## Overview
 
 RFS v0 source is parsed by a hand-written recursive-descent parser built on
-nom 8 combinators (`src/parser.rs`, 2091 lines including its 29 unit tests).
+nom 8 combinators (`src/lang/parser.rs`, 2091 lines including its 29 unit tests).
 There is no separate lexer: lexical helpers (`identifier`, `keyword`,
 `int_lit`) are inline functions, and every grammar rule is a function
 returning `IResult<&str, T>`. Parsing and IR assembly happen in ONE pass -
@@ -16,12 +16,12 @@ finalizes each module (transition IDs, uniqueness) before the next one starts.
 
 Entry points:
 
-- `src/parser.rs::parse_source` - parse a source string into an `Ir`;
-- `src/parser.rs::parse_file` - read a file and delegate to `parse_source`.
+- `src/lang/parser.rs::parse_source` - parse a source string into an `Ir`;
+- `src/lang/parser.rs::parse_file` - read a file and delegate to `parse_source`.
 
 The parser is the first stage of the pipeline (input -> parse -> validate,
 see `dev:architecture-pipeline`); its output is the versioned IR
-(`src/ir.rs::Ir`, `src/ir.rs::IR_VERSION`) that every other stage consumes.
+(`src/lang/ir.rs::Ir`, `src/lang/ir.rs::IR_VERSION`) that every other stage consumes.
 What the IR means semantically is specified in [SEMANTICS.md](../SEMANTICS.md).
 
 Companion module: `src/ebnf_grammar.rs` (902 lines) holds the EBNF model of
@@ -40,8 +40,8 @@ Where to go next:
 The parser is also a toolchain-fuzz target (`fuzz/fuzz_targets/parser.rs`):
 malformed input must never panic.
 
-Code: `src/parser.rs::parse_source`, `src/parser.rs::parse_file`,
-`src/ir.rs::Ir`, `src/ebnf_grammar.rs::GRAMMAR_RULES`,
+Code: `src/lang/parser.rs::parse_source`, `src/lang/parser.rs::parse_file`,
+`src/lang/ir.rs::Ir`, `src/ebnf_grammar.rs::GRAMMAR_RULES`,
 `fuzz/fuzz_targets/parser.rs`
 
 <a id="dev:parser-entry-error"></a>
@@ -65,7 +65,7 @@ comment byte (`#...` to end of line, `//...` to end of line) with a space and
 keeps newlines. The cleaned text is position-for-position the same length as
 the original, so an error offset computed in the cleaned text maps 1:1 to the
 original source - this is what makes `ParseError` line/col and the snippet +
-caret display (`src/error.rs::rich_display`) point at the right place even
+caret display (`src/lang/error.rs::rich_display`) point at the right place even
 when comments are present.
 
 **Two-tier error model.** Grammar rules fail with one of two constructors,
@@ -88,7 +88,7 @@ The tier is a per-construct choice, and the pattern is deliberate:
 **Offset computation.** `nom_error_to_parse_error` and `err_at` compute the
 failure offset as cleaned-length minus residual-length (the position where
 parsing stopped) and wrap it in a `ParseError` carrying the ORIGINAL source
-(`src/error.rs::ParseError`, `src/error.rs::Span`). `line_col` converts the
+(`src/lang/error.rs::ParseError`, `src/lang/error.rs::Span`). `line_col` converts the
 byte offset to 1-based line/column; `rich_display` renders the source snippet
 with a caret under the failing position.
 
@@ -103,11 +103,11 @@ of that keyword is returned. If found, the reported error is "expected '('
 after 'eventually' (the body must be a parenthesized formula)" at exactly
 that position.
 
-Code: `src/parser.rs::strip_comments`, `src/parser.rs::semantic_err`,
-`src/parser.rs::syntax_err`, `src/parser.rs::nom_error_to_parse_error`,
-`src/parser.rs::err_at`, `src/parser.rs::find_eventually_missing_paren`,
-`src/error.rs::ParseError`, `src/error.rs::line_col`,
-`src/error.rs::rich_display`
+Code: `src/lang/parser.rs::strip_comments`, `src/lang/parser.rs::semantic_err`,
+`src/lang/parser.rs::syntax_err`, `src/lang/parser.rs::nom_error_to_parse_error`,
+`src/lang/parser.rs::err_at`, `src/lang/parser.rs::find_eventually_missing_paren`,
+`src/lang/error.rs::ParseError`, `src/lang/error.rs::line_col`,
+`src/lang/error.rs::rich_display`
 
 <a id="dev:parser-grammar"></a>
 ## Module and declaration parsing
@@ -182,15 +182,15 @@ printer never emits those omissions, so round-tripping is unaffected. The
 EBNF model documents the strict form; `to_md`'s intro notes that the parser
 is at least as lenient.
 
-Code: `src/parser.rs::rfs_source`, `src/parser.rs::module`,
-`src/parser.rs::module_item`, `src/parser.rs::enum_variants`,
-`src/parser.rs::event_decl`, `src/parser.rs::merge_group`,
-`src/parser.rs::var_decl`, `src/parser.rs::build_transition`,
-`src/parser.rs::action_block`, `src/parser.rs::action`,
-`src/parser.rs::prop_decl`, `src/parser.rs::on_error_decl`,
-`src/parser.rs::build_module`, `src/parser.rs::group_pattern`,
-`src/parser.rs::pattern_field`, `src/parser.rs::pattern_expr`,
-`src/ir.rs::ConstructorGroup`
+Code: `src/lang/parser.rs::rfs_source`, `src/lang/parser.rs::module`,
+`src/lang/parser.rs::module_item`, `src/lang/parser.rs::enum_variants`,
+`src/lang/parser.rs::event_decl`, `src/lang/parser.rs::merge_group`,
+`src/lang/parser.rs::var_decl`, `src/lang/parser.rs::build_transition`,
+`src/lang/parser.rs::action_block`, `src/lang/parser.rs::action`,
+`src/lang/parser.rs::prop_decl`, `src/lang/parser.rs::on_error_decl`,
+`src/lang/parser.rs::build_module`, `src/lang/parser.rs::group_pattern`,
+`src/lang/parser.rs::pattern_field`, `src/lang/parser.rs::pattern_expr`,
+`src/lang/ir.rs::ConstructorGroup`
 
 <a id="dev:parser-expressions"></a>
 ## Expression and formula ladders
@@ -198,22 +198,22 @@ Code: `src/parser.rs::rfs_source`, `src/parser.rs::module`,
 **Expression ladder (12 levels).** Precedence climbing: each level parses the
 tighter level on the left, then loops consuming its own operator(s) and the
 tighter level again - left-associative by construction. Entry:
-`src/parser.rs::expr` = level 1. Loosest to tightest:
+`src/lang/parser.rs::expr` = level 1. Loosest to tightest:
 
-1. **logical or** (`||`) - `src/parser.rs::logic_or`
-2. **logical and** (`&&`) - `src/parser.rs::logic_and`
-3. **equality** (`==`, `!=`) - `src/parser.rs::equality`
-4. **relational** (`<=`, `<`, `>=`, `>`) - `src/parser.rs::relational`
-5. **bitwise or** (`|`) - `src/parser.rs::bitwise_or`
-6. **bitwise xor** (`^`) - `src/parser.rs::bitwise_xor`
-7. **bitwise and** (`&`) - `src/parser.rs::bitwise_and`
-8. **shift** (`<<`, `>>`) - `src/parser.rs::shift`
-9. **additive** (`+`, `-`) - `src/parser.rs::additive`
+1. **logical or** (`||`) - `src/lang/parser.rs::logic_or`
+2. **logical and** (`&&`) - `src/lang/parser.rs::logic_and`
+3. **equality** (`==`, `!=`) - `src/lang/parser.rs::equality`
+4. **relational** (`<=`, `<`, `>=`, `>`) - `src/lang/parser.rs::relational`
+5. **bitwise or** (`|`) - `src/lang/parser.rs::bitwise_or`
+6. **bitwise xor** (`^`) - `src/lang/parser.rs::bitwise_xor`
+7. **bitwise and** (`&`) - `src/lang/parser.rs::bitwise_and`
+8. **shift** (`<<`, `>>`) - `src/lang/parser.rs::shift`
+9. **additive** (`+`, `-`) - `src/lang/parser.rs::additive`
 10. **multiplicative** (`*` only - there is NO division operator) -
-    `src/parser.rs::multiplicative`
-11. **unary** (`!`, `~`, `-`) - `src/parser.rs::unary_expr`
+    `src/lang/parser.rs::multiplicative`
+11. **unary** (`!`, `~`, `-`) - `src/lang/parser.rs::unary_expr`
 12. **primary** (integer literal, true/false, parenthesized expression,
-    identifier path) - `src/parser.rs::primary_expr`
+    identifier path) - `src/lang/parser.rs::primary_expr`
 
 Multi-character operator guards: where a shorter operator is a prefix of a
 longer one at the same level, the loop checks the next byte before consuming
@@ -223,17 +223,17 @@ implication). This is what keeps `a << b`, `a || b` and `a - b -> c` shapes
 unambiguous without a separate tokenizer.
 
 **Formula ladder (7 levels + the non-boolean fallthrough).** Entry:
-`src/parser.rs::formula` = level 1. Loosest to tightest:
+`src/lang/parser.rs::formula` = level 1. Loosest to tightest:
 
-1. **or** (`||`) - `src/parser.rs::or_formula`
-2. **implies** (`->`, RIGHT-associative) - `src/parser.rs::impl_formula`
-3. **and** (`&&`) - `src/parser.rs::and_formula`
+1. **or** (`||`) - `src/lang/parser.rs::or_formula`
+2. **implies** (`->`, RIGHT-associative) - `src/lang/parser.rs::impl_formula`
+3. **and** (`&&`) - `src/lang/parser.rs::and_formula`
 4. **unary passthrough** (delegates to until; kept for the ladder's shape) -
-   `src/parser.rs::unary_formula`
-5. **until** (LEFT-associative) - `src/parser.rs::until_formula`
+   `src/lang/parser.rs::unary_formula`
+5. **until** (LEFT-associative) - `src/lang/parser.rs::until_formula`
 6. **negation** (`!`, binds TIGHTER than until: `!a until b` = `(!a) until b`)
-   - `src/parser.rs::neg_operand`
-7. **primary formula** - `src/parser.rs::primary_formula`: `next (f)`,
+   - `src/lang/parser.rs::neg_operand`
+7. **primary formula** - `src/lang/parser.rs::primary_formula`: `next (f)`,
    `always (f)` / `always[N] (f)`, `bounded_eventually[N] (f)`,
    `eventually (f)`, `input_is(pattern)`, `output_has(pattern)`, a
    parenthesized formula, or the fallthrough below.
@@ -263,15 +263,15 @@ the parser's own call sites in both directions, and the IDE grammar sanity
 test (`tests/frontend_test.rs`) asserts every keyword appears in
 `ide/textmate/rfs.json`.
 
-Code: `src/parser.rs::expr`, `src/parser.rs::logic_or`,
-`src/parser.rs::relational`, `src/parser.rs::multiplicative`,
-`src/parser.rs::unary_expr`, `src/parser.rs::primary_expr`,
-`src/parser.rs::formula`, `src/parser.rs::impl_formula`,
-`src/parser.rs::until_formula`, `src/parser.rs::neg_operand`,
-`src/parser.rs::primary_formula`, `src/parser.rs::non_boolean_expr`,
-`src/parser.rs::keyword`, `src/parser.rs::soft_keyword`,
-`src/parser.rs::int_lit`, `src/parser.rs::ident_path`,
-`src/parser.rs::KEYWORDS`
+Code: `src/lang/parser.rs::expr`, `src/lang/parser.rs::logic_or`,
+`src/lang/parser.rs::relational`, `src/lang/parser.rs::multiplicative`,
+`src/lang/parser.rs::unary_expr`, `src/lang/parser.rs::primary_expr`,
+`src/lang/parser.rs::formula`, `src/lang/parser.rs::impl_formula`,
+`src/lang/parser.rs::until_formula`, `src/lang/parser.rs::neg_operand`,
+`src/lang/parser.rs::primary_formula`, `src/lang/parser.rs::non_boolean_expr`,
+`src/lang/parser.rs::keyword`, `src/lang/parser.rs::soft_keyword`,
+`src/lang/parser.rs::int_lit`, `src/lang/parser.rs::ident_path`,
+`src/lang/parser.rs::KEYWORDS`
 
 <a id="dev:parser-ebnf-model"></a>
 ## EBNF grammar model (`src/ebnf_grammar.rs`)
@@ -329,7 +329,7 @@ Developer checklist for changing the RFS v0 language (see also [START.md](../../
 
 1. Add valid + invalid examples FIRST - the file-driven suite picks them up
    without test-code changes.
-2. Update `src/parser.rs` (+ its unit tests in `mod tests`).
+2. Update `src/lang/parser.rs` (+ its unit tests in `mod tests`).
 3. Update `src/ebnf_grammar.rs::GRAMMAR_RULES` and the [DESIGN.md](../../DESIGN.md) section 6
    fence TOGETHER - the sync test enforces rule-name parity both directions.
 4. A new keyword goes into `KEYWORDS` AND `ide/textmate/rfs.json` -

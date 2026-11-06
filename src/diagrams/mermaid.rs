@@ -24,7 +24,7 @@ use std::path::Path;
 use crate::diagram::{DiagramPlugin, RenderPlan};
 use crate::diagrams::{emit_labels, event_label, guard_label, states};
 use crate::ext_tool::{sh_quote, ResolvedTool};
-use crate::ir::Module;
+use crate::lang::ir::Module;
 
 /// Default puppeteer browser args (root/container environments).
 pub const DEFAULT_PUPPETEER_ARGS: &[&str] = &["--no-sandbox", "--disable-dev-shm-usage"];

@@ -1,8 +1,8 @@
 //! RFS v0 source parser (nom-based): parses spec text into an IR document.
 //! Docs: dev:parser-overview, dev:parser-entry-error, dev:parser-grammar, dev:parser-expressions, dev:deps-fn-parser, dev:algorithms-parser-validation, dev:references-theory, llm:parser
 
-use crate::error::{ParseError, Span};
-use crate::ir::*;
+use crate::lang::error::{ParseError, Span};
+use crate::lang::ir::*;
 use nom::{
     branch::alt,
     bytes::complete::{tag, take_while1},
@@ -1524,7 +1524,7 @@ fn p_space1(i: &str) -> IResult<&str, ()> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::printer;
+    use crate::lang::printer;
 
     #[test]
     fn parses_minimal_module() {

@@ -1871,3 +1871,21 @@ PHASE 8 IS NOW COMPLETE.
 - Incremental doc re-sync (correction 1a): manifest updated (2 paths + new mod.rs entry); CODE_MAP restructured - new dev:code-map-json fragment + "JSON substrate" section, json entries removed from Validator+IR (5->2, incl. task 1's leftover hash entry), Frontend area count 13->10; all live-doc refs rewritten across docs/dev + docs/llm + docs/user (roadmap history untouched by design); TASK_MAP gains the mod.rs coverage row.
 - `PHASE_11_TASK_2_STATUS.md` written per FORMATTING.md section 6.2.
 - Verification: cargo build OK; cargo test 535/535 (exactly the documented baseline); dev_docs_test 9/9 on first run after the re-sync. Committed as one commit.
+
+## 2026-11-05 23:40 — Phase 11 task 3: lang/ core moved (parser+error+ir+printer+validator+specgen), specgen lockstep done in-commit
+
+### Interpretation & plan
+
+- Requested: execute Phase 11 task 3 per `docs/roadmap/phase_11/tasks/PHASE_11_TASK_3.md` - move the language core into src/lang/, script the import rewrites (ir's 576 edges), and land the specgen lockstep for the detached fuzz workspace + test importers in the SAME commit.
+- Plan: git mv six files + module root; scripted crate::/rfs:: rewrites; fix bare-import forms the script misses; lockstep edits; per correction 1a the manifest + doc re-sync in this commit; cargo build && cargo test gate.
+
+### Report
+
+- `src/lang/` created with all six files (error.rs + ir.rs byte-identical; the other four carry only import-line rewrites) + mod.rs with //! Docs: pointer.
+- lib.rs: six pub-mod declarations -> pub mod lang; the four crate-root RE-EXPORTS updated to lang:: paths (not anticipated by the task file - bare module names broke the build first). Public API unchanged (rfs::Ir, rfs::parse_source, rfs::print_ir, rfs::{ParseError,Span}).
+- Three test binaries imported the printer MODULE by name from the root (use rfs::{..., printer, ...}) - updated to rfs::lang::printer. Bare `use crate::printer/validator/parser;` forms in frontend.rs + two inline test modules fixed individually.
+- Specgen lockstep landed in this commit: fuzz/common.rs (use import) + fuzz/ir_roundtrip.rs (fully-qualified mutate call) + tests/ref_mc_diff_test.rs + tests/toolchain_fuzz_test.rs (SpecGen/Bounds call paths + doc mentions). prod_driver.rs needed no edit - task 1 already removed its only specgen reference.
+- Incremental doc re-sync (correction 1a): manifest 7 entries; CODE_MAP new dev:code-map-lang section (7 files) + Frontend area 10->5 (Root 6->4, Parser 2->1, empty Validator+IR subsection removed, specgen entry relocated with its stale Rng wording fixed, utils count 2->3); all live-doc refs rewritten across docs/dev+llm+user; TASK_MAP mod.rs coverage row.
+- NEW FINDING: the dev_docs POSITIVE-CONTROL fixture (tests/fixtures/dev_docs/good_doc.md) references real source paths and must track the tree - updated its two stale refs; future move tasks must check the fixtures.
+- `PHASE_11_TASK_3_STATUS.md` written per FORMATTING.md section 6.2.
+- Verification: cargo build OK; cargo test 535/535 (exactly the documented baseline); dev_docs_test 9/9 after the re-sync + fixture fix. Committed as one commit.

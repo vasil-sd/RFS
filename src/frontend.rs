@@ -14,9 +14,9 @@
 //!
 //! Docs: dev:code-map-frontend, dev:cli-commands-frontend
 
-use crate::ir::Ir;
-use crate::printer;
-use crate::validator;
+use crate::lang::ir::Ir;
+use crate::lang::printer;
+use crate::lang::validator;
 use std::path::{Component, Path, PathBuf};
 
 /// Supported source/output formats.

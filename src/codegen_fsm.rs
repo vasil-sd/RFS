@@ -15,7 +15,7 @@
 //! mangling, type mapping, and expression lowering stay in the backend.
 //! Docs: dev:codegen-core-overview, dev:codegen-fsm-helpers, dev:algorithms-ir-codegen, llm:codegen-core
 
-use crate::ir::*;
+use crate::lang::ir::*;
 
 /// One flattened constructor variant of an event/output group.
 #[derive(Debug, Clone)]

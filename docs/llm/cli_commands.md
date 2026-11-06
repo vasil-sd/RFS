@@ -24,7 +24,7 @@ print! so redirected bytes are exact.
 | diagram | `src/diagram.rs::run_diagram` + plugins in `src/diagrams/` | dev:cli-commands-diagram |
 | codegen | `src/codegen.rs` registry dispatch (via `src/main.rs::cmd_codegen`) | docs/dev/codegen_core.md |
 | mc-ref | `src/mc_ref_cmd.rs::run_mc_ref` over `src/ref_mc.rs` in-process | dev:cli-commands-mc-ref-gen-spec |
-| gen-spec | `src/gen_spec_cmd.rs::run_cli` over `src/specgen.rs` | dev:cli-commands-mc-ref-gen-spec |
+| gen-spec | `src/gen_spec_cmd.rs::run_cli` over `src/lang/specgen.rs` | dev:cli-commands-mc-ref-gen-spec |
 
 **Key items.**
 
@@ -37,7 +37,7 @@ print! so redirected bytes are exact.
 | `src/test_cmd.rs::run_test` | load+validate -> codegen via registry -> sequential suites (every SELECTED suite runs; failures joined); --print-script = deterministic POSIX sh, no execution |
 | `src/test_cmd.rs::run_fuzz_rust` / `run_fuzz_c` | cargo-fuzz scaffold (nightly pin, RUSTUP_TOOLCHAIN stripped) vs clang -fsanitize=fuzzer,address over the skeleton ONLY (#include pattern); ASAN_OPTIONS=detect_leaks=0 for C |
 | `src/mc_ref_cmd.rs::exit_code_for` | mirrors the generated exact binaries: 0 pass-complete / 1 fail / 2 unknown-state-limit; NOT-applicable flags documented in usage, not silently accepted |
-| `src/specgen.rs::SpecGen` / `mutate_traced` | validity by construction (raw IR types deliberately NOT Arbitrary); mutation commits only if the candidate validates (100 redraws/step then skip); same LCG constants as the fuzz wire format |
+| `src/lang/specgen.rs::SpecGen` / `mutate_traced` | validity by construction (raw IR types deliberately NOT Arbitrary); mutation commits only if the candidate validates (100 redraws/step then skip); same LCG constants as the fuzz wire format |
 | `src/diagram.rs::DiagramPlugin` / `DIAGRAMS` | five plugins (dot/puml/mmd/table/md): generate is pure-Rust deterministic text; adding a format = one module + one registry line |
 | `src/diagrams/mod.rs::render_check` | STRICT error semantics: any spawn error or non-zero exit -> Err with the tool's stderr; NO graceful degradation (plantuml exits 200 on syntax errors and still writes an SVG - gate on exit status) |
 | `src/ext_tool.rs::ExtTool::resolve` | PATH precedence CLI flag > env var > bare name; args = env *_ARGS first, then --*-args; seven presets incl. CARGO_FUZZ (subcommand of cargo) |

@@ -14,9 +14,9 @@ use crate::backends::rust::{
 };
 use crate::codegen::{AssumptionSelection, BackendOptions, CodegenOutput, PropertyMonitorMode};
 use crate::codegen_fsm::{self, FsmVariants, VariantInfo};
-use crate::ir::*;
+use crate::lang::ir::*;
 use crate::monitor::{self, AnchorRange, MonNode, MonitorPlan, SignalAtom, SignalExpr};
-use crate::validator::{self, Env, ExprType};
+use crate::lang::validator::{self, Env, ExprType};
 use std::collections::{HashMap, HashSet};
 use std::fmt::Write as _;
 
@@ -1884,11 +1884,11 @@ pub(crate) fn enum_renderer_names(module: &Module) -> Vec<(String, String)> {
 /// Format-argument expression rendering `expr` of type `ty` in ref_mc's value
 /// form: bool/bit print directly; enums go through their renderer.
 fn renderer_arg_rust(
-    ty: &crate::ir::Type,
+    ty: &crate::lang::ir::Type,
     expr: &str,
     enum_fn: &std::collections::HashMap<String, String>,
 ) -> String {
-    use crate::ir::Type;
+    use crate::lang::ir::Type;
     match ty {
         Type::Bool | Type::Bit { .. } => expr.to_string(),
         Type::Enum { name } => format!("{}(&{})", enum_fn[name], expr),

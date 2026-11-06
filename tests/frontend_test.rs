@@ -7,7 +7,7 @@ use std::path::{Path, PathBuf};
 
 mod common;
 
-use rfs::{frontend, printer, Format, Ir};
+use rfs::{frontend, lang::printer, Format, Ir};
 
 const VALID_RFS: &str =
     "module m { enum State { A, B } initial A event Go transition A on Go { next B; } }";
@@ -3681,7 +3681,7 @@ fn e2e_validate_json_directory_mode_array() {
 
 /// IDE grammar sanity (Phase 5 task 13): the grammar file is valid JSON and
 /// covers EVERY parser keyword (drift guard - the list is shared with the
-/// parser via `rfs::parser::KEYWORDS`); the snippet set is present + valid.
+/// parser via `rfs::lang::parser::KEYWORDS`); the snippet set is present + valid.
 #[test]
 fn ide_grammar_valid_json_and_covers_all_keywords() {
     let root = Path::new(env!("CARGO_MANIFEST_DIR"));
@@ -3690,7 +3690,7 @@ fn ide_grammar_valid_json_and_covers_all_keywords() {
         .expect("ide/textmate/rfs.json must exist");
     let _doc: rfs::json::json_rw::Json = rfs::json::json_rw::parse(&raw).expect("grammar must be valid JSON");
 
-    for kw in rfs::parser::KEYWORDS {
+    for kw in rfs::lang::parser::KEYWORDS {
         assert!(raw.contains(kw), "grammar missing keyword '{kw}'");
     }
 
@@ -4062,7 +4062,7 @@ fn gen_spec_output_validity_sweep_20_seeds_both_modes() {
         let src = std::fs::read_to_string(&out).unwrap();
         let ir = rfs::parse_source(&src)
             .unwrap_or_else(|e| panic!("random seed {seed} failed to parse: {e:?}"));
-        rfs::validator::validate_ir(&ir)
+        rfs::lang::validator::validate_ir(&ir)
             .unwrap_or_else(|e| panic!("random seed {seed} invalid: {e:?}"));
         // Mutation mode.
         let out = root.join(format!("mut_{seed}.rfs"));
@@ -4083,7 +4083,7 @@ fn gen_spec_output_validity_sweep_20_seeds_both_modes() {
         let src = std::fs::read_to_string(&out).unwrap();
         let ir = rfs::parse_source(&src)
             .unwrap_or_else(|e| panic!("mutation seed {seed} failed to parse: {e:?}"));
-        rfs::validator::validate_ir(&ir)
+        rfs::lang::validator::validate_ir(&ir)
             .unwrap_or_else(|e| panic!("mutation seed {seed} invalid: {e:?}"));
     }
     cleanup(&root);

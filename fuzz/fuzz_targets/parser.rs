@@ -19,7 +19,7 @@ fuzz_target!(|data: &[u8]| {
         Err(_) => {} // malformed input: a clean parse error is the goal.
         Ok(ir) => {
             // Semantic validation must not panic (valid or invalid result).
-            let _ = rfs::validator::validate_ir(&ir);
+            let _ = rfs::lang::validator::validate_ir(&ir);
             // A parsed IR must serialize, strict-parse and re-serialize
             // byte-stably.
             let t1 = ir

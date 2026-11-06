@@ -92,8 +92,8 @@ pub(crate) fn bit_rust_type(w: u32) -> &'static str {
 }
 
 /// Rust type for an RFS type.
-pub(crate) fn rust_type(ty: &crate::ir::Type) -> String {
-    use crate::ir::Type;
+pub(crate) fn rust_type(ty: &crate::lang::ir::Type) -> String {
+    use crate::lang::ir::Type;
     match ty {
         Type::Bool => "bool".into(),
         Type::Bit { width } => bit_rust_type(*width).into(),
@@ -114,7 +114,7 @@ pub(crate) fn mask_expr(w: u32) -> String {
 /// `crate::codegen_fsm::representative_values` for the value selection rules).
 pub(crate) fn representative_input_expr(
     v: &crate::codegen_fsm::VariantInfo,
-    module: &crate::ir::Module,
+    module: &crate::lang::ir::Module,
 ) -> String {
     use crate::codegen_fsm::{representative_values, RepValue};
     if v.fields.is_empty() {
@@ -193,7 +193,7 @@ mod tests {
 
     #[test]
     fn type_mapping() {
-        use crate::ir::Type;
+        use crate::lang::ir::Type;
         assert_eq!(rust_type(&Type::Bool), "bool");
         assert_eq!(rust_type(&Type::Bit { width: 8 }), "u8");
         assert_eq!(rust_type(&Type::Bit { width: 64 }), "u64");

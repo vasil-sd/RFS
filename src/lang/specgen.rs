@@ -4,19 +4,19 @@
 //! `ref_mc`). Deterministic from a u64 seed using the project's shared LCG
 //! lineage - the SAME constants as `codegen_test::Lcg`, so all seeded machinery
 //! in the toolchain shares one RNG family. Generated specs are rendered through
-//! `crate::printer` (guaranteeing parseability and exercising the printer) and
+//! `crate::lang::printer` (guaranteeing parseability and exercising the printer) and
 //! every generated/mutated module is validator-checked.
 //! Docs: dev:cli-commands-overview, dev:cli-commands-mc-ref-gen-spec, llm:cli-commands
 
 use std::collections::HashSet;
 
-use crate::ir::{
+use crate::lang::ir::{
     Assignment, BinOp, ConstructorGroup, ConstructorVariant, EnumDecl, EventPattern, Expr,
     FieldDecl, Formula, Ir, Module, OnError, OutputExpr, OutputPattern, PatternExpr, PatternField,
     PatternVariant, Property, Transition, Type, UnaryOp, VarDecl, IR_VERSION,
 };
 use crate::utils::rng::Rng;
-use crate::validator;
+use crate::lang::validator;
 
 // ---------------------------------------------------------------------------
 // Bounds
@@ -1741,12 +1741,12 @@ pub fn mutate(base_ir: &Ir, rng: &mut Rng, k: usize) -> Ir {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::parser;
+    use crate::lang::parser;
 
     /// Render + re-parse + validate one generated spec (all three must hold).
     fn roundtrip_gen(gen: &mut SpecGen) -> String {
         let ir = gen.generate();
-        let src = crate::printer::print_ir(&ir);
+        let src = crate::lang::printer::print_ir(&ir);
         let reparsed = parser::parse_source(&src).expect("generated source must parse");
         validator::validate_ir(&reparsed).expect("generated spec must validate");
         src
@@ -1775,7 +1775,7 @@ mod tests {
             for seed in 0..50u64 {
                 let mut gen = SpecGen::new(seed, (*preset).clone());
                 let ir = gen.generate();
-                let src = crate::printer::print_ir(&ir);
+                let src = crate::lang::printer::print_ir(&ir);
                 let reparsed = parser::parse_source(&src)
                     .unwrap_or_else(|e| panic!("seed {seed} failed to parse: {e:?}"));
                 validator::validate_ir(&reparsed)
@@ -1802,7 +1802,7 @@ mod tests {
             let mut rng = Rng::new(seed);
             let out = mutate(&ir, &mut rng, 0);
             assert_eq!(
-                crate::printer::print_ir(&out),
+                crate::lang::printer::print_ir(&out),
                 base,
                 "k=0 must render byte-identically to the input"
             );
@@ -1834,11 +1834,11 @@ mod tests {
         for seed in [0u64, 7, 2024] {
             let a = {
                 let mut rng = Rng::new(seed);
-                crate::printer::print_ir(&mutate(&base, &mut rng, 15))
+                crate::lang::printer::print_ir(&mutate(&base, &mut rng, 15))
             };
             let b = {
                 let mut rng = Rng::new(seed);
-                crate::printer::print_ir(&mutate(&base, &mut rng, 15))
+                crate::lang::printer::print_ir(&mutate(&base, &mut rng, 15))
             };
             assert_eq!(a, b, "mutation must be deterministic from the seed");
         }
@@ -1930,11 +1930,11 @@ mod tests {
         // Every state referenced (initial + transition targets) - infeasible.
         let src = "module m {\n  enum State { A, B, C }\n  initial A\n  event E(U)\n  output O(V)\n  transition A on E(U) { next B; }\n  transition B on E(U) { next C; }\n}\n";
         let mut ir = parser::parse_source(src).unwrap();
-        let before = crate::printer::print_ir(&ir);
+        let before = crate::lang::printer::print_ir(&ir);
         let mut rng = Rng::new(1);
         assert!(!apply_op(&mut ir.modules[0], MutOp::RemoveState, &mut rng));
         assert_eq!(
-            crate::printer::print_ir(&ir),
+            crate::lang::printer::print_ir(&ir),
             before,
             "infeasible op must not modify the module"
         );
@@ -2037,6 +2037,6 @@ mod tests {
     #[test]
     fn generated_source_byte_pin_seed_one_small() {
         let gen = SpecGen::new(1, Bounds::small()).generate();
-        assert_eq!(crate::printer::print_ir(&gen), PIN_SEED_1_SMALL);
+        assert_eq!(crate::lang::printer::print_ir(&gen), PIN_SEED_1_SMALL);
     }
 }

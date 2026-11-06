@@ -11,8 +11,8 @@ the relevant sections.
 
 The frontend turns spec text into a validated IR in two stages: a
 hand-written recursive-descent parser built on nom 8 combinators
-(`src/parser.rs`) followed by whole-module semantic validation and
-expression typing (`src/validator.rs`). The EBNF grammar the parser
+(`src/lang/parser.rs`) followed by whole-module semantic validation and
+expression typing (`src/lang/validator.rs`). The EBNF grammar the parser
 implements is mirrored as data in `src/ebnf_grammar.rs::GRAMMAR_RULES`
 (61 rules, same names and order as [DESIGN.md](../../DESIGN.md) section 6) and pinned to
 the parser by sync tests. Pipeline entry:
@@ -52,8 +52,8 @@ flowchart TD
     WARN --> DONE["validated IR to codegen - warnings never block"]
 ```
 
-Code: `src/parser.rs::parse_source`, `src/validator.rs::validate_ir`,
-`src/validator.rs::module_warnings`,
+Code: `src/lang/parser.rs::parse_source`, `src/lang/validator.rs::validate_ir`,
+`src/lang/validator.rs::module_warnings`,
 `src/frontend.rs::validate_one_with_warnings`
 
 ### L2 - Key data structures and invariants
@@ -82,7 +82,7 @@ structure of an already-recognized construct is a semantic error.
 **Offset preservation.** `strip_comments` replaces comment bytes with
 spaces instead of deleting them, so byte offsets in the cleaned text
 equal those in the original file; every parse error carries a point
-span that maps 1:1 to user coordinates (`src/error.rs::ParseError`).
+span that maps 1:1 to user coordinates (`src/lang/error.rs::ParseError`).
 
 **IR assembly inside the parse.** `build_module` assigns sequential
 transition IDs and enforces module-level uniqueness (enum/var names,
@@ -126,13 +126,13 @@ pattern, no priorities, different guards - first match wins in source
 order); impossible guards (literal false, or a variable equal to two
 different integer literals under top-level `&&`).
 
-Code: `src/parser.rs::rfs_source`, `src/parser.rs::module_item`,
-`src/parser.rs::semantic_err`, `src/parser.rs::strip_comments`,
-`src/parser.rs::build_module`, `src/parser.rs::merge_group`,
-`src/validator.rs::Env`, `src/validator.rs::ExprType`,
-`src/validator.rs::validate_module`,
-`src/validator.rs::module_warnings`,
-`src/ebnf_grammar.rs::GRAMMAR_RULES`, `src/error.rs::ParseError`
+Code: `src/lang/parser.rs::rfs_source`, `src/lang/parser.rs::module_item`,
+`src/lang/parser.rs::semantic_err`, `src/lang/parser.rs::strip_comments`,
+`src/lang/parser.rs::build_module`, `src/lang/parser.rs::merge_group`,
+`src/lang/validator.rs::Env`, `src/lang/validator.rs::ExprType`,
+`src/lang/validator.rs::validate_module`,
+`src/lang/validator.rs::module_warnings`,
+`src/ebnf_grammar.rs::GRAMMAR_RULES`, `src/lang/error.rs::ParseError`
 
 ### L3 - Implementation details (important ones emphasized)
 
@@ -149,7 +149,7 @@ Code: `src/parser.rs::rfs_source`, `src/parser.rs::module_item`,
    `and_formula` / `or_formula`, each operand parsed independently via
    `primary_formula`, so `output_has(...)` reaches its keyword branch.
    Pinned by the mixed-conjunction/disjunction tests in
-   `src/parser.rs`.
+   `src/lang/parser.rs`.
 2. **Precedence climbing.** Expression levels, loosest to tightest:
    logic_or > logic_and > equality > relational > bitwise_or >
    bitwise_xor > bitwise_and > shift > additive > multiplicative >
@@ -222,16 +222,16 @@ Code: `src/parser.rs::rfs_source`, `src/parser.rs::module_item`,
    only (structured JSON uses line/col 0); point spans exist for parse
    errors, where the position is known.
 
-Code: `src/parser.rs::non_boolean_expr`, `src/parser.rs::logic_or`,
-`src/parser.rs::relational`, `src/parser.rs::until_formula`,
-`src/parser.rs::neg_operand`,
-`src/parser.rs::find_eventually_missing_paren`,
-`src/parser.rs::keyword`, `src/parser.rs::KEYWORDS`,
-`src/parser.rs::int_lit`, `src/validator.rs::validate_module`,
-`src/validator.rs::validate_event_pattern`,
-`src/validator.rs::check_pattern_group`,
-`src/validator.rs::contradictory_equalities`,
-`src/validator.rs::is_safety_formula`
+Code: `src/lang/parser.rs::non_boolean_expr`, `src/lang/parser.rs::logic_or`,
+`src/lang/parser.rs::relational`, `src/lang/parser.rs::until_formula`,
+`src/lang/parser.rs::neg_operand`,
+`src/lang/parser.rs::find_eventually_missing_paren`,
+`src/lang/parser.rs::keyword`, `src/lang/parser.rs::KEYWORDS`,
+`src/lang/parser.rs::int_lit`, `src/lang/validator.rs::validate_module`,
+`src/lang/validator.rs::validate_event_pattern`,
+`src/lang/validator.rs::check_pattern_group`,
+`src/lang/validator.rs::contradictory_equalities`,
+`src/lang/validator.rs::is_safety_formula`
 
 Refs: [parsing theory, automata, compiler construction](REFERENCES.md#parsing-automata-compiler-construction)
 
@@ -289,7 +289,7 @@ flowchart TD
     C --> OUT
 ```
 
-Code: `src/ir.rs::Ir`, `src/ir.rs::IR_VERSION`,
+Code: `src/lang/ir.rs::Ir`, `src/lang/ir.rs::IR_VERSION`,
 `src/utils/hash.rs::spec_hash16`, `src/codegen.rs::Backend`,
 `src/codegen.rs::BACKENDS`, `src/codegen.rs::CodegenCommandKind`
 
@@ -356,7 +356,7 @@ UnknownStateLimit with exit codes 0/1/2 and a parity-pinned summary
 line), and the counterexample report whose key ORDERING is part of the
 byte-parity contract.
 
-Code: `src/ir.rs::Module`, `src/json/json_rw.rs::Json`,
+Code: `src/lang/ir.rs::Module`, `src/json/json_rw.rs::Json`,
 `src/json/json_rw.rs::parse`, `src/utils/hash.rs::sha256_hex`,
 `src/codegen.rs::BackendOptions`,
 `src/codegen_fsm.rs::build_variants`,
@@ -435,7 +435,7 @@ Code: `src/ir.rs::Module`, `src/json/json_rw.rs::Json`,
    so tests pin one string for every path; C accepts `--no-std` as a
    documented no-op (plain C is already dependency-free).
 
-Code: `src/ir.rs::to_json`, `src/ir.rs::from_json`,
+Code: `src/lang/ir.rs::to_json`, `src/lang/ir.rs::from_json`,
 `src/json/json_rw.rs::MAX_DEPTH`, `src/codegen.rs::run`,
 `src/utils/rng.rs::Rng`, `src/codegen_test.rs::RANDOM_TRACE_SEED`,
 `src/codegen_mc.rs::exact_summary_line`,

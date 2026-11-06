@@ -1,7 +1,7 @@
 //! Semantic validation and expression typing for RFS IR.
 //! Docs: dev:validator-overview, dev:validator-fatal-pass, dev:validator-typing, dev:validator-warnings, dev:deps-fn-validator, dev:algorithms-parser-validation, llm:validator
 
-use crate::ir::*;
+use crate::lang::ir::*;
 use std::collections::{HashMap, HashSet};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -931,7 +931,7 @@ pub fn module_warnings(module: &Module) -> Vec<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::parser::parse_source;
+    use crate::lang::parser::parse_source;
 
     fn module_from(source: &str) -> Module {
         let ir = parse_source(source).expect("test source should parse");

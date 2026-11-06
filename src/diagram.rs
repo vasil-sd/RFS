@@ -25,7 +25,7 @@ use std::path::{Path, PathBuf};
 
 use crate::diagrams;
 use crate::ext_tool::{sh_quote, ExtTool, ResolvedTool, Script};
-use crate::ir::{Ir, Module};
+use crate::lang::ir::{Ir, Module};
 
 /// Pure render-plan construction for `--print-script` (argv + prelude steps,
 /// no execution).
@@ -192,7 +192,7 @@ pub fn run_diagram(path: &Path, opts: &DiagramOptions) -> Result<DiagramResult, 
     if ir.modules.is_empty() {
         return Err(format!("no modules in {}", path.display()));
     }
-    let errors = match crate::validator::validate_ir(&ir) {
+    let errors = match crate::lang::validator::validate_ir(&ir) {
         Ok(()) => Vec::new(),
         Err(e) => e,
     };

@@ -120,7 +120,7 @@ Code: `src/backends/rust.rs::RUST_BACKEND`,
 **Entry points.** generate_production maps `--with-property-monitors` to
 PropertyMonitorMode Gated/Off and calls generate_core(module, options, false,
 mode). generate_core is the core generator shared by all three commands: it
-re-validates the module (`src/validator.rs::validate_module` - ALL errors
+re-validates the module (`src/lang/validator.rs::validate_module` - ALL errors
 returned, never partial output), builds the Gen emitter, and returns
 CodegenOutput with the rendered code + warnings. The test entry passes
 with_tests = true plus Always mode; the mc entry passes with_tests = false
@@ -261,7 +261,7 @@ populated:
   EnumVariant) become an additional `if b == value` guard inside the scope.
 
 **Expression lowering.** gen_expr lowers the IR expression language to Rust,
-typing every subexpression via `src/validator.rs::type_expr`:
+typing every subexpression via `src/lang/validator.rs::type_expr`:
 
 - literals as-is; single-segment paths resolve through the ExprCtx name map
   (state to self.state / s.to_state depending on context; vars to

@@ -152,7 +152,7 @@ fn run_one(tag: &str, ir: &rfs::Ir) {
     let src = rfs::print_ir(ir);
     let parsed =
         rfs::parse_source(&src).unwrap_or_else(|e| panic!("[{tag}] re-parse of printed spec: {e}"));
-    rfs::validator::validate_ir(&parsed)
+    rfs::lang::validator::validate_ir(&parsed)
         .unwrap_or_else(|e| panic!("[{tag}] validate of re-parsed spec: {e:?}"));
 
     let dir = scratch_dir();
@@ -423,7 +423,7 @@ fn toolchain_fuzz_slow_suite() {
     let t0 = std::time::Instant::now();
     let mut count = 0usize;
     for &seed in &SEEDS {
-        let mut gen = rfs::specgen::SpecGen::new(seed, rfs::specgen::Bounds::small());
+        let mut gen = rfs::lang::specgen::SpecGen::new(seed, rfs::lang::specgen::Bounds::small());
         for i in 0..SPECS_PER_SEED {
             let ir = gen.generate();
             run_one(&format!("s{seed}n{i}"), &ir);

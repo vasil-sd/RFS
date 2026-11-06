@@ -14,38 +14,33 @@ pub mod codegen_test;
 pub mod diagram;
 pub mod diagrams;
 pub mod ebnf_grammar;
-pub mod error;
 pub mod ext_tool;
 pub mod frontend;
 pub mod gen_spec_cmd;
 pub mod info;
 pub mod info_format;
-pub mod ir;
 
 pub mod json;
+pub mod lang;
 pub mod mc_plan;
 pub mod mc_ref_cmd;
 pub mod monitor;
-pub mod parser;
-pub mod printer;
 pub mod ref_mc;
 pub mod smt_emit;
 pub mod smt_plan;
-pub mod specgen;
 pub mod test_cmd;
 pub mod training;
 pub mod utils;
-pub mod validator;
 
-pub use error::{ParseError, Span};
+pub use lang::error::{ParseError, Span};
 pub use frontend::{
     collect_files_with_ext, convert_file_to_ir, err_file_path, normalize_abs, plan_conversion,
     render_ir, run_conversion, run_validate, validate_one, validate_one_with_warnings,
     write_err_file, FailedFile, Format, ValidateOneResult, ValidateResult,
 };
-pub use ir::*;
-pub use parser::{parse_file, parse_source};
-pub use printer::print_ir;
+pub use lang::ir::*;
+pub use lang::parser::{parse_file, parse_source};
+pub use lang::printer::print_ir;
 
 use std::fs;
 use std::io::{Error as IoError, ErrorKind};

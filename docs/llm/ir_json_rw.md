@@ -9,7 +9,7 @@ schemas, or spec hashing.
 
 **Responsibility.** The IR document model and the hand-rolled JSON stack that
 serializes it - the PINNED wire-format contract at the heart of the
-toolchain. Four files: `src/ir.rs` (types + per-type to_json/from_json),
+toolchain. Four files: `src/lang/ir.rs` (types + per-type to_json/from_json),
 `src/json/json_rw.rs` (the only JSON impl: value model, writer, strict reader),
 `src/json/json_schema.rs` (draft-07 emitter + md renderer + sync walker),
 `src/utils/hash.rs` (hand-rolled SHA-256 for artifact headers).
@@ -18,10 +18,10 @@ toolchain. Four files: `src/ir.rs` (types + per-type to_json/from_json),
 
 | Item | Role |
 |---|---|
-| `src/ir.rs::Ir` / `src/ir.rs::Module` | the document: ir_version + modules; Module has 11 fields (name, version?, on_error?, enums, initial_state?, events, outputs, vars, transitions, properties, assumptions) |
-| `src/ir.rs::IR_VERSION` | = 1; read policy D-P6-2: from_json loads 0..=1, rejects higher with a pinned error |
-| `src/ir.rs::IrJson` | private per-type to_json/from_json trait; every error carries a JSONPath-style location |
-| `src/ir.rs::uint_json` / `src/ir.rs::uint_field` | u64 value model: to_json FAILS above i64::MAX (no clamping); from_json rejects negatives |
+| `src/lang/ir.rs::Ir` / `src/lang/ir.rs::Module` | the document: ir_version + modules; Module has 11 fields (name, version?, on_error?, enums, initial_state?, events, outputs, vars, transitions, properties, assumptions) |
+| `src/lang/ir.rs::IR_VERSION` | = 1; read policy D-P6-2: from_json loads 0..=1, rejects higher with a pinned error |
+| `src/lang/ir.rs::IrJson` | private per-type to_json/from_json trait; every error carries a JSONPath-style location |
+| `src/lang/ir.rs::uint_json` / `src/lang/ir.rs::uint_field` | u64 value model: to_json FAILS above i64::MAX (no clamping); from_json rejects negatives |
 | `src/json/json_rw.rs::Json` | value model: Null/Bool/Int(i64)/Str/Arr/Obj - objects are ORDERED pairs; integers only (no float) |
 | `src/json/json_rw.rs::parse` | strict reader: no trailing garbage, no leading zeros, no duplicate keys, depth <= MAX_DEPTH (512), integer-only; byte-offset errors |
 | `src/json/json_schema.rs::SchemaDoc` / `src/json/json_schema.rs::FieldType` | one documented JSON document: root model + named definitions + extra md sections; 12 field-type shapes incl. TaggedUnion, Nullable, FreeObj, Union |
@@ -43,7 +43,7 @@ toolchain. Four files: `src/ir.rs` (types + per-type to_json/from_json),
 - Spec hash input is the WHOLE file's canonical JSON - multi-module files share one hash.
 
 **Change impact (wire format).** The most constrained area in the repo:
-update `src/ir.rs` to_json/from_json AND `src/info_format.rs::spec_json_schema`
+update `src/lang/ir.rs` to_json/from_json AND `src/info_format.rs::spec_json_schema`
 together (the walk test fails on drift); expect the golden pins + round-trip
 property + version-policy test in tests/frontend_test.rs to fire; json_rw
 formatting changes also hit cross-backend byte parity (generated MC engines

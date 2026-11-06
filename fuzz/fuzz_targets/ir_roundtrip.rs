@@ -32,7 +32,7 @@ fuzz_target!(|data: &[u8]| {
             buf
         });
         let mut rng = rfs::utils::rng::Rng::new(seed.wrapping_add(0x9e37_79b9));
-        rfs::specgen::mutate(&spec.ir, &mut rng, k)
+        rfs::lang::specgen::mutate(&spec.ir, &mut rng, k)
     };
     let t1 = ir
         .to_json()

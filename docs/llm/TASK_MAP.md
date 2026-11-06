@@ -29,19 +29,19 @@ Shared infrastructure: external tools `src/ext_tool.rs::ExtTool` / `resolve`
 | diagram | dev:cli-commands-diagram | `src/diagram.rs::run_diagram`, `DIAGRAMS`, `DiagramPlugin`; plugins `src/diagrams/dot.rs::DOT_PLUGIN`, `src/diagrams/plantuml.rs::PUML_PLUGIN`, `src/diagrams/mermaid.rs::MMD_PLUGIN`, `src/diagrams/tables.rs::TABLE_PLUGIN` / `MD_PLUGIN`; dispatch `src/main.rs::cmd_diagram` |
 | codegen | dev:codegen-plugin-api | `src/codegen.rs::parse_codegen_args`, `get_backend`, `list_backends`, `CodegenCommandKind::run`; backends `src/backends/rust.rs` / `src/backends/c.rs`; dispatch `src/main.rs::cmd_codegen` |
 | mc-ref | dev:cli-commands-mc-ref-gen-spec + dev:mc-engine-exact | `src/mc_ref_cmd.rs::run_mc_ref`, `exit_code_for`, `run_cli`; engine `src/ref_mc.rs::run` |
-| gen-spec | dev:cli-commands-mc-ref-gen-spec | `src/gen_spec_cmd.rs::run_cli`, `generate_random`, `mutate_base`; engine `src/specgen.rs::SpecGen`, `mutate_traced` |
+| gen-spec | dev:cli-commands-mc-ref-gen-spec | `src/gen_spec_cmd.rs::run_cli`, `generate_random`, `mutate_base`; engine `src/lang/specgen.rs::SpecGen`, `mutate_traced` |
 
 ### Frontend core (source -> IR -> validation)
 
 | Concern | Read fragment | Files/functions |
 |---|---|---|
-| Parsing RFS v0 | dev:parser-overview (+ -grammar / -expressions / -entry-error / -ebnf-model) | `src/parser.rs::parse_source`, `parse_file`; grammar model `src/ebnf_grammar.rs` (canonical text of DESIGN.md section 6) |
-| Semantic validation | dev:validator-overview (+ -fatal-pass / -typing / -warnings) | `src/validator.rs::validate_ir`, `validate_module`, `module_warnings` |
-| IR + wire format | dev:ir-model, dev:ir-wire-format | `src/ir.rs::Ir`, `to_json`, `from_json`; `IR_VERSION` read policy {0,1} (D-P5-2) |
+| Parsing RFS v0 | dev:parser-overview (+ -grammar / -expressions / -entry-error / -ebnf-model) | `src/lang/parser.rs::parse_source`, `parse_file`; grammar model `src/ebnf_grammar.rs` (canonical text of DESIGN.md section 6) |
+| Semantic validation | dev:validator-overview (+ -fatal-pass / -typing / -warnings) | `src/lang/validator.rs::validate_ir`, `validate_module`, `module_warnings` |
+| IR + wire format | dev:ir-model, dev:ir-wire-format | `src/lang/ir.rs::Ir`, `to_json`, `from_json`; `IR_VERSION` read policy {0,1} (D-P5-2) |
 | JSON reader/writer | dev:json-rw | `src/json/json_rw.rs::parse`, `Json` (hand-rolled; the only JSON impl in the toolchain) |
 | JSON Schema emitter | dev:json-schema | `src/json/json_schema.rs` (draft-07 emitter + markdown renderer + sync walker, used by rfs info format) |
-| Printing IR -> source | dev:code-map-frontend (file entry) | `src/printer.rs::print_ir` (unparser; round-trip pinned in tests) |
-| Spans / parse errors | dev:code-map-frontend (file entry) | `src/error.rs::ParseError`, `Span` |
+| Printing IR -> source | dev:code-map-frontend (file entry) | `src/lang/printer.rs::print_ir` (unparser; round-trip pinned in tests) |
+| Spans / parse errors | dev:code-map-frontend (file entry) | `src/lang/error.rs::ParseError`, `Span` |
 | Spec hash | dev:spec-hash | `src/utils/hash.rs` (hand-rolled SHA-256; generated artifact headers) |
 | Shared LCG generator | dev:code-map-utils, dev:codegen-test-plan | `src/utils/rng.rs::Rng` (single RNG family: specgen + test planning + both generated runtimes) |
 
@@ -122,14 +122,15 @@ above.
 
 - `src/lib.rs` - crate root: module tree, public API surface
 - `src/main.rs` - CLI entry point: argument parsing and command dispatch
-- `src/error.rs` - shared source spans and parse-error types
+- `src/lang/error.rs` - shared source spans and parse-error types
 - `src/cli_log.rs` - minimal stderr logging for the new CLI commands
 - `src/frontend.rs` - frontend CLI logic: RFS/JSON conversion, validation dispatch
-- `src/printer.rs` - IR-to-RFS source printer (unparser) and round-trip helpers
-- `src/parser.rs` - RFS v0 source parser (nom-based): spec text to IR
+- `src/lang/printer.rs` - IR-to-RFS source printer (unparser) and round-trip helpers
+- `src/lang/parser.rs` - RFS v0 source parser (nom-based): spec text to IR
 - `src/ebnf_grammar.rs` - EBNF grammar model + renderers for IDE/tooling output
-- `src/validator.rs` - semantic validation and expression typing for RFS IR
-- `src/ir.rs` - IR types + hand-written JSON (de)serialization (pinned wire format)
+- `src/lang/validator.rs` - semantic validation and expression typing for RFS IR
+- `src/lang/mod.rs` - module root of the language core (parser + error + ir + printer + validator + specgen)
+- `src/lang/ir.rs` - IR types + hand-written JSON (de)serialization (pinned wire format)
 - `src/json/mod.rs` - module root of the JSON substrate (json_rw + json_schema)
 - `src/json/json_rw.rs` - hand-rolled JSON reader/writer (only JSON impl in the toolchain)
 - `src/json/json_schema.rs` - draft-07 JSON-Schema emitter + markdown renderer + sync walker
@@ -164,7 +165,7 @@ above.
 - `src/diagrams/mermaid.rs` - Mermaid state diagrams (verified syntax subset)
 - `src/diagrams/plantuml.rs` - PlantUML state diagrams (verified syntax subset)
 - `src/diagrams/tables.rs` - transition tables + variable/event summaries (table/md formats)
-- `src/specgen.rs` - seeded random spec generator + incremental mutation
+- `src/lang/specgen.rs` - seeded random spec generator + incremental mutation
 - `src/ext_tool.rs` - external-tool resolution, invocation, deterministic script emission
 - `crates/rfs-build/src/lib.rs` - rfs-build: the build.rs helper API for RFS codegen
 - `crates/rfs-build/tests/integration.rs` - rfs-build end-to-end test against a real spec

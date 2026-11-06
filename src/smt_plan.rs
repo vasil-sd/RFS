@@ -13,7 +13,7 @@
 //!
 //! Docs: dev:mc-engine-overview, dev:mc-engine-smt, dev:algorithms-mc-engine, llm:mc-engine
 
-use crate::ir::{Expr, Formula, Module};
+use crate::lang::ir::{Expr, Formula, Module};
 use crate::mc_plan::{McPlan, ValueDomain};
 
 /// Expression node over (state, vars, payload fields) with references already
@@ -199,11 +199,11 @@ pub fn build_smt_spec(module: &Module, plan: &McPlan) -> Result<SmtSpec, String>
     let mut vars: Vec<SmtVar> = Vec::new();
     let mut var_idx: std::collections::HashMap<String, usize> = std::collections::HashMap::new();
     for v in &module.vars {
-        let is_bool = matches!(v.ty, crate::ir::Type::Bool);
+        let is_bool = matches!(v.ty, crate::lang::ir::Type::Bool);
         let width = match &v.ty {
-            crate::ir::Type::Bool => 1u32,
-            crate::ir::Type::Bit { width } => *width,
-            crate::ir::Type::Enum { name: _ } => {
+            crate::lang::ir::Type::Bool => 1u32,
+            crate::lang::ir::Type::Bit { width } => *width,
+            crate::lang::ir::Type::Enum { name: _ } => {
                 return Err(format!(
                     "smt-bounded mode does not support enum-typed variables (var '{}')",
                     v.name
@@ -417,10 +417,10 @@ pub fn build_smt_spec(module: &Module, plan: &McPlan) -> Result<SmtSpec, String>
     })
 }
 
-fn variant_name(v: &Option<crate::ir::PatternVariant>) -> Option<String> {
+fn variant_name(v: &Option<crate::lang::ir::PatternVariant>) -> Option<String> {
     match v {
-        Some(crate::ir::PatternVariant::Unit { name }) => Some(name.clone()),
-        Some(crate::ir::PatternVariant::Struct { name, .. }) => Some(name.clone()),
+        Some(crate::lang::ir::PatternVariant::Unit { name }) => Some(name.clone()),
+        Some(crate::lang::ir::PatternVariant::Struct { name, .. }) => Some(name.clone()),
         None => None,
     }
 }
@@ -531,31 +531,31 @@ fn convert_expr(
         Expr::Unary { op, expr } => {
             let inner = convert_expr(expr, ctx, variant)?;
             Ok(match op {
-                crate::ir::UnaryOp::Not => Se::Not(Box::new(inner)),
-                crate::ir::UnaryOp::BitNot => Se::BitNot(Box::new(inner)),
-                crate::ir::UnaryOp::Neg => Se::Neg(Box::new(inner)),
+                crate::lang::ir::UnaryOp::Not => Se::Not(Box::new(inner)),
+                crate::lang::ir::UnaryOp::BitNot => Se::BitNot(Box::new(inner)),
+                crate::lang::ir::UnaryOp::Neg => Se::Neg(Box::new(inner)),
             })
         }
         Expr::Binary { op, left, right } => {
             let l = convert_expr(left, ctx, variant)?;
             let r = convert_expr(right, ctx, variant)?;
             let sb = match op {
-                crate::ir::BinOp::Plus => Sb::Plus,
-                crate::ir::BinOp::Minus => Sb::Minus,
-                crate::ir::BinOp::Star => Sb::Star,
-                crate::ir::BinOp::ShiftLeft => Sb::ShiftLeft,
-                crate::ir::BinOp::ShiftRight => Sb::ShiftRight,
-                crate::ir::BinOp::Eq => Sb::Eq,
-                crate::ir::BinOp::NotEq => Sb::NotEq,
-                crate::ir::BinOp::Lt => Sb::Lt,
-                crate::ir::BinOp::Le => Sb::Le,
-                crate::ir::BinOp::Gt => Sb::Gt,
-                crate::ir::BinOp::Ge => Sb::Ge,
-                crate::ir::BinOp::BitOr => Sb::BitOr,
-                crate::ir::BinOp::BitXor => Sb::BitXor,
-                crate::ir::BinOp::BitAnd => Sb::BitAnd,
-                crate::ir::BinOp::LogicOr => Sb::LogicOr,
-                crate::ir::BinOp::LogicAnd => Sb::LogicAnd,
+                crate::lang::ir::BinOp::Plus => Sb::Plus,
+                crate::lang::ir::BinOp::Minus => Sb::Minus,
+                crate::lang::ir::BinOp::Star => Sb::Star,
+                crate::lang::ir::BinOp::ShiftLeft => Sb::ShiftLeft,
+                crate::lang::ir::BinOp::ShiftRight => Sb::ShiftRight,
+                crate::lang::ir::BinOp::Eq => Sb::Eq,
+                crate::lang::ir::BinOp::NotEq => Sb::NotEq,
+                crate::lang::ir::BinOp::Lt => Sb::Lt,
+                crate::lang::ir::BinOp::Le => Sb::Le,
+                crate::lang::ir::BinOp::Gt => Sb::Gt,
+                crate::lang::ir::BinOp::Ge => Sb::Ge,
+                crate::lang::ir::BinOp::BitOr => Sb::BitOr,
+                crate::lang::ir::BinOp::BitXor => Sb::BitXor,
+                crate::lang::ir::BinOp::BitAnd => Sb::BitAnd,
+                crate::lang::ir::BinOp::LogicOr => Sb::LogicOr,
+                crate::lang::ir::BinOp::LogicAnd => Sb::LogicAnd,
             };
             Ok(Se::Bin(sb, Box::new(l), Box::new(r)))
         }

@@ -17,7 +17,7 @@ use std::path::Path;
 use crate::diagram::{DiagramPlugin, RenderPlan};
 use crate::diagrams::{event_label, guard_label, states};
 use crate::ext_tool::{ExtTool, ResolvedTool};
-use crate::ir::Module;
+use crate::lang::ir::Module;
 
 /// DOT string escaping for labels: quote + escape backslash and double quote.
 fn dot_str(s: &str) -> String {
@@ -26,7 +26,7 @@ fn dot_str(s: &str) -> String {
 
 /// One transition's edge label: `Event [guard] -> next` (guard part omitted
 /// when the transition has no guard).
-pub fn transition_label(t: &crate::ir::Transition) -> String {
+pub fn transition_label(t: &crate::lang::ir::Transition) -> String {
     let mut l = event_label(&t.pattern);
     if let Some(g) = guard_label(&t.guard) {
         l.push_str(" [");

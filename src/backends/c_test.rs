@@ -32,7 +32,7 @@ use crate::codegen_test::{
     self, build_fuzz_decode, FuzzFieldStrategy, InputCase, InvariantCase, MonitorViolationCase,
     OutputCase, RandomTraceCase, TransitionExpectation, TransitionTestCase, VarValue,
 };
-use crate::ir::*;
+use crate::lang::ir::*;
 use std::fmt::Write as _;
 
 /// A representative `input_t` initializer for a variant (default field values:

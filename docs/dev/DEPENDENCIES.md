@@ -307,7 +307,7 @@ flowchart TD
 
 Reading the graph:
 
-- **The IR is the hub.** `src/ir.rs::Ir` is depended on by every consumer
+- **The IR is the hub.** `src/lang/ir.rs::Ir` is depended on by every consumer
   (frontend, codegen, backends, MC, diagrams, CLI); it depends only on
   `src/json/json_rw.rs`, which depends on nothing - the two together are the
   foundation of the crate.
@@ -331,12 +331,12 @@ Reading the graph:
 ## Function level - parser + validator
 
 <a id="dev:deps-fn-parser"></a>
-### Parser (`src/parser.rs`)
+### Parser (`src/lang/parser.rs`)
 
 The parser is a nom-based recursive-descent implementation: every grammar
 rule is a function returning `IResult<&str, T>`, and the rule tree mirrors
-the EBNF grammar (rendered by `src/ebnf_grammar.rs`). Entry: `src/parser.rs::parse_file`
-reads the file and delegates to `src/parser.rs::parse_source`, which strips
+the EBNF grammar (rendered by `src/ebnf_grammar.rs`). Entry: `src/lang/parser.rs::parse_file`
+reads the file and delegates to `src/lang/parser.rs::parse_source`, which strips
 comments (`strip_comments`), runs the nom root `rfs_source`, and maps failures
 through `nom_error_to_parse_error` / `err_at` (with the dedicated
 `find_eventually_missing_paren` recovery for a missing `eventually` paren).
@@ -345,7 +345,7 @@ the grammar rules. The expression chain is a 12-level precedence climb
 (`expr` down to `primary_expr`); the PSL formula chain is a separate 8-level
 precedence climb (`formula` down to `primary_formula`), whose primary also
 parses event/output patterns and non-boolean expressions for `on`-style
-operands. `src/parser.rs::KEYWORDS` is the keyword table shared by the
+operands. `src/lang/parser.rs::KEYWORDS` is the keyword table shared by the
 `keyword` / `soft_keyword` lexical helpers.
 
 ```mermaid
@@ -503,24 +503,24 @@ lexical leaves (`ident_start`, `ident_cont`, `digit`, `is_ident_byte`,
 readability.
 
 <a id="dev:deps-fn-validator"></a>
-### Validator (`src/validator.rs`)
+### Validator (`src/lang/validator.rs`)
 
-Validation is two-phase. The fatal phase: `src/validator.rs::validate_ir`
+Validation is two-phase. The fatal phase: `src/lang/validator.rs::validate_ir`
 iterates the modules and delegates to `validate_module`, which runs the
 per-item checks - event/output pattern validation
 (`validate_event_pattern` / `validate_output_expr`), expression typing
 (`type_expr`), formula typing (`type_formula`), the bounded-always
 malformation check (`bounded_always_error`), and the version-format check
-(`is_valid_version_format`). The non-fatal phase: `src/validator.rs::module_warnings`
+(`is_valid_version_format`). The non-fatal phase: `src/lang/validator.rs::module_warnings`
 produces the Phase 2 diagnostics (unreachable states, dead events, unused
 variables, impossible guards) via `contradictory_equalities`,
 `is_literal_false` and `collect_names`; these never block code generation.
-Typing resolves paths against the `src/validator.rs::Env` environment
+Typing resolves paths against the `src/lang/validator.rs::Env` environment
 (`resolve_path`), combines operand types in `binary_type` (which dispatches
 to `bit_op_type` for the bit-level operators), and converts IR types via
 `type_to_expr_type`. `type_formula` delegates pattern-group checks to
 `check_pattern_group` / `check_output_pattern_group` - both are Phase 1
-stubs (formula patterns do not bind variables yet). `src/validator.rs::is_safety_formula`
+stubs (formula patterns do not bind variables yet). `src/lang/validator.rs::is_safety_formula`
 is a public utility with no internal callers (used by tests and external
 tooling).
 
@@ -682,7 +682,7 @@ also calls `src/codegen_fsm.rs::representative_values` (external).
 `src/backends/rust_fsm.rs::generate_core` - the core generator shared by all
 three commands (the test and mc entry points pass `with_tests` / `Always`
 mode instead). `generate_core` re-validates the module
-(`src/validator.rs::validate_module`) and then drives the `Gen` emitter:
+(`src/lang/validator.rs::validate_module`) and then drives the `Gen` emitter:
 `Gen::new` builds the variant table (`src/codegen_fsm.rs::build_variants`),
 compiles the monitors, and runs the emission pipeline in a fixed order -
 prelude (v1.0 header + no_std), enums, `Vars`, `Input`/`Output`, report
@@ -704,7 +704,7 @@ transition blocks (`transition_block` -> `pattern_block_open` / `gen_expr` /
 `output_expr` / `pattern_block_close`) and the `on_error` fallback
 (`on_error_block`). `src/backends/rust_fsm.rs::gen_expr` is the shared
 expression renderer: it types every subexpression via
-`src/validator.rs::type_expr` and renders bit-vector arithmetic with wrapping
+`src/lang/validator.rs::type_expr` and renders bit-vector arithmetic with wrapping
 ops plus width handling through `width_from_type` and the `mask_expr` /
 `bit_rust_type` helpers of `src/backends/rust.rs`.
 
@@ -836,7 +836,7 @@ only); `emit_monitors` additionally calls
 `src/backends/rust.rs::representative_input_expr` for the `ALL_INPUTS`
 table, `render_monitor` uses `src/backends/rust.rs::snake`, and
 `pattern_block_open` uses `src/backends/rust.rs::rust_binding_ident` plus
-`src/validator.rs::type_to_expr_type` / `Env::for_module`.
+`src/lang/validator.rs::type_to_expr_type` / `Env::for_module`.
 
 ### Rust unit-test generation (`src/backends/rust_test.rs`)
 
@@ -858,7 +858,7 @@ plan class - `render_transition_test` (taken / not-taken),
 (full `assert_eq!` when every arg is statically known, otherwise the
 documented partial-match fallback). `src/backends/rust_test.rs::generate_aggregate_test_crate`
 (used by the `generate_code_tests` / `test_generated_code` bins) parses each
-file (`src/parser.rs::parse_file`), stamps the per-file spec hash
+file (`src/lang/parser.rs::parse_file`), stamps the per-file spec hash
 (`src/utils/hash.rs::spec_hash16`), and codegens every module into its own
 `pub mod` via `src/backends/rust_fsm.rs::generate_core`;
 `src/backends/rust_test.rs::write_generated_crate` writes the crate under
@@ -941,7 +941,7 @@ JSON counterexample writer plus the per-module renderers
 with the text renderers), and the liveness engine - per-leaf sample
 evaluators rendered by `src/backends/rust_fsm.rs::render_sample_formula_evaluator`,
 skeleton expressions flattened by `flatten_skeleton`, property text via
-`src/printer.rs::print_formula`. The fuzz runtime and the main dispatch are
+`src/lang/printer.rs::print_formula`. The fuzz runtime and the main dispatch are
 static string templates (no codegen-time calls).
 
 ```mermaid
@@ -1042,7 +1042,7 @@ transition blocks (`transition_block_c` -> `gen_expr_c` /
 `output_expr_c`, with bindings as local variables via `c_binding_ident`)
 and the `on_error` fallback. `src/backends/c_fsm.rs::gen_expr_c` is the
 shared expression lowering: it types every subexpression via
-`src/validator.rs::type_expr` and renders bit-vector arithmetic with C
+`src/lang/validator.rs::type_expr` and renders bit-vector arithmetic with C
 casts plus `mask_c_expr` masking (including the uint64-wide multiply and
 guarded shift forms).
 
@@ -1153,7 +1153,7 @@ uses `src/backends/rust.rs::snake`; `gen_expr_c` uses
 `transition_block_c` / `mc_pattern_cond` / `render_mc_step_all_body` use
 `src/backends/c.rs::c_binding_ident` / `src/backends/c.rs::c_type` /
 `src/backends/c.rs::c_ident` / `src/backends/c.rs::int_c_literal` plus
-`src/validator.rs::Env::for_module`.
+`src/lang/validator.rs::Env::for_module`.
 
 ### C unit-test generation (`src/backends/c_test.rs`)
 
@@ -1251,7 +1251,7 @@ JSON counterexample writer plus the per-module renderers
 sample evaluators rendered by
 `src/backends/c_fsm.rs::render_liv_sample_evaluator_c`, skeleton
 expressions flattened by `flatten_skeleton_c`, property text via
-`src/printer.rs::print_formula`. The fuzz runtime
+`src/lang/printer.rs::print_formula`. The fuzz runtime
 (`fuzz_runtime` -> `rep_inputs` -> `rep_input_c`) and the main dispatch are
 static string templates (no codegen-time calls).
 

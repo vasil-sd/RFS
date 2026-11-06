@@ -21,8 +21,8 @@ diagnostics and lets one IR feed multiple targets; embedding the DSL in Rust
 macros would constrain the syntax to the macro system and degrade error
 quality, while data formats are too weak for guarded transitions and temporal
 properties.
-Table: [DESIGN.md](../../DESIGN.md) section 9.1 - Code: `src/parser.rs::parse_source`,
-`src/ir.rs::Ir`.
+Table: [DESIGN.md](../../DESIGN.md) section 9.1 - Code: `src/lang/parser.rs::parse_source`,
+`src/lang/ir.rs::Ir`.
 
 ### 9.2 FSM authoring style - Rust-like pattern-matching transition blocks
 
@@ -43,7 +43,7 @@ don't-care later.
 complete for small systems, and fixed-width types map directly onto primitive
 integers in both backends; unbounded or side-effecting types would make MC
 impossible or unsound.
-Table: [DESIGN.md](../../DESIGN.md) section 9.3 - Code: `src/validator.rs::type_expr`,
+Table: [DESIGN.md](../../DESIGN.md) section 9.3 - Code: `src/lang/validator.rs::type_expr`,
 `src/backends/rust.rs::rust_type`, `src/backends/c.rs::c_type`.
 
 ### 9.4 Determinism and transition selection - explicit priorities + disjointness validation
@@ -56,7 +56,7 @@ recommended later.
 behavior, and hidden source-order semantics would be fragile; explicit
 priorities give precise control with good diagnostics for duplicates and
 overlapping guards.
-Table: [DESIGN.md](../../DESIGN.md) section 9.4 - Code: `src/validator.rs::validate_module`.
+Table: [DESIGN.md](../../DESIGN.md) section 9.4 - Code: `src/lang/validator.rs::validate_module`.
 
 ### 9.5 Time and timeouts - explicit `Tick` event plus timer variables
 
@@ -66,7 +66,7 @@ real-time clocks in v0; implicit `after N` delays are sugar maybe later.
 trivially sound, at the cost of the user modeling ticks explicitly -
 acceptable for protocol timeouts. `Tick` is a plain declared event name (no
 parser special-casing), as in examples/valid/03_timeout_retry.rfs.
-Table: [DESIGN.md](../../DESIGN.md) section 9.5 - Code: `src/parser.rs::parse_source`.
+Table: [DESIGN.md](../../DESIGN.md) section 9.5 - Code: `src/lang/parser.rs::parse_source`.
 
 ### 9.6 Property language - PSL-like subset
 
@@ -75,7 +75,7 @@ naming avoided; Rust closures rejected for core properties.
 **Why:** the requested style is practical for bounded protocol event sequences
 and compiles to online monitors; pure LTL is less practical for bounded
 patterns, and arbitrary closures are not automatically model-checkable.
-Table: [DESIGN.md](../../DESIGN.md) section 9.6 - Code: `src/parser.rs::primary_formula`,
+Table: [DESIGN.md](../../DESIGN.md) section 9.6 - Code: `src/lang/parser.rs::primary_formula`,
 `src/monitor.rs::compile_formula`.
 
 ### 9.7 Model-checking engine strategy - exhaustive reachable-state search (exact mode)
@@ -135,7 +135,7 @@ intermediate step.
 **Why:** a single endpoint keeps MC/codegen simple and the v1 scope
 manageable; multi-party composition brings state explosion and codegen
 complexity that are deliberately deferred.
-Table: [DESIGN.md](../../DESIGN.md) section 9.11 - Code: `src/ir.rs::Module`.
+Table: [DESIGN.md](../../DESIGN.md) section 9.11 - Code: `src/lang/ir.rs::Module`.
 
 ### Section 19 - Phase 1 code-generation decisions
 
@@ -220,7 +220,7 @@ they are not; provably dead transitions must fail, unorderable ties must fail,
 and legal if/else chains stay valid but get told to pin intent - the "at least
 syntactically" level required by the roadmap, with bounded checking left to
 Phase 4.
-Table: [DESIGN.md](../../DESIGN.md) section 20, D2 - Code: `src/validator.rs::validate_module`.
+Table: [DESIGN.md](../../DESIGN.md) section 20, D2 - Code: `src/lang/validator.rs::validate_module`.
 
 ### D3. Duplicate-priority scope - unique per (state, pattern)
 
@@ -229,7 +229,7 @@ Priorities must be unique per (state, pattern); per-state uniqueness rejected.
 the minimal constraint; per-state uniqueness forces a global numbering scheme
 even for patterns that cannot conflict - it was rejected after it broke a
 natural spec during implementation.
-Table: [DESIGN.md](../../DESIGN.md) section 20, D3 - Code: `src/validator.rs::validate_module`.
+Table: [DESIGN.md](../../DESIGN.md) section 20, D3 - Code: `src/lang/validator.rs::validate_module`.
 
 ### D4. Severity of reachability/usage diagnostics - warnings only
 
@@ -241,7 +241,7 @@ to two different integer literals in one top-level conjunction) are all
 with defensive states must not fail, and the existing valid examples had to
 keep passing; warnings are printed by `rfs validate` and surfaced through
 codegen output warnings.
-Table: [DESIGN.md](../../DESIGN.md) section 20, D4 - Code: `src/validator.rs::module_warnings`,
+Table: [DESIGN.md](../../DESIGN.md) section 20, D4 - Code: `src/lang/validator.rs::module_warnings`,
 `src/frontend.rs::run_validate`.
 
 ### D5. Effective priority default - 0 (lowest)
@@ -270,7 +270,7 @@ behavior is unchanged from Phase 1 (`StepError::UnexpectedEvent` /
 state, and MC-compatible (it is just a fallback arm); the wildcard form would
 clash with the existing `_` field wildcard and be easy to misuse, and an
 "ignore" policy silently drops protocol errors (bad for model checking).
-Table: [DESIGN.md](../../DESIGN.md) section 20, D6 - Code: `src/ir.rs::Module`,
+Table: [DESIGN.md](../../DESIGN.md) section 20, D6 - Code: `src/lang/ir.rs::Module`,
 `src/backends/rust_fsm.rs::on_error_block`, `src/backends/c_fsm.rs::emit_fsm_impl`.
 
 ### D7. Module version header syntax - `module Name version "x.y.z" {`
@@ -283,8 +283,8 @@ optional, skipped when absent), printed by the RFS printer, and emitted as
 **Why:** visible at a glance, one optional token, trivially round-trips; a new
 item kind for what is currently a single value was overkill while no second
 metadata key exists.
-Table: [DESIGN.md](../../DESIGN.md) section 20, D7 - Code: `src/ir.rs::Module`,
-`src/printer.rs::print_ir`, `src/backends/rust_fsm.rs::emit_monitors`,
+Table: [DESIGN.md](../../DESIGN.md) section 20, D7 - Code: `src/lang/ir.rs::Module`,
+`src/lang/printer.rs::print_ir`, `src/backends/rust_fsm.rs::emit_monitors`,
 `src/backends/c_fsm.rs::emit_monitors`.
 
 ### D8. C backend type mapping and scope
@@ -338,7 +338,7 @@ shape must bump `IR_VERSION` and update round-trip tests. Phase 2 added
 round-trips unchanged; reserving bumps for breaking changes keeps the version
 meaningful. (Phase 5's hand-rolled JSON reader-writer, D-P5-2, preserves this
 contract with pinned key order.)
-Table: [DESIGN.md](../../DESIGN.md) section 20, D10 - Code: `src/ir.rs::IR_VERSION`,
+Table: [DESIGN.md](../../DESIGN.md) section 20, D10 - Code: `src/lang/ir.rs::IR_VERSION`,
 `src/json/json_rw.rs`.
 
 ### D-P3-1. IR representation of `always[N]` - additive `BoundedAlways` variant
@@ -347,7 +347,7 @@ An additive `BoundedAlways { bound, inner }` formula variant (wire tag
 `bounded_always`) with no `IR_VERSION` bump; a v1 bump rejected.
 **Why:** old IR JSON round-trips unchanged - purely additive per the D10 rule;
 bumping for an additive change would break all existing IR JSON for no benefit.
-Table: [DESIGN.md](../../DESIGN.md) section 21, D-P3-1 - Code: `src/ir.rs::Formula`.
+Table: [DESIGN.md](../../DESIGN.md) section 21, D-P3-1 - Code: `src/lang/ir.rs::Formula`.
 
 ### D-P3-2. Zero-bound rules - `always[N]` requires N >= 1; `be[0]` stays legal
 
@@ -358,7 +358,7 @@ rejection of both zero bounds rejected.
 meaningful degenerate "hold now" form; no existing example used either form
 (verified), so the asymmetric rule costs nothing.
 Table: [DESIGN.md](../../DESIGN.md) section 21, D-P3-2 - Code:
-`src/validator.rs::bounded_always_error`.
+`src/lang/validator.rs::bounded_always_error`.
 
 ### D-P3-3. Exact monitor semantics - violation confirmed at the deadline sample
 
@@ -537,8 +537,8 @@ additive `Formula::Eventually` / `Formula::Until`, no version bump.
 **Why:** standard PSL/CTL precedence keeps the language predictable for anyone
 who knows temporal logic; pinning the consequence over the sketch resolved the
 internal contradiction in favor of the conventional reading.
-Table: [DESIGN.md](../../DESIGN.md) section 22, D-P4-8 - Code: `src/parser.rs::primary_formula`,
-`src/ir.rs::Formula`.
+Table: [DESIGN.md](../../DESIGN.md) section 22, D-P4-8 - Code: `src/lang/parser.rs::primary_formula`,
+`src/lang/ir.rs::Formula`.
 
 ### D-P4-9. Liveness scope
 
@@ -667,7 +667,7 @@ of artifact reproducibility; only owning the serializer guarantees pinned key
 order forever, and a fallible writer turns an unrepresentable value into a
 diagnostic instead of corrupted output.
 Table: [DESIGN.md](../../DESIGN.md) section 23, D-P5-2 - Code: `src/json/json_rw.rs::parse`,
-`src/ir.rs::to_json`.
+`src/lang/ir.rs::to_json`.
 
 ### D-P5-3. rfs-build: build.rs helper (task 1)
 
@@ -903,7 +903,7 @@ unchanged.
 **Why:** editors need machine-readable diagnostics on stdout with stable
 shapes, and making the parser's keyword list the grammar's source of truth
 prevents syntax highlighting from drifting from what the parser accepts.
-Table: [DESIGN.md](../../DESIGN.md) section 23, D-P5-13 - Code: `src/parser.rs::KEYWORDS`,
+Table: [DESIGN.md](../../DESIGN.md) section 23, D-P5-13 - Code: `src/lang/parser.rs::KEYWORDS`,
 `src/frontend.rs::run_validate_structured`.
 
 ### D-P5-14. Example-crate matrix (tasks 11/12)
@@ -952,7 +952,7 @@ authoritative, and the existing one is IR-stored and visible to every tool;
 keeping the parser permissive while validating format preserves old-file
 compatibility.
 Table: [DESIGN.md](../../DESIGN.md) section 24, D-P6-1 - Code:
-`src/validator.rs::is_valid_version_format`, `src/ir.rs::Module`.
+`src/lang/validator.rs::is_valid_version_format`, `src/lang/ir.rs::Module`.
 
 ### D-P6-2. IR schema version bump 0 -> 1 with a backward-readable policy (task 2.2)
 
@@ -965,8 +965,8 @@ rejected with the pinned error `unsupported IR version {n} at $.ir_version
 releases; schema evolution must stay backward-readable (additive optional
 fields), and v0 documents keep working - a read policy of {0,1} makes that
 explicit instead of implicit.
-Table: [DESIGN.md](../../DESIGN.md) section 24, D-P6-2 - Code: `src/ir.rs::IR_VERSION`,
-`src/ir.rs::from_json`.
+Table: [DESIGN.md](../../DESIGN.md) section 24, D-P6-2 - Code: `src/lang/ir.rs::IR_VERSION`,
+`src/lang/ir.rs::from_json`.
 
 ### D-P6-3. Spec hash + toolchain version in every generated artifact header (task 2.3)
 
@@ -1001,7 +1001,7 @@ section 7.5). Slow layer: `tests/toolchain_fuzz_test.rs` in plain `cargo test`
 - pinned seeds x small specgen specs -> all six artifacts generated + compiled
 (rustc / gcc -Wall) + MC runs in exact & fuzz mode vs `ref_mc` ground truth
 (status agreement, NO false `PASS (complete)`, exit codes {0,1,2}, stable
-stderr). Random valid specs come from `src/specgen.rs` via a shared wrapper -
+stderr). Random valid specs come from `src/lang/specgen.rs` via a shared wrapper -
 raw IR types are deliberately NOT `Arbitrary` (validity by construction). The
 new targets found two real bugs, recorded as plan corrections 5a (planner
 binding-name keying - codegen FAIL on a fully valid spec) and 5b (C MC
@@ -1011,7 +1011,7 @@ seeded suite is the CI-runnable layer with ground-truth comparison; validity
 by construction (instead of `Arbitrary` IR) means every fuzz input is a real
 spec, so crashes are always meaningful.
 Table: [DESIGN.md](../../DESIGN.md) section 24, D-P6-4 - Code: `fuzz/fuzz_targets/parser.rs`,
-`tests/toolchain_fuzz_test.rs`, `src/specgen.rs::SpecGen`.
+`tests/toolchain_fuzz_test.rs`, `src/lang/specgen.rs::SpecGen`.
 
 ### D-P6-5. The brute-force reference MC is an independent public lib module (task 3.2)
 
@@ -1136,7 +1136,7 @@ applying K seeded mutation steps from the 17-op `specgen::mutate` API). The
 output is ALWAYS a valid spec: it is parsed + validated before writing (error +
 exit 1 otherwise); invalid mutation candidates are rolled back and redrawn at
 every step. Deterministic from the seed: same args => byte-identical file. The
-generator lives in `src/specgen.rs` shared with the fuzz targets and the slow
+generator lives in `src/lang/specgen.rs` shared with the fuzz targets and the slow
 toolchain-fuzz suite.
 **Why:** base mutation explores the neighborhood of a known-good protocol shape
 (much better corner-case coverage than fully random specs), and validate-
@@ -1145,7 +1145,7 @@ sharing one generator across CLI/fuzz/CI keeps all random-spec sources
 identical.
 Table: [DESIGN.md](../../DESIGN.md) section 24, D-P6-11 - Code:
 `src/gen_spec_cmd.rs::generate_random`, `src/gen_spec_cmd.rs::mutate_base`,
-`src/specgen.rs::mutate`.
+`src/lang/specgen.rs::mutate`.
 
 ### D-P7-1. `rfs diagram --renderer internal|external`, default INTERNAL (task 1)
 

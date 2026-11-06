@@ -6,7 +6,7 @@
 //! generated exact-mode MC engines over:
 //!   * every valid example whose state space fits the budget (the pinned
 //!     eligible list below, measured 2026-10-24), and
-//!   * 20 small random specs from `rfs::specgen` (pinned seeds).
+//!   * 20 small random specs from `rfs::lang::specgen` (pinned seeds).
 //!
 //! Per-run assertions (PHASE_6_TASK_4.md "Context" - different algorithms,
 //! so the comparison is deliberate about what MUST agree):
@@ -510,7 +510,7 @@ fn ref_mc_vs_generated_all_eligible_examples() {
 #[test]
 fn ref_mc_vs_generated_random_specs() {
     for seed in RANDOM_SEEDS {
-        let mut gen = rfs::specgen::SpecGen::new(seed, rfs::specgen::Bounds::small());
+        let mut gen = rfs::lang::specgen::SpecGen::new(seed, rfs::lang::specgen::Bounds::small());
         let ir = gen.generate();
         // specgen guarantees parseability (it renders via the printer) and
         // validity; re-assert both as a defense against drift.

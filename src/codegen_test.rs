@@ -31,10 +31,10 @@
 //! Docs: dev:codegen-core-overview, dev:codegen-test-plan, dev:algorithms-ir-codegen, llm:codegen-core
 
 use crate::codegen_fsm::FsmVariants;
-use crate::ir::*;
+use crate::lang::ir::*;
 use crate::monitor::{self, SignalAtom, SignalExpr};
 use crate::utils::rng::Rng;
-use crate::validator::{self, Env, ExprType};
+use crate::lang::validator::{self, Env, ExprType};
 use std::collections::HashMap;
 
 // ---------------------------------------------------------------------------
@@ -383,8 +383,8 @@ pub fn has_definite_unexpected(variants: &FsmVariants, module: &Module) -> bool 
                     used.insert(v.unique_name.clone());
                 }
             }
-            Some(crate::ir::PatternVariant::Unit { name })
-            | Some(crate::ir::PatternVariant::Struct { name, .. }) => {
+            Some(crate::lang::ir::PatternVariant::Unit { name })
+            | Some(crate::lang::ir::PatternVariant::Struct { name, .. }) => {
                 if let Some(v) = variants.input_variant(&t.pattern.group, name) {
                     used.insert(v.unique_name.clone());
                 }
@@ -1247,18 +1247,18 @@ fn eval_expr(e: &Expr, env: &EvalEnv) -> Option<VarValue> {
         Expr::Unary { op, expr } => {
             let inner = eval_expr(expr, env)?;
             match op {
-                crate::ir::UnaryOp::Not => match inner {
+                crate::lang::ir::UnaryOp::Not => match inner {
                     VarValue::Bool(b) => Some(VarValue::Bool(!b)),
                     _ => None,
                 },
-                crate::ir::UnaryOp::BitNot => match inner {
+                crate::lang::ir::UnaryOp::BitNot => match inner {
                     VarValue::Int(x) => {
                         let w = width_of(expr, env)?;
                         Some(VarValue::Int(((!(x as u128)) & mask(w)) as u64))
                     }
                     _ => None,
                 },
-                crate::ir::UnaryOp::Neg => match inner {
+                crate::lang::ir::UnaryOp::Neg => match inner {
                     VarValue::Int(x) => {
                         let w = width_of(expr, env)?;
                         Some(VarValue::Int(
@@ -1669,7 +1669,7 @@ mod tests {
         // the fix, `test` codegen failed on BOTH backends with "not-taken
         // signature has un-evaluable output args; refusing to emit a toothless
         // test" for this fully valid spec.
-        let ir = crate::specgen::SpecGen::new(24099, crate::specgen::Bounds::small()).generate();
+        let ir = crate::lang::specgen::SpecGen::new(24099, crate::lang::specgen::Bounds::small()).generate();
         let options = crate::codegen::BackendOptions::default();
         for backend_name in ["rust", "c"] {
             let backend = crate::codegen::get_backend(backend_name)
@@ -2097,7 +2097,7 @@ mod tests {
             &[],
             &HashMap::new(),
         );
-        let e = crate::ir::Expr::Binary {
+        let e = crate::lang::ir::Expr::Binary {
             op: BinOp::Plus,
             left: Box::new(Expr::Path {
                 path: vec!["x".into()],
@@ -2106,7 +2106,7 @@ mod tests {
         };
         assert_eq!(eval_expr(&e, &env), Some(VarValue::Int(0)));
         // Shifts saturate to 0 when the amount reaches the width.
-        let e = crate::ir::Expr::Binary {
+        let e = crate::lang::ir::Expr::Binary {
             op: BinOp::ShiftLeft,
             left: Box::new(Expr::Path {
                 path: vec!["x".into()],
@@ -2115,7 +2115,7 @@ mod tests {
         };
         assert_eq!(eval_expr(&e, &env), Some(VarValue::Int(0)));
         // State comparison.
-        let e = crate::ir::Expr::Binary {
+        let e = crate::lang::ir::Expr::Binary {
             op: BinOp::Eq,
             left: Box::new(Expr::Path {
                 path: vec!["state".into()],

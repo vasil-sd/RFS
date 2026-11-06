@@ -18,7 +18,7 @@
 //! Docs: dev:backend-rust-overview, dev:backend-rust-mc, llm:backend-rust
 
 use crate::codegen::{BackendOptions, CodegenOutput, McMode};
-use crate::ir::Module;
+use crate::lang::ir::Module;
 use crate::mc_plan::{McPlan, ValueDomain};
 
 /// Entry point for the `mc` command of the Rust backend.
@@ -327,7 +327,7 @@ fn exact_codegen(
             "fn liv_p{pi}_skel(t: &[bool]) -> bool {{ {} }}\n",
             skel_expr
         ));
-        let formula_text = crate::printer::print_formula(&module.properties[pi].formula);
+        let formula_text = crate::lang::printer::print_formula(&module.properties[pi].formula);
         let label_lit = format!("{:?}", spec.label);
         let formula_lit = format!("{:?}", formula_text);
         prop_names.push(format!("liv_prop_{pi}"));
@@ -361,8 +361,8 @@ fn json_renderers_rust(module: &Module) -> String {
         crate::backends::rust_fsm::enum_renderer_names(module)
             .into_iter()
             .collect();
-    let json_value = |ty: &crate::ir::Type, expr: &str| -> String {
-        use crate::ir::Type;
+    let json_value = |ty: &crate::lang::ir::Type, expr: &str| -> String {
+        use crate::lang::ir::Type;
         match ty {
             Type::Bool => format!("McJson::bool({expr})"),
             Type::Bit { .. } => format!("McJson::int({expr} as u64)"),
@@ -517,14 +517,14 @@ fn var_value_expr(slot: &crate::mc_plan::VarSlot, module: &Module) -> String {
         .iter()
         .find(|v| v.name == slot.name)
         .map(|v| v.ty.clone())
-        .unwrap_or(crate::ir::Type::Bool);
+        .unwrap_or(crate::lang::ir::Type::Bool);
     match ty {
-        crate::ir::Type::Bool => format!(
+        crate::lang::ir::Type::Bool => format!(
             "if vars.{} {{ 1u64 }} else {{ 0u64 }}",
             rust_ident(&slot.name)
         ),
-        crate::ir::Type::Bit { .. } => format!("vars.{} as u64", rust_ident(&slot.name)),
-        crate::ir::Type::Enum { name } => {
+        crate::lang::ir::Type::Bit { .. } => format!("vars.{} as u64", rust_ident(&slot.name)),
+        crate::lang::ir::Type::Enum { name } => {
             let variants: Vec<String> = module
                 .enums
                 .iter()

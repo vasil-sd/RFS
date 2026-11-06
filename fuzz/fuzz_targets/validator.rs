@@ -19,7 +19,7 @@ fuzz_target!(|data: &[u8]| {
     // Part 1: random valid IR -> validate must not panic.
     let mut u = arbitrary::Unstructured::new(head);
     if let Ok(spec) = common::RandSpec::arbitrary(&mut u) {
-        let _ = rfs::validator::validate_ir(&spec.ir);
+        let _ = rfs::lang::validator::validate_ir(&spec.ir);
     }
     // Part 2: the remaining bytes as raw JSON text -> from_json must not
     // panic (strict parse first; malformed JSON is a clean Err).

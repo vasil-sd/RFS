@@ -13,7 +13,7 @@
 //! IDE/tooling consumers).
 //! Docs: dev:cli-commands-overview, dev:cli-commands-info, llm:cli-commands
 
-use crate::ir::{
+use crate::lang::ir::{
     BinOp, Expr, Formula, Ir, Module, OnError, OutputExpr, PatternExpr, PatternVariant, Type,
     UnaryOp,
 };
@@ -46,7 +46,7 @@ pub fn run_info(path: &Path, opts: &InfoOptions) -> Result<String, String> {
     if ir.modules.is_empty() {
         return Err(format!("no modules in {}", path.display()));
     }
-    let errors = match crate::validator::validate_ir(&ir) {
+    let errors = match crate::lang::validator::validate_ir(&ir) {
         Ok(()) => Vec::new(),
         Err(e) => e,
     };
@@ -266,7 +266,7 @@ fn section_enums(m: &Module, out: &mut String) {
     }
 }
 
-fn section_groups(label: &str, groups: &[crate::ir::ConstructorGroup], out: &mut String) {
+fn section_groups(label: &str, groups: &[crate::lang::ir::ConstructorGroup], out: &mut String) {
     out.push_str(&format!("  {label}:"));
     if groups.is_empty() {
         out.push_str(" (none)\n");
@@ -278,8 +278,8 @@ fn section_groups(label: &str, groups: &[crate::ir::ConstructorGroup], out: &mut
             .variants
             .iter()
             .map(|v| match v {
-                crate::ir::ConstructorVariant::Unit { name } => name.clone(),
-                crate::ir::ConstructorVariant::Struct { name, fields } => {
+                crate::lang::ir::ConstructorVariant::Unit { name } => name.clone(),
+                crate::lang::ir::ConstructorVariant::Struct { name, fields } => {
                     let inner: Vec<String> = fields
                         .iter()
                         .map(|f| format!("{}: {}", f.name, render_type(&f.ty)))
@@ -328,7 +328,7 @@ fn render_on_error_text(on: &OnError, out: &mut String) {
 
 fn section_props(
     label: &str,
-    props: &[crate::ir::Property],
+    props: &[crate::lang::ir::Property],
     is_assumption: bool,
     out: &mut String,
 ) {
@@ -373,7 +373,7 @@ fn module_json(m: &Module) -> Json {
         })
         .collect();
 
-    let groups = |gs: &[crate::ir::ConstructorGroup]| -> Json {
+    let groups = |gs: &[crate::lang::ir::ConstructorGroup]| -> Json {
         Json::arr(
             gs.iter()
                 .map(|g| {
@@ -381,11 +381,11 @@ fn module_json(m: &Module) -> Json {
                         .variants
                         .iter()
                         .map(|v| match v {
-                            crate::ir::ConstructorVariant::Unit { name } => Json::obj(vec![
+                            crate::lang::ir::ConstructorVariant::Unit { name } => Json::obj(vec![
                                 ("name".to_string(), Json::Str(name.clone())),
                                 ("fields".to_string(), Json::Null),
                             ]),
-                            crate::ir::ConstructorVariant::Struct { name, fields } => {
+                            crate::lang::ir::ConstructorVariant::Struct { name, fields } => {
                                 let f: Vec<Json> = fields
                                     .iter()
                                     .map(|fd| {
@@ -423,7 +423,7 @@ fn module_json(m: &Module) -> Json {
         })
         .collect();
 
-    let props = |ps: &[crate::ir::Property], is_assumption: bool| -> Json {
+    let props = |ps: &[crate::lang::ir::Property], is_assumption: bool| -> Json {
         Json::arr(
             ps.iter()
                 .map(|p| {

@@ -22,7 +22,7 @@ module map:
 | diagram | `src/diagram.rs::run_diagram` + the plugins in `src/diagrams/` | dev:cli-commands-diagram |
 | codegen | `src/codegen.rs` registry dispatch (via `src/main.rs::cmd_codegen`) | [codegen_core.md](codegen_core.md) |
 | mc-ref | `src/mc_ref_cmd.rs::run_mc_ref` over `src/ref_mc.rs` | dev:cli-commands-mc-ref-gen-spec |
-| gen-spec | `src/gen_spec_cmd.rs::run_cli` over `src/specgen.rs` | dev:cli-commands-mc-ref-gen-spec |
+| gen-spec | `src/gen_spec_cmd.rs::run_cli` over `src/lang/specgen.rs` | dev:cli-commands-mc-ref-gen-spec |
 
 **Exit-code convention.** 0 = success; 1 = ANY error (usage, parse,
 validation, IO, missing tool for a SELECTED suite). The generated MC binaries
@@ -122,9 +122,9 @@ codegen, codegen_fsm/mc/test, diagram(s), ebnf_grammar, error, ext_tool,
 frontend, gen_spec_cmd, info, info_format, ir, json_rw, json_schema, mc_plan,
 mc_ref_cmd, monitor, parser, printer, ref_mc, smt_emit/plan, spec_hash,
 specgen, test_cmd, training, validator); the CLI entry point is
-`src/main.rs`. Re-exports for external consumers: `src/parser.rs::parse_source`
-/ `src/parser.rs::parse_file`, `src/printer.rs::print_ir`,
-`src/error.rs::ParseError` / Span, the whole IR model (ir::*), and the
+`src/main.rs`. Re-exports for external consumers: `src/lang/parser.rs::parse_source`
+/ `src/lang/parser.rs::parse_file`, `src/lang/printer.rs::print_ir`,
+`src/lang/error.rs::ParseError` / Span, the whole IR model (ir::*), and the
 frontend API (`src/frontend.rs::Format`, run_conversion, plan_conversion,
 convert_file_to_ir, render_ir, run_validate, validate_one,
 validate_one_with_warnings, ValidateResult, ValidateOneResult, FailedFile,
@@ -141,8 +141,8 @@ external tooling goes through IR JSON (hand-rolled `src/json/json_rw.rs`). Full 
 list: [KB.md](../../KB.md) section 4.3; codegen plugin API: [CODEGEN.md](../../CODEGEN.md) +
 [codegen_core.md](codegen_core.md).
 
-Code: `src/lib.rs::collect_rfs_files`, `src/parser.rs::parse_source`,
-`src/printer.rs::print_ir`
+Code: `src/lib.rs::collect_rfs_files`, `src/lang/parser.rs::parse_source`,
+`src/lang/printer.rs::print_ir`
 
 
 <a id="dev:cli-commands-frontend"></a>
@@ -173,8 +173,8 @@ the remaining files.
 
 **Validation (text).** `src/frontend.rs::validate_one` /
 `src/frontend.rs::validate_one_with_warnings`: parse +
-`src/validator.rs::validate_ir`; warnings come from the Phase 2 non-fatal
-channel (`src/validator.rs::module_warnings` per module). Result shapes:
+`src/lang/validator.rs::validate_ir`; warnings come from the Phase 2 non-fatal
+channel (`src/lang/validator.rs::module_warnings` per module). Result shapes:
 `src/frontend.rs::ValidateResult { ok_files, warnings, failed, write_errors,
 is_directory }` and `src/frontend.rs::FailedFile { path, errors, err_file }`
 (err_file is None in file mode). `src/frontend.rs::run_validate`: file mode
@@ -323,7 +323,7 @@ Code: `src/test_cmd.rs::TestSuite`, `src/test_cmd.rs::TestOptions`,
 
 
 <a id="dev:cli-commands-mc-ref-gen-spec"></a>
-## mc-ref + gen-spec (`src/mc_ref_cmd.rs`, `src/gen_spec_cmd.rs`, `src/specgen.rs`)
+## mc-ref + gen-spec (`src/mc_ref_cmd.rs`, `src/gen_spec_cmd.rs`, `src/lang/specgen.rs`)
 
 **rfs mc-ref.** `src/mc_ref_cmd.rs::CeFormat` (Text | Json) + parse;
 `src/mc_ref_cmd.rs::McRefOptions { max_states, timeout_sec, assumes,
@@ -358,19 +358,19 @@ byte-identical file).
 
 **specgen engine.** `src/utils/rng.rs::Rng`: an LCG with the SAME constants as
 the fuzz wire format (6364136223846793005 / 1442695040888963407); next_f64 is
-the same top-53-bit double mapping as the fuzz wire format. `src/specgen.rs::Bounds`
+the same top-53-bit double mapping as the fuzz wire format. `src/lang/specgen.rs::Bounds`
 { max_states, max_events, max_outputs, max_vars, max_transitions, max_props }
 with small() (<= 6 states - reachable sets stay tiny) and medium()
 (benchmark-like) presets; explicit --max-* caps override individual fields.
-`src/specgen.rs::SpecGen::generate`: validity by construction - fuzzer/seed
+`src/lang/specgen.rs::SpecGen::generate`: validity by construction - fuzzer/seed
 bytes drive bounds + choices, and raw IR types are deliberately NOT made
-Arbitrary. `src/specgen.rs::MutOp`: 17 ops (Add/Remove/Rename for State /
+Arbitrary. `src/lang/specgen.rs::MutOp`: 17 ops (Add/Remove/Rename for State /
 Event / Output, Add/RemoveTransition, TweakGuard/TweakPriority/
-TweakOnError/TweakPayloadWidth, Add/RemoveProperty). `src/specgen.rs::mutate_traced`:
+TweakOnError/TweakPayloadWidth, Add/RemoveProperty). `src/lang/specgen.rs::mutate_traced`:
 per step pick an op, apply it to a CANDIDATE module clone, commit iff
-`src/validator.rs::validate_module` passes - invalid candidates are rolled
+`src/lang/validator.rs::validate_module` passes - invalid candidates are rolled
 back and redrawn up to 100 attempts per step, then the step is skipped;
-returns (ir, applied ops). `src/specgen.rs::mutate` = mutate_traced without
+returns (ir, applied ops). `src/lang/specgen.rs::mutate` = mutate_traced without
 the trace. Consumers: rfs gen-spec, the root fuzz/ libFuzzer targets (fuzzer
 bytes -> seed + bounds), and tests/toolchain_fuzz_test.rs.
 
@@ -379,9 +379,9 @@ Code: `src/mc_ref_cmd.rs::CeFormat`, `src/mc_ref_cmd.rs::McRefOptions`,
 `src/mc_ref_cmd.rs::run_cli`, `src/gen_spec_cmd.rs::DEFAULT_SEED`,
 `src/gen_spec_cmd.rs::RandomOptions`, `src/gen_spec_cmd.rs::generate_random`,
 `src/gen_spec_cmd.rs::mutate_base`, `src/gen_spec_cmd.rs::verify_rendered`,
-`src/gen_spec_cmd.rs::run_cli`, `src/utils/rng.rs::Rng`, `src/specgen.rs::Bounds`,
-`src/specgen.rs::SpecGen`, `src/specgen.rs::MutOp`, `src/specgen.rs::mutate_traced`,
-`src/specgen.rs::mutate`, `src/codegen_mc.rs::EXACT_DEFAULT_MAX_STATES`,
+`src/gen_spec_cmd.rs::run_cli`, `src/utils/rng.rs::Rng`, `src/lang/specgen.rs::Bounds`,
+`src/lang/specgen.rs::SpecGen`, `src/lang/specgen.rs::MutOp`, `src/lang/specgen.rs::mutate_traced`,
+`src/lang/specgen.rs::mutate`, `src/codegen_mc.rs::EXACT_DEFAULT_MAX_STATES`,
 `src/codegen_mc.rs::EXACT_DEFAULT_TIMEOUT_SEC`, `tests/toolchain_fuzz_test.rs`
 
 

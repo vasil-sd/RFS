@@ -2025,3 +2025,22 @@ PHASE 8 IS NOW COMPLETE.
 
 - `SRC_STRUCTURE.md` (change - actualized per above)
 - `TASKS.md` (this entry)
+
+## 2026-11-06 21:35 — Phase 11 task 12 (complete): TEST_STRUCTURE.md actualized - three suite renames + all stale source-path references rewritten, proposal section converted, fresh string-masked grep audit EXACT (942 fns / 34 types, zero per-file diffs)
+
+### Interpretation & plan
+
+- Requested: execute Phase 11 task 12 per `docs/roadmap/phase_11/tasks/PHASE_11_TASK_12.md` - actualize TEST_STRUCTURE.md: rewrite identifiers for the three suite renames (task 9), convert "## Proposed layout" into the actual layout, and prove exactness with a fresh string-masked grep audit over the test-side scope.
+- Scope finding at start: the document carried not just the three old suite names (25 hits) but also 1794 stale pre-refactor source-path references - inline-test row identifiers (`src/<old>.rs::tests::<fn>` for the 26 host files, now at their post-move paths) and Depends cells naming non-test source identifiers. The audit's zero-per-file-diff criterion forces those rewrites too (a row keyed `src/parser.rs::tests::...` cannot match the tree's `src/lang/parser.rs`), so the full task-11 mapping was applied here as well, plus the same two special cases (LCG Depends refs -> utils/rng.rs, ident-fn Depends refs -> codegen/ident.rs).
+
+### Report
+
+- Test-side audit method: reused task 11's validated character-level masker + structural extractor with test-side scope - whole-file extraction for tests/**, crates/*/tests/** and fuzz/fuzz_targets/** (plus the four `fuzz_target!` macro-entry rows per correction 30c), and cfg(test)-module-only extraction for host files with the `tests::` identifier segment. Two test-side conventions surfaced during pre-check validation and were encoded: plain inline mods in test files contribute their name as an identifier segment (`nom_smoke::ident_start`, `async_tests::...` - the extractor's mod-scope prefixing, a no-op for src/ host files which have none), and the test side never used the Type(Trait) marked form (MockFsm's ProtocolFsm impl rows are plain `MockFsm::new`/`step`; marked set empty). Pre-check against the unedited document came back CLEAN pairwise (old-doc-key vs new-tree-path by bare name for all 45 mapped paths, exact match everywhere else) - 942 fns / 34 types, confirming both the extractor and the mapping before any edit.
+- Scripted rewrite (order: LCG idents on old paths -> ident.rs extraction -> 42-path mapping -> three test renames): 10 LCG Depends references re-pointed to src/utils/rng.rs::Rng*, 2 ident-function references to src/codegen/ident.rs::, 1782 generic path replacements (inline-test row identifiers + Depends cells + Components-table descriptions), 33 test-rename replacements.
+- Section conversions: header preamble rewritten from proposal voice ("analysis and proposal only; no test source is moved or renamed here") to actual state; "## Proposed layout" -> "## Layout"; the layout mermaid already drew the three new names by design - verified against the actual tree, no diagram change needed, only the trailing note converted ("appear under their proposed names" -> "carry their post-rename names"); the file-mapping table's three renamed rows now show actual names with their "proposed rename: ..." annotations converted to name-rationale prose that carries no old-name string; three bare `integration_example_test` mentions in the Components table (no tests/ prefix, invisible to the path rewrite) fixed by hand.
+- Verification: fresh string-masked grep audit EXACT - 942 fns / 34 types, zero per-file diffs against the refactored test tree; grep for all three old suite names = ZERO hits; zero stale source-path hits (all 42 mapping entries' old sides); no "Proposed" heading or proposal voice remains; docs_md_test 5/5; dev_docs_test 9/9. SRC_STRUCTURE.md audit re-run EXACT after the shared extractor's mod-scope change (no-op there, as predicted). No source touched - documentation-only change.
+
+### Files
+
+- `TEST_STRUCTURE.md` (change - actualized per above)
+- `TASKS.md` (this entry)

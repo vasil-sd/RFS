@@ -79,3 +79,9 @@ run output under their new names.
 
 ## Non-goals
 - No test logic change; no other test file touched.
+
+## Task corrections
+
+| Correction | Description + rationale |
+|------------|-------------------------|
+| Doc re-sync pulled into this commit (the "source-only" assumption was wrong) | The task file deferred doc references to task 10 on the assumption that test renames are invisible to the gates - but dev_docs_test resolves backticked FILE references in docs/dev + docs/llm, and `docs/dev/DECISIONS.md:1350` carries `` `tests/examples_test.rs` `` (plus three file-path rows in TASK_MAP.md). The per-task green gate (correction 1a) therefore forced those four into this commit. Per the standing user direction (all live + root docs track every change), the remaining command-form (`--test <name>`) and bare suite-name mentions were updated in the same commit: BUILD.md x3, KB.md x2, START.md x4 (incl. its source-tree test list), docs/dev/{parser,validator}.md, docs/llm/{parser,validator,CHANGE_IMPACT}.md - 19 refs total. Task 10's sweep now only has to verify zero leftovers, not perform the primary re-sync (same shape as correction 1a's re-scoping). |

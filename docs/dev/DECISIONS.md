@@ -1347,7 +1347,7 @@ No language or algorithm changes in this phase, so `examples/valid/` (50) and
 **Why:** a docs-only phase has no new language surface to exercise; keeping
 the example corpus frozen means every other suite's pins stay valid without
 re-pinning.
-Table: [DESIGN.md](../../DESIGN.md) section 25, D-P7-11 - Code: `tests/examples_test.rs`.
+Table: [DESIGN.md](../../DESIGN.md) section 25, D-P7-11 - Code: `tests/example_corpus_test.rs`.
 
 ### D-P7-12. Training set: category-local additions (task 15)
 

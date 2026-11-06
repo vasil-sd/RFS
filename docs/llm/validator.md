@@ -38,6 +38,6 @@ never do.
 - prop/assume share one namespace (generated monitor struct names would collide - D-P3-4).
 - Error message shapes are pinned by tests (frontend_test semantic-shape pin + 24 unit tests in mod tests) - changing a message breaks pins.
 
-**Change impact (validation rules).** Add invalid examples FIRST (file-driven suite), then `src/lang/validator.rs` (+ its mod tests); verify with cargo test --lib validator, cargo test --test examples_test, cargo test --test frontend_test; keep the 13-file invalid corpus failing. Full table: llm:change-impact.
+**Change impact (validation rules).** Add invalid examples FIRST (file-driven suite), then `src/lang/validator.rs` (+ its mod tests); verify with cargo test --lib validator, cargo test --test example_corpus_test, cargo test --test frontend_test; keep the 13-file invalid corpus failing. Full table: llm:change-impact.
 
 **Deep dive.** dev:validator-overview + dev:validator-fatal-pass / dev:validator-typing / dev:validator-warnings in docs/dev/validator.md; algorithm levels: dev:algorithms-parser-validation; call graph: dev:deps-fn-validator.

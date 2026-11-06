@@ -1975,3 +1975,18 @@ PHASE 8 IS NOW COMPLETE.
 - Positive-control fixtures good_doc.md + good_llm_doc.md repointed (src/mc_plan.rs::boolean_over_atoms -> src/mc/plan.rs) - second occurrence of the task-3 fixture lesson.
 - Verification: cargo build warning-free; cargo test 535/535 exact baseline (ref-MC sweep/differential/diag + toolchain-fuzz ground truth green); dev_docs_test 9/9; docs_md_test 5/5; fmt clean; full move set verified - every plan-mapping path exists at its new location and src/ root = {lib.rs, main.rs, training.rs} exactly.
 - `PHASE_11_TASK_8_STATUS.md` written per FORMATTING.md §6.2; four task corrections recorded. Committed as one commit.
+
+## 2026-11-06 17:05 — Phase 11 task 9 (complete): three test-suite renames per TEST_STRUCTURE.md - parser_comparison_test / example_corpus_test / endpoint_protocol_test; doc re-sync pulled in-commit (gate-forced)
+
+### Interpretation & plan
+
+- Requested: execute Phase 11 task 9 per `docs/roadmap/phase_11/tasks/PHASE_11_TASK_9.md` - rename tests/library_comparison.rs -> parser_comparison_test.rs, tests/examples_test.rs -> example_corpus_test.rs, tests/integration_example_test.rs -> endpoint_protocol_test.rs; no content edits, no Cargo/manifest changes (auto-discovery).
+- The task file assumed docs could wait for task 10 ("source-only") - re-checked against the gates before executing.
+
+### Report
+
+- Renames: git mv x3, all byte-identical; old names gone from tests/. Verified pre-move: none of the three files is manifest-listed, none carries a //! Docs: line, and no .rs file references the old suite names - so zero code edits were needed.
+- Gate-forced doc fix (correction): dev_docs_test resolves backticked test-file paths in docs/dev + docs/llm - DECISIONS.md's `tests/examples_test.rs` ref (D-P7-11 row) + three TASK_MAP Test-suites rows broke the per-task green gate on first run; repointed in-commit. Per the standing user direction the remaining command-form (--test <name>) + bare suite-name mentions were updated too: BUILD.md x3, KB.md x2, START.md x4 (incl. its source-tree test list), docs/dev/{parser,validator}.md, docs/llm/{parser,validator,CHANGE_IMPACT}.md - 19 refs total, zero old names left in any live/root doc (grep-verified).
+- Task 10's sweep is now verification-only for these names (same shape as correction 1a's re-scoping).
+- Verification: cargo build OK; cargo test 535/535 exact baseline with all three renamed binaries visible in the run output under their new names (auto-discovery proof); dev_docs_test 9/9.
+- `PHASE_11_TASK_9_STATUS.md` written per FORMATTING.md §6.2; one task correction recorded. Committed as one commit.

@@ -336,7 +336,7 @@ Developer checklist for changing the RFS v0 language (see also [START.md](../../
    `keyword_list_matches_parser_sites` pins the list against parser call
    sites, and the IDE grammar sanity test asserts coverage.
 5. Verify: `cargo test --lib` (parser unit tests),
-   `cargo test --test examples_test`, `cargo test --test info_format_test`,
+   `cargo test --test example_corpus_test`, `cargo test --test info_format_test`,
    then the full [BUILD.md](../../BUILD.md) section 5 checklist.
 6. If the change is language-visible, add training snippets per [KB.md](../../KB.md)
    section 4.6 and regenerate (`cargo extract-training-snippets` +

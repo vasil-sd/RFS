@@ -56,9 +56,9 @@ SMT output compiles per section 5.3.
 | rfs-build only (build.rs helper) | `cargo test -p rfs-build` | 10 pass; the rust e2e compiles the generated artifact with `rustc --edition 2021 --crate-type lib` |
 | rfs-adapters only | `cargo test -p rfs-adapters [--all-features]` | 9 pass default (std) / 12 with `--all-features` (adds the 3 futures-stream tests) |
 | Parser unit tests only | `cargo test --lib` | part of the 245 lib tests |
-| Example suite (file-driven: drop `.rfs` into `examples/valid\|invalid`, no test-code change) | `cargo test --test examples_test` | 3 pass; all 50 valid parse+validate+round-trip, all 13 invalid are rejected (parse or validation) |
+| Example suite (file-driven: drop `.rfs` into `examples/valid\|invalid`, no test-code change) | `cargo test --test example_corpus_test` | 3 pass; all 50 valid parse+validate+round-trip, all 13 invalid are rejected (parse or validation) |
 | Example project verification (Phase 5 task 12) | `cargo test --test example_projects_test` | 3 pass; c_sync_handler gcc -Wall clean + C/Rust scenario parity with pinned values, fuzz_rust skeleton `cargo check` in the detached workspace, fuzz_c generation without clang (build gated on clang availability) |
-| Parser-library comparison (nom vs chumsky smoke) | `cargo test --test library_comparison` | 4 pass |
+| Parser-library comparison (nom vs chumsky smoke) | `cargo test --test parser_comparison_test` | 4 pass |
 | Training-set structure/snippets/aggregation/freshness | `cargo test-training` (= `cargo test training`) | 5 pass (see command table note) |
 | Generated-code aggregate unit tests (separate crate under `target/rfs_codegen_tests`) | `cargo test-generated-code` | **1683 pass** (192 modules - +3 for the Phase 6 task 6 benchmark specs 47/48/49, +3 for the Phase 6 task 8 new valid training snippets; since Phase 5 task 5 each module also carries the extended plan classes - per-transition, invariant, monitor-violating-trace and random-trace tests - so the count grows with spec coverage; includes valid training snippets, so it moves when snippet sets change) |
 | Benchmark MC suite (Phase 4 task 9, extended by Phase 6 task 6: specs 43/44/45/47/48/49 x both backends in exact mode, inline FAIL variants incl. the `--assumes none` relaxation case, JSON report + in-process parse/codegen timing; task 10B's `--threads` parity gate covers all eight workloads) | `cargo test --test benchmark_mc_test` | 5 pass; all six benchmarks pass-complete in BOTH backends with metrics identical to the pins (94/188/22, 26113/104452/268, 8082/72738/22, 434/21857/7, 104/340/15, 240/448/41); FAIL variants pinned (safety `holder_no_request` step 1 ce_steps 1; liveness `up2_served` cycle length 2 ce_steps 2; safety `rst_goes_closed` step 2 ce_steps 2; assumption relaxation `completes_after_setup` step 16 ce_steps 16; safety `passive_band` step 6 ce_steps 6); `--threads 1/2/4` byte-identical to each other and across backends on all eight workloads; `target/mc_benchmarks.json` written (peak_rss_kb + codegen_timing sections) + two per-backend tables printed (wall-clock/timings/RSS informational, RSS bound < 1 GB only - see section 7) |
@@ -146,7 +146,7 @@ cargo build && cargo test && cargo clippy --all-targets && cargo fmt --check
 
 Additional checks depending on what changed:
 
-- Touched parser/validator/examples -> `cargo test --test examples_test`.
+- Touched parser/validator/examples -> `cargo test --test example_corpus_test`.
 - Touched codegen or backends -> `cargo test-generated-code` (regenerate the aggregate
   crate first if you changed generation output).
 - Touched training sets -> `cargo extract-training-snippets && cargo build-training && cargo test-training`.

@@ -88,7 +88,7 @@ Shared infrastructure: external tools `src/cli/ext_tool.rs::ExtTool` / `resolve`
 
 | Suite | Pins | Related fragments |
 |---|---|---|
-| tests/examples_test.rs | file-driven valid/invalid example suite (adding examples needs no test-code change) | dev:parser-overview, dev:validator-overview |
+| tests/example_corpus_test.rs | file-driven valid/invalid example suite (adding examples needs no test-code change) | dev:parser-overview, dev:validator-overview |
 | tests/frontend_test.rs | parse/validate/diagram/test-script byte pins + .err side files | dev:cli-commands-frontend / -diagram / -test |
 | tests/info_format_test.rs | D-P7-9 sync walk: real tool output vs the embedded format models | dev:cli-commands-info |
 | tests/codegen_test.rs | per-command generation (all backends x commands) | dev:codegen-plugin-api |
@@ -106,12 +106,12 @@ Shared infrastructure: external tools `src/cli/ext_tool.rs::ExtTool` / `resolve`
 | tests/wide_ops_parity_test.rs | wide-ops cross-backend pins | dev:backend-rust-overview, dev:backend-c-overview |
 | tests/diagram_render_parity_test.rs | internal vs external renderer syntax parity | dev:cli-commands-diagram |
 | tests/example_projects_test.rs | workspace examples + C projects (wall-clean gcc, scenario parity, fuzz layouts) | dev:workspace-crates-examples |
-| tests/integration_example_test.rs | Phase 2 exit criterion: realistic endpoint protocol -> production Rust + mpsc driver | dev:backend-rust-fsm |
+| tests/endpoint_protocol_test.rs | Phase 2 exit criterion: realistic endpoint protocol -> production Rust + mpsc driver | dev:backend-rust-fsm |
 | tests/toolchain_fuzz_test.rs | slow fuzz layer (seeded compile-and-run vs ref_mc) | dev:toolchain-fuzz-targets |
 | tests/training_test.rs | training tree: JSONL validity, snippet classification, aggregate sum | dev:toolchain-fuzz-training |
 | tests/dev_docs_test.rs | the doc sync gate (this tracker; manifest-driven) | dev:index |
 | tests/docs_md_test.rs | mdr-stack doc-quality gate over docs/user/ | dev:index |
-| tests/library_comparison.rs | parser-library comparison (nom vs chumsky smoke) - records the decision | dev:parser-overview |
+| tests/parser_comparison_test.rs | parser-library comparison (nom vs chumsky smoke) - records the decision | dev:parser-overview |
 
 ## Coverage (all 87 manifest files)
 

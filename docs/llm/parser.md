@@ -44,7 +44,7 @@ parsing. Two files: `src/lang/parser.rs` (grammar + entry points) and
 **Change impact (grammar/language).** Add valid+invalid examples FIRST, then:
 `src/lang/parser.rs` (+ unit tests in its mod tests),
 `src/cli/info_format/ebnf_grammar.rs::GRAMMAR_RULES`, DESIGN.md section 6 fence; verify with
-cargo test --lib parser, cargo test --test examples_test,
+cargo test --lib parser, cargo test --test example_corpus_test,
 cargo test --test info_format_test. Full table: llm:change-impact.
 
 **Deep dive.** dev:parser-overview + dev:parser-entry-error /

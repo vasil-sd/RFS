@@ -202,9 +202,9 @@ crates/rfs-build/    build.rs helper crate (RFS_BIN resolution, rerun directives
 crates/rfs-adapters/ ProtocolFsm trait + 4 generic adapters (channel/async/callback/minimal)
 crates/examples/     sync_handler, async_handler, fuzz_rust (cargo members) + c_sync_handler, fuzz_c (Makefile-driven)
 ide/                 TextMate grammar + snippets for .rfs (VS Code/Sublime install notes)
-tests/               examples_test, frontend_test, codegen_test, backend_parity_test, benchmark_mc_test,
-                   liveness_mc_test, monitor_integration_test, example_projects_test, integration_example_test,
-                   library_comparison, training_test + Phase 6: ref_mc_sweep/ref_mc_diag/ref_mc_diff,
+tests/               example_corpus_test, frontend_test, codegen_test, backend_parity_test, benchmark_mc_test,
+                   liveness_mc_test, monitor_integration_test, example_projects_test, endpoint_protocol_test,
+                   parser_comparison_test, training_test + Phase 6: ref_mc_sweep/ref_mc_diag/ref_mc_diff,
                    prod_parity, monitor_ref, psl_translation, toolchain_fuzz, wide_ops_parity, docs_md
                    + Phase 7: diagram_render_parity (cross-renderer syntax), info_format (10-format sync suite)
 fuzz/                root-level DETACHED cargo-fuzz workspace (Phase 6 task 5): parser/validator/ir_roundtrip/
@@ -265,7 +265,7 @@ then `sed -n '<start>,<end>p'`. Sections:
 
 | Task type | Read (on demand) | Do | Verify |
 |---|---|---|---|
-| Add a valid/invalid example | `BUILD.md` section 3 (suite expectations) | Drop `.rfs` into `examples/valid|invalid` - no test-code change | `cargo test --test examples_test` |
+| Add a valid/invalid example | `BUILD.md` section 3 (suite expectations) | Drop `.rfs` into `examples/valid|invalid` - no test-code change | `cargo test --test example_corpus_test` |
 | Change RFS syntax/grammar | `DESIGN.md` sections 5-6 (the language surface + grammar - KB.md section 3 is a pointer stub to them) + `KB.md` section 6.5 (parser findings); add examples FIRST | Update parser/validator | Full checklist (`BUILD.md` section 5) + update DESIGN/KB |
 | Change the IR | `DESIGN.md` section 7 + `to_json`/`from_json` in `src/lang/ir.rs` (hand-rolled, D-P5-2) | Decide backward compat; bump `IR_VERSION` if needed | JSON round-trip tests + full checklist |
 | Add a codegen backend language | `CODEGEN.md` fully + `src/codegen/backends/RUST.md` / `src/codegen/backends/C.md` as references | Implement 3 command fns in `src/codegen/backends/<lang>/*.rs`, register static in `BACKENDS` | per-command generation tests (see CODEGEN section 8) |

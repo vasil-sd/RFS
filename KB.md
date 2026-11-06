@@ -514,8 +514,8 @@ This section records practical lessons for future LLM-assisted work in this repo
 - After large rewrites, immediately run:
   - `cargo build`
   - `cargo test --lib`
-  - `cargo test --test examples_test`
-  - `cargo test --test library_comparison`
+  - `cargo test --test example_corpus_test`
+  - `cargo test --test parser_comparison_test`
 - If an integration example test fails, it stops at the first failing file. For broad feedback, use:
   ```sh
   cargo run -- validate --input rfs examples/valid

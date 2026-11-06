@@ -31,10 +31,10 @@ pub mod printer;
 pub mod ref_mc;
 pub mod smt_emit;
 pub mod smt_plan;
-pub mod spec_hash;
 pub mod specgen;
 pub mod test_cmd;
 pub mod training;
+pub mod utils;
 pub mod validator;
 
 pub use error::{ParseError, Span};

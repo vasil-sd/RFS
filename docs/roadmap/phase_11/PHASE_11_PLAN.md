@@ -130,6 +130,7 @@
 
 | # | Task | Correction type | Description + rationale |
 |---|------|-----------------|--------------------------|
+| 1a | Task 10 scope (manifest + doc refs are per-task, not end-batch) | change | The per-task green gate forces incremental docs<->source re-sync: task 1's git mv broke dev_docs_test immediately (36 problems - the manifest path, 24 spec_hash doc refs, 7 Lcg refs, 2 specgen-Rng refs), plus the two NEW utils files needed manifest entries + //! Docs: pointer lines + TASK_MAP coverage + a new CODE_MAP fragment (dev:code-map-utils). Every move task therefore updates the manifest + affected doc references in its own commit (dev_docs_test's output is the update list, as the Context already said); task 10 is re-scoped as the FINAL verification sweep (fresh grep for all old paths under docs/ + manifest check), not the primary re-sync mechanism. |
 
 ## Other information
 

@@ -15,7 +15,7 @@ make up this area:
 | `src/ir.rs` | 1432 | IR types + hand-written per-type JSON (de)serialization (`IrJson`) |
 | `src/json_rw.rs` | 961 (24 unit tests) | the ONLY JSON implementation in the toolchain: value model, writer, strict reader |
 | `src/json_schema.rs` | 767 (5 unit tests) | draft-07 schema emitter + markdown renderer + sync walker for the JSON format entries |
-| `src/spec_hash.rs` | 158 (2 unit tests) | hand-rolled SHA-256; the spec hash stamped into every generated artifact header |
+| `src/utils/hash.rs` | 158 (2 unit tests) | hand-rolled SHA-256; the spec hash stamped into every generated artifact header |
 
 Position in the pipeline, both directions:
 
@@ -49,7 +49,7 @@ Where to go next:
 
 Code: `src/ir.rs::Ir`, `src/ir.rs::IR_VERSION`, `src/json_rw.rs::Json`,
 `src/json_rw.rs::parse`, `src/json_schema.rs::SchemaDoc`,
-`src/spec_hash.rs::spec_hash16`, `src/frontend.rs::convert_file_to_ir`,
+`src/utils/hash.rs::spec_hash16`, `src/frontend.rs::convert_file_to_ir`,
 `src/codegen.rs::run`
 
 <a id="dev:ir-model"></a>
@@ -328,15 +328,15 @@ Code: `src/json_schema.rs::SchemaDoc`, `src/json_schema.rs::FieldType`,
 <a id="dev:spec-hash"></a>
 ## Spec hash
 
-`src/spec_hash.rs` implements SHA-256 (FIPS 180-4) by hand - no dependencies,
+`src/utils/hash.rs` implements SHA-256 (FIPS 180-4) by hand - no dependencies,
 consistent with the dependency-light stance of D-P5-2. The implementation is
-the standard one: the 64 round constants `src/spec_hash.rs::K`, message
+the standard one: the 64 round constants `src/utils/hash.rs::K`, message
 padding (append 0x80, zeros until the length is 56 mod 64, then the 64-bit
 big-endian bit length), the FIPS initial hash values, the 64-word message
-schedule, and the 64-round compression (`src/spec_hash.rs::sha256`).
+schedule, and the 64-round compression (`src/utils/hash.rs::sha256`).
 
-- `src/spec_hash.rs::sha256_hex` - full 64-character lowercase hex digest.
-- `src/spec_hash.rs::spec_hash16` (D-P6-3) - the first 16 hex chars, computed
+- `src/utils/hash.rs::sha256_hex` - full 64-character lowercase hex digest.
+- `src/utils/hash.rs::spec_hash16` (D-P6-3) - the first 16 hex chars, computed
   over the CANONICAL IR JSON text of the WHOLE input file (the
   `src/ir.rs::to_json` rendering - deterministic key order and formatting per
   D-P5-2). Stable across runs and platforms; any change to the spec changes
@@ -356,8 +356,8 @@ code by regeneration + diff.
 block message), plus spec_hash16_is_prefix_and_stable: 16 lowercase hex
 chars, a prefix of sha256_hex, deterministic, and sensitive to content.
 
-Code: `src/spec_hash.rs::sha256_hex`, `src/spec_hash.rs::spec_hash16`,
-`src/spec_hash.rs::sha256`, `src/codegen.rs::run`
+Code: `src/utils/hash.rs::sha256_hex`, `src/utils/hash.rs::spec_hash16`,
+`src/utils/hash.rs::sha256`, `src/codegen.rs::run`
 
 ## Changing the wire format
 

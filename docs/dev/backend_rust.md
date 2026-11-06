@@ -539,7 +539,7 @@ prefixed value forms identical to text.
 **Fuzz runtime (FUZZ_RUNTIME).** The legacy Phase 3 engine behind --mode
 fuzz: an embedded LCG Rng (state = state * 6364136223846793005 +
 1442695040888963407 wrapping; top-53-bit double mapping - the SAME constants
-as `src/codegen_test.rs::Lcg`), ViolationSpec parsing (the label:prob:percent%
+as `src/utils/rng.rs::Rng`), ViolationSpec parsing (the label:prob:percent%
 wire format, defaults 1.0/100.0), parse_assume_selection (all / none / labels
 filtered against ASSUME_LABELS), print_trace + vars_at via the renderers, and
 run_fuzz with runtime flags --bound 5 / --runs 20 / --seed 12345 / --assumes /

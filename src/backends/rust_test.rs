@@ -931,7 +931,7 @@ pub fn generate_aggregate_test_crate(
             .map_err(|e| vec![format!("{}: {}", file.display(), e)])?
             .to_string();
         let mut file_options = options.clone();
-        file_options.spec_hash = crate::spec_hash::spec_hash16(&json_text);
+        file_options.spec_hash = crate::utils::hash::spec_hash16(&json_text);
         let file_stem = file.file_name().and_then(|s| s.to_str()).unwrap_or("file");
         for module in &ir.modules {
             let result = crate::backends::rust_fsm::generate_core(

@@ -273,7 +273,7 @@ Other shapes (temporal bodies, `input_is`/`output_has` atoms) are skipped with
 a note - they are covered by the MC suites.
 
 **Random trace + fuzz decode.** The random-trace test drives a deterministic
-LCG input sequence: `src/codegen_test.rs::Lcg` uses the SAME constants and
+LCG input sequence: `src/utils/rng.rs::Rng` uses the SAME constants and
 top-53-bit double mapping as the generated fuzz runtimes (multiplier
 6364136223846793005, increment 1442695040888963407, wrapping), with the fixed
 seed `src/codegen_test.rs::RANDOM_TRACE_SEED` (12345); the index sequence is
@@ -302,7 +302,7 @@ Code: `src/codegen_test.rs::build_test_plan`,
 `src/codegen_test.rs::not_taken_observable`,
 `src/codegen_test.rs::select_invariants`,
 `src/codegen_test.rs::plan_monitor_violations`,
-`src/codegen_test.rs::Lcg`, `src/codegen_test.rs::RANDOM_TRACE_SEED`,
+`src/utils/rng.rs::Rng`, `src/codegen_test.rs::RANDOM_TRACE_SEED`,
 `src/codegen_test.rs::MAX_STATIC_ASSIGNMENTS`
 
 <a id="dev:codegen-mc-concepts"></a>

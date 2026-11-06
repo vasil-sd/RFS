@@ -77,7 +77,11 @@ pub fn generate_model_checker(
     let mut out = fsm.code;
     let (exact, liv_warnings) = exact_codegen(module, &plan, options).map_err(|e| vec![e])?;
     out.push_str(&exact);
-    out.push_str(FUZZ_RUNTIME);
+    // The __LCG_*__ placeholders are filled from the shared pub consts so the
+    // emitted runtime stays in one RNG family with utils::rng by construction.
+    out.push_str(&FUZZ_RUNTIME
+        .replace("__LCG_MULT__", &crate::utils::rng::LCG_MULT.to_string())
+        .replace("__LCG_ADD__", &crate::utils::rng::LCG_ADD.to_string()));
     out.push_str(MAIN_DISPATCH);
     Ok(CodegenOutput {
         code: out,
@@ -1573,7 +1577,7 @@ struct Rng(u64);
 impl Rng {
     fn new(seed: u64) -> Self { Self(seed) }
     fn next_f64(&mut self) -> f64 {
-        self.0 = self.0.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+        self.0 = self.0.wrapping_mul(__LCG_MULT__).wrapping_add(__LCG_ADD__);
         ((self.0 >> 11) as f64) / ((u64::MAX >> 11) as f64)
     }
     fn chance(&mut self, p: f64) -> bool { self.next_f64() < p.clamp(0.0, 1.0) }

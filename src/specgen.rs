@@ -15,60 +15,8 @@ use crate::ir::{
     FieldDecl, Formula, Ir, Module, OnError, OutputExpr, OutputPattern, PatternExpr, PatternField,
     PatternVariant, Property, Transition, Type, UnaryOp, VarDecl, IR_VERSION,
 };
+use crate::utils::rng::Rng;
 use crate::validator;
-
-// ---------------------------------------------------------------------------
-// RNG (shared LCG lineage)
-// ---------------------------------------------------------------------------
-
-/// The project's seeded RNG: `state = state * 6364136223846793005 +
-/// 1442695040888963407` (wrapping) - the same LCG family and top-53-bit double
-/// mapping as `codegen_test::Lcg` / the generated fuzz runtimes.
-#[derive(Debug, Clone)]
-pub struct Rng(u64);
-
-impl Rng {
-    pub fn new(seed: u64) -> Self {
-        Self(seed)
-    }
-
-    fn step(&mut self) -> u64 {
-        self.0 = self
-            .0
-            .wrapping_mul(6364136223846793005)
-            .wrapping_add(1442695040888963407);
-        self.0
-    }
-
-    pub fn next_u64(&mut self) -> u64 {
-        self.step()
-    }
-
-    /// Same top-53-bit double mapping as the fuzz wire format.
-    pub fn next_f64(&mut self) -> f64 {
-        ((self.step() >> 11) as f64) / ((u64::MAX >> 11) as f64)
-    }
-
-    /// Uniform integer in `[lo, hi)` (panics on an empty range).
-    pub fn range(&mut self, lo: usize, hi: usize) -> usize {
-        assert!(hi > lo, "empty range");
-        lo + (self.next_u64() % (hi - lo) as u64) as usize
-    }
-
-    /// A random element (`None` for an empty slice).
-    pub fn pick<'a, T>(&mut self, items: &'a [T]) -> Option<&'a T> {
-        if items.is_empty() {
-            None
-        } else {
-            Some(&items[self.range(0, items.len())])
-        }
-    }
-
-    /// True with probability `p`.
-    pub fn chance(&mut self, p: f64) -> bool {
-        self.next_f64() < p
-    }
-}
 
 // ---------------------------------------------------------------------------
 // Bounds

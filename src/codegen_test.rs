@@ -33,6 +33,7 @@
 use crate::codegen_fsm::FsmVariants;
 use crate::ir::*;
 use crate::monitor::{self, SignalAtom, SignalExpr};
+use crate::utils::rng::Rng;
 use crate::validator::{self, Env, ExprType};
 use std::collections::HashMap;
 
@@ -939,42 +940,10 @@ fn plan_monitor_violations(
     out
 }
 
-// ---------------------------------------------------------------------------
-// Random trace (deterministic LCG, same constants as the fuzz wire format)
-// ---------------------------------------------------------------------------
-
-/// The shared LCG: `state = state * 6364136223846793005 + 1442695040888963407`
-/// (wrapping), with the top-53-bit double mapping used by the generated fuzz
-/// runtimes (`Rng::next_f64` in both backends).
-#[derive(Debug, Clone)]
-pub struct Lcg(u64);
-
-impl Lcg {
-    pub fn new(seed: u64) -> Self {
-        Self(seed)
-    }
-    /// Same top-53-bit double mapping as the fuzz wire format.
-    pub fn next_f64(&mut self) -> f64 {
-        self.0 = self
-            .0
-            .wrapping_mul(6364136223846793005)
-            .wrapping_add(1442695040888963407);
-        ((self.0 >> 11) as f64) / ((u64::MAX >> 11) as f64)
-    }
-    /// Same index selection as the fuzz wire format (`Rng::pick_index`).
-    pub fn pick_index(&mut self, len: usize) -> Option<usize> {
-        if len == 0 {
-            None
-        } else {
-            Some((self.next_f64() * len as f64) as usize % len)
-        }
-    }
-}
-
 /// Build the deterministic random-trace case: fixed seed + K steps, with the
 /// input sequence precomputed at plan time (byte-pinned by unit tests).
 fn build_random_trace(variants: &FsmVariants, _module: &Module, steps: usize) -> RandomTraceCase {
-    let mut rng = Lcg::new(RANDOM_TRACE_SEED);
+    let mut rng = Rng::new(RANDOM_TRACE_SEED);
     let input_indices = (0..steps)
         .filter_map(|_| rng.pick_index(variants.inputs.len()))
         .collect();
@@ -1556,17 +1525,17 @@ mod tests {
     #[test]
     fn lcg_pinned_sequences_match_fuzz_wire_format() {
         // Two input variants (e.g. example 43: Tick, Ack(Seq)): seed 12345, K=8.
-        let mut rng = Lcg::new(RANDOM_TRACE_SEED);
+        let mut rng = Rng::new(RANDOM_TRACE_SEED);
         let seq: Vec<usize> = (0..8).map(|_| rng.pick_index(2).unwrap()).collect();
         assert_eq!(seq, vec![0, 0, 1, 1, 0, 1, 1, 0]);
 
         // Five input variants: seed 12345, K=10.
-        let mut rng = Lcg::new(RANDOM_TRACE_SEED);
+        let mut rng = Rng::new(RANDOM_TRACE_SEED);
         let seq: Vec<usize> = (0..10).map(|_| rng.pick_index(5).unwrap()).collect();
         assert_eq!(seq, vec![0, 1, 4, 4, 1, 2, 3, 1, 4, 0]);
 
         // Empty input set: no sequence.
-        let mut rng = Lcg::new(RANDOM_TRACE_SEED);
+        let mut rng = Rng::new(RANDOM_TRACE_SEED);
         assert!(rng.pick_index(0).is_none());
     }
 

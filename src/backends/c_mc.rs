@@ -2351,9 +2351,9 @@ static rfs_policy_t stop_handler(void* user_data, const char* label) {{ (void)us
 static rfs_policy_t cont_handler(void* user_data, const char* label) {{ (void)user_data; (void)label; return RFS_CONTINUE; }}
 
 static uint64_t MC_SEED;
-// Same LCG as the Rust model checker: 6364136223846793005 / 1442695040888963407.
+// Same LCG as the Rust model checker (constants interpolated from utils::rng).
 static double mc_next_f64(void) {{
-    MC_SEED = MC_SEED * 6364136223846793005ULL + 1442695040888963407ULL;
+    MC_SEED = MC_SEED * {lcg_mult}ULL + {lcg_add}ULL;
     return (double)(MC_SEED >> 11) / (double)(((uint64_t)-1) >> 11);
 }}
 static int mc_chance(double p) {{ double lo = p < 0.0 ? 0.0 : (p > 1.0 ? 1.0 : p); return mc_next_f64() < lo; }}
@@ -2510,7 +2510,9 @@ static int run_fuzz(int argc, char** argv) {{
 }}
 "#,
         n_all = n_all,
-        cand_list = cand_list
+        cand_list = cand_list,
+        lcg_mult = crate::utils::rng::LCG_MULT,
+        lcg_add = crate::utils::rng::LCG_ADD
     )
 }
 

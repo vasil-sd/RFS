@@ -73,8 +73,10 @@ src/printer.rs
 src/ref_mc.rs
 src/smt_emit.rs
 src/smt_plan.rs
-src/spec_hash.rs
+src/utils/hash.rs
 src/specgen.rs
 src/test_cmd.rs
 src/training.rs
+src/utils/mod.rs
+src/utils/rng.rs
 src/validator.rs

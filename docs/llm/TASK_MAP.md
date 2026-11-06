@@ -42,7 +42,8 @@ Shared infrastructure: external tools `src/ext_tool.rs::ExtTool` / `resolve`
 | JSON Schema emitter | dev:json-schema | `src/json_schema.rs` (draft-07 emitter + markdown renderer + sync walker, used by rfs info format) |
 | Printing IR -> source | dev:code-map-frontend (file entry) | `src/printer.rs::print_ir` (unparser; round-trip pinned in tests) |
 | Spans / parse errors | dev:code-map-frontend (file entry) | `src/error.rs::ParseError`, `Span` |
-| Spec hash | dev:spec-hash | `src/spec_hash.rs` (hand-rolled SHA-256; generated artifact headers) |
+| Spec hash | dev:spec-hash | `src/utils/hash.rs` (hand-rolled SHA-256; generated artifact headers) |
+| Shared LCG generator | dev:code-map-utils, dev:codegen-test-plan | `src/utils/rng.rs::Rng` (single RNG family: specgen + test planning + both generated runtimes) |
 
 ### Codegen (registry + shared plans + backends)
 
@@ -131,7 +132,8 @@ above.
 - `src/ir.rs` - IR types + hand-written JSON (de)serialization (pinned wire format)
 - `src/json_rw.rs` - hand-rolled JSON reader/writer (only JSON impl in the toolchain)
 - `src/json_schema.rs` - draft-07 JSON-Schema emitter + markdown renderer + sync walker
-- `src/spec_hash.rs` - hand-rolled SHA-256; spec hash for generated artifact headers
+- `src/utils/mod.rs` - module root of the cross-cutting substrate (hash + rng)
+- `src/utils/rng.rs` - the project's single LCG generator (shared constants, top-53-bit mapping)
 - `src/codegen.rs` - codegen backend API + plugin registry (language-agnostic core)
 - `src/codegen_fsm.rs` - shared production-FSM codegen helpers (variants, rep values)
 - `src/codegen_mc.rs` - bounded model-checker concepts shared by all backends

@@ -15,7 +15,8 @@ use std::path::Path;
 use std::process::ExitCode;
 
 use crate::frontend::{self, Format};
-use crate::specgen::{self, Bounds, Rng, SpecGen};
+use crate::specgen::{self, Bounds, SpecGen};
+use crate::utils::rng::Rng;
 
 /// The pinned default seed (documented in the usage text): deterministic
 /// output for bare invocations.

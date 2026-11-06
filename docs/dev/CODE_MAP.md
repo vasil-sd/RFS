@@ -59,7 +59,7 @@ links both ways. The pointer scope is driven by `tests/dev_docs_manifest.txt`.
   `src/json_rw.rs::Json`, `src/json_rw.rs::parse`.
 - `src/json_schema.rs` - draft-07 JSON-Schema emitter + markdown renderer +
   sync walker for the IR wire format: `src/json_schema.rs::SchemaDoc`.
-- `src/spec_hash.rs` - hand-rolled SHA-256; `src/spec_hash.rs::spec_hash16`
+- `src/utils/hash.rs` - hand-rolled SHA-256; `src/utils/hash.rs::spec_hash16`
   stamps every generated artifact header.
 
 <a id="dev:code-map-codegen"></a>
@@ -189,6 +189,16 @@ links both ways. The pointer scope is driven by `tests/dev_docs_manifest.txt`.
   valid examples (via `rfs::codegen` + the Rust test backend).
 - `src/bin/test_generated_code.rs` - CLI entry: compile + run the generated
   code tests.
+
+<a id="dev:code-map-utils"></a>
+## Cross-cutting substrate (`src/utils/`) (2 files)
+
+- `src/utils/hash.rs` - hand-rolled SHA-256 + `spec_hash16`, the D-P6-3 stamp in
+  generated artifact headers; leaf primitive with no component of its own.
+- `src/utils/rng.rs` - the project's single LCG generator (`Rng` + the shared
+  `LCG_MULT` / `LCG_ADD` constants): specgen, test planning and both generated
+  fuzz runtimes stay in one RNG family by construction (algorithm documented in
+  the unit-test-planning fragment).
 
 <a id="dev:code-map-workspace"></a>
 ## Workspace crates + fuzz (23 files)

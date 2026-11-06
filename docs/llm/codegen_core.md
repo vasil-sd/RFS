@@ -28,7 +28,7 @@ critical constraint: one plan, rendered identically in Rust and C.
 | `src/codegen_test.rs::build_test_plan` | the static planner entry: TestPlan of cases/expectations/labels - DATA, never code |
 | `src/codegen_test.rs::expect_progress_from_initial` | EXACT positive-drive prediction (representative candidates + guard under initial vars); not a heuristic |
 | `src/codegen_test.rs::plan_transitions` | per-transition taken/not-taken cases; firing order = priority desc then source order, mirroring generated fsm_step; capped static search (4096) |
-| `src/codegen_test.rs::Lcg` / `RANDOM_TRACE_SEED` | deterministic random-trace sequence (same constants as the fuzz wire format; seed 12345), precomputed at plan time |
+| `src/utils/rng.rs::Rng` / `RANDOM_TRACE_SEED` | deterministic random-trace sequence (same constants as the fuzz wire format; seed 12345), precomputed at plan time |
 | `src/codegen_mc.rs::ExactStatus` / `exact_summary_line` | pass-complete/fail/unknown-state-limit taxonomy (exit 0/1/2) + the pinned summary-line format |
 | `src/codegen_mc.rs::McJsonReport` / `JsonCounterexample` | JSON report model; KEY ORDERING IS PART OF THE BYTE-PARITY CONTRACT (ce_steps last; peak_rss_kb informational, normalized to 0 in parity) |
 | `src/codegen_mc.rs::EXACT_DEFAULT_*` / `SMT_DEFAULT_BOUND` | codegen-time defaults embedded as runtime-overridable (timeout is wall-clock only, NOT parity-guaranteed) |

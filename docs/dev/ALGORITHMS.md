@@ -290,7 +290,7 @@ flowchart TD
 ```
 
 Code: `src/ir.rs::Ir`, `src/ir.rs::IR_VERSION`,
-`src/spec_hash.rs::spec_hash16`, `src/codegen.rs::Backend`,
+`src/utils/hash.rs::spec_hash16`, `src/codegen.rs::Backend`,
 `src/codegen.rs::BACKENDS`, `src/codegen.rs::CodegenCommandKind`
 
 ### L2 - Key data structures and invariants
@@ -357,7 +357,7 @@ line), and the counterexample report whose key ORDERING is part of the
 byte-parity contract.
 
 Code: `src/ir.rs::Module`, `src/json_rw.rs::Json`,
-`src/json_rw.rs::parse`, `src/spec_hash.rs::sha256_hex`,
+`src/json_rw.rs::parse`, `src/utils/hash.rs::sha256_hex`,
 `src/codegen.rs::BackendOptions`,
 `src/codegen_fsm.rs::build_variants`,
 `src/codegen_fsm.rs::representative_values`,
@@ -437,7 +437,7 @@ Code: `src/ir.rs::Module`, `src/json_rw.rs::Json`,
 
 Code: `src/ir.rs::to_json`, `src/ir.rs::from_json`,
 `src/json_rw.rs::MAX_DEPTH`, `src/codegen.rs::run`,
-`src/codegen_test.rs::Lcg`, `src/codegen_test.rs::RANDOM_TRACE_SEED`,
+`src/utils/rng.rs::Rng`, `src/codegen_test.rs::RANDOM_TRACE_SEED`,
 `src/codegen_mc.rs::exact_summary_line`,
 `src/codegen_mc.rs::CounterexampleFormat`
 

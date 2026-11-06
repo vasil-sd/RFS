@@ -409,7 +409,7 @@ impl CodegenCommandKind {
         // is the hash input - the whole file, all modules.
         let json_text = ir.to_json().map_err(|e| vec![e])?.to_string();
         let mut stamped = options.clone();
-        stamped.spec_hash = crate::spec_hash::spec_hash16(&json_text);
+        stamped.spec_hash = crate::utils::hash::spec_hash16(&json_text);
         self.run_module(backend, &ir.modules[0], &stamped)
     }
 

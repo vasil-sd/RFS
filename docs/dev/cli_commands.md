@@ -356,7 +356,7 @@ or incremental mutation (--base SPEC --mutations K; K=0 re-renders the base
 unchanged); --out FILE.rfs required; deterministic from the seed (same args =>
 byte-identical file).
 
-**specgen engine.** `src/specgen.rs::Rng`: an LCG with the SAME constants as
+**specgen engine.** `src/utils/rng.rs::Rng`: an LCG with the SAME constants as
 the fuzz wire format (6364136223846793005 / 1442695040888963407); next_f64 is
 the same top-53-bit double mapping as the fuzz wire format. `src/specgen.rs::Bounds`
 { max_states, max_events, max_outputs, max_vars, max_transitions, max_props }
@@ -379,7 +379,7 @@ Code: `src/mc_ref_cmd.rs::CeFormat`, `src/mc_ref_cmd.rs::McRefOptions`,
 `src/mc_ref_cmd.rs::run_cli`, `src/gen_spec_cmd.rs::DEFAULT_SEED`,
 `src/gen_spec_cmd.rs::RandomOptions`, `src/gen_spec_cmd.rs::generate_random`,
 `src/gen_spec_cmd.rs::mutate_base`, `src/gen_spec_cmd.rs::verify_rendered`,
-`src/gen_spec_cmd.rs::run_cli`, `src/specgen.rs::Rng`, `src/specgen.rs::Bounds`,
+`src/gen_spec_cmd.rs::run_cli`, `src/utils/rng.rs::Rng`, `src/specgen.rs::Bounds`,
 `src/specgen.rs::SpecGen`, `src/specgen.rs::MutOp`, `src/specgen.rs::mutate_traced`,
 `src/specgen.rs::mutate`, `src/codegen_mc.rs::EXACT_DEFAULT_MAX_STATES`,
 `src/codegen_mc.rs::EXACT_DEFAULT_TIMEOUT_SEC`, `tests/toolchain_fuzz_test.rs`

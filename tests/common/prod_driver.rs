@@ -156,7 +156,7 @@ pub fn input_script(module: &rfs::Module, seed: u64, steps: usize) -> String {
     if variants.is_empty() {
         return String::new();
     }
-    let mut rng = rfs::specgen::Rng::new(seed);
+    let mut rng = rfs::utils::rng::Rng::new(seed);
     let mut out = String::new();
     for _ in 0..steps {
         let v = rng.pick(&variants).expect("non-empty variant list");

@@ -1839,3 +1839,20 @@ PHASE 8 IS NOW COMPLETE.
 - `PHASE_10_STATUS.md` written per FORMATTING.md §4 (step r): no source added/changed/removed (docs-only phase), 34 plan corrections summarized, exit criteria all reached.
 - `CURRENT_STATE.md` row 10 -> COMPLETE (close-out 2026-11-05) (step s). Bookkeeping gap found and fixed: tasks 32 + 33 had been committed without their TASKS.md entries - both appended above with their commit hashes.
 - Verification of the close-out itself: git diff --stat over the phase shows only the two new inventory .md files, roadmap bookkeeping, and TASKS.md - no source file moved/renamed/split/joined/changed (exit criterion met).
+
+## 2026-11-05 21:40 — Phase 11 task 1: utils/ substrate created + LCG consolidation (spec_hash moved, single Rng, generated runtimes constant-locked)
+
+### Interpretation & plan
+
+- Requested: execute Phase 11 task 1 per `docs/roadmap/phase_11/tasks/PHASE_11_TASK_1.md` - create src/utils/ (hash.rs moved from spec_hash.rs + NEW rng.rs), delete specgen's Rng and codegen_test's Lcg in favor of the single consolidated generator, constant-lock the two generated-runtime templates, keep every later move a pure rename.
+- Plan: git mv + module-root creation; scripted use-path rewrites for spec_hash import sites; struct deletions + import additions; placeholder/format! interpolation for the emitted runtimes; cargo build && cargo test gate.
+
+### Report
+
+- `src/utils/` created: hash.rs (moved, byte-identical) + rng.rs (NEW - Rng with the union method set new/next_u64/next_f64/range/pick/chance/pick_index + pub const LCG_MULT/LCG_ADD). Naming the consolidated type Rng made specgen a zero-call-site-change edit; codegen_test paid 4 call-site renames.
+- spec_hash import sites rewritten (codegen.rs, rust_test.rs internal; info_format_test.rs, codegen_test.rs external) - all compile at crate::utils::hash / rfs::utils::hash.
+- Generated runtimes constant-locked: rust_mc.rs FUZZ_RUNTIME uses __LCG_MULT__/__LCG_ADD__ placeholders filled from the pub consts at its single call site; c_mc.rs's format! interpolates {lcg_mult}ULL/{lcg_add}ULL directly. Emitted bytes unchanged (determinism suites green).
+- GATE FORCED EXTRA WORK (plan correction 1a): dev_docs_test failed with 36 problems the moment spec_hash moved - manifest path update + 24 spec_hash doc refs + 7 Lcg refs + 2 specgen-Rng refs rewritten across docs/dev + docs/llm; the two NEW utils files additionally needed manifest entries, //! Docs: pointer lines, TASK_MAP coverage rows, and a new CODE_MAP fragment (dev:code-map-utils). Manifest/doc re-sync is therefore PER-TASK, not task-10-batched - correction 1a recorded in PHASE_11_PLAN.md.
+- Unexpected import site found by the compiler: gen_spec_cmd.rs imported Rng through specgen's re-export path - fixed with a direct utils::rng import. The fuzz workspace's ir_roundtrip.rs fully-qualified rfs::specgen::Rng::new was renamed in THIS commit (lockstep pulled forward from task 3, which only keeps the module-path lockstep).
+- `PHASE_11_TASK_1_STATUS.md` written per FORMATTING.md section 6.2.
+- Verification: cargo build OK; cargo test 535/535 (exactly the documented baseline - byte-identity proven); dev_docs_test 9/9 after the re-sync. Committed as one commit.

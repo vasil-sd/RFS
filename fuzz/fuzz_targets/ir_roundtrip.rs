@@ -31,7 +31,7 @@ fuzz_target!(|data: &[u8]| {
             buf[..n].copy_from_slice(&rest[..n]);
             buf
         });
-        let mut rng = rfs::specgen::Rng::new(seed.wrapping_add(0x9e37_79b9));
+        let mut rng = rfs::utils::rng::Rng::new(seed.wrapping_add(0x9e37_79b9));
         rfs::specgen::mutate(&spec.ir, &mut rng, k)
     };
     let t1 = ir

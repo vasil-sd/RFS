@@ -597,7 +597,7 @@ the `rfs codegen` CLI into a `CodegenRequest`, collecting ALL errors before
 failing (through the `finish` helper) and rejecting `--no-std` /
 `--with-protocol-fsm` on the wrong commands with the pinned error constants.
 `CodegenCommandKind::run` is the standard dispatch: it stamps the v1.0 spec
-hash (`src/spec_hash.rs::spec_hash16` over the canonical IR JSON of the whole
+hash (`src/utils/hash.rs::spec_hash16` over the canonical IR JSON of the whole
 file) into a cloned options set and delegates to `run_module`, which invokes
 the backend's function pointer for the command kind. `src/codegen.rs::common_help`
 and `src/codegen.rs::backend_help` render the help text from the registry
@@ -632,7 +632,7 @@ flowchart TD
 
 Isolated nodes: `get_backend` / `backend_help` / `CodegenCommandKind::info`
 are leaves (registry reads only). `run` additionally calls
-`src/spec_hash.rs::spec_hash16` and `Ir::to_json` (external); `run_module`
+`src/utils/hash.rs::spec_hash16` and `Ir::to_json` (external); `run_module`
 dispatches through the backend's function pointers, so the per-language edges
 appear in the backend graphs below.
 
@@ -859,7 +859,7 @@ plan class - `render_transition_test` (taken / not-taken),
 documented partial-match fallback). `src/backends/rust_test.rs::generate_aggregate_test_crate`
 (used by the `generate_code_tests` / `test_generated_code` bins) parses each
 file (`src/parser.rs::parse_file`), stamps the per-file spec hash
-(`src/spec_hash.rs::spec_hash16`), and codegens every module into its own
+(`src/utils/hash.rs::spec_hash16`), and codegens every module into its own
 `pub mod` via `src/backends/rust_fsm.rs::generate_core`;
 `src/backends/rust_test.rs::write_generated_crate` writes the crate under
 `target/`.

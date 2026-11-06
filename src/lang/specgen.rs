@@ -2,7 +2,7 @@
 //!
 //! Test/reference infrastructure (public lib module, like `monitor` and
 //! `ref_mc`). Deterministic from a u64 seed using the project's shared LCG
-//! lineage - the SAME constants as `codegen_test::Lcg`, so all seeded machinery
+//! lineage - the SAME constants as `crate::utils::rng` (the single shared LCG), so all seeded machinery
 //! in the toolchain shares one RNG family. Generated specs are rendered through
 //! `crate::lang::printer` (guaranteeing parseability and exercising the printer) and
 //! every generated/mutated module is validator-checked.

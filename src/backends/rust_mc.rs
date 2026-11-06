@@ -8,7 +8,7 @@
 //!   input enumeration, configuration packing, and successor order come from
 //!   the codegen-time plan (`crate::mc_plan`, D-P4-1..3) embedded as tables,
 //!   so the Rust and C engines are identical by construction. Statuses and
-//!   the machine-readable summary line follow `crate::codegen_mc` (D-P4-4);
+//!   the machine-readable summary line follow `crate::codegen::mc_concepts` (D-P4-4);
 //!   exit codes: 0 pass-complete, 1 fail, 2 unknown-state-limit.
 //! - **fuzz mode** (`--mode fuzz`, Phase 3): random bounded runs with forced
 //!   violation injection; behavior unchanged from Phase 3.
@@ -127,7 +127,7 @@ fn exact_codegen(
     // 1 = json. Runtime-overridable with --counterexample-format.
     s.push_str(&format!(
         "const DEFAULT_COUNTEREXAMPLE_FORMAT: u8 = {};\n",
-        if options.counterexample_format == crate::codegen_mc::CounterexampleFormat::Json {
+        if options.counterexample_format == crate::codegen::mc_concepts::CounterexampleFormat::Json {
             1
         } else {
             0
@@ -354,7 +354,7 @@ fn exact_codegen(
 /// text report printers - so JSON and text carry identical data.
 fn json_renderers_rust(module: &Module) -> String {
     use crate::backends::rust::rust_ident;
-    let variants = crate::codegen_fsm::build_variants(module);
+    let variants = crate::codegen::fsm::build_variants(module);
     // Same enum -> renderer map as emit_renderers (rust_fsm): JSON strings must
     // carry ref_mc's prefixed value forms ("Enum::Variant"), identical to text.
     let enum_fn: std::collections::HashMap<String, String> =
@@ -492,18 +492,18 @@ fn domain_iter(d: &ValueDomain) -> String {
 }
 
 /// Representative value expression for an abstracted field.
-fn rep_expr(v: &crate::codegen_fsm::RepValue) -> String {
+fn rep_expr(v: &crate::codegen::fsm::RepValue) -> String {
     use crate::backends::rust::rust_ident;
     match v {
-        crate::codegen_fsm::RepValue::Bool(b) => b.to_string(),
-        crate::codegen_fsm::RepValue::Int(i) => i.to_string(),
-        crate::codegen_fsm::RepValue::EnumVariant(path) => path
+        crate::codegen::fsm::RepValue::Bool(b) => b.to_string(),
+        crate::codegen::fsm::RepValue::Int(i) => i.to_string(),
+        crate::codegen::fsm::RepValue::EnumVariant(path) => path
             .iter()
             .map(|s| rust_ident(s))
             .collect::<Vec<_>>()
             .join("::"),
-        crate::codegen_fsm::RepValue::EnumEmpty(name) => format!("{}::__Empty__", rust_ident(name)),
-        crate::codegen_fsm::RepValue::EnumUnknown(name) => {
+        crate::codegen::fsm::RepValue::EnumEmpty(name) => format!("{}::__Empty__", rust_ident(name)),
+        crate::codegen::fsm::RepValue::EnumUnknown(name) => {
             format!("{}::__Unknown__", rust_ident(name))
         }
     }
@@ -982,7 +982,7 @@ fn liv_note(graph: &LivGraph, prop: &LivProperty, w: &LivWitness) -> String {
 /// task 10). A minimal copy of the toolchain's `src/json_rw.rs` compact
 /// writer (same escaping contract) with u64 integers: every value in this
 /// document is non-negative, and bit<64> fields reach 2^64-1. Key ordering
-/// is the byte-parity contract (see `codegen_mc.rs` in the toolchain). The
+/// is the byte-parity contract (see `codegen/mc_concepts.rs` in the toolchain). The
 /// generated binary stays self-contained by construction.
 const JSON_WRITER_RUST: &str = r#"
 #[derive(Clone)]
@@ -1059,7 +1059,7 @@ fn peak_rss_kb() -> u64 {
 }
 
 /// The canonical report document builder - key order is the byte-parity
-/// contract (see codegen_mc.rs in the toolchain): status, metrics
+/// contract (see codegen/mc_concepts.rs in the toolchain): status, metrics
 /// (states, transitions, max_depth), [reason, label, step on fail],
 /// statistics (unexpected_terminations, monitor_size_bits,
 /// memory_estimate_bytes, peak_rss_kb), [counterexample on fail].
@@ -1483,7 +1483,7 @@ fn run_exact() -> ! {
     if counterexample_format == 1 {
         // JSON report (Phase 5 task 10): one compact document carrying the
         // same data as the text report below; key order is the byte-parity
-        // contract (see codegen_mc.rs in the toolchain).
+        // contract (see codegen/mc_concepts.rs in the toolchain).
         let st_wire = match status { 1 => "pass-complete", 4 => "fail", _ => "unknown-state-limit" };
         let fail = if status == 4 { Some((fail_wire, fail_label.as_str(), fail_step as u64)) } else { None };
         let ce: Option<McJson> = if status == 4 {

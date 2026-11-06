@@ -8,7 +8,7 @@
 //!
 //! Flag surface mirrors the generated exact-mode binaries where applicable:
 //! `--max-states N`, `--timeout-sec N`, `--assumes all|none|labels` (same wire
-//! format as `codegen_mc::parse_assume_selection`),
+//! format as `mc_concepts::parse_assume_selection`),
 //! `--counterexample-format json|text` (default text), `--log-level`.
 //! NOT applicable (documented in the usage text): `--seed`/`--steps`/
 //! `--violate`/unexpected-injection (fuzz-mode concepts; exact search is
@@ -49,7 +49,7 @@ impl CeFormat {
 /// Options for one `mc-ref` run (parsed flag values; `None` = engine default).
 #[derive(Debug, Clone)]
 pub struct McRefOptions {
-    /// `--max-states N`; `None` = `codegen_mc::EXACT_DEFAULT_MAX_STATES`.
+    /// `--max-states N`; `None` = `mc_concepts::EXACT_DEFAULT_MAX_STATES`.
     pub max_states: Option<usize>,
     /// `--timeout-sec N` (wall clock, 0 = off); `None` = engine default.
     pub timeout_sec: Option<u64>,
@@ -105,10 +105,10 @@ pub fn run_mc_ref(path: &Path, opts: &McRefOptions) -> Result<(ExitCode, String)
     let cfg = RefConfig {
         max_states: opts
             .max_states
-            .unwrap_or(crate::codegen_mc::EXACT_DEFAULT_MAX_STATES),
+            .unwrap_or(crate::codegen::mc_concepts::EXACT_DEFAULT_MAX_STATES),
         timeout_sec: opts
             .timeout_sec
-            .unwrap_or(crate::codegen_mc::EXACT_DEFAULT_TIMEOUT_SEC),
+            .unwrap_or(crate::codegen::mc_concepts::EXACT_DEFAULT_TIMEOUT_SEC),
         assume_arg: opts.assumes.clone(),
     };
     let res = ref_mc::run(module, &cfg)?;
@@ -124,11 +124,11 @@ pub fn run_mc_ref(path: &Path, opts: &McRefOptions) -> Result<(ExitCode, String)
 }
 
 /// Exit codes mirroring the generated exact-mode binaries.
-pub fn exit_code_for(status: crate::codegen_mc::ExactStatus) -> ExitCode {
+pub fn exit_code_for(status: crate::codegen::mc_concepts::ExactStatus) -> ExitCode {
     match status {
-        crate::codegen_mc::ExactStatus::PassComplete => ExitCode::SUCCESS,
-        crate::codegen_mc::ExactStatus::Fail => ExitCode::FAILURE,
-        crate::codegen_mc::ExactStatus::UnknownStateLimit => ExitCode::from(2),
+        crate::codegen::mc_concepts::ExactStatus::PassComplete => ExitCode::SUCCESS,
+        crate::codegen::mc_concepts::ExactStatus::Fail => ExitCode::FAILURE,
+        crate::codegen::mc_concepts::ExactStatus::UnknownStateLimit => ExitCode::from(2),
     }
 }
 
@@ -286,7 +286,7 @@ mod tests {
 
     #[test]
     fn exit_codes_mirror_generated_binaries() {
-        use crate::codegen_mc::ExactStatus;
+        use crate::codegen::mc_concepts::ExactStatus;
         assert_eq!(exit_code_for(ExactStatus::PassComplete), ExitCode::SUCCESS);
         assert_eq!(exit_code_for(ExactStatus::Fail), ExitCode::FAILURE);
         assert_eq!(

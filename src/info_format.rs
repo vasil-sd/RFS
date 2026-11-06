@@ -11,7 +11,7 @@
 //! binary itself, kept in sync with the code by tests - no stale docs.
 //! Docs: dev:cli-commands-overview, dev:cli-commands-info, llm:cli-commands
 
-use crate::codegen_mc as mc;
+use crate::codegen::mc_concepts as mc;
 use crate::{ebnf_grammar, json::json_schema};
 use json_schema::{Field, FieldType, SchemaDoc, TaggedVariant};
 
@@ -494,7 +494,7 @@ fn spec_json_render(output: &str) -> Result<String, Vec<String>> {
 // ---------------------------------------------------------------------------
 
 /// The value model of the counterexample object + its named sub-schemas,
-/// built against the `JSON_KEY_*` constants in `codegen_mc.rs` (the single
+/// built against the `JSON_KEY_*` constants in `codegen/mc_concepts.rs` (the single
 /// source of truth for key names and the per-kind key order). Shared by the
 /// ce-trace entry (where it is the whole document) and the mc-report entry
 /// (where it is the `counterexample` definition), so the two documents can
@@ -667,7 +667,7 @@ fn ce_steps_field() -> Field {
 /// The default `--counterexample-format text` report, as printed by both
 /// backends' generated engines and the in-process reference MC (byte-
 /// identical format, D-P6-10). Documented from `ref_mc::render_text_impl`
-/// / `codegen_mc::exact_summary_line`.
+/// / `mc_concepts::exact_summary_line`.
 const TEXT_TRACE_MD: &str = r#"The default report is a pinned human-readable document. On a failing run it consists of:
 
 1. The status line: `FAIL` (or `PASS (complete)` / `UNKNOWN (state limit reached)`).
@@ -721,7 +721,7 @@ fn ce_trace_render(output: &str) -> Result<String, Vec<String>> {
 // ---------------------------------------------------------------------------
 
 /// The field model of the full exact-mode MC report, built against the
-/// `JSON_KEY_*` constants in `codegen_mc.rs` (key names + wire order) and the
+/// `JSON_KEY_*` constants in `codegen/mc_concepts.rs` (key names + wire order) and the
 /// `ExactStatus` / `FailReason` wire names (enum values - derived from the
 /// methods, never string literals). The `counterexample` definition reuses
 /// [`counterexample_model`] so it cannot drift from the ce-trace document.

@@ -76,7 +76,7 @@ naming avoided; Rust closures rejected for core properties.
 and compiles to online monitors; pure LTL is less practical for bounded
 patterns, and arbitrary closures are not automatically model-checkable.
 Table: [DESIGN.md](../../DESIGN.md) section 9.6 - Code: `src/lang/parser.rs::primary_formula`,
-`src/monitor.rs::compile_formula`.
+`src/codegen/monitor.rs::compile_formula`.
 
 ### 9.7 Model-checking engine strategy - exhaustive reachable-state search (exact mode)
 
@@ -124,7 +124,7 @@ extension.
 **Why:** assumptions in the same property language are concise and integrate
 directly into MC (they prune exploration), while staying optional so
 stronger, assumption-free verification remains available.
-Table: [DESIGN.md](../../DESIGN.md) section 9.10 - Code: `src/codegen.rs::AssumptionSelection`,
+Table: [DESIGN.md](../../DESIGN.md) section 9.10 - Code: `src/codegen/mod.rs::AssumptionSelection`,
 `src/mc_plan.rs::McPlan`.
 
 ### 9.11 Composition - single endpoint FSM (v0/v1)
@@ -144,7 +144,7 @@ in the Phase 1 status report, [PHASE_1_STATUS.md](../roadmap/phase_1/PHASE_1_STA
 
 - **Code generation consumes the validated IR, not parser text.** Why: one
   normalized form guarantees every target sees identical semantics and lets
-  validation errors stop generation early. Code: `src/codegen.rs::run`.
+  validation errors stop generation early. Code: `src/codegen/mod.rs::run`.
 - **`bit<N>` maps to the smallest suitable primitive integer; arithmetic uses
   wrapping `u128` intermediates masked to the declared width.** Why: exact
   fixed-width semantics without overflow UB - wider intermediates keep
@@ -163,26 +163,26 @@ in the Phase 1 status report, [PHASE_1_STATUS.md](../roadmap/phase_1/PHASE_1_STA
 - **Assumption-selection option: `all`, `none`, or comma-separated labels;
   default `all`.** Why: lets MC and codegen target specific assumptions (e.g.
   stress runs with none) without editing the spec. Code:
-  `src/codegen.rs::AssumptionSelection`.
+  `src/codegen/mod.rs::AssumptionSelection`.
 - **Only safety formulas in the translated subset become runtime checks;
   `bounded_eventually` skipped with a warning - Phase 3 update
   (D-P3-4/D-P3-5): all in-subset formulas, including `bounded_eventually`, are
   now online-monitored in both backends; only out-of-subset (R1-R4) formulas
   are skipped.** Why: monitors must be decidable online; the subset restriction
   keeps that guarantee, and Phase 3 widened it to the full in-subset language.
-  Code: `src/monitor.rs::compile_formula`.
+  Code: `src/codegen/monitor.rs::compile_formula`.
 - **Generated unit tests include initial-state, positive bounded-sequence, and
   negative unexpected-input tests; sequence length configurable, default 4.**
   Why: a minimal deterministic test battery per spec that exercises the happy
   path and the error path without hand-written tests. Code:
-  `src/codegen_test.rs::build_test_plan`.
+  `src/codegen/test_plan.rs::build_test_plan`.
 - **The generated bounded model checker uses representative input constructors
   by default, can inject unexpected events, and can force selected safety
   assumptions to violate with per-run probabilities.** Why: representative
   values keep the input space finite while still covering each variant;
   injection/forcing give directed bug hunting on top of exhaustive search.
-  Code: `src/codegen_fsm.rs::representative_values`,
-  `src/codegen_mc.rs::ViolationSpec`.
+  Code: `src/codegen/fsm.rs::representative_values`,
+  `src/codegen/mc_concepts.rs::ViolationSpec`.
 
 <a id="dev:decisions-p2-p3"></a>
 ## Phase 2 core DSL (D1-D10) + Phase 3 (D-P3-1..6)
@@ -326,7 +326,7 @@ D-P3-6); no logging hook (the CLI has `--log-level` instead).
 **Why:** generated code is already dependency-free single files, which keeps
 the door open; shipping flags only when a consumer needs them avoids maintaining
 dead options.
-Table: [DESIGN.md](../../DESIGN.md) section 20, D9 - Code: `src/codegen.rs::BackendOptions`.
+Table: [DESIGN.md](../../DESIGN.md) section 20, D9 - Code: `src/codegen/mod.rs::BackendOptions`.
 
 ### D10. IR evolution rule - additive optional fields do not bump IR_VERSION
 
@@ -373,8 +373,8 @@ sample, matching the countdown implementation; the alternative points past the
 last allowed sample and is off-by-one vs the countdown. Pinned by
 monitor-compiler tests before any codegen rendered it ([PHASE_3.md](../roadmap/phase_3/PHASE_3.md)'s conceptual
 pseudocode had to be reconciled).
-Table: [DESIGN.md](../../DESIGN.md) section 21, D-P3-3 - Code: `src/monitor.rs::compile_check`,
-`src/monitor.rs::ReferenceMonitor`.
+Table: [DESIGN.md](../../DESIGN.md) section 21, D-P3-3 - Code: `src/codegen/monitor.rs::compile_check`,
+`src/codegen/monitor.rs::ReferenceMonitor`.
 
 ### D-P3-4. Online monitors replace post-hoc checks
 
@@ -389,7 +389,7 @@ reported through it), so all MC/test call sites - trial-step forced violations,
 monitorable mid-run and assumption pruning works online in MC (incl. liveness
 assumptions); two paths could diverge and would duplicate monitor state.
 Table: [DESIGN.md](../../DESIGN.md) section 21, D-P3-4 - Code:
-`src/backends/rust_fsm.rs::step_with_handler`, `src/monitor.rs::compile_formula`.
+`src/backends/rust_fsm.rs::step_with_handler`, `src/codegen/monitor.rs::compile_formula`.
 
 ### D-P3-5. C backend: full monitor parity
 
@@ -407,7 +407,7 @@ for that label.
 exactly the same observable behavior in ALL backends, with differential
 testing meaningful; Rust-only monitors would leave C MC silently skipping
 liveness assumptions and property detection.
-Table: [DESIGN.md](../../DESIGN.md) section 21, D-P3-5 - Code: `src/monitor.rs::compile_formula`,
+Table: [DESIGN.md](../../DESIGN.md) section 21, D-P3-5 - Code: `src/codegen/monitor.rs::compile_formula`,
 `src/backends/c_fsm.rs::emit_monitors`, `tests/backend_parity_test.rs`.
 
 ### D-P3-6. CLI flag and per-language gating - `--with-property-monitors` on production only
@@ -422,7 +422,7 @@ fields.
 **Why:** release production builds pay zero monitor cost; MC/tests never need
 an opt-in flag (violations are the point - MC must not be able to disable
 them); one flag across backends keeps the CLI uniform.
-Table: [DESIGN.md](../../DESIGN.md) section 21, D-P3-6 - Code: `src/codegen.rs::PropertyMonitorMode`,
+Table: [DESIGN.md](../../DESIGN.md) section 21, D-P3-6 - Code: `src/codegen/mod.rs::PropertyMonitorMode`,
 `src/backends/rust_fsm.rs::emit_monitors`,
 `src/backends/c_fsm.rs::render_prop_monitors`.
 
@@ -485,8 +485,8 @@ Table: [DESIGN.md](../../DESIGN.md) section 22, D-P4-3 - Code: `src/mc_plan.rs::
 **Why:** a three-status taxonomy with distinct exit codes lets CI distinguish
 "proven", "bug found", and "incomplete" - presenting a bounded run as full
 proof would be unsound, so incompleteness is a first-class status.
-Table: [DESIGN.md](../../DESIGN.md) section 22, D-P4-4 - Code: `src/codegen_mc.rs::ExactStatus`,
-`src/codegen_mc.rs::FailReason`.
+Table: [DESIGN.md](../../DESIGN.md) section 22, D-P4-4 - Code: `src/codegen/mc_concepts.rs::ExactStatus`,
+`src/codegen/mc_concepts.rs::FailReason`.
 
 ### D-P4-5. Deadlock and unexpected-input semantics
 
@@ -498,7 +498,7 @@ must fail; an unmatched input on a path where other inputs work is an
 environment misbehavior, not a spec bug - counting it keeps the signal visible
 without false failures.
 Table: [DESIGN.md](../../DESIGN.md) section 22, D-P4-5 - Code: `src/backends/rust_mc.rs::exact_codegen`,
-`src/codegen_mc.rs`.
+`src/codegen/mc_concepts.rs`.
 
 ### D-P4-6. Assumptions prune exploration
 
@@ -508,7 +508,7 @@ explores everything.
 the protocol under its contract, while the escape hatch keeps
 assumption-free (stress) verification available without spec edits.
 Table: [DESIGN.md](../../DESIGN.md) section 22, D-P4-6 - Code: `src/mc_plan.rs::McPlan`,
-`src/codegen.rs::AssumptionSelection`.
+`src/codegen/mod.rs::AssumptionSelection`.
 
 ### D-P4-7. Modes and flags
 
@@ -517,14 +517,14 @@ Table: [DESIGN.md](../../DESIGN.md) section 22, D-P4-6 - Code: `src/mc_plan.rs::
 `--threads N` (default 1; byte-identical results for any N), runtime-only
 `--fast` (non-parity early abort); codegen flag `--smt-bound N` (default 10)
 for the SMT mode. Plan deviation: the `--timeout-sec` help lives in
-`src/codegen.rs` (generic codegen help) and the per-backend command
+`src/codegen/mod.rs` (generic codegen help) and the per-backend command
 descriptions (`rust.rs`/`c.rs`) - NOT in `main.rs` usage text, which does not
 document MC flags.
 **Why:** exact is the parity-guaranteed default; fuzz/bounded variants are
 explicit opt-ins with documented non-parity caveats, so a flag can never
 silently change what "pass" means.
-Table: [DESIGN.md](../../DESIGN.md) section 22, D-P4-7 - Code: `src/codegen.rs::McMode`,
-`src/codegen.rs::common_help`.
+Table: [DESIGN.md](../../DESIGN.md) section 22, D-P4-7 - Code: `src/codegen/mod.rs::McMode`,
+`src/codegen/mod.rs::common_help`.
 
 ### D-P4-8. Liveness language: `eventually (p)` + infix `until` (WEAK until)
 
@@ -583,7 +583,7 @@ automatic; under `--nondet` an open cycle that merely avoids progress is not a
 liveness violation - strong transition fairness filters exactly those, and the
 discriminator test pins the det/nondet difference.
 Table: [DESIGN.md](../../DESIGN.md) section 22, D-P4-11 - Code:
-`src/backends/rust_mc.rs::exact_codegen`, `src/codegen.rs::McMode`.
+`src/backends/rust_mc.rs::exact_codegen`, `src/codegen/mod.rs::McMode`.
 
 ### D-P4-12. SMT bounded mode (optional)
 
@@ -805,7 +805,7 @@ comment line.
 identical API shape means porting a handler is a build-flag change, not a code
 change; rejecting test/mc keeps the flag's contract precise.
 Table: [DESIGN.md](../../DESIGN.md) section 23, D-P5-9 - Code:
-`src/codegen.rs::NO_STD_PRODUCTION_ONLY_ERROR`, `src/codegen.rs::BackendOptions`.
+`src/codegen/mod.rs::NO_STD_PRODUCTION_ONLY_ERROR`, `src/codegen/mod.rs::BackendOptions`.
 
 ### D-P5-10. MC counterexample JSON (task 10)
 
@@ -825,7 +825,7 @@ the byte-parity contract.
 counterexamples, and byte-identical JSON across backends extends the existing
 parity contract to the structured form without a second source of truth.
 Table: [DESIGN.md](../../DESIGN.md) section 23, D-P5-10 - Code:
-`src/codegen_mc.rs::CounterexampleFormat`.
+`src/codegen/mc_concepts.rs::CounterexampleFormat`.
 
 ### D-P5-11. ProtocolFsm trait + adapters (task 11)
 
@@ -860,11 +860,11 @@ Table: [DESIGN.md](../../DESIGN.md) section 23, D-P5-11 - Code:
 `crates/rfs-adapters/src/async_adapter.rs::AsyncFsm`,
 `crates/rfs-adapters/src/callback.rs::drive`,
 `crates/rfs-adapters/src/minimal.rs::Minimal`,
-`src/codegen.rs::PROTOCOL_FSM_MC_ERROR`.
+`src/codegen/mod.rs::PROTOCOL_FSM_MC_ERROR`.
 
 ### D-P5-12. Extended test generation: one plan, both backends (tasks 4/5/6)
 
-The shared planner (`src/codegen_test.rs`) was extended with language-agnostic
+The shared planner (`src/codegen/test_plan.rs`) was extended with language-agnostic
 plans for per-transition unit tests (representative inputs + statically
 computed guard taken/not-taken cases; sibling-priority/shadowing rules),
 invariant tests (safety property atoms re-checked at every driven step),
@@ -883,7 +883,7 @@ generated-code crate) stay dependency-free; the CLI writes them next to
 across backends by construction, and separating fuzz skeletons keeps the main
 artifact free of fuzzer dependencies.
 Table: [DESIGN.md](../../DESIGN.md) section 23, D-P5-12 - Code:
-`src/codegen_test.rs::build_test_plan`, `src/codegen_test.rs::build_fuzz_decode`.
+`src/codegen/test_plan.rs::build_test_plan`, `src/codegen/test_plan.rs::build_fuzz_decode`.
 
 ### D-P5-13. IDE support + structured diagnostics (task 13)
 
@@ -974,7 +974,7 @@ Every generated artifact (production/test/mc, BOTH backends, plus fuzz
 skeletons) starts with the unified line-1 comment `// Generated by RFS v{toolchain_version} | spec sha256:{hash16} | module {name}`
 (C: `/* ... */`). The hash is SHA-256 over the CANONICAL IR JSON of the WHOLE
 input file (deterministic key order per D-P5-2), first 16 hex chars; computed
-in `src/codegen.rs` from `Ir::to_json()` and passed to both backends. The
+in `src/codegen/mod.rs` from `Ir::to_json()` and passed to both backends. The
 SHA-256 is HAND-ROLLED (`src/utils/hash.rs`, minimal implementation with NIST
 test vectors) - no new dependencies, consistent with the D-P5-2
 hand-rolled-JSON stance. Crate version bumped 0.1.0 -> 1.0.0 (the
@@ -985,7 +985,7 @@ MINOR bump ([MIGRATION.md](../user/MIGRATION.md) section 2.5).
 regeneration + diff, and a hand-rolled SHA-256 keeps the dependency-free
 stance of D-P5-2 while giving every artifact a verifiable provenance stamp.
 Table: [DESIGN.md](../../DESIGN.md) section 24, D-P6-3 - Code: `src/utils/hash.rs::spec_hash16`,
-`src/utils/hash.rs::sha256_hex`, `src/codegen.rs::run`.
+`src/utils/hash.rs::sha256_hex`, `src/codegen/mod.rs::run`.
 
 ### D-P6-4. Toolchain fuzzing is TWO layers: fast libFuzzer targets + slow seeded CI suite (tasks 5.1/5.2)
 
@@ -1019,7 +1019,7 @@ Table: [DESIGN.md](../../DESIGN.md) section 24, D-P6-4 - Code: `fuzz/fuzz_target
 [SEMANTICS.md](../SEMANTICS.md) directly with DELIBERATELY different data structures from
 the generated engines (Vec frontier, plain HashMap configuration keys - NO
 bit-packing) and its own small property evaluator over recorded traces
-(different algorithm from `src/monitor.rs`). Shipped surface: status
+(different algorithm from `src/codegen/monitor.rs`). Shipped surface: status
 (pass/fail/deadlock), first-violation label + step, total state count; PLUS
 the public APIs added for the differential suites - `step_trace` (drive a
 fixed input sequence) and `verify_counterexample` (replay a generated
@@ -1058,7 +1058,7 @@ Table: [DESIGN.md](../../DESIGN.md) section 24, D-P6-6 - Code: `tests/prod_parit
 `tests/monitor_ref_test.rs`: for benchmark specs 43/44/45, reference monitors
 written directly in the test file - an independent Rust engine AND independent
 C compiled per spec with `gcc -Wall` - deliberately NOT reusing
-`src/monitor.rs` (toolchain-side, could share bugs with the generated
+`src/codegen/monitor.rs` (toolchain-side, could share bugs with the generated
 monitors). Driven over random traces (seed 90717) AND crafted boundary
 scenarios (bit-width wraparound, obligation deadlines exactly at
 trigger+bound-1, re-trigger after clear, sticky failure, same-sample
@@ -1295,7 +1295,7 @@ and draft-07-compatible, deriving enum values from the wire() methods makes
 schema drift impossible, and modeling fail fields optional (with walk tests
 pinning IFF-fail presence) works within draft-07's lack of if/then.
 Table: [DESIGN.md](../../DESIGN.md) section 25, D-P7-8 - Code: `src/json/json_schema.rs::SchemaDoc`,
-`src/json/json_schema.rs::emit_schema_pretty`, `src/codegen_mc.rs::JSON_KEY_STATUS`.
+`src/json/json_schema.rs::emit_schema_pretty`, `src/codegen/mc_concepts.rs::JSON_KEY_STATUS`.
 
 ### D-P7-9. Sync tests: the "stays in sync with the code" guarantee (tasks 5-14)
 
@@ -1309,7 +1309,7 @@ level is documented - catches drift in BOTH directions without touching
 `ir.rs`.
 - ce-trace / mc-report: pinned FAIL-variant benchmark runs produce real
 reports; same walk check against models built from the `JSON_KEY_*`
-constants (in `src/codegen_mc.rs`).
+constants (in `src/codegen/mc_concepts.rs`).
 - diagram-dot / diagram-puml / diagram-mmd: coverage sync tests over all 50
 valid examples x every module - every generated line is one of the
 documented shapes filled with IR data (no undocumented tokens), plus corpus

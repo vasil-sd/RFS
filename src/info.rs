@@ -210,7 +210,7 @@ pub(crate) fn render_output(o: &OutputExpr) -> String {
 /// check the codegen backends use for their "outside monitor subset; skipped"
 /// warnings, so `info` never disagrees with generated code.
 fn monitor_status(name: &str, is_assumption: bool, f: &Formula) -> String {
-    match crate::monitor::compile_formula(name, is_assumption, f) {
+    match crate::codegen::monitor::compile_formula(name, is_assumption, f) {
         Ok(_) => "monitored".to_string(),
         Err(reason) => format!("skipped: {reason}"),
     }

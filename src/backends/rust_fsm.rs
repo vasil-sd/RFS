@@ -3,7 +3,7 @@
 //! Generates the standalone Rust source for one RFS module: type declarations
 //! (enums, `Vars`, `Input`, `Output`), the trace/sample runtime, online
 //! property and assumption monitors (rendered from the shared `MonitorPlan`
-//! of `crate::monitor` - identical semantics to the C backend), and the
+//! of `crate::codegen::monitor` - identical semantics to the C backend), and the
 //! `Fsm` implementation with its transition blocks. See `backends/RUST.md`
 //! for the generated-code anatomy and design decisions.
 //! Docs: dev:backend-rust-overview, dev:backend-rust-fsm, llm:backend-rust
@@ -13,9 +13,9 @@ use crate::backends::rust::{
     snake,
 };
 use crate::codegen::{AssumptionSelection, BackendOptions, CodegenOutput, PropertyMonitorMode};
-use crate::codegen_fsm::{self, FsmVariants, VariantInfo};
+use crate::codegen::fsm::{self, FsmVariants, VariantInfo};
 use crate::lang::ir::*;
-use crate::monitor::{self, AnchorRange, MonNode, MonitorPlan, SignalAtom, SignalExpr};
+use crate::codegen::monitor::{self, AnchorRange, MonNode, MonitorPlan, SignalAtom, SignalExpr};
 use crate::lang::validator::{self, Env, ExprType};
 use std::collections::{HashMap, HashSet};
 use std::fmt::Write as _;
@@ -90,7 +90,7 @@ impl<'a> Gen<'a> {
             module,
             options,
             code: String::new(),
-            variants: codegen_fsm::build_variants(module),
+            variants: fsm::build_variants(module),
             prop_mode,
             assume_plans: vec![],
             prop_plans: vec![],
@@ -391,7 +391,7 @@ pub enum StepError {{ UnexpectedEvent, AssumptionViolation {{ label: String }}{p
 
     // ------------------------------------------------------------------
     // Online monitors (Phase 3): rendered from the shared MonitorPlan
-    // (`crate::monitor`) with identical semantics to the C backend.
+    // (`crate::codegen::monitor`) with identical semantics to the C backend.
     // ------------------------------------------------------------------
 
     /// Compile all property/assumption formulas into monitor plans. Formulas
@@ -493,7 +493,7 @@ pub enum StepError {{ UnexpectedEvent, AssumptionViolation {{ label: String }}{p
     /// Render one monitor struct from a compiled plan. Nodes are numbered in
     /// DFS pre-order over the plan tree; the step body evaluates them in
     /// post-order (children before parents), mirroring the reference
-    /// interpreter in `crate::monitor`.
+    /// interpreter in `crate::codegen::monitor`.
     fn render_monitor(&self, plan: &MonitorPlan, cfg: &str) -> Result<String, String> {
         let m = snake(&plan.label);
         let mut fields: Vec<String> = Vec::new();
@@ -1648,7 +1648,7 @@ fn width_from_type(ty: &ExprType, expected: Option<&ExprType>) -> Result<u32, St
 /// so both paths agree by construction.
 pub(crate) fn render_mc_step_all(module: &Module) -> Result<String, String> {
     let options = BackendOptions::default();
-    let variants = codegen_fsm::build_variants(module);
+    let variants = fsm::build_variants(module);
     let gen = Gen {
         module,
         options: &options,
@@ -1837,10 +1837,10 @@ pub(crate) fn render_sample_formula_evaluator(
     name: &str,
     formula: &Formula,
 ) -> Result<String, String> {
-    let signal = crate::monitor::formula_to_signal(formula)
+    let signal = crate::codegen::monitor::formula_to_signal(formula)
         .ok_or_else(|| "liveness subformula contains temporal operators".to_string())?;
     let options = BackendOptions::default();
-    let variants = codegen_fsm::build_variants(module);
+    let variants = fsm::build_variants(module);
     let gen = Gen {
         module,
         options: &options,

@@ -111,12 +111,12 @@ pub(crate) fn mask_expr(w: u32) -> String {
 }
 
 /// Render a representative input value for a variant as Rust source (see
-/// `crate::codegen_fsm::representative_values` for the value selection rules).
+/// `crate::codegen::fsm::representative_values` for the value selection rules).
 pub(crate) fn representative_input_expr(
-    v: &crate::codegen_fsm::VariantInfo,
+    v: &crate::codegen::fsm::VariantInfo,
     module: &crate::lang::ir::Module,
 ) -> String {
-    use crate::codegen_fsm::{representative_values, RepValue};
+    use crate::codegen::fsm::{representative_values, RepValue};
     if v.fields.is_empty() {
         return format!("Input::{}", rust_ident(&v.unique_name));
     }

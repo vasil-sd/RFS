@@ -30,17 +30,17 @@ intermediate on-disk representation between stages.
 5. **Targets** - everything downstream consumes the validated IR:
    - *Production FSM code*, *model-checker executables* and *unit/fuzz tests*
      are generated through the backend plugin registry
-     `src/codegen.rs::BACKENDS` (lookup: `src/codegen.rs::get_backend`), with
+     `src/codegen/mod.rs::BACKENDS` (lookup: `src/codegen/mod.rs::get_backend`), with
      the Rust and C backends registered in `src/backends/rust.rs` /
      `src/backends/c.rs`; shared codegen helpers live in
-     `src/codegen_fsm.rs`, `src/codegen_mc.rs` and `src/codegen_test.rs`.
+     `src/codegen/fsm.rs`, `src/codegen/mc_concepts.rs` and `src/codegen/test_plan.rs`.
    - *Model checking* plans are computed once per spec by
      `src/mc_plan.rs::McPlan` and embedded in both backends' checker
      binaries; the SMT path is rendered from `src/smt_plan.rs` by
      `src/smt_emit.rs`, and `src/ref_mc.rs::run` provides the in-process
      reference checker behind `rfs mc-ref`.
    - *Monitors* for PSL properties are compiled by
-     `src/monitor.rs::compile_formula` into `src/monitor.rs::MonitorPlan`s
+     `src/codegen/monitor.rs::compile_formula` into `src/codegen/monitor.rs::MonitorPlan`s
      embedded in the generated checkers.
    - *Diagrams* (state diagrams, transition tables) come from the diagram
      plugin registry `src/diagram.rs::DIAGRAMS`, one plugin per format under
@@ -74,7 +74,7 @@ flowchart TD
         IR["src/lang/ir.rs (Ir, IR_VERSION) + json_rw / spec_hash / printer"]
     end
 
-    subgraph GEN["Codegen - src/codegen.rs registry"]
+    subgraph GEN["Codegen - src/codegen/mod.rs registry"]
         FSM["codegen_fsm -> rust_fsm / c_fsm"]
         MC["codegen_mc -> rust_mc / c_mc"]
         TEST["codegen_test -> rust_test / c_test"]
@@ -83,7 +83,7 @@ flowchart TD
     subgraph MCE["MC engine support"]
         MCP["src/mc_plan.rs (McPlan)"]
         SMT["src/smt_plan.rs + src/smt_emit.rs"]
-        MON["src/monitor.rs (compile_formula)"]
+        MON["src/codegen/monitor.rs (compile_formula)"]
         REF["src/ref_mc.rs (rfs mc-ref)"]
     end
 
@@ -133,7 +133,7 @@ flowchart TD
         PRINT["print to RFS (src/lang/printer.rs)"]
     end
 
-    subgraph CODEGEN["Codegen (src/codegen.rs registry)"]
+    subgraph CODEGEN["Codegen (src/codegen/mod.rs registry)"]
         PROD["production FSM (codegen_fsm -> rust_fsm / c_fsm)"]
         MCBIN["MC executables (codegen_mc -> rust_mc / c_mc)"]
         TESTS["unit/fuzz tests (codegen_test -> rust_test / c_test)"]
@@ -142,7 +142,7 @@ flowchart TD
     subgraph MCENG["Model checking"]
         PLAN["McPlan (src/mc_plan.rs)"]
         SMT["SMT path (src/smt_plan.rs, src/smt_emit.rs)"]
-        MON["monitors (src/monitor.rs)"]
+        MON["monitors (src/codegen/monitor.rs)"]
         REF["reference checker (src/ref_mc.rs)"]
     end
 
@@ -176,7 +176,7 @@ flowchart TD
   gateway `src/frontend.rs::convert_file_to_ir`; `gen-spec`
   (`src/lang/specgen.rs`) is the only producer-side command.
 - **Two plugin registries, one pattern.** Codegen
-  (`src/codegen.rs::BACKENDS`, lookup `src/codegen.rs::get_backend`) and
+  (`src/codegen/mod.rs::BACKENDS`, lookup `src/codegen/mod.rs::get_backend`) and
   diagrams (`src/diagram.rs::DIAGRAMS`) both use a static registry of
   struct-plus-function-pointer entries; adding a backend or a diagram format
   means registering one entry, not touching the dispatch.
@@ -188,8 +188,8 @@ flowchart TD
 - **Independent ground truth.** The reference checker `src/ref_mc.rs::run`
   deliberately shares no code with the generated checkers; it is the oracle
   that cross-checks them (`rfs mc-ref`).
-- **Monitors are embedded, not linked.** `src/monitor.rs::compile_formula`
-  runs at codegen time; the resulting `src/monitor.rs::MonitorPlan` is baked
+- **Monitors are embedded, not linked.** `src/codegen/monitor.rs::compile_formula`
+  runs at codegen time; the resulting `src/codegen/monitor.rs::MonitorPlan` is baked
   into the generated artifacts rather than being a runtime dependency.
 - **Shared external-tool layer.** Optional external tools (diagram renderers,
   rustc/gcc for compiling generated tests) are resolved and invoked through

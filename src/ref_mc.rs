@@ -19,7 +19,7 @@
 //!   subgraph + Kosaraju construction.
 //!
 //! Independence is about ALGORITHMS, not report formatting: per D-P6-10 this
-//! module reuses `src/codegen_mc.rs` DATA TYPES (status taxonomy, JSON report
+//! module reuses `src/codegen/mc_concepts.rs` DATA TYPES (status taxonomy, JSON report
 //! model) and its pure formatting/parsing helpers (`exact_summary_line`,
 //! `parse_assume_selection`) so that `rfs mc-ref` output is directly
 //! comparable - byte-for-byte where deterministic - with the generated MC
@@ -28,19 +28,19 @@
 //!
 //! Import list (independence proof, per task file "Other information"):
 //! `std::{collections,time}`, `crate::lang::ir::*`, and
-//! `crate::codegen_mc::{exact_summary_line, parse_assume_selection,
+//! `crate::codegen::mc_concepts::{exact_summary_line, parse_assume_selection,
 //! ExactStatus, FailReason, JsonCounterexample, JsonIo, JsonStep,
 //! McJsonReport, EXACT_DEFAULT_MAX_STATES, EXACT_DEFAULT_TIMEOUT_SEC}`
 //! (data types + shared report helpers only). The unit tests additionally use
 //! `crate::json::json_rw::Json`. NOT imported: `mc_plan`, `monitor`,
-//! `codegen_fsm`, `printer`, backend modules - enforced by the
+//! `codegen::fsm`, `printer`, backend modules - enforced by the
 //! `independence_import_audit` test.
 //! Docs: dev:mc-engine-overview, dev:mc-engine-exact, dev:mc-engine-liveness, dev:mc-engine-verify, dev:algorithms-mc-engine, dev:references-model-checking, llm:mc-engine
 
 use std::collections::{HashMap, HashSet};
 use std::time::Instant;
 
-use crate::codegen_mc::{
+use crate::codegen::mc_concepts::{
     exact_summary_line, parse_assume_selection, ExactStatus, FailReason, JsonCounterexample,
     JsonIo, JsonStep, McJsonReport, EXACT_DEFAULT_MAX_STATES, EXACT_DEFAULT_TIMEOUT_SEC,
 };
@@ -4956,7 +4956,7 @@ mod tests {
     fn independence_import_audit() {
         let src = std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/src/ref_mc.rs"))
             .expect("read self");
-        for forbidden in ["mc_plan", "monitor", "codegen_fsm", "printer", "backends"] {
+        for forbidden in ["mc_plan", "monitor", "codegen::fsm", "printer", "backends"] {
             assert!(
                 !src.lines().any(|l| {
                     let t = l.trim();

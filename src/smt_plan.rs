@@ -503,10 +503,10 @@ fn convert_expr(
                             .find(|fs| fs.name == *name)
                             .ok_or_else(|| format!("unknown payload field '{name}'"))?;
                         return match &spec.representative {
-                            Some(crate::codegen_fsm::RepValue::Bool(b)) => {
+                            Some(crate::codegen::fsm::RepValue::Bool(b)) => {
                                 Ok(Se::Lit { value: u64::from(*b), is_bool: true })
                             }
-                            Some(crate::codegen_fsm::RepValue::Int(v)) => {
+                            Some(crate::codegen::fsm::RepValue::Int(v)) => {
                                 Ok(Se::Lit { value: *v, is_bool: false })
                             }
                             other => Err(format!(

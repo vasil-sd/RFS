@@ -244,7 +244,7 @@ document and there is no intermediate on-disk representation between
 stages. Normalization means a versioned document with a PINNED wire
 format (hand-rolled JSON), a deterministic canonical rendering, and a
 spec hash stamped into every generated artifact. Code generation is a
-language-agnostic core (`src/codegen.rs`) plus shared planning modules,
+language-agnostic core (`src/codegen/mod.rs`) plus shared planning modules,
 rendered by per-language backends registered in a static plugin table.
 
 ### L1 - Abstract view
@@ -265,9 +265,9 @@ the static table `BACKENDS`; the three command kinds are production FSM
 source, unit tests, and model checker. The standard dispatch stamps the
 spec hash into a shared options bag and generates for the FIRST module
 of the file. Language-agnostic planning modules decide WHAT to emit -
-FSM variant flattening + representative values (`src/codegen_fsm.rs`),
-the static unit-test plan (`src/codegen_test.rs`), model-checker run
-concepts and report formats (`src/codegen_mc.rs`) - and backends render
+FSM variant flattening + representative values (`src/codegen/fsm.rs`),
+the static unit-test plan (`src/codegen/test_plan.rs`), model-checker run
+concepts and report formats (`src/codegen/mc_concepts.rs`) - and backends render
 that data into target syntax. Parity principle: one plan, rendered
 identically in Rust and C.
 
@@ -290,8 +290,8 @@ flowchart TD
 ```
 
 Code: `src/lang/ir.rs::Ir`, `src/lang/ir.rs::IR_VERSION`,
-`src/utils/hash.rs::spec_hash16`, `src/codegen.rs::Backend`,
-`src/codegen.rs::BACKENDS`, `src/codegen.rs::CodegenCommandKind`
+`src/utils/hash.rs::spec_hash16`, `src/codegen/mod.rs::Backend`,
+`src/codegen/mod.rs::BACKENDS`, `src/codegen/mod.rs::CodegenCommandKind`
 
 ### L2 - Key data structures and invariants
 
@@ -358,11 +358,11 @@ byte-parity contract.
 
 Code: `src/lang/ir.rs::Module`, `src/json/json_rw.rs::Json`,
 `src/json/json_rw.rs::parse`, `src/utils/hash.rs::sha256_hex`,
-`src/codegen.rs::BackendOptions`,
-`src/codegen_fsm.rs::build_variants`,
-`src/codegen_fsm.rs::representative_values`,
-`src/codegen_test.rs::TestPlan`, `src/codegen_mc.rs::ExactStatus`,
-`src/codegen_mc.rs::McJsonReport`
+`src/codegen/mod.rs::BackendOptions`,
+`src/codegen/fsm.rs::build_variants`,
+`src/codegen/fsm.rs::representative_values`,
+`src/codegen/test_plan.rs::TestPlan`, `src/codegen/mc_concepts.rs::ExactStatus`,
+`src/codegen/mc_concepts.rs::McJsonReport`
 
 ### L3 - Implementation details (important ones emphasized)
 
@@ -436,10 +436,10 @@ Code: `src/lang/ir.rs::Module`, `src/json/json_rw.rs::Json`,
    documented no-op (plain C is already dependency-free).
 
 Code: `src/lang/ir.rs::to_json`, `src/lang/ir.rs::from_json`,
-`src/json/json_rw.rs::MAX_DEPTH`, `src/codegen.rs::run`,
-`src/utils/rng.rs::Rng`, `src/codegen_test.rs::RANDOM_TRACE_SEED`,
-`src/codegen_mc.rs::exact_summary_line`,
-`src/codegen_mc.rs::CounterexampleFormat`
+`src/json/json_rw.rs::MAX_DEPTH`, `src/codegen/mod.rs::run`,
+`src/utils/rng.rs::Rng`, `src/codegen/test_plan.rs::RANDOM_TRACE_SEED`,
+`src/codegen/mc_concepts.rs::exact_summary_line`,
+`src/codegen/mc_concepts.rs::CounterexampleFormat`
 
 Refs: [parsing theory, automata, compiler construction](REFERENCES.md#parsing-automata-compiler-construction)
 
@@ -451,7 +451,7 @@ the generated EXACT engine (Rust and C binaries rendered from `McPlan`),
 an INDEPENDENT reference checker (`src/ref_mc.rs`, ground truth for
 differential testing and the `rfs mc-ref` command), and an optional SMT
 BOUNDED path (z3 k-step unrolling). All three report through the shared
-status taxonomy and report formats of `src/codegen_mc.rs` (section above),
+status taxonomy and report formats of `src/codegen/mc_concepts.rs` (section above),
 so their outputs are directly comparable - byte-for-byte where
 deterministic.
 
@@ -505,7 +505,7 @@ flowchart TD
 ```
 
 Code: `src/mc_plan.rs::McPlan`, `src/ref_mc.rs::run`,
-`src/smt_plan.rs::build_smt_spec`, `src/codegen_mc.rs::ExactStatus`
+`src/smt_plan.rs::build_smt_spec`, `src/codegen/mc_concepts.rs::ExactStatus`
 
 ### L2 - Key data structures and invariants
 
@@ -568,7 +568,7 @@ Code: `src/mc_plan.rs::InputAbstraction`,
 `src/mc_plan.rs::ConfigEncoding`, `src/mc_plan.rs::TraversalSpec`,
 `src/mc_plan.rs::LivenessDecomposition`,
 `src/mc_plan.rs::boolean_over_atoms`, `src/ref_mc.rs::RefResult`,
-`src/smt_plan.rs::SmtSpec`, `src/codegen_mc.rs::exact_summary_line`
+`src/smt_plan.rs::SmtSpec`, `src/codegen/mc_concepts.rs::exact_summary_line`
 
 ### L3 - Implementation details (important ones emphasized)
 
@@ -578,7 +578,7 @@ Code: `src/mc_plan.rs::InputAbstraction`,
    design decision).** `ref_mc` reimplements everything: structured
    configuration-key tuples instead of bit-packing, its own expression
    evaluator and its own online monitor compiler (same documented
-   semantics as `src/monitor.rs`, different code), its own representative-
+   semantics as `src/codegen/monitor.rs`, different code), its own representative-
    input rule (SEMANTICS 9.3, not imported from `src/mc_plan.rs`), and
    iterative Tarjan SCC instead of the generated engine's BFS + stay-edge
    subgraph + Kosaraju construction. It imports only std, the IR types,
@@ -649,7 +649,7 @@ Refs: [model checking, SMT/SAT solving](REFERENCES.md#model-checking-smt-sat-sol
 <a id="dev:algorithms-monitor-compile"></a>
 ## Monitor compilation (PSL translation)
 
-The monitor compiler (`src/monitor.rs`) is a language-agnostic PSL-to-monitor
+The monitor compiler (`src/codegen/monitor.rs`) is a language-agnostic PSL-to-monitor
 translator: it compiles property/assumption formulas from the Phase 3 subset
 into a `MonitorPlan` - a tree of check nodes that every backend renders with
 identical semantics (backend parity principle). The plan is the single source
@@ -699,8 +699,8 @@ flowchart TD
     RENDER --> STEP["step per sample with the D-P3-3 algorithm; first failing sample wins"]
 ```
 
-Code: `src/monitor.rs::compile_formula`, `src/monitor.rs::MonitorPlan`,
-`src/monitor.rs::MonNode`, `src/monitor.rs::ReferenceMonitor`
+Code: `src/codegen/monitor.rs::compile_formula`, `src/codegen/monitor.rs::MonitorPlan`,
+`src/codegen/monitor.rs::MonNode`, `src/codegen/monitor.rs::ReferenceMonitor`
 
 ### L2 - Key data structures and invariants
 
@@ -783,10 +783,10 @@ for Or/And composition is essential: disjuncts may fail at different samples
 and recover, so a disjunction fails only while ALL of its children fail at the
 SAME sample.
 
-Code: `src/monitor.rs::SignalExpr`, `src/monitor.rs::SignalAtom`,
-`src/monitor.rs::AnchorRange`, `src/monitor.rs::MonNode`,
-`src/monitor.rs::compile_check`, `src/monitor.rs::compile_signal`,
-`src/monitor.rs::formula_to_signal`, `src/monitor.rs::MonState`
+Code: `src/codegen/monitor.rs::SignalExpr`, `src/codegen/monitor.rs::SignalAtom`,
+`src/codegen/monitor.rs::AnchorRange`, `src/codegen/monitor.rs::MonNode`,
+`src/codegen/monitor.rs::compile_check`, `src/codegen/monitor.rs::compile_signal`,
+`src/codegen/monitor.rs::formula_to_signal`, `src/codegen/monitor.rs::MonState`
 
 ### L3 - Implementation details (important ones emphasized)
 
@@ -855,7 +855,7 @@ Code: `src/monitor.rs::SignalExpr`, `src/monitor.rs::SignalAtom`,
    generated code. Liveness operators are a separate rejection (D-P4-8) -
    MC-only, not monitorable.
 
-Code: `src/monitor.rs::step_node`, `src/monitor.rs::min_trigger_at`,
+Code: `src/codegen/monitor.rs::step_node`, `src/codegen/monitor.rs::min_trigger_at`,
 `src/backends/rust_fsm.rs::emit_monitors`,
 `src/backends/c_fsm.rs::emit_monitors`, `src/mc_plan.rs::monitor_layouts`
 

@@ -28,7 +28,7 @@ Position in the pipeline, both directions:
   `src/lang/ir.rs::from_json`; JSON output is the mirror image in
   `src/frontend.rs::render_ir` (pretty rendering + trailing newline).
 - The canonical whole-file rendering (`src/lang/ir.rs::to_json`) feeds the spec
-  hash stamped into every generated artifact header (`src/codegen.rs::run`,
+  hash stamped into every generated artifact header (`src/codegen/mod.rs::run`,
   see the spec-hash section below), and the field model of the `spec-json`
   format entry is derived from the same writers
   (`src/info_format.rs::spec_json_schema`).
@@ -50,7 +50,7 @@ Where to go next:
 Code: `src/lang/ir.rs::Ir`, `src/lang/ir.rs::IR_VERSION`, `src/json/json_rw.rs::Json`,
 `src/json/json_rw.rs::parse`, `src/json/json_schema.rs::SchemaDoc`,
 `src/utils/hash.rs::spec_hash16`, `src/frontend.rs::convert_file_to_ir`,
-`src/codegen.rs::run`
+`src/codegen/mod.rs::run`
 
 <a id="dev:ir-model"></a>
 ## IR document model
@@ -342,7 +342,7 @@ schedule, and the 64-round compression (`src/utils/hash.rs::sha256`).
   D-P5-2). Stable across runs and platforms; any change to the spec changes
   it.
 
-**Consumers.** `src/codegen.rs::run` stamps it into the shared options bag
+**Consumers.** `src/codegen/mod.rs::run` stamps it into the shared options bag
 before generating (CLI rule: the first module of the file; multi-module files
 share the file's hash), and `src/backends/rust_test.rs` does the same per
 file for unit-test artifacts. Every generated artifact carries the result in
@@ -357,7 +357,7 @@ block message), plus spec_hash16_is_prefix_and_stable: 16 lowercase hex
 chars, a prefix of sha256_hex, deterministic, and sensitive to content.
 
 Code: `src/utils/hash.rs::sha256_hex`, `src/utils/hash.rs::spec_hash16`,
-`src/utils/hash.rs::sha256`, `src/codegen.rs::run`
+`src/utils/hash.rs::sha256`, `src/codegen/mod.rs::run`
 
 ## Changing the wire format
 

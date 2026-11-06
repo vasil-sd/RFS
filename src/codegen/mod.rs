@@ -9,13 +9,18 @@
 //!
 //! Shared language-agnostic building blocks used by backends:
 //!
-//! - `crate::codegen_fsm`: FSM model analysis (variant flattening,
+//! - `crate::codegen::fsm`: FSM model analysis (variant flattening,
 //!   representative values, safety-formula subset);
-//! - `crate::codegen_test`: unit-test planning (positive/negative run plan);
-//! - `crate::codegen_mc`: bounded model-checking concepts (config, violation
+//! - `crate::codegen::test_plan`: unit-test planning (positive/negative run plan);
+//! - `crate::codegen::mc_concepts`: bounded model-checking concepts (config, violation
 //!   specs, sequence-generation phases, run-status taxonomy).
 //!
 //! Docs: dev:codegen-core-overview, dev:codegen-plugin-api, dev:algorithms-ir-codegen, llm:codegen-core, dev:code-map-codegen, dev:deps-fn-codegen-rust
+
+pub mod fsm;
+pub mod mc_concepts;
+pub mod monitor;
+pub mod test_plan;
 
 use crate::backends::{c, rust};
 use crate::lang::ir::{Ir, Module};
@@ -138,7 +143,7 @@ pub struct BackendOptions {
     /// in the generated binary as the runtime default; overridable at
     /// runtime with `--counterexample-format`. Exact mode only - fuzz and
     /// smt-bounded modes keep their own output.
-    pub counterexample_format: crate::codegen_mc::CounterexampleFormat,
+    pub counterexample_format: crate::codegen::mc_concepts::CounterexampleFormat,
     /// Emit the opt-in `impl ProtocolFsm for Fsm` (Phase 5 task 11): links
     /// the generated artifact to the `rfs-adapters` crate via
     /// `use rfs_adapters::ProtocolFsm;` - the one documented opt-in that
@@ -167,12 +172,12 @@ impl Default for BackendOptions {
             no_std: false,
             with_property_monitors: false,
             mc_mode: McMode::Exact,
-            mc_max_states: crate::codegen_mc::EXACT_DEFAULT_MAX_STATES,
+            mc_max_states: crate::codegen::mc_concepts::EXACT_DEFAULT_MAX_STATES,
             mc_nondet: false,
-            mc_timeout_sec: crate::codegen_mc::EXACT_DEFAULT_TIMEOUT_SEC,
-            mc_threads: crate::codegen_mc::EXACT_DEFAULT_THREADS,
-            mc_smt_bound: crate::codegen_mc::SMT_DEFAULT_BOUND,
-            counterexample_format: crate::codegen_mc::CounterexampleFormat::Text,
+            mc_timeout_sec: crate::codegen::mc_concepts::EXACT_DEFAULT_TIMEOUT_SEC,
+            mc_threads: crate::codegen::mc_concepts::EXACT_DEFAULT_THREADS,
+            mc_smt_bound: crate::codegen::mc_concepts::SMT_DEFAULT_BOUND,
+            counterexample_format: crate::codegen::mc_concepts::CounterexampleFormat::Text,
             with_protocol_fsm: false,
             spec_hash: String::new(),
         }
@@ -457,7 +462,7 @@ pub enum CodegenRequest {
         mc_timeout_sec: u64,
         mc_threads: usize,
         mc_smt_bound: usize,
-        counterexample_format: crate::codegen_mc::CounterexampleFormat,
+        counterexample_format: crate::codegen::mc_concepts::CounterexampleFormat,
         with_protocol_fsm: bool,
     },
 }
@@ -517,12 +522,12 @@ pub fn parse_codegen_args(args: &[String]) -> Result<CodegenRequest, Vec<String>
     let mut no_std = false;
     let mut with_property_monitors = false;
     let mut mc_mode = McMode::default();
-    let mut mc_max_states = crate::codegen_mc::EXACT_DEFAULT_MAX_STATES;
+    let mut mc_max_states = crate::codegen::mc_concepts::EXACT_DEFAULT_MAX_STATES;
     let mut mc_nondet = false;
-    let mut mc_timeout_sec = crate::codegen_mc::EXACT_DEFAULT_TIMEOUT_SEC;
-    let mut mc_threads = crate::codegen_mc::EXACT_DEFAULT_THREADS;
-    let mut mc_smt_bound = crate::codegen_mc::SMT_DEFAULT_BOUND;
-    let mut counterexample_format = crate::codegen_mc::CounterexampleFormat::Text;
+    let mut mc_timeout_sec = crate::codegen::mc_concepts::EXACT_DEFAULT_TIMEOUT_SEC;
+    let mut mc_threads = crate::codegen::mc_concepts::EXACT_DEFAULT_THREADS;
+    let mut mc_smt_bound = crate::codegen::mc_concepts::SMT_DEFAULT_BOUND;
+    let mut counterexample_format = crate::codegen::mc_concepts::CounterexampleFormat::Text;
     let mut with_protocol_fsm = false;
     let mut i = 2;
     while i < rest.len() {
@@ -607,10 +612,10 @@ pub fn parse_codegen_args(args: &[String]) -> Result<CodegenRequest, Vec<String>
                 i += 1;
                 match rest
                     .get(i)
-                    .and_then(|v| crate::codegen_mc::CounterexampleFormat::parse(v))
+                    .and_then(|v| crate::codegen::mc_concepts::CounterexampleFormat::parse(v))
                 {
                     Some(f) => counterexample_format = f,
-                    None => errors.push(crate::codegen_mc::COUNTEREXAMPLE_FORMAT_ERROR.to_string()),
+                    None => errors.push(crate::codegen::mc_concepts::COUNTEREXAMPLE_FORMAT_ERROR.to_string()),
                 }
             }
             "--with-protocol-fsm" => {

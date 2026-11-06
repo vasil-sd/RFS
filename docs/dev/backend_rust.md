@@ -22,7 +22,7 @@ observable behavior; cross-backend differential tests enforce this
 | `src/backends/rust_test.rs` | 977 (no unit tests) | unit-test module rendering, the separate fuzz-target skeleton, aggregate test-crate tooling |
 | `src/backends/rust_mc.rs` | 2034 (no unit tests) | model-checker executable generation: exact engine + liveness + JSON report + fuzz runtime + SMT binary |
 
-Position in the pipeline: `src/codegen.rs::CodegenCommandKind::run` dispatches
+Position in the pipeline: `src/codegen/mod.rs::CodegenCommandKind::run` dispatches
 to the backend's function pointers - `src/backends/rust.rs::RUST_BACKEND`
 wires `production` to `src/backends/rust_fsm.rs::generate_production`,
 `test` to `src/backends/rust_test.rs::generate_unit_tests`, and
@@ -56,7 +56,7 @@ Code: `src/backends/rust.rs::RUST_BACKEND`,
 ## Plugin entry + shared Rust helpers (`src/backends/rust.rs`)
 
 **Registration.** `src/backends/rust.rs::RUST_BACKEND` is the static
-`Backend` value appended to the registry in `src/codegen.rs`: name "rust",
+`Backend` value appended to the registry in `src/codegen/mod.rs`: name "rust",
 one-line description, three command descriptors (PRODUCTION_INFO,
 TEST_INFO, MC_INFO - each carrying the CLI usage line and per-option help that
 backend_help renders verbatim), and the three function pointers into the
@@ -96,7 +96,7 @@ collide with Rust syntax:
 
 **Representative inputs.** representative_input_expr renders a variant's
 representative input as Rust source from
-`src/codegen_fsm.rs::representative_values` (the value-selection rules live in
+`src/codegen/fsm.rs::representative_values` (the value-selection rules live in
 the core, task 9.1): unit variant to `Input::Name`, struct to
 `Input::Name { f: v, ... }`; unrepresentable enum cases render as
 `Enum::__Empty__` / `Enum::__Unknown__`. Used for the ALL_INPUTS constant and
@@ -127,7 +127,7 @@ with_tests = true plus Always mode; the mc entry passes with_tests = false
 plus Always mode (D-P3-6: test/mc always include property monitors).
 
 **The Gen pipeline.** Gen::new builds the variant table
-(`src/codegen_fsm.rs::build_variants`) and compiles the monitors, then runs
+(`src/codegen/fsm.rs::build_variants`) and compiles the monitors, then runs
 emission in a fixed order - prelude, enums, Vars, Input/Output, report
 renderers, trace/handler types, monitors, Fsm impl, [ProtocolFsm impl],
 [test module]. The uses_vec_macro flag (any transition or on_error emits an
@@ -173,7 +173,7 @@ AssumptionViolation{label}, and - gated in production output by
 present in test/mc output.
 
 **Online monitors.** compile_monitors compiles every property formula via
-`src/monitor.rs::compile_formula` (assumptions are filtered by the --assumes
+`src/codegen/monitor.rs::compile_formula` (assumptions are filtered by the --assumes
 selection first); formulas outside the monitor subset are skipped with a
 warning whose text is identical in every backend (D-P3-5). emit_monitors
 renders one Mon_<snake(label)> struct per plan (assumptions first, then
@@ -184,7 +184,7 @@ header, ALL_INPUTS = one representative input per variant).
 
 render_monitor numbers the plan's nodes in DFS pre-order; the generated step
 body evaluates them in post-order (children before parents), mirroring the
-reference interpreter in src/monitor.rs. Per node kind (render_node):
+reference interpreter in src/codegen/monitor.rs. Per node kind (render_node):
 
 - RangeCheck: n<i>_failed / n<i>_trigger_step / n<i>_now - `now` is
   recomputed every sample (the child may recover), `failed` is sticky for
@@ -288,7 +288,7 @@ matched (transition_id usize::MAX). It reuses the same pattern_block_open /
 gen_expr / output_expr helpers as Fsm::step - both paths agree by
 construction. render_sample_formula_evaluator renders
 `fn <name>(s: &Sample) -> bool` for liveness leaves via
-`src/monitor.rs::formula_to_signal` + gen_signal (error when the subformula
+`src/codegen/monitor.rs::formula_to_signal` + gen_signal (error when the subformula
 contains temporal operators).
 
 Code: `src/backends/rust_fsm.rs::generate_production`,
@@ -311,13 +311,13 @@ Code: `src/backends/rust_fsm.rs::generate_production`,
 ## Unit-test, fuzz and aggregate-crate generation (`src/backends/rust_test.rs`)
 
 **Entry point.** generate_unit_tests rejects `--no_std` with the pinned
-`src/codegen.rs::NO_STD_PRODUCTION_ONLY_ERROR`, runs generate_core(module,
+`src/codegen/mod.rs::NO_STD_PRODUCTION_ONLY_ERROR`, runs generate_core(module,
 options, true, Always), and appends one ExtraFile: the fuzz_target.rs
 skeleton (below). The test artifact itself stays dependency-free.
 
 **The test module.** emit_test_module renders a `#[cfg(test)] mod tests`
 appended to the production source, from the shared plan
-`src/codegen_test.rs::build_test_plan(variants, module, steps)` - one plan,
+`src/codegen/test_plan.rs::build_test_plan(variants, module, steps)` - one plan,
 rendered per backend (the planning semantics are `dev:codegen-test-plan`; this
 section covers only the rendering). candidate_inputs() = one representative
 input per variant. Test classes (names are STABLE and mirrored by the C
@@ -351,7 +351,7 @@ backend):
   other monitored property records first;
 - random_trace_seed<seed>_steps<K> - drives the precomputed LCG index table
   over ALL_INPUTS (same constants as the fuzz wire format, seed
-  `src/codegen_test.rs::RANDOM_TRACE_SEED` = 12345) and prints ONE
+  `src/codegen/test_plan.rs::RANDOM_TRACE_SEED` = 12345) and prints ONE
   deterministic coverage line: `random_trace seed={} steps={} ok={} unexpected={}
   assumption={} property={} states_visited={}`.
 
@@ -366,7 +366,7 @@ fields only - the documented planner fallback for None args).
 **Fuzz skeleton (separate file).** emit_fuzz_target renders fuzz_target.rs:
 line 1 = the same v1.0 artifact header; `#![no_main]` +
 libfuzzer_sys::fuzz_target!. Decoding per the planner's
-`src/codegen_test.rs::FuzzDecodePlan`: the first byte selects the input
+`src/codegen/test_plan.rs::FuzzDecodePlan`: the first byte selects the input
 variant (byte % n_variants); each field follows - bool = one non-zero byte,
 bit<W> = ceil(W/8) little-endian bytes masked to W bits, enum = constant
 representative (first declared variant, else __Unknown__); a budget check
@@ -402,8 +402,8 @@ Code: `src/backends/rust_test.rs::generate_unit_tests`,
 ## Model-checker executable generation (`src/backends/rust_mc.rs`)
 
 **Entry point.** generate_model_checker rejects `--no_std`
-(`src/codegen.rs::NO_STD_PRODUCTION_ONLY_ERROR`) and `--with-protocol-fsm`
-(`src/codegen.rs::PROTOCOL_FSM_MC_ERROR` - the trait impl belongs to the
+(`src/codegen/mod.rs::NO_STD_PRODUCTION_ONLY_ERROR`) and `--with-protocol-fsm`
+(`src/codegen/mod.rs::PROTOCOL_FSM_MC_ERROR` - the trait impl belongs to the
 production/test surface; the model checker keeps its own runtime). Three
 shapes:
 
@@ -543,7 +543,7 @@ as `src/utils/rng.rs::Rng`), ViolationSpec parsing (the label:prob:percent%
 wire format, defaults 1.0/100.0), parse_assume_selection (all / none / labels
 filtered against ASSUME_LABELS), print_trace + vars_at via the renderers, and
 run_fuzz with runtime flags --bound 5 / --runs 20 / --seed 12345 / --assumes /
---violate / --unexpected-prob (the `src/codegen_mc.rs::McConfig` defaults).
+--violate / --unexpected-prob (the `src/codegen/mc_concepts.rs::McConfig` defaults).
 Per step: forced violation injection first (trial-stepping ALL_INPUTS for an
 input that violates a target label), then optional unexpected injection, else
 allowed representative inputs - inputs that confirm a property violation are
@@ -576,7 +576,7 @@ event lines).
 
 **Embedded-copy rule.** Because the generated binary cannot depend on this
 crate, rust_mc.rs embeds its own copies of the plan tables, parsing helpers,
-and JSON writer. The formats in `src/codegen_mc.rs` / `src/mc_plan.rs` are
+and JSON writer. The formats in `src/codegen/mc_concepts.rs` / `src/mc_plan.rs` are
 the SOURCE OF TRUTH - when a wire format changes, update both backends'
 emitters in the same change and extend the tests ([CODEGEN.md](../../CODEGEN.md) section 9).
 

@@ -27,7 +27,7 @@ Shared infrastructure: external tools `src/ext_tool.rs::ExtTool` / `resolve`
 | info format | dev:cli-commands-info | `src/info_format.rs::FORMATS`, `find`, `list_markdown`, `render`; dispatch `src/main.rs::run_info_format` |
 | test | dev:cli-commands-test | `src/test_cmd.rs::run_test`, `run_unit_suite`, `run_fuzz_c`, `run_fuzz_rust`, `render_script`; dispatch `src/main.rs::cmd_test` |
 | diagram | dev:cli-commands-diagram | `src/diagram.rs::run_diagram`, `DIAGRAMS`, `DiagramPlugin`; plugins `src/diagrams/dot.rs::DOT_PLUGIN`, `src/diagrams/plantuml.rs::PUML_PLUGIN`, `src/diagrams/mermaid.rs::MMD_PLUGIN`, `src/diagrams/tables.rs::TABLE_PLUGIN` / `MD_PLUGIN`; dispatch `src/main.rs::cmd_diagram` |
-| codegen | dev:codegen-plugin-api | `src/codegen.rs::parse_codegen_args`, `get_backend`, `list_backends`, `CodegenCommandKind::run`; backends `src/backends/rust.rs` / `src/backends/c.rs`; dispatch `src/main.rs::cmd_codegen` |
+| codegen | dev:codegen-plugin-api | `src/codegen/mod.rs::parse_codegen_args`, `get_backend`, `list_backends`, `CodegenCommandKind::run`; backends `src/backends/rust.rs` / `src/backends/c.rs`; dispatch `src/main.rs::cmd_codegen` |
 | mc-ref | dev:cli-commands-mc-ref-gen-spec + dev:mc-engine-exact | `src/mc_ref_cmd.rs::run_mc_ref`, `exit_code_for`, `run_cli`; engine `src/ref_mc.rs::run` |
 | gen-spec | dev:cli-commands-mc-ref-gen-spec | `src/gen_spec_cmd.rs::run_cli`, `generate_random`, `mutate_base`; engine `src/lang/specgen.rs::SpecGen`, `mutate_traced` |
 
@@ -49,10 +49,10 @@ Shared infrastructure: external tools `src/ext_tool.rs::ExtTool` / `resolve`
 
 | Concern | Read fragment | Files/functions |
 |---|---|---|
-| Plugin API + registry | dev:codegen-plugin-api, dev:codegen-core-overview | `src/codegen.rs::BACKENDS`, `get_backend`, `list_backends`, `parse_codegen_args`, `BackendOptions`, `CodegenCommandKind` |
-| Production FSM helpers | dev:codegen-fsm-helpers | `src/codegen_fsm.rs` (variants, representative values shared by both backends) |
-| MC concepts | dev:codegen-mc-concepts | `src/codegen_mc.rs` (ExactStatus taxonomy, EXACT_DEFAULT_* constants, report wire format) |
-| Test planning | dev:codegen-test-plan | `src/codegen_test.rs` (TestPlan shared by both backends + fuzz skeletons) |
+| Plugin API + registry | dev:codegen-plugin-api, dev:codegen-core-overview | `src/codegen/mod.rs::BACKENDS`, `get_backend`, `list_backends`, `parse_codegen_args`, `BackendOptions`, `CodegenCommandKind` |
+| Production FSM helpers | dev:codegen-fsm-helpers | `src/codegen/fsm.rs` (variants, representative values shared by both backends) |
+| MC concepts | dev:codegen-mc-concepts | `src/codegen/mc_concepts.rs` (ExactStatus taxonomy, EXACT_DEFAULT_* constants, report wire format) |
+| Test planning | dev:codegen-test-plan | `src/codegen/test_plan.rs` (TestPlan shared by both backends + fuzz skeletons) |
 | Rust backend | dev:backend-rust-overview (+ -plugin / -fsm / -mc / -test) | `src/backends/rust.rs`, `rust_fsm.rs`, `rust_mc.rs`, `rust_test.rs` (aggregate crate: `generate_aggregate_test_crate`, `write_generated_crate`) |
 | C backend | dev:backend-c-overview (+ -plugin / -fsm / -mc / -test) | `src/backends/c.rs`, `c_fsm.rs`, `c_mc.rs`, `c_test.rs` (same wire format as Rust) |
 
@@ -65,7 +65,7 @@ Shared infrastructure: external tools `src/ext_tool.rs::ExtTool` / `resolve`
 | Liveness analysis | dev:mc-engine-liveness | `src/ref_mc.rs` (position graph, product automaton, SCCs, lasso witness) |
 | Counterexample verification | dev:mc-engine-verify | `src/ref_mc.rs::verify_counterexample`, minimal violation labels |
 | SMT bounded mode | dev:mc-engine-smt | `src/smt_plan.rs` (k-step unrolling spec), `src/smt_emit.rs` (Rust z3 + C libz3 emitter) |
-| PSL -> monitor compiler | dev:monitor-compiler-overview (+ -signals / -nodes / -compile / -reference) | `src/monitor.rs::compile_formula`, `MonitorPlan`, `ReferenceMonitor` |
+| PSL -> monitor compiler | dev:monitor-compiler-overview (+ -signals / -nodes / -compile / -reference) | `src/codegen/monitor.rs::compile_formula`, `MonitorPlan`, `ReferenceMonitor` |
 
 ### Workspace crates (deep dive dev:workspace-crates-overview)
 
@@ -136,10 +136,10 @@ above.
 - `src/json/json_schema.rs` - draft-07 JSON-Schema emitter + markdown renderer + sync walker
 - `src/utils/mod.rs` - module root of the cross-cutting substrate (hash + rng)
 - `src/utils/rng.rs` - the project's single LCG generator (shared constants, top-53-bit mapping)
-- `src/codegen.rs` - codegen backend API + plugin registry (language-agnostic core)
-- `src/codegen_fsm.rs` - shared production-FSM codegen helpers (variants, rep values)
-- `src/codegen_mc.rs` - bounded model-checker concepts shared by all backends
-- `src/codegen_test.rs` - unit-test planning (TestPlan) shared by all backends
+- `src/codegen/mod.rs` - codegen backend API + plugin registry (language-agnostic core)
+- `src/codegen/fsm.rs` - shared production-FSM codegen helpers (variants, rep values)
+- `src/codegen/mc_concepts.rs` - bounded model-checker concepts shared by all backends
+- `src/codegen/test_plan.rs` - unit-test planning (TestPlan) shared by all backends
 - `src/backends/mod.rs` - backend plugin modules: registration entries per target language
 - `src/backends/rust.rs` - Rust backend: plugin registration + shared Rust helpers
 - `src/backends/rust_fsm.rs` - Rust backend: production FSM source generation
@@ -153,7 +153,7 @@ above.
 - `src/smt_plan.rs` - backend-neutral SMT spec for k-step unrolling over z3 bitvectors
 - `src/smt_emit.rs` - shared SMT emitter: renders the spec into Rust (z3 crate) and C (libz3)
 - `src/ref_mc.rs` - brute-force reference model checker (ground truth, rfs mc-ref)
-- `src/monitor.rs` - PSL-to-monitor compiler: formulas to MonitorPlan
+- `src/codegen/monitor.rs` - PSL-to-monitor compiler: formulas to MonitorPlan
 - `src/info.rs` - rfs info: static spec introspection
 - `src/info_format.rs` - rfs info format: machine-readable input/output format descriptions
 - `src/gen_spec_cmd.rs` - rfs gen-spec: write a random spec (two modes)

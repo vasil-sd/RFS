@@ -126,7 +126,7 @@ fn generate(
 // ---------------------------------------------------------------------------
 
 /// The property-specific counterexample fields printed by both MC runtimes
-/// (identical wire format, see src/codegen_mc.rs).
+/// (identical wire format, see src/codegen/mc_concepts.rs).
 struct McViolation {
     label: String,
     trigger_step: usize,

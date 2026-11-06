@@ -683,7 +683,7 @@ fn run_json(r: &BenchRun, peak_rss_kb: i64) -> Json {
         ("monitors_bits".into(), opt(r.monitors_bits)),
         ("memory_estimate_bytes".into(), opt(r.memory_estimate_bytes)),
         // Peak RSS in kB from the JSON-report run (informational; 0 on read
-        // failure - see codegen_mc.rs). The order-of-magnitude sanity bound
+        // failure - see codegen/mc_concepts.rs). The order-of-magnitude sanity bound
         // is asserted at the call site, not here.
         ("peak_rss_kb".into(), Json::int(peak_rss_kb)),
         // u128 wall-clock ms; i64 covers 292 million years of runtime.

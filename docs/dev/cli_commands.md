@@ -20,7 +20,7 @@ module map:
 | info / info format | `src/info.rs::run_info` / `src/info_format.rs::FORMATS` | dev:cli-commands-info |
 | test | `src/test_cmd.rs::run_test` | dev:cli-commands-test |
 | diagram | `src/diagram.rs::run_diagram` + the plugins in `src/diagrams/` | dev:cli-commands-diagram |
-| codegen | `src/codegen.rs` registry dispatch (via `src/main.rs::cmd_codegen`) | [codegen_core.md](codegen_core.md) |
+| codegen | `src/codegen/mod.rs` registry dispatch (via `src/main.rs::cmd_codegen`) | [codegen_core.md](codegen_core.md) |
 | mc-ref | `src/mc_ref_cmd.rs::run_mc_ref` over `src/ref_mc.rs` | dev:cli-commands-mc-ref-gen-spec |
 | gen-spec | `src/gen_spec_cmd.rs::run_cli` over `src/lang/specgen.rs` | dev:cli-commands-mc-ref-gen-spec |
 
@@ -77,13 +77,13 @@ option):
 to ...)` for directory-mode failures (file mode reports on stderr). JSON mode
   renders the pinned document via `src/frontend.rs::render_validate_json`
   with print!; exit codes are unchanged by --json.
-- `src/main.rs::cmd_codegen`: delegates to `src/codegen.rs::parse_codegen_args`
+- `src/main.rs::cmd_codegen`: delegates to `src/codegen/mod.rs::parse_codegen_args`
   -> List / Help / BackendHelp / Generate. Generate resolves the backend,
   maps the input extension to a Format, loads via
-  `src/frontend.rs::convert_file_to_ir`, builds `src/codegen.rs::BackendOptions`
+  `src/frontend.rs::convert_file_to_ir`, builds `src/codegen/mod.rs::BackendOptions`
   (spec_hash starts empty - it is stamped from the whole-file canonical IR
   JSON by the command's run per D-P6-3), and calls
-  `src/codegen.rs::CodegenCommandKind::run`. With --out: parent directories
+  `src/codegen/mod.rs::CodegenCommandKind::run`. With --out: parent directories
   are created, the artifact + any extra files (e.g. the rust test command's
   fuzz skeleton) are written next to it. Without --out: stdout mode REFUSES
   commands that emit additional files (strict - no silent file loss).
@@ -219,7 +219,7 @@ initial state, enums, events/outputs with variants + field types, variables
 with types + init expressions (`src/info.rs::render_formula`), the on_error
 block, transition count, and properties/assumptions each with their monitor-
 subset status - `src/info.rs::monitor_status` returns "monitored" or
-"skipped: <reason>" from `src/monitor.rs::compile_formula` (the R1-R4 gate;
+"skipped: <reason>" from `src/codegen/monitor.rs::compile_formula` (the R1-R4 gate;
 identical classification to the backends). NO model checking, NO code
 generation. Text via `src/info.rs::render_text`; --json via
 `src/info.rs::render_json` - a machine-readable document with stable key order
@@ -267,9 +267,9 @@ merges the RFS_FUZZ_FLAGS env value first, then --fuzz-flags (both backends).
 
 **run_test pipeline.** `src/test_cmd.rs::run_test`: (1) load + validate under
 the shared file contract; (2) resolve the backend via
-`src/codegen.rs::get_backend` and the compiler preset (`src/ext_tool.rs::ExtTool`
+`src/codegen/mod.rs::get_backend` and the compiler preset (`src/ext_tool.rs::ExtTool`
 RUSTC for rust, GCC for c) through ExtTool::resolve with the CLI overrides;
-(3) codegen the test artifact via the `src/codegen.rs::CodegenCommandKind`
+(3) codegen the test artifact via the `src/codegen/mod.rs::CodegenCommandKind`
 UnitTests registry dispatch (no renderer logic duplicated); the fuzz-skeleton
 extra file is consumed by the fuzz suite when selected; (4) when --suite fuzz:
 `src/test_cmd.rs::build_fuzz_context` - a SECOND registry dispatch for the
@@ -328,8 +328,8 @@ Code: `src/test_cmd.rs::TestSuite`, `src/test_cmd.rs::TestOptions`,
 **rfs mc-ref.** `src/mc_ref_cmd.rs::CeFormat` (Text | Json) + parse;
 `src/mc_ref_cmd.rs::McRefOptions { max_states, timeout_sec, assumes,
 ce_format }` with Default from the shared exact-mode constants
-(`src/codegen_mc.rs::EXACT_DEFAULT_MAX_STATES`,
-`src/codegen_mc.rs::EXACT_DEFAULT_TIMEOUT_SEC`). `src/mc_ref_cmd.rs::run_mc_ref`
+(`src/codegen/mc_concepts.rs::EXACT_DEFAULT_MAX_STATES`,
+`src/codegen/mc_concepts.rs::EXACT_DEFAULT_TIMEOUT_SEC`). `src/mc_ref_cmd.rs::run_mc_ref`
 applies the shared file contract on the FIRST module, builds a RefConfig, and
 calls `src/ref_mc.rs::run` IN-PROCESS - no compilation (rapid prototyping in
 shell/REPL; engine deep dive: dev:mc-engine-exact). Reports are UNIFIED with
@@ -381,8 +381,8 @@ Code: `src/mc_ref_cmd.rs::CeFormat`, `src/mc_ref_cmd.rs::McRefOptions`,
 `src/gen_spec_cmd.rs::mutate_base`, `src/gen_spec_cmd.rs::verify_rendered`,
 `src/gen_spec_cmd.rs::run_cli`, `src/utils/rng.rs::Rng`, `src/lang/specgen.rs::Bounds`,
 `src/lang/specgen.rs::SpecGen`, `src/lang/specgen.rs::MutOp`, `src/lang/specgen.rs::mutate_traced`,
-`src/lang/specgen.rs::mutate`, `src/codegen_mc.rs::EXACT_DEFAULT_MAX_STATES`,
-`src/codegen_mc.rs::EXACT_DEFAULT_TIMEOUT_SEC`, `tests/toolchain_fuzz_test.rs`
+`src/lang/specgen.rs::mutate`, `src/codegen/mc_concepts.rs::EXACT_DEFAULT_MAX_STATES`,
+`src/codegen/mc_concepts.rs::EXACT_DEFAULT_TIMEOUT_SEC`, `tests/toolchain_fuzz_test.rs`
 
 
 <a id="dev:cli-commands-diagram"></a>

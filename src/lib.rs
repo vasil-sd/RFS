@@ -8,9 +8,6 @@
 pub mod backends;
 pub mod cli_log;
 pub mod codegen;
-pub mod codegen_fsm;
-pub mod codegen_mc;
-pub mod codegen_test;
 pub mod diagram;
 pub mod diagrams;
 pub mod ebnf_grammar;
@@ -24,7 +21,6 @@ pub mod json;
 pub mod lang;
 pub mod mc_plan;
 pub mod mc_ref_cmd;
-pub mod monitor;
 pub mod ref_mc;
 pub mod smt_emit;
 pub mod smt_plan;

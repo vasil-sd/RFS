@@ -178,7 +178,7 @@ fn run_one(tag: &str, ir: &rfs::Ir) {
                 "mc",
                 rfs::codegen::CodegenCommandKind::ModelChecker,
                 rfs::codegen::BackendOptions {
-                    counterexample_format: rfs::codegen_mc::CounterexampleFormat::Json,
+                    counterexample_format: rfs::codegen::mc_concepts::CounterexampleFormat::Json,
                     ..rfs::codegen::BackendOptions::default()
                 },
             ),
@@ -227,9 +227,9 @@ fn run_one(tag: &str, ir: &rfs::Ir) {
 /// Exact + fuzz runs of BOTH generated engines vs the ref_mc verdict.
 fn check_status_agreement(tag: &str, res: &rfs::ref_mc::RefResult) {
     let want_exit = match res.status {
-        rfs::codegen_mc::ExactStatus::PassComplete => 0,
-        rfs::codegen_mc::ExactStatus::Fail => 1,
-        rfs::codegen_mc::ExactStatus::UnknownStateLimit => 2,
+        rfs::codegen::mc_concepts::ExactStatus::PassComplete => 0,
+        rfs::codegen::mc_concepts::ExactStatus::Fail => 1,
+        rfs::codegen::mc_concepts::ExactStatus::UnknownStateLimit => 2,
     };
     for (bi, backend_name) in ["rust", "c"].iter().enumerate() {
         let bin = scratch_dir().join(format!("{tag}_{backend_name}_mc_bin"));
@@ -265,7 +265,7 @@ fn check_status_agreement(tag: &str, res: &rfs::ref_mc::RefResult) {
         let status = doc_status(&doc);
         // NO FALSE PASS (the Phase 6 invariant): a ref Fail must never be
         // reported as pass-complete by a generated engine.
-        if matches!(res.status, rfs::codegen_mc::ExactStatus::Fail) {
+        if matches!(res.status, rfs::codegen::mc_concepts::ExactStatus::Fail) {
             assert_ne!(
                 status, "pass-complete",
                 "[{tag}/{backend_name}] NO FALSE PASS: ref_mc says Fail"

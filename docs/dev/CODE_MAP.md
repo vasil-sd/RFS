@@ -75,21 +75,21 @@ links both ways. The pointer scope is driven by `tests/dev_docs_manifest.txt`.
 
 ### Codegen core (4)
 
-- `src/codegen.rs` - codegen backend API + plugin registry: the `Backend`
+- `src/codegen/mod.rs` - codegen backend API + plugin registry: the `Backend`
   trait (name, description, commands), the static registry
-  `src/codegen.rs::BACKENDS`, lookup `src/codegen.rs::get_backend`, shared
+  `src/codegen/mod.rs::BACKENDS`, lookup `src/codegen/mod.rs::get_backend`, shared
   option/output types and command argument parsing. Owner of
   `dev:code-map-codegen`. Deep dive: `dev:codegen-core-overview` /
   `llm:codegen-core`.
-- `src/codegen_fsm.rs` - shared production-FSM codegen helpers: variant
-  computation `src/codegen_fsm.rs::build_variants` (`VariantInfo`,
+- `src/codegen/fsm.rs` - shared production-FSM codegen helpers: variant
+  computation `src/codegen/fsm.rs::build_variants` (`VariantInfo`,
   `FsmVariants`), representative values `representative_values`
   (`RepValue`), liveness detection `contains_liveness`.
-- `src/codegen_mc.rs` - bounded model-checker concepts shared by all
+- `src/codegen/mc_concepts.rs` - bounded model-checker concepts shared by all
   backends: `McConfig`, violation reporting (`ViolationSpec`, `McPhase`,
   `McStatus`, `ExactStatus`), assume-selection parsing
   `parse_assume_selection`.
-- `src/codegen_test.rs` - unit-test planning shared by all backends:
+- `src/codegen/test_plan.rs` - unit-test planning shared by all backends:
   `TestPlan`, input/output cases (`InputCase`, `OutputCase`, `VarValue`),
   transition expectations (`TransitionExpectation`, `OnCase`).
 
@@ -122,7 +122,7 @@ links both ways. The pointer scope is driven by `tests/dev_docs_manifest.txt`.
 - `src/backends/c_test.rs` - C backend: unit-test / fuzz-target generation
   (`generate_unit_tests`, `emit_fuzz_target_c`).
 
-### MC engine + monitor (5)
+### MC engine (4)
 
 - `src/mc_plan.rs` - codegen-time plan for the exact MC engine, computed once
   and embedded in both backends' binaries: `src/mc_plan.rs::McPlan`. Deep
@@ -135,8 +135,8 @@ links both ways. The pointer scope is driven by `tests/dev_docs_manifest.txt`.
 - `src/ref_mc.rs` - brute-force reference model checker, the ground truth
   behind `rfs mc-ref`: `src/ref_mc.rs::run` with `RefConfig` / `RefResult`;
   independent of the generated checkers (shares only IR + report concepts).
-- `src/monitor.rs` - PSL-to-monitor compiler: formulas to
-  `src/monitor.rs::MonitorPlan` via `src/monitor.rs::compile_formula`, with
+- `src/codegen/monitor.rs` - PSL-to-monitor compiler: formulas to
+  `src/codegen/monitor.rs::MonitorPlan` via `src/codegen/monitor.rs::compile_formula`, with
   an unsupported-formula fallback. Deep dive:
   `dev:monitor-compiler-overview` / `llm:monitor-compiler`.
 

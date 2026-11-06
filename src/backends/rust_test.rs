@@ -2,7 +2,7 @@
 //!
 //! The `test` command generates the production FSM source plus a
 //! `#[cfg(test)]` module with (all planned by the shared planner in
-//! `crate::codegen_test` - one plan, rendered per backend):
+//! `crate::codegen::test_plan` - one plan, rendered per backend):
 //!
 //! Module-level tests:
 //! - `initial_state_is_correct`: the FSM starts in the declared initial state;
@@ -11,7 +11,7 @@
 //!   transitions (the run ends without errors);
 //! - `negative_unexpected_input_search`: look for an input that makes the FSM
 //!   fail with `UnexpectedEvent`. When a statically derivable unexpected input
-//!   exists (see `crate::codegen_test`), the test asserts that it is found.
+//!   exists (see `crate::codegen::test_plan`), the test asserts that it is found.
 //!
 //! Extended plan classes (Phase 5 task 4/5):
 //! - `t<id>_<state>_on_<event>`: per-transition unit tests - install the
@@ -38,8 +38,8 @@
 
 use crate::backends::rust::{representative_input_expr, rust_ident, snake};
 use crate::codegen::{BackendOptions, CodegenOutput, ExtraFile};
-use crate::codegen_fsm::{self, FsmVariants, VariantInfo};
-use crate::codegen_test::{
+use crate::codegen::fsm::{self, FsmVariants, VariantInfo};
+use crate::codegen::test_plan::{
     self, build_fuzz_decode, FuzzFieldStrategy, InputCase, InvariantCase, MonitorViolationCase,
     OutputCase, RandomTraceCase, TransitionExpectation, TransitionTestCase, VarValue,
 };
@@ -67,7 +67,7 @@ pub fn generate_unit_tests(
     // The fuzz skeleton is a SEPARATE file: it depends on libfuzzer_sys,
     // which the dependency-free test artifact (and the aggregate generated
     // crate) must not pull in.
-    let variants = codegen_fsm::build_variants(module);
+    let variants = fsm::build_variants(module);
     result.extra_files.push(ExtraFile {
         name: "fuzz_target.rs".to_string(),
         content: emit_fuzz_target(module, &variants, &options.spec_hash)?,
@@ -82,7 +82,7 @@ pub(crate) fn emit_test_module(
     steps: usize,
 ) -> Result<String, Vec<String>> {
     let mut out = String::new();
-    let plan = codegen_test::build_test_plan(variants, module, steps);
+    let plan = test_plan::build_test_plan(variants, module, steps);
     let k = plan.steps;
     let candidates: Vec<String> = variants
         .inputs
@@ -96,7 +96,7 @@ pub(crate) fn emit_test_module(
     };
     let definite = plan.definite_unexpected && !plan.has_on_error;
     let on_error_assert =
-        plan.has_on_error && codegen_test::has_definite_unexpected(variants, module);
+        plan.has_on_error && test_plan::has_definite_unexpected(variants, module);
     let expect_progress = plan.expect_progress;
     let _ = writeln!(
         out,

@@ -27,16 +27,16 @@ taxonomy:
   `src/smt_emit.rs::emit_c_spec`) for parity by construction - details in
   dev:mc-engine-smt (task 11.2).
 
-Shared outcome taxonomy (`src/codegen_mc.rs`): `src/codegen_mc.rs::ExactStatus`
+Shared outcome taxonomy (`src/codegen/mc_concepts.rs`): `src/codegen/mc_concepts.rs::ExactStatus`
 (PassComplete / Fail / UnknownStateLimit, with wire names, human text, and exit
-codes 0/1/2), `src/codegen_mc.rs::FailReason` (PropertyViolation /
-LivenessViolation / Deadlock), and `src/codegen_mc.rs::exact_summary_line` -
+codes 0/1/2), `src/codegen/mc_concepts.rs::FailReason` (PropertyViolation /
+LivenessViolation / Deadlock), and `src/codegen/mc_concepts.rs::exact_summary_line` -
 the machine-readable summary line, parity-checked across backends.
 
 Code: `src/mc_plan.rs::McPlan`, `src/mc_plan.rs::LivenessDecomposition`,
 `src/ref_mc.rs::run`, `src/mc_ref_cmd.rs::run_mc_ref`,
-`src/codegen_mc.rs::ExactStatus`, `src/codegen_mc.rs::FailReason`,
-`src/codegen_mc.rs::exact_summary_line`, `src/smt_plan.rs`,
+`src/codegen/mc_concepts.rs::ExactStatus`, `src/codegen/mc_concepts.rs::FailReason`,
+`src/codegen/mc_concepts.rs::exact_summary_line`, `src/smt_plan.rs`,
 `src/smt_emit.rs::emit_rust_spec`, `src/smt_emit.rs::emit_c_spec`
 
 
@@ -47,7 +47,7 @@ Code: `src/mc_plan.rs::McPlan`, `src/mc_plan.rs::LivenessDecomposition`,
 pure function of the validated module + assumption selection - no environment
 reads, no randomness. It produces three tables: `abstraction` (one
 `src/mc_plan.rs::VariantInputSpec` per event variant, same declaration order as
-`src/codegen_fsm.rs::build_variants`), `encoding` (`src/mc_plan.rs::ConfigEncoding`
+`src/codegen/fsm.rs::build_variants`), `encoding` (`src/mc_plan.rs::ConfigEncoding`
 from monitor layouts), and `traversal` (`src/mc_plan.rs::TraversalSpec`).
 
 **Input abstraction (D-P4-3).** A payload field is CONCRETE iff it is
@@ -62,7 +62,7 @@ Concrete fields carry their canonical `src/mc_plan.rs::ValueDomain` (Bool:
 false < true; Int: 0..=max ascending, max saturated to u64::MAX for width >= 64
 which exact MC cannot enumerate anyway; Enum: declaration order); abstracted
 fields collapse to a single representative value
-(`src/codegen_fsm.rs::representative_values`).
+(`src/codegen/fsm.rs::representative_values`).
 
 **Configuration encoding (D-P4-2).** config = (state index, packed variables,
 monitor transition states), bit-packed little-endian into total_bytes =
@@ -115,8 +115,8 @@ Code: `src/mc_plan.rs::McPlan`, `src/mc_plan.rs::ValueDomain`,
 `src/mc_plan.rs::SkeletonLeaf`, `src/mc_plan.rs::Skeleton`,
 `src/mc_plan.rs::LivenessPropertySpec`, `src/mc_plan.rs::LivenessDecomposition`,
 `src/mc_plan.rs::boolean_over_atoms`, `src/mc_plan.rs::decompose_top`,
-`src/codegen_fsm.rs::build_variants`, `src/codegen_fsm.rs::representative_values`,
-`src/monitor.rs::compile_formula`
+`src/codegen/fsm.rs::build_variants`, `src/codegen/fsm.rs::representative_values`,
+`src/codegen/monitor.rs::compile_formula`
 
 
 <a id="dev:mc-engine-exact"></a>
@@ -156,8 +156,8 @@ final catch-all with tid = usize::MAX and no bindings.
 
 **run() - level-synchronous BFS.** `src/ref_mc.rs::run` (config:
 `src/ref_mc.rs::RefConfig` - max_states / timeout_sec / assume_arg, defaults
-from `src/codegen_mc.rs::EXACT_DEFAULT_MAX_STATES` /
-`src/codegen_mc.rs::EXACT_DEFAULT_TIMEOUT_SEC`). Own monitor compilation
+from `src/codegen/mc_concepts.rs::EXACT_DEFAULT_MAX_STATES` /
+`src/codegen/mc_concepts.rs::EXACT_DEFAULT_TIMEOUT_SEC`). Own monitor compilation
 (liveness properties skipped - checked post-BFS) + liveness decomposition;
 config widths recomputed from the documented SEMANTICS 9.2 formulas for
 statistics only (monitor size, memory estimate). Initial config: constant-
@@ -183,12 +183,12 @@ bit-packing: deliberate, behavior must not depend on the container. Liveness
 analysis runs only when no safety failure/deadlock was found; a witness inside
 a truncated subgraph is SOUND (all its edges are real transitions). Status
 taxonomy Running/Pass/StateLimit/Timeout/Fail maps to the shared
-`src/codegen_mc.rs::ExactStatus`.
+`src/codegen/mc_concepts.rs::ExactStatus`.
 
 **Report rendering.** `src/ref_mc.rs::render_text`: byte-identical FORMAT to the
 generated exact-mode binaries' default report - status line (PASS (complete) /
 FAIL / UNKNOWN (state limit reached[, timeout after Ns])), the shared
-`src/codegen_mc.rs::exact_summary_line`, statistics block (unexpected
+`src/codegen/mc_concepts.rs::exact_summary_line`, statistics block (unexpected
 terminations + first unexpected, monitor size bits, memory estimate), per-reason
 counterexample header (property violation with trigger/violation step + vars at
 each; liveness with formula + cycle length + note; deadlock line), then
@@ -217,9 +217,9 @@ Code: `src/ref_mc.rs::Val`, `src/ref_mc.rs::RType`, `src/ref_mc.rs::EvalCtx`,
 `src/ref_mc.rs::val_key`, `src/ref_mc.rs::bnode_key`, `src/ref_mc.rs::run`,
 `src/ref_mc.rs::path_to`, `src/ref_mc.rs::trace_steps`,
 `src/ref_mc.rs::render_text`, `src/ref_mc.rs::to_json_report`,
-`src/codegen_mc.rs::EXACT_DEFAULT_MAX_STATES`,
-`src/codegen_mc.rs::EXACT_DEFAULT_TIMEOUT_SEC`,
-`src/codegen_mc.rs::parse_assume_selection`
+`src/codegen/mc_concepts.rs::EXACT_DEFAULT_MAX_STATES`,
+`src/codegen/mc_concepts.rs::EXACT_DEFAULT_TIMEOUT_SEC`,
+`src/codegen/mc_concepts.rs::parse_assume_selection`
 
 
 <a id="dev:mc-engine-liveness"></a>
@@ -367,7 +367,7 @@ time so they cannot be recovered from the spec alone -, Not/BitNot/Neg, and Bin 
 the 16-operator `src/smt_plan.rs::Sb` subset of the IR BinOp. `src/smt_plan.rs::convert_expr`
 resolves names in EXACTLY the validator's order (state -> payload bindings -> vars ->
 state variants; `src/smt_plan.rs::ExprCtx`); an abstracted field becomes its
-representative literal (`src/codegen_fsm.rs::RepValue`). `src/smt_plan.rs::convert_formula`
+representative literal (`src/codegen/fsm.rs::RepValue`). `src/smt_plan.rs::convert_formula`
 walks property formulas with NO payload context (an empty variant view).
 
 **Typing.** `src/smt_plan.rs::SeType` (Bool / Bit(w) / IntLit) +
@@ -480,5 +480,5 @@ Code: `src/smt_plan.rs::Se`, `src/smt_plan.rs::Sb`, `src/smt_plan.rs::Sf`,
 `src/smt_emit.rs::render_bit_bin_c`, `src/smt_emit.rs::shift_amt_width`,
 `src/smt_emit.rs::render_shift_rust`, `src/smt_emit.rs::render_shift_c`,
 `src/smt_emit.rs::emit_rust_spec`, `src/smt_emit.rs::emit_c_spec`,
-`src/mc_plan.rs::McPlan`, `src/codegen_fsm.rs::RepValue`
+`src/mc_plan.rs::McPlan`, `src/codegen/fsm.rs::RepValue`
 

@@ -2,7 +2,7 @@
 //!
 //! The `test` command emits the production FSM source plus a `main()` that
 //! runs the same planned checks as the Rust backend's generated tests
-//! (`codegen_test::TestPlan`) - one plan, rendered per backend (parity
+//! (`test_plan::TestPlan`) - one plan, rendered per backend (parity
 //! principle): module-level tests (initial state, positive bounded sequence,
 //! negative unexpected-input search) plus the extended plan classes:
 //!
@@ -27,8 +27,8 @@
 use crate::backends::c::{bit_c_type, c_ident};
 use crate::backends::rust::snake;
 use crate::codegen::{BackendOptions, CodegenOutput, ExtraFile};
-use crate::codegen_fsm::{self, FsmVariants, VariantInfo};
-use crate::codegen_test::{
+use crate::codegen::fsm::{self, FsmVariants, VariantInfo};
+use crate::codegen::test_plan::{
     self, build_fuzz_decode, FuzzFieldStrategy, InputCase, InvariantCase, MonitorViolationCase,
     OutputCase, RandomTraceCase, TransitionExpectation, TransitionTestCase, VarValue,
 };
@@ -799,8 +799,8 @@ pub fn generate_unit_tests(
         options,
         crate::codegen::PropertyMonitorMode::Always,
     )?;
-    let variants = codegen_fsm::build_variants(module);
-    let plan = codegen_test::build_test_plan(&variants, module, options.steps);
+    let variants = fsm::build_variants(module);
+    let plan = test_plan::build_test_plan(&variants, module, options.steps);
 
     let candidates: Vec<String> = variants
         .inputs
@@ -966,12 +966,12 @@ pub fn generate_unit_tests(
 }
 
 fn render_negative_c(
-    plan: &codegen_test::TestPlan,
+    plan: &test_plan::TestPlan,
     variants: &FsmVariants,
     module: &Module,
     k: usize,
 ) -> String {
-    let definite = codegen_test::has_definite_unexpected(variants, module);
+    let definite = test_plan::has_definite_unexpected(variants, module);
     if plan.has_on_error {
         let oe = module.on_error.as_ref().unwrap();
         let assert_line = if definite {

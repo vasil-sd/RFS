@@ -901,7 +901,7 @@ fn mc_exact_flags_embedded_as_runtime_defaults() {
     // Counterexample report format (task 10): text is the default.
     assert!(out.contains("const DEFAULT_COUNTEREXAMPLE_FORMAT: u8 = 0;"));
     let json_fmt = codegen::BackendOptions {
-        counterexample_format: rfs::codegen_mc::CounterexampleFormat::Json,
+        counterexample_format: rfs::codegen::mc_concepts::CounterexampleFormat::Json,
         ..Default::default()
     };
     assert!(gen(&ir, backend, &json_fmt).contains("const DEFAULT_COUNTEREXAMPLE_FORMAT: u8 = 1;"));
@@ -933,7 +933,7 @@ fn mc_flag_parsing_roundtrip() {
             assert_eq!(mc_timeout_sec, 9);
             assert_eq!(
                 counterexample_format,
-                rfs::codegen_mc::CounterexampleFormat::Json
+                rfs::codegen::mc_concepts::CounterexampleFormat::Json
             );
         }
         _ => panic!("expected Generate request"),
@@ -955,7 +955,7 @@ fn mc_flag_parsing_roundtrip() {
             assert_eq!(mc_timeout_sec, 0);
             assert_eq!(
                 counterexample_format,
-                rfs::codegen_mc::CounterexampleFormat::Text
+                rfs::codegen::mc_concepts::CounterexampleFormat::Text
             );
         }
         _ => panic!("expected Generate request"),
@@ -965,7 +965,7 @@ fn mc_flag_parsing_roundtrip() {
         .unwrap_err();
     assert_eq!(
         errs,
-        vec![rfs::codegen_mc::COUNTEREXAMPLE_FORMAT_ERROR.to_string()]
+        vec![rfs::codegen::mc_concepts::COUNTEREXAMPLE_FORMAT_ERROR.to_string()]
     );
 }
 

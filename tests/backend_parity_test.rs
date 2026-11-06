@@ -1134,7 +1134,7 @@ fn mc_liveness_truncated_mode_sound() {
 
 fn json_options() -> rfs::codegen::BackendOptions {
     rfs::codegen::BackendOptions {
-        counterexample_format: rfs::codegen_mc::CounterexampleFormat::Json,
+        counterexample_format: rfs::codegen::mc_concepts::CounterexampleFormat::Json,
         ..rfs::codegen::BackendOptions::default()
     }
 }

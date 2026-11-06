@@ -650,9 +650,9 @@ fn ce_trace_schema_document_pin() {
     assert_eq!(
         kinds,
         vec![
-            rfs::codegen_mc::JSON_CE_KIND_TRACE,
-            rfs::codegen_mc::JSON_CE_KIND_LASSO,
-            rfs::codegen_mc::JSON_CE_KIND_DEADLOCK_CONFIG
+            rfs::codegen::mc_concepts::JSON_CE_KIND_TRACE,
+            rfs::codegen::mc_concepts::JSON_CE_KIND_LASSO,
+            rfs::codegen::mc_concepts::JSON_CE_KIND_DEADLOCK_CONFIG
         ]
     );
 
@@ -665,12 +665,12 @@ fn ce_trace_schema_document_pin() {
             .unwrap();
         let names: Vec<&str> = req.iter().filter_map(|v| v.as_str()).collect();
         assert!(
-            names.contains(&rfs::codegen_mc::JSON_KEY_CE_STEPS),
+            names.contains(&rfs::codegen::mc_concepts::JSON_KEY_CE_STEPS),
             "ce_steps missing from a variant's required list: {names:?}"
         );
         assert_eq!(
             *names.last().unwrap(),
-            rfs::codegen_mc::JSON_KEY_CE_STEPS,
+            rfs::codegen::mc_concepts::JSON_KEY_CE_STEPS,
             "ce_steps must be the last key: {names:?}"
         );
     }
@@ -742,9 +742,9 @@ fn ce_trace_md_pins_sections() {
     // The document section carries the kind table with all three kinds.
     assert!(text.contains("## document"), "missing document section");
     for k in [
-        rfs::codegen_mc::JSON_CE_KIND_TRACE,
-        rfs::codegen_mc::JSON_CE_KIND_LASSO,
-        rfs::codegen_mc::JSON_CE_KIND_DEADLOCK_CONFIG,
+        rfs::codegen::mc_concepts::JSON_CE_KIND_TRACE,
+        rfs::codegen::mc_concepts::JSON_CE_KIND_LASSO,
+        rfs::codegen::mc_concepts::JSON_CE_KIND_DEADLOCK_CONFIG,
     ] {
         assert!(
             text.contains(&format!("| `{k}` | ")),
@@ -919,12 +919,12 @@ fn ce_trace_walk_trace_and_lasso_both_backends() {
         (
             "ring_no_grant",
             common::fail_variants::RING_NO_GRANT_SRC,
-            rfs::codegen_mc::JSON_CE_KIND_TRACE,
+            rfs::codegen::mc_concepts::JSON_CE_KIND_TRACE,
         ),
         (
             "elev_noup",
             common::fail_variants::ELEV_NO_UP_SRC,
-            rfs::codegen_mc::JSON_CE_KIND_LASSO,
+            rfs::codegen::mc_concepts::JSON_CE_KIND_LASSO,
         ),
     ];
     for (key, src, want_kind) in cases {
@@ -961,12 +961,12 @@ fn ce_trace_walk_trace_and_lasso_both_backends() {
         "ring_no_grant",
     );
     assert_eq!(
-        rt.get(rfs::codegen_mc::JSON_KEY_CE_STEPS)
+        rt.get(rfs::codegen::mc_concepts::JSON_KEY_CE_STEPS)
             .and_then(rfs::json::json_rw::Json::as_int),
         Some(1)
     );
     let steps = rt
-        .get(rfs::codegen_mc::JSON_KEY_STEPS)
+        .get(rfs::codegen::mc_concepts::JSON_KEY_STEPS)
         .and_then(rfs::json::json_rw::Json::as_arr)
         .cloned()
         .unwrap();
@@ -981,12 +981,12 @@ fn ce_trace_walk_trace_and_lasso_both_backends() {
         "elev_noup",
     );
     assert_eq!(
-        rl.get(rfs::codegen_mc::JSON_KEY_CYCLE_LENGTH)
+        rl.get(rfs::codegen::mc_concepts::JSON_KEY_CYCLE_LENGTH)
             .and_then(rfs::json::json_rw::Json::as_int),
         Some(2)
     );
     let cycle = rl
-        .get(rfs::codegen_mc::JSON_KEY_CYCLE)
+        .get(rfs::codegen::mc_concepts::JSON_KEY_CYCLE)
         .and_then(rfs::json::json_rw::Json::as_arr)
         .cloned()
         .unwrap();
@@ -1005,7 +1005,7 @@ fn ce_trace_walk_deadlock_config_both_backends() {
         let ce = ce_object(&bin, "ex04_deadlock");
         assert_eq!(
             ce.get("kind").and_then(rfs::json::json_rw::Json::as_str),
-            Some(rfs::codegen_mc::JSON_CE_KIND_DEADLOCK_CONFIG),
+            Some(rfs::codegen::mc_concepts::JSON_CE_KIND_DEADLOCK_CONFIG),
             "{backend}"
         );
         walk_ce(&ce, &format!("ex04_deadlock/{backend}"));
@@ -1021,12 +1021,12 @@ fn ce_trace_walk_deadlock_config_both_backends() {
     // configuration at depth 2`), ce_steps = depth for a deadlock config.
     let ce = docs[0].as_ref().unwrap();
     assert_eq!(
-        ce.get(rfs::codegen_mc::JSON_KEY_DEPTH)
+        ce.get(rfs::codegen::mc_concepts::JSON_KEY_DEPTH)
             .and_then(rfs::json::json_rw::Json::as_int),
         Some(2)
     );
     assert_eq!(
-        ce.get(rfs::codegen_mc::JSON_KEY_CE_STEPS)
+        ce.get(rfs::codegen::mc_concepts::JSON_KEY_CE_STEPS)
             .and_then(rfs::json::json_rw::Json::as_int),
         Some(2)
     );
@@ -1040,17 +1040,17 @@ fn ce_trace_walk_ref_mc_in_process() {
         (
             "ring_no_grant",
             common::fail_variants::RING_NO_GRANT_SRC.to_string(),
-            rfs::codegen_mc::JSON_CE_KIND_TRACE,
+            rfs::codegen::mc_concepts::JSON_CE_KIND_TRACE,
         ),
         (
             "elev_noup",
             common::fail_variants::ELEV_NO_UP_SRC.to_string(),
-            rfs::codegen_mc::JSON_CE_KIND_LASSO,
+            rfs::codegen::mc_concepts::JSON_CE_KIND_LASSO,
         ),
         (
             "ex04_deadlock",
             common::fail_variants::spec_source("04_tcp_handshake_like.rfs"),
-            rfs::codegen_mc::JSON_CE_KIND_DEADLOCK_CONFIG,
+            rfs::codegen::mc_concepts::JSON_CE_KIND_DEADLOCK_CONFIG,
         ),
     ];
     for (key, src, want_kind) in cases {
@@ -1058,7 +1058,7 @@ fn ce_trace_walk_ref_mc_in_process() {
         let module = &ir.modules[0];
         let res = rfs::ref_mc::run(module, &rfs::ref_mc::RefConfig::default())
             .unwrap_or_else(|e| panic!("{key}: ref_mc: {e}"));
-        assert_eq!(res.status, rfs::codegen_mc::ExactStatus::Fail, "{key}");
+        assert_eq!(res.status, rfs::codegen::mc_concepts::ExactStatus::Fail, "{key}");
         let report = rfs::ref_mc::to_json_report(&res, module).to_json();
         let ce = report
             .get("counterexample")
@@ -1157,9 +1157,9 @@ fn mc_report_schema_document_pin() {
     assert_eq!(
         enum_vals(&status_enum),
         vec![
-            rfs::codegen_mc::ExactStatus::PassComplete.wire(),
-            rfs::codegen_mc::ExactStatus::Fail.wire(),
-            rfs::codegen_mc::ExactStatus::UnknownStateLimit.wire()
+            rfs::codegen::mc_concepts::ExactStatus::PassComplete.wire(),
+            rfs::codegen::mc_concepts::ExactStatus::Fail.wire(),
+            rfs::codegen::mc_concepts::ExactStatus::UnknownStateLimit.wire()
         ]
     );
     let reason_enum = props
@@ -1173,9 +1173,9 @@ fn mc_report_schema_document_pin() {
     assert_eq!(
         enum_vals(&reason_enum),
         vec![
-            rfs::codegen_mc::FailReason::PropertyViolation.wire(),
-            rfs::codegen_mc::FailReason::LivenessViolation.wire(),
-            rfs::codegen_mc::FailReason::Deadlock.wire()
+            rfs::codegen::mc_concepts::FailReason::PropertyViolation.wire(),
+            rfs::codegen::mc_concepts::FailReason::LivenessViolation.wire(),
+            rfs::codegen::mc_concepts::FailReason::Deadlock.wire()
         ]
     );
 
@@ -1258,9 +1258,9 @@ fn mc_report_md_pins_sections() {
 
     // The counterexample section carries the kind table (all three kinds).
     for k in [
-        rfs::codegen_mc::JSON_CE_KIND_TRACE,
-        rfs::codegen_mc::JSON_CE_KIND_LASSO,
-        rfs::codegen_mc::JSON_CE_KIND_DEADLOCK_CONFIG,
+        rfs::codegen::mc_concepts::JSON_CE_KIND_TRACE,
+        rfs::codegen::mc_concepts::JSON_CE_KIND_LASSO,
+        rfs::codegen::mc_concepts::JSON_CE_KIND_DEADLOCK_CONFIG,
     ] {
         assert!(
             text.contains(&format!("| `{k}` | ")),
@@ -1425,7 +1425,7 @@ fn mc_report_walk_ref_mc_in_process() {
     let module = &ir.modules[0];
 
     let res = rfs::ref_mc::run(module, &rfs::ref_mc::RefConfig::default()).expect("ref_mc 43");
-    assert_eq!(res.status, rfs::codegen_mc::ExactStatus::PassComplete);
+    assert_eq!(res.status, rfs::codegen::mc_concepts::ExactStatus::PassComplete);
     walk_mc_report(
         &rfs::ref_mc::to_json_report(&res, module).to_json(),
         "ref_mc/43_pass",
@@ -1436,7 +1436,7 @@ fn mc_report_walk_ref_mc_in_process() {
     let module = &ir.modules[0];
     let res =
         rfs::ref_mc::run(module, &rfs::ref_mc::RefConfig::default()).expect("ref_mc ring_no_grant");
-    assert_eq!(res.status, rfs::codegen_mc::ExactStatus::Fail);
+    assert_eq!(res.status, rfs::codegen::mc_concepts::ExactStatus::Fail);
     walk_mc_report(
         &rfs::ref_mc::to_json_report(&res, module).to_json(),
         "ref_mc/ring_no_grant",
@@ -1446,7 +1446,7 @@ fn mc_report_walk_ref_mc_in_process() {
     let ir = rfs::parse_source(&dl_src).expect("04 must parse");
     let module = &ir.modules[0];
     let res = rfs::ref_mc::run(module, &rfs::ref_mc::RefConfig::default()).expect("ref_mc 04");
-    assert_eq!(res.status, rfs::codegen_mc::ExactStatus::Fail);
+    assert_eq!(res.status, rfs::codegen::mc_concepts::ExactStatus::Fail);
     walk_mc_report(
         &rfs::ref_mc::to_json_report(&res, module).to_json(),
         "ref_mc/ex04_deadlock",
@@ -1459,7 +1459,7 @@ fn mc_report_walk_ref_mc_in_process() {
         ..Default::default()
     };
     let res = rfs::ref_mc::run(module, &cfg).expect("ref_mc 43 capped");
-    assert_eq!(res.status, rfs::codegen_mc::ExactStatus::UnknownStateLimit);
+    assert_eq!(res.status, rfs::codegen::mc_concepts::ExactStatus::UnknownStateLimit);
     walk_mc_report(
         &rfs::ref_mc::to_json_report(&res, module).to_json(),
         "ref_mc/43_unknown",

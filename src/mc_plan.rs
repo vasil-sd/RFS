@@ -26,9 +26,9 @@
 use std::collections::HashSet;
 
 use crate::codegen::AssumptionSelection;
-use crate::codegen_fsm::{build_variants, representative_values, RepValue, VariantInfo};
+use crate::codegen::fsm::{build_variants, representative_values, RepValue, VariantInfo};
 use crate::lang::ir::*;
-use crate::monitor::{compile_formula, MonNode, MonitorPlan};
+use crate::codegen::monitor::{compile_formula, MonNode, MonitorPlan};
 
 // ---------------------------------------------------------------------------
 // Input abstraction (D-P4-3)

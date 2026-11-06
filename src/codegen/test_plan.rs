@@ -30,9 +30,9 @@
 //! statically, `TestPlan.notes` records the documented fallback.
 //! Docs: dev:codegen-core-overview, dev:codegen-test-plan, dev:algorithms-ir-codegen, llm:codegen-core
 
-use crate::codegen_fsm::FsmVariants;
+use crate::codegen::fsm::FsmVariants;
 use crate::lang::ir::*;
-use crate::monitor::{self, SignalAtom, SignalExpr};
+use crate::codegen::monitor::{self, SignalAtom, SignalExpr};
 use crate::utils::rng::Rng;
 use crate::lang::validator::{self, Env, ExprType};
 use std::collections::HashMap;
@@ -777,7 +777,7 @@ fn select_invariants(module: &Module) -> Vec<InvariantCase> {
 /// True when the formula contains a liveness operator anywhere
 /// (`bounded_eventually`, `eventually`, `until`). Mirrors the Phase 4 MC
 /// classification (`mc_plan::contains_liveness`), which is the superset of
-/// `codegen_fsm::contains_liveness`.
+/// `fsm::contains_liveness`.
 fn has_liveness_op(f: &Formula) -> bool {
     match f {
         Formula::BoundedEventually { .. } | Formula::Eventually { .. } | Formula::Until { .. } => {
@@ -1443,8 +1443,8 @@ fn eval_outputs(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::codegen_fsm::build_variants;
-    use crate::monitor::{ReferenceMonitor, SignalAtom as SA, SignalExpr as SE};
+    use crate::codegen::fsm::build_variants;
+    use crate::codegen::monitor::{ReferenceMonitor, SignalAtom as SA, SignalExpr as SE};
     use crate::parse_source;
 
     fn variants(src: &str) -> (Module, FsmVariants) {
@@ -2241,7 +2241,7 @@ mod tests {
                     );
                 }
                 // (2) The target label is recorded first.
-                let compiled: Vec<(usize, crate::monitor::MonitorPlan)> = m
+                let compiled: Vec<(usize, crate::codegen::monitor::MonitorPlan)> = m
                     .properties
                     .iter()
                     .enumerate()
@@ -2262,9 +2262,9 @@ mod tests {
                         .map(|_| (case.post_state.clone(), case.post_vars.clone())),
                 )
                 .collect();
-                let mut mons: Vec<crate::monitor::ReferenceMonitor> = compiled
+                let mut mons: Vec<crate::codegen::monitor::ReferenceMonitor> = compiled
                     .iter()
-                    .map(|(_, pl)| crate::monitor::ReferenceMonitor::new(pl))
+                    .map(|(_, pl)| crate::codegen::monitor::ReferenceMonitor::new(pl))
                     .collect();
                 let mut recorded: Option<String> = None;
                 for (s, (state, vars)) in samples.iter().enumerate() {

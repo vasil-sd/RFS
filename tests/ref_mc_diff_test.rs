@@ -118,7 +118,7 @@ fn generate_mc_json(backend_name: &str, ir: &rfs::Ir) -> String {
     let backend = rfs::codegen::get_backend(backend_name)
         .unwrap_or_else(|| panic!("backend {backend_name} registered"));
     let options = rfs::codegen::BackendOptions {
-        counterexample_format: rfs::codegen_mc::CounterexampleFormat::Json,
+        counterexample_format: rfs::codegen::mc_concepts::CounterexampleFormat::Json,
         ..rfs::codegen::BackendOptions::default()
     };
     rfs::codegen::CodegenCommandKind::ModelChecker
@@ -224,21 +224,21 @@ fn doc_status(doc: &rfs::json::json_rw::Json) -> String {
         .to_string()
 }
 
-fn doc_fail(doc: &rfs::json::json_rw::Json) -> Option<(rfs::codegen_mc::FailReason, String, usize)> {
+fn doc_fail(doc: &rfs::json::json_rw::Json) -> Option<(rfs::codegen::mc_concepts::FailReason, String, usize)> {
     let reason = doc.get("reason")?.as_str()?;
     let label = doc.get("label")?.as_str()?.to_string();
     let step = doc.get("step")?.as_int()? as usize;
     let r = match reason {
-        "property-violation" => rfs::codegen_mc::FailReason::PropertyViolation,
-        "liveness-violation" => rfs::codegen_mc::FailReason::LivenessViolation,
-        "deadlock" => rfs::codegen_mc::FailReason::Deadlock,
+        "property-violation" => rfs::codegen::mc_concepts::FailReason::PropertyViolation,
+        "liveness-violation" => rfs::codegen::mc_concepts::FailReason::LivenessViolation,
+        "deadlock" => rfs::codegen::mc_concepts::FailReason::Deadlock,
         other => panic!("unknown reason wire name '{other}'"),
     };
     Some((r, label, step))
 }
 
-/// One JSON input/output record -> [`rfs::codegen_mc::JsonIo`].
-fn json_io(j: &rfs::json::json_rw::Json, what: &str) -> rfs::codegen_mc::JsonIo {
+/// One JSON input/output record -> [`rfs::codegen::mc_concepts::JsonIo`].
+fn json_io(j: &rfs::json::json_rw::Json, what: &str) -> rfs::codegen::mc_concepts::JsonIo {
     let obj = j
         .as_obj()
         .unwrap_or_else(|| panic!("{what}: not an object"));
@@ -251,10 +251,10 @@ fn json_io(j: &rfs::json::json_rw::Json, what: &str) -> rfs::codegen_mc::JsonIo 
             other => panic!("{what}: unexpected key '{other}'"),
         }
     }
-    rfs::codegen_mc::JsonIo { variant, fields }
+    rfs::codegen::mc_concepts::JsonIo { variant, fields }
 }
 
-fn json_step(j: &rfs::json::json_rw::Json) -> rfs::codegen_mc::JsonStep {
+fn json_step(j: &rfs::json::json_rw::Json) -> rfs::codegen::mc_concepts::JsonStep {
     let obj = j.as_obj().expect("step is an object");
     let mut input = None;
     let mut outputs: Vec<rfs::json::json_rw::Json> = Vec::new();
@@ -271,7 +271,7 @@ fn json_step(j: &rfs::json::json_rw::Json) -> rfs::codegen_mc::JsonStep {
             other => panic!("step: unexpected key '{other}'"),
         }
     }
-    rfs::codegen_mc::JsonStep {
+    rfs::codegen::mc_concepts::JsonStep {
         input: json_io(&input.expect("input present"), "step.input"),
         outputs: outputs
             .iter()
@@ -285,7 +285,7 @@ fn json_step(j: &rfs::json::json_rw::Json) -> rfs::codegen_mc::JsonStep {
 
 /// The counterexample object of a JSON report -> the shared report-model
 /// enum (so `ref_mc::verify_counterexample` can consume it).
-fn json_ce(doc: &rfs::json::json_rw::Json) -> rfs::codegen_mc::JsonCounterexample {
+fn json_ce(doc: &rfs::json::json_rw::Json) -> rfs::codegen::mc_concepts::JsonCounterexample {
     let ce = doc
         .get("counterexample")
         .expect("fail report carries a counterexample");
@@ -318,12 +318,12 @@ fn json_ce(doc: &rfs::json::json_rw::Json) -> rfs::codegen_mc::JsonCounterexampl
         }
     }
     let ce = match kind.as_str() {
-        "trace" => rfs::codegen_mc::JsonCounterexample::Trace {
+        "trace" => rfs::codegen::mc_concepts::JsonCounterexample::Trace {
             initial_state,
             initial_vars,
             steps: steps.iter().map(json_step).collect(),
         },
-        "lasso" => rfs::codegen_mc::JsonCounterexample::Lasso {
+        "lasso" => rfs::codegen::mc_concepts::JsonCounterexample::Lasso {
             initial_state,
             initial_vars,
             prefix: prefix.iter().map(json_step).collect(),
@@ -331,16 +331,16 @@ fn json_ce(doc: &rfs::json::json_rw::Json) -> rfs::codegen_mc::JsonCounterexampl
             cycle_length,
         },
         "deadlock-config" => {
-            rfs::codegen_mc::JsonCounterexample::DeadlockConfig { depth, state, vars }
+            rfs::codegen::mc_concepts::JsonCounterexample::DeadlockConfig { depth, state, vars }
         }
         other => panic!("unknown CE kind '{other}'"),
     };
     let want = match &ce {
-        rfs::codegen_mc::JsonCounterexample::Trace { steps, .. } => steps.len() as i64,
-        rfs::codegen_mc::JsonCounterexample::Lasso { prefix, cycle, .. } => {
+        rfs::codegen::mc_concepts::JsonCounterexample::Trace { steps, .. } => steps.len() as i64,
+        rfs::codegen::mc_concepts::JsonCounterexample::Lasso { prefix, cycle, .. } => {
             (prefix.len() + cycle.len()) as i64
         }
-        rfs::codegen_mc::JsonCounterexample::DeadlockConfig { depth, .. } => *depth,
+        rfs::codegen::mc_concepts::JsonCounterexample::DeadlockConfig { depth, .. } => *depth,
     };
     assert_eq!(
         ce_steps,
@@ -394,7 +394,7 @@ fn compare_one(name: &str, ir: &rfs::Ir) {
     };
     assert_ne!(
         res.status,
-        rfs::codegen_mc::ExactStatus::UnknownStateLimit,
+        rfs::codegen::mc_concepts::ExactStatus::UnknownStateLimit,
         "[{name}] ref_mc hit the state/timeout budget - update the eligible list"
     );
 
@@ -439,7 +439,7 @@ fn compare_one(name: &str, ir: &rfs::Ir) {
             (Some((reason, label, step)), Some((rref, lref, sref))) => {
                 assert_eq!(reason, *rref, "[{name}/{backend_name}] reason diverges");
                 // Label ground truth: the minimal-depth violation set.
-                if matches!(reason, rfs::codegen_mc::FailReason::PropertyViolation) {
+                if matches!(reason, rfs::codegen::mc_concepts::FailReason::PropertyViolation) {
                     let labels = rfs::ref_mc::minimal_violation_labels(module, &ref_cfg())
                         .unwrap_or_else(|e| panic!("[{name}] minimal labels: {e}"));
                     assert!(
@@ -544,7 +544,7 @@ fn tiny_state_limit_never_pass_complete() {
         },
     )
     .expect("ref run");
-    assert_eq!(res.status, rfs::codegen_mc::ExactStatus::UnknownStateLimit);
+    assert_eq!(res.status, rfs::codegen::mc_concepts::ExactStatus::UnknownStateLimit);
 
     for backend_name in ["rust", "c"] {
         let bin = mc_json_binary("44_token_ring.rfs", backend_name, &ir);

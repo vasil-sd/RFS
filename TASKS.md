@@ -1889,3 +1889,19 @@ PHASE 8 IS NOW COMPLETE.
 - NEW FINDING: the dev_docs POSITIVE-CONTROL fixture (tests/fixtures/dev_docs/good_doc.md) references real source paths and must track the tree - updated its two stale refs; future move tasks must check the fixtures.
 - `PHASE_11_TASK_3_STATUS.md` written per FORMATTING.md section 6.2.
 - Verification: cargo build OK; cargo test 535/535 (exactly the documented baseline); dev_docs_test 9/9 after the re-sync + fixture fix. Committed as one commit.
+
+## 2026-11-06 00:35 — Phase 11 task 4: codegen/ shared layer (zero-churn absorption + fsm/test_plan/mc_concepts/monitor)
+
+### Interpretation & plan
+
+- Requested: execute Phase 11 task 4 per `docs/roadmap/phase_11/tasks/PHASE_11_TASK_4.md` - absorb codegen.rs as codegen/mod.rs (zero-churn: module path unchanged) and move the four shared-layer siblings into src/codegen/.
+- Plan: git mv five files; lib.rs drops four pub-mods (keeps pub mod codegen); scripted rewrites of the four renamed modules; fix the forms the script misses; per correction 1a the manifest + doc re-sync in this commit; gate incl. the zero-churn proof (no fuzz/ file in the diff).
+
+### Report
+
+- `src/codegen/` now holds mod.rs (absorbed codegen.rs) + fsm + test_plan + mc_concepts + monitor. ZERO-CHURN held: no fuzz/ file in the diff - every rfs::codegen::* importer compiled untouched.
+- Two forms the script missed, both compiler-caught: (1) the absorbed mod.rs needed four NEW `pub mod` declarations (a standalone file has none); (2) unqualified usages bound via `use crate::codegen_fsm::{self,...}` kept the old bound name after the path rewrite - renamed to fsm::/test_plan:: in the six backend files. The aliased import in info_format.rs (`use crate::codegen_mc as mc;`) fixed too.
+- ref_mc's independence_import_audit hard-codes forbidden module names as strings - updated "codegen_fsm" -> "codegen::fsm" so the contract keeps biting after the rename. ~15 stale doc-comment mentions across backends/info_format/mc_ref_cmd/tests updated. tests/liveness_mc_test.rs's LOCAL helper named codegen_mc deliberately untouched.
+- Incremental doc re-sync (correction 1a): manifest 5 entries rewritten (incl. src/codegen.rs -> src/codegen/mod.rs); CODE_MAP section paths rewritten (count stays 18 - all files remain in the area) + "MC engine + monitor (5)" -> "MC engine (4)"; live-doc refs rewritten; TASK_MAP mod.rs coverage came along with the path rewrite automatically.
+- `PHASE_11_TASK_4_STATUS.md` written per FORMATTING.md section 6.2.
+- Verification: cargo build OK; cargo test 535/535 (exactly the documented baseline); dev_docs_test 9/9 first run; zero-churn grep clean. Committed as one commit.

@@ -7,7 +7,7 @@ Compact card for LLM assistants working on PSL-to-monitor compilation.
 ## Card
 
 **Responsibility.** The language-agnostic PSL-to-monitor compiler
-(`src/monitor.rs`): at codegen time each in-subset prop/assume formula is
+(`src/codegen/monitor.rs`): at codegen time each in-subset prop/assume formula is
 compiled into a `MonitorPlan` node tree that every backend renders with
 identical semantics. The plan is the single source of truth - changing it
 changes ALL generated monitors (production FSM, MC state layout, test
@@ -17,13 +17,13 @@ harness) in both backends at once.
 
 | Item | Role |
 |---|---|
-| `src/monitor.rs::compile_formula` | entry: formula -> MonitorPlan or Err (outside the R1-R4 monitor subset - no monitor generated, identical skip warning in every backend) |
-| `src/monitor.rs::compile_check` | the recursive pass: anchor range + in_temporal threaded down; per-arm dispatch (be[N] one-shot vs recurring anchors, implication trigger extraction, next = shifted range, always[N] window [0,N-1], R1-R4 rejections) |
-| `src/monitor.rs::compile_signal` / `formula_to_signal` | temporal-operator-free subformula -> per-sample SignalExpr; Option (None = temporal present); formula_to_signal is the public wrapper used by the Phase 4 liveness engine + test planner |
-| `src/monitor.rs::AnchorRange` | [from, to] evaluation window (to=None unbounded); all() = top-level [0,inf); shifted() = +1 (next); bare signals anchor at the FULL range - invariants, not one-shots (sample 0 has no I/O) |
-| `src/monitor.rs::MonNode` | five node kinds: DelayedCheck (one-sample delay register, vacuous first sample), RangeCheck (stateless per-sample), Obligation (D-P3-3 pending model: pending/remaining/trigger_step; re-trigger while pending ignored), And (any child fails), Or (ALL children fail at the SAME sample) |
-| `src/monitor.rs::MonitorPlan` | { label, is_assumption, root } - one per prop/assume; MC config encoding walks the same tree in preorder (n{id} node ids) |
-| `src/monitor.rs::ReferenceMonitor` / `step_node` | tests-only reference interpreter mirroring backend-generated state node for node; step returns NEWLY-confirmed failure; per-sample (not sticky) child status is essential for Or/And composition |
+| `src/codegen/monitor.rs::compile_formula` | entry: formula -> MonitorPlan or Err (outside the R1-R4 monitor subset - no monitor generated, identical skip warning in every backend) |
+| `src/codegen/monitor.rs::compile_check` | the recursive pass: anchor range + in_temporal threaded down; per-arm dispatch (be[N] one-shot vs recurring anchors, implication trigger extraction, next = shifted range, always[N] window [0,N-1], R1-R4 rejections) |
+| `src/codegen/monitor.rs::compile_signal` / `formula_to_signal` | temporal-operator-free subformula -> per-sample SignalExpr; Option (None = temporal present); formula_to_signal is the public wrapper used by the Phase 4 liveness engine + test planner |
+| `src/codegen/monitor.rs::AnchorRange` | [from, to] evaluation window (to=None unbounded); all() = top-level [0,inf); shifted() = +1 (next); bare signals anchor at the FULL range - invariants, not one-shots (sample 0 has no I/O) |
+| `src/codegen/monitor.rs::MonNode` | five node kinds: DelayedCheck (one-sample delay register, vacuous first sample), RangeCheck (stateless per-sample), Obligation (D-P3-3 pending model: pending/remaining/trigger_step; re-trigger while pending ignored), And (any child fails), Or (ALL children fail at the SAME sample) |
+| `src/codegen/monitor.rs::MonitorPlan` | { label, is_assumption, root } - one per prop/assume; MC config encoding walks the same tree in preorder (n{id} node ids) |
+| `src/codegen/monitor.rs::ReferenceMonitor` / `step_node` | tests-only reference interpreter mirroring backend-generated state node for node; step returns NEWLY-confirmed failure; per-sample (not sticky) child status is essential for Or/And composition |
 
 **Invariants that must not break.**
 

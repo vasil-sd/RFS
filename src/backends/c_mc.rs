@@ -1,7 +1,7 @@
 //! C backend: model-checker executable generation.
 //!
 //! The generated program has the **same runtime wire format** as the Rust
-//! model checker (see `crate::codegen_mc`):
+//! model checker (see `crate::codegen::mc_concepts`):
 //!
 //! - **exact mode** (default, Phase 4): a level-synchronous BFS over the
 //!   reachable configurations. The input enumeration and configuration
@@ -19,7 +19,7 @@
 
 use crate::backends::c::{c_ident, int_c_literal};
 use crate::codegen::{BackendOptions, CodegenOutput, McMode};
-use crate::codegen_fsm::{self, VariantInfo};
+use crate::codegen::fsm::{self, VariantInfo};
 use crate::lang::ir::*;
 use crate::mc_plan::{McPlan, ValueDomain};
 
@@ -89,7 +89,7 @@ pub fn generate_model_checker(
 /// `Vars { ... }` and `[...]` output lists - so FAIL traces are identical
 /// across backends.
 fn shared_printers(module: &Module) -> String {
-    let variants = codegen_fsm::build_variants(module);
+    let variants = fsm::build_variants(module);
 
     // Enum types referenced by vars fields or input/output payload fields -
     // only those get a name-lookup function (an unused static would trip
@@ -329,8 +329,8 @@ fn domain_loop(d: &ValueDomain, k: usize) -> (String, String) {
 }
 
 /// Representative value expression for an abstracted field (C).
-fn rep_value_c(v: &crate::codegen_fsm::RepValue) -> Result<String, String> {
-    use crate::codegen_fsm::RepValue;
+fn rep_value_c(v: &crate::codegen::fsm::RepValue) -> Result<String, String> {
+    use crate::codegen::fsm::RepValue;
     match v {
         RepValue::Bool(b) => Ok(b.to_string()),
         RepValue::Int(i) => Ok(int_c_literal(*i, None)),
@@ -360,7 +360,7 @@ fn domain_size(d: &ValueDomain) -> usize {
 
 /// Representative `input_t` initializers (same defaults as the C tests).
 fn rep_inputs(module: &Module) -> Vec<String> {
-    let variants = codegen_fsm::build_variants(module);
+    let variants = fsm::build_variants(module);
     variants
         .inputs
         .iter()
@@ -435,7 +435,7 @@ fn exact_codegen_c(
     // 1 = json. Runtime-overridable with --counterexample-format.
     s.push_str(&format!(
         "#define DEFAULT_COUNTEREXAMPLE_FORMAT {}\n",
-        if options.counterexample_format == crate::codegen_mc::CounterexampleFormat::Json {
+        if options.counterexample_format == crate::codegen::mc_concepts::CounterexampleFormat::Json {
             1
         } else {
             0
@@ -489,7 +489,7 @@ fn exact_codegen_c(
         }
         let pl = format!("out[n].payload.input_{}", vs.unique_name.to_lowercase());
         // Field types from the original variant info (for casts/domain arrays).
-        let variants = codegen_fsm::build_variants(module);
+        let variants = fsm::build_variants(module);
         let vinfo = variants
             .inputs
             .iter()
@@ -740,7 +740,7 @@ fn exact_codegen_c(
 /// (Phase 5 task 10). Names use `rust_ident` - the same name source as the
 /// text report printers - so JSON and text carry identical data.
 fn json_renderers_c(module: &Module) -> String {
-    let variants = codegen_fsm::build_variants(module);
+    let variants = fsm::build_variants(module);
     let mut s = String::new();
 
     for (kw, arg, list) in [
@@ -1703,7 +1703,7 @@ static void liv_note(const liv_graph_t* g, const liv_property_t* prop, const liv
 /// (same escaping contract), appending to a growing buffer. Integers are
 /// unsigned long long: every value in this document is non-negative and
 /// bit<64> fields reach 2^64-1. Key ordering is the byte-parity contract
-/// (see `codegen_mc.rs` in the toolchain). The generated binary stays
+/// (see `codegen/mc_concepts.rs` in the toolchain). The generated binary stays
 /// dependency-free by construction.
 const JSON_WRITER_C: &str = r#"
 typedef struct { char* data; size_t len; size_t cap; } mc_json_buf_t;
@@ -1772,7 +1772,7 @@ static unsigned long long mc_peak_rss_kb(void) {
 }
 
 /// The canonical report document head - key order is the byte-parity
-/// contract (see codegen_mc.rs in the toolchain): status, metrics
+/// contract (see codegen/mc_concepts.rs in the toolchain): status, metrics
 /// (states, transitions, max_depth), [reason, label, step on fail],
 /// statistics (unexpected_terminations, monitor_size_bits,
 /// memory_estimate_bytes, peak_rss_kb). Leaves the top-level object OPEN: the
@@ -2248,7 +2248,7 @@ done:
     if (counterexample_format == 1) {
         // JSON report (Phase 5 task 10): one compact document carrying the
         // same data as the text report below; key order is the byte-parity
-        // contract (see codegen_mc.rs in the toolchain).
+        // contract (see codegen/mc_concepts.rs in the toolchain).
         mc_json_buf_t jb = {0};
         const char* st_wire = status == 1 ? "pass-complete" : (status == 4 ? "fail" : "unknown-state-limit");
         int has_fail = status == 4;

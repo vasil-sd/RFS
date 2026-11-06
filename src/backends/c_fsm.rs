@@ -2,7 +2,7 @@
 //!
 //! Renders the module into a self-contained C translation unit: state/input/
 //! output types, vars struct, trace recording, online property and assumption
-//! monitors (rendered from the shared `MonitorPlan` of `crate::monitor` -
+//! monitors (rendered from the shared `MonitorPlan` of `crate::codegen::monitor` -
 //! identical semantics to the Rust backend), assumption handling (function
 //! pointer mirroring the Rust `AssumptionHandler`), and the priority-ordered
 //! `fsm_step`. Simultaneous variable updates use temporary next variables,
@@ -11,9 +11,9 @@
 
 use crate::backends::c::{c_binding_ident, c_ident, c_type, int_c_literal, mask_c_expr};
 use crate::codegen::{self, BackendOptions, PropertyMonitorMode};
-use crate::codegen_fsm::{self, FsmVariants, VariantInfo};
+use crate::codegen::fsm::{self, FsmVariants, VariantInfo};
 use crate::lang::ir::*;
-use crate::monitor::{self, AnchorRange, MonNode, MonitorPlan, SignalAtom, SignalExpr};
+use crate::codegen::monitor::{self, AnchorRange, MonNode, MonitorPlan, SignalAtom, SignalExpr};
 use crate::lang::validator::{self, Env, ExprType};
 use std::fmt::Write as _;
 
@@ -344,7 +344,7 @@ impl<'a> Gen<'a> {
         let mut g = Gen {
             module,
             options,
-            variants: codegen_fsm::build_variants(module),
+            variants: fsm::build_variants(module),
             prop_mode,
             assume_plans: Vec::new(),
             prop_plans: Vec::new(),
@@ -778,7 +778,7 @@ fn gen_expr_c(e: &Expr, env: &Env, ctx: &Ctx, module: &Module) -> Result<String,
 impl<'a> Gen<'a> {
     // ------------------------------------------------------------------
     // Online monitors (Phase 3): rendered from the shared MonitorPlan
-    // (`crate::monitor`) with identical semantics to the Rust backend.
+    // (`crate::codegen::monitor`) with identical semantics to the Rust backend.
     // ------------------------------------------------------------------
 
     /// Compile all property/assumption formulas into monitor plans. Formulas
@@ -903,7 +903,7 @@ impl<'a> Gen<'a> {
     /// Render one monitor struct from a compiled plan. Nodes are numbered in
     /// DFS pre-order over the plan tree; the step body evaluates them in
     /// post-order (children before parents), mirroring the reference
-    /// interpreter in `crate::monitor`.
+    /// interpreter in `crate::codegen::monitor`.
     fn render_monitor(&self, plan: &MonitorPlan) -> Result<String, String> {
         let m = crate::backends::rust::snake(&plan.label);
         // Distinct InputIs/OutputHas patterns (first-seen DFS order) get one
@@ -1770,7 +1770,7 @@ pub(crate) fn render_mc_step_all_c(module: &Module) -> Result<String, String> {
 /// Collect the distinct input/output patterns of a signal in first-appearance
 /// order (for helper emission + `gen_signal_c` index resolution).
 pub(crate) fn collect_liv_signal_patterns<'a>(
-    sig: &'a crate::monitor::SignalExpr,
+    sig: &'a crate::codegen::monitor::SignalExpr,
 ) -> (
     Vec<&'a crate::lang::ir::EventPattern>,
     Vec<&'a crate::lang::ir::OutputPattern>,
@@ -1778,23 +1778,23 @@ pub(crate) fn collect_liv_signal_patterns<'a>(
     let mut input_pats: Vec<&'a crate::lang::ir::EventPattern> = Vec::new();
     let mut output_pats: Vec<&'a crate::lang::ir::OutputPattern> = Vec::new();
     fn walk<'a>(
-        sig: &'a crate::monitor::SignalExpr,
+        sig: &'a crate::codegen::monitor::SignalExpr,
         input_pats: &mut Vec<&'a crate::lang::ir::EventPattern>,
         output_pats: &mut Vec<&'a crate::lang::ir::OutputPattern>,
     ) {
         match sig {
-            crate::monitor::SignalExpr::Atom(crate::monitor::SignalAtom::InputIs(p)) => {
+            crate::codegen::monitor::SignalExpr::Atom(crate::codegen::monitor::SignalAtom::InputIs(p)) => {
                 if !input_pats.contains(&p) {
                     input_pats.push(p);
                 }
             }
-            crate::monitor::SignalExpr::Atom(crate::monitor::SignalAtom::OutputHas(p)) => {
+            crate::codegen::monitor::SignalExpr::Atom(crate::codegen::monitor::SignalAtom::OutputHas(p)) => {
                 if !output_pats.contains(&p) {
                     output_pats.push(p);
                 }
             }
-            crate::monitor::SignalExpr::Not(inner) => walk(inner, input_pats, output_pats),
-            crate::monitor::SignalExpr::And(l, r) | crate::monitor::SignalExpr::Or(l, r) => {
+            crate::codegen::monitor::SignalExpr::Not(inner) => walk(inner, input_pats, output_pats),
+            crate::codegen::monitor::SignalExpr::And(l, r) | crate::codegen::monitor::SignalExpr::Or(l, r) => {
                 walk(l, input_pats, output_pats);
                 walk(r, input_pats, output_pats);
             }
@@ -1814,7 +1814,7 @@ pub(crate) fn render_liv_sample_evaluator_c(
     name: &str,
     formula: &Formula,
 ) -> Result<String, String> {
-    let signal = crate::monitor::formula_to_signal(formula)
+    let signal = crate::codegen::monitor::formula_to_signal(formula)
         .ok_or_else(|| "liveness subformula contains temporal operators".to_string())?;
     let options = BackendOptions::default();
     let mut warnings = Vec::new();

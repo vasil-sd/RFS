@@ -43,10 +43,12 @@ src/bin/extract_training_snippets.rs
 src/bin/generate_code_tests.rs
 src/bin/test_generated_code.rs
 src/cli_log.rs
-src/codegen.rs
-src/codegen_fsm.rs
-src/codegen_mc.rs
-src/codegen_test.rs
+src/codegen/fsm.rs
+src/codegen/mc_concepts.rs
+src/codegen/mod.rs
+src/codegen/monitor.rs
+src/codegen/test_plan.rs
+
 src/diagram.rs
 src/diagrams/dot.rs
 src/diagrams/mermaid.rs
@@ -75,7 +77,6 @@ src/lib.rs
 src/main.rs
 src/mc_plan.rs
 src/mc_ref_cmd.rs
-src/monitor.rs
 
 src/ref_mc.rs
 src/smt_emit.rs

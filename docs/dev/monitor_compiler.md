@@ -7,10 +7,10 @@ semantics.
 <a id="dev:monitor-compiler-overview"></a>
 ## Overview
 
-The monitor compiler (`src/monitor.rs`) is the Phase 3 shared plan for
+The monitor compiler (`src/codegen/monitor.rs`) is the Phase 3 shared plan for
 property/assumption monitoring: at codegen time, each in-subset `prop` /
-`assume` formula is compiled by `src/monitor.rs::compile_formula` into a
-`src/monitor.rs::MonitorPlan` - a tree of monitor nodes that every backend
+`assume` formula is compiled by `src/codegen/monitor.rs::compile_formula` into a
+`src/codegen/monitor.rs::MonitorPlan` - a tree of monitor nodes that every backend
 renders with identical semantics (backend parity principle). The plan is the
 single source of truth: Rust and C codegen render the same tree, so both
 backends step monitors identically on the same input sequence. Compilation
@@ -27,7 +27,7 @@ and the violation is CONFIRMED at the deadline sample i + N - 1 (the countdown
 reaches 0) - not one sample past.
 
 Monitor-compilability restrictions R1-R4 are enforced by
-`src/monitor.rs::compile_formula`: formulas outside the subset still parse and
+`src/codegen/monitor.rs::compile_formula`: formulas outside the subset still parse and
 validate; codegen in every backend emits the identical skip warning
 (`property '<name>' is outside the monitor subset; skipped` /
 `assume '<name>' ...`, e.g. `src/backends/rust_fsm.rs::compile_monitors`) and
@@ -39,31 +39,31 @@ graph: dev:deps-fn-monitor; backend rendering: [backend_rust.md](backend_rust.md
 [backend_c.md](backend_c.md); ref_mc's OWN independent monitor compiler (ground
 truth, not this plan): dev:mc-engine-exact.
 
-Code: `src/monitor.rs::compile_formula`, `src/monitor.rs::MonitorPlan`,
+Code: `src/codegen/monitor.rs::compile_formula`, `src/codegen/monitor.rs::MonitorPlan`,
 `src/backends/rust_fsm.rs::compile_monitors`
 
 
 <a id="dev:monitor-compiler-signals"></a>
-## Signal layer + anchor ranges (`src/monitor.rs`)
+## Signal layer + anchor ranges (`src/codegen/monitor.rs`)
 
-**Per-sample signals.** `src/monitor.rs::SignalExpr` is a temporal-operator-free
+**Per-sample signals.** `src/codegen/monitor.rs::SignalExpr` is a temporal-operator-free
 subformula - the per-sample boolean signal every node evaluates. Atoms
-(`src/monitor.rs::SignalAtom`) are: a boolean RFS expression over variables and
+(`src/codegen/monitor.rs::SignalAtom`) are: a boolean RFS expression over variables and
 the post-step state (`VarExpr`), an input pattern just taken (`InputIs`), an
 output pattern emitted (`OutputHas`), or the constant `true` (trigger of bare
 obligations - renders as a plain boolean literal in every backend); combined
 with Not/And/Or. No Eq/Hash derive: the embedded IR types only implement
 PartialEq, and structural equality is what backends/tests need.
 
-**compile_signal.** `src/monitor.rs::compile_signal` lowers a temporal-operator-
+**compile_signal.** `src/codegen/monitor.rs::compile_signal` lowers a temporal-operator-
 free subformula to a signal; it returns Option, NOT Result - None when a
 temporal operator is present, and callers decide whether that is an error (the
 R1-R4 messages) or a different shape. Implies desugars to Or(Not(l), r). The
-public wrapper `src/monitor.rs::formula_to_signal` is what the Phase 4 liveness
+public wrapper `src/codegen/monitor.rs::formula_to_signal` is what the Phase 4 liveness
 engine and the test planner use to render obligation bodies / safety leaves as
 per-sample evaluators.
 
-**Anchor ranges.** `src/monitor.rs::AnchorRange` = [from, to] with to = None
+**Anchor ranges.** `src/codegen/monitor.rs::AnchorRange` = [from, to] with to = None
 unbounded: `all()` is the top-level range [0, inf), `contains(s)` tests
 membership, and (private) `shifted()` adds one - the effect of `next`. Key
 invariant: a bare signal compiles to a RangeCheck over the FULL range - an
@@ -72,13 +72,13 @@ reading would make I/O atoms vacuously false and assumptions like
 `assume a : input_is(Tick)` would prune every trace (pinned by the in-module
 test plan_structure_bare_signal_is_invariant).
 
-Code: `src/monitor.rs::SignalExpr`, `src/monitor.rs::SignalAtom`,
-`src/monitor.rs::AnchorRange`, `src/monitor.rs::compile_signal`,
-`src/monitor.rs::formula_to_signal`
+Code: `src/codegen/monitor.rs::SignalExpr`, `src/codegen/monitor.rs::SignalAtom`,
+`src/codegen/monitor.rs::AnchorRange`, `src/codegen/monitor.rs::compile_signal`,
+`src/codegen/monitor.rs::formula_to_signal`
 
 
 <a id="dev:monitor-compiler-nodes"></a>
-## Node tree (`src/monitor.rs`)
+## Node tree (`src/codegen/monitor.rs`)
 
 **MonNode.** Five node kinds cover the whole monitor subset; every node exposes
 a sticky `failed` flag, and the property is violated when the ROOT node fails
@@ -103,19 +103,19 @@ a sticky `failed` flag, and the property is violated when the ROOT node fails
   witnessed at a definite sample, so the conjunction of failures is confirmed
   when the last child fails).
 
-**MonitorPlan.** `src/monitor.rs::MonitorPlan { label, is_assumption, root }` - one
+**MonitorPlan.** `src/codegen/monitor.rs::MonitorPlan { label, is_assumption, root }` - one
 plan per property or assumption. The MC engine's configuration encoding walks
 the same tree in preorder (node ids matching the backends' n{id} naming; only
 nodes with persistent state occupy bits): dev:mc-engine-plan.
 
-Code: `src/monitor.rs::MonNode`, `src/monitor.rs::MonitorPlan`
+Code: `src/codegen/monitor.rs::MonNode`, `src/codegen/monitor.rs::MonitorPlan`
 
 
 <a id="dev:monitor-compiler-compile"></a>
-## Compilation + R1-R4 gate (`src/monitor.rs`)
+## Compilation + R1-R4 gate (`src/codegen/monitor.rs`)
 
-**Entry.** `src/monitor.rs::compile_formula`(label, is_assumption, f) wraps one
-recursive pass - `src/monitor.rs::compile_check`(f, range, in_temporal) - over
+**Entry.** `src/codegen/monitor.rs::compile_formula`(label, is_assumption, f) wraps one
+recursive pass - `src/codegen/monitor.rs::compile_check`(f, range, in_temporal) - over
 the formula structure with two threading parameters: the anchor range (the
 samples at which the check applies) and in_temporal (whether an Always / Next
 / BoundedAlways ancestor exists - affects self-anchoring of bounded
@@ -154,23 +154,23 @@ requires a temporal-operator-free body", "negation of a temporal formula is
 outside the monitor subset", "liveness operators (eventually/until) are
 outside the monitor subset", "formula is outside the monitor subset".
 
-Code: `src/monitor.rs::compile_formula`, `src/monitor.rs::compile_check`,
-`src/monitor.rs::true_signal`
+Code: `src/codegen/monitor.rs::compile_formula`, `src/codegen/monitor.rs::compile_check`,
+`src/codegen/monitor.rs::true_signal`
 
 
 <a id="dev:monitor-compiler-reference"></a>
-## Reference interpreter + test pins (`src/monitor.rs`)
+## Reference interpreter + test pins (`src/codegen/monitor.rs`)
 
 **MonState.** The reference interpreter (tests only) mirrors what backends
-generate, node for node: `src/monitor.rs::MonState` carries DelayedCheck {
+generate, node for node: `src/codegen/monitor.rs::MonState` carries DelayedCheck {
 prev_antecedent, failed }, RangeCheck { failed }, Obligation { bound, pending,
 remaining, failed, trigger_step }, And/Or { children, failed, trigger_step }.
-`src/monitor.rs::initial_state` builds the state tree before sample 0 (delay
+`src/codegen/monitor.rs::initial_state` builds the state tree before sample 0 (delay
 register false; obligation not pending).
 
-**Stepping.** `src/monitor.rs::ReferenceMonitor::step`(s, eval) steps one sample
+**Stepping.** `src/codegen/monitor.rs::ReferenceMonitor::step`(s, eval) steps one sample
 and returns true when the failure is NEWLY confirmed here (root failed && !
-before). `src/monitor.rs::step_node` returns the node's CURRENT-SAMPLE failure
+before). `src/codegen/monitor.rs::step_node` returns the node's CURRENT-SAMPLE failure
 status ("now failing"): a per-sample check fails while its expression holds
 false; an obligation fails only once its deadline has been confirmed
 (terminal); And/Or combine their children's current statuses. The sticky
@@ -178,7 +178,7 @@ failed flag is set when now is true and stays set - it is what the root
 reports as the property violation. Using per-sample (NOT sticky) child status
 for Or/And composition is essential: disjuncts may fail at different samples
 and recover, so a disjunction fails only while ALL of its children fail at the
-SAME sample. `src/monitor.rs::min_trigger_at` picks the earliest trigger step
+SAME sample. `src/codegen/monitor.rs::min_trigger_at` picks the earliest trigger step
 among the currently failing children (-1 when none carries one).
 
 **Test pins.** The in-module suite pins plan structure (R1-R4 rejections,
@@ -200,6 +200,6 @@ from it ([codegen_core.md](codegen_core.md)). ref_mc carries its OWN independent
 compiler as ground truth - same documented semantics, different implementation
 (dev:mc-engine-exact).
 
-Code: `src/monitor.rs::MonState`, `src/monitor.rs::initial_state`,
-`src/monitor.rs::ReferenceMonitor`, `src/monitor.rs::step_node`,
-`src/monitor.rs::min_trigger_at`
+Code: `src/codegen/monitor.rs::MonState`, `src/codegen/monitor.rs::initial_state`,
+`src/codegen/monitor.rs::ReferenceMonitor`, `src/codegen/monitor.rs::step_node`,
+`src/codegen/monitor.rs::min_trigger_at`

@@ -2073,3 +2073,26 @@ PHASE 8 IS NOW COMPLETE.
 - `docs/roadmap/phase_11/tasks/PHASE_11_TASK_13.md` (Task corrections)
 - `docs/roadmap/phase_11/PHASE_11_PLAN.md` (correction 13a)
 - `TASKS.md` (this entry)
+
+## 2026-11-07 05:53 — Phase 11 close-out (task 14, complete): full verification green on the final tree, scope proof exact, PHASE_11_STATUS.md written, CURRENT_STATE row 11 -> COMPLETE
+
+### Interpretation & plan
+
+- Requested: execute Phase 11 task 14 per its task file - run the three gates on the final tree, prove the phase diff is in-scope path by path, and write the close-out bookkeeping (status file, CURRENT_STATE row, TASKS.md record).
+- Plan: (1) cargo test + clippy --all-targets + fmt --check; (2) git diff --name-status over the whole phase (base = Phase 10 close-out 92866ea) checked against the allowed set; (3) write PHASE_11_STATUS.md per FORMATTING.md section 4, set CURRENT_STATE row 11 COMPLETE, append this entry + the task 14 status file.
+
+### Report
+
+- Gates: cargo test 535/535 exact baseline; cargo test-generated-code 1683/1683 (192 modules - extra close-out evidence that generated output is byte-identical end-to-end); fmt clean. Clippy initially showed 50 warning lines vs the documented 46 baseline - all four extras were task 8's new src/mc/mod.rs doc comment (line-leading `+` read as a list item -> clippy::doc_list_item_no_indentation; task 8 had verified cargo build, not clippy). Fixed by rephrasing the doc comment (plan correction 8a - loop back to the owning task per this task's non-goals); clippy back to exactly 46 lines / 35 unique.
+- Scope proof: 157 changed paths over the phase, every one checked - roadmap bookkeeping (29 phase_11 files + PHASE_12.md written alongside the plan by design + CURRENT_STATE/PRINCIPLES/PROTOCOL), the two inventory moves to docs/llm/, 8 new source files (6 mod.rs + utils/rng.rs + codegen/ident.rs), 43 src renames + the diagrams/mod.rs merge deletion + 5 src import edits (lib/main/training/2 bins), 4 fuzz-workspace lockstep edits, 17 test-side edits (import rewrites + dev_docs_manifest.txt + 2 fixtures), 43 doc reference re-syncs (6 root docs + SEMANTICS + 17 docs/dev + 13 docs/llm + MIGRATION + ide README), TASKS.md. Zero out-of-scope paths.
+- Bookkeeping: PHASE_11_STATUS.md written per FORMATTING.md section 4 (functionality deltas = none; findings incl. corrections 1a/8a/13a, the tasks 11-12 status-file backfill, and the mmdc environment failures); CURRENT_STATE.md row 11 -> COMPLETE (close-out 2026-11-07); TASKS.md verified to carry one entry per executed task (13) before this close-out entry - the Phase 10 gap (tasks committed without entries) did not repeat.
+- Verification after bookkeeping: docs_md_test re-run green (the new status file + edited CURRENT_STATE parse, all links resolve); dev_docs_test 9/9; fmt clean.
+
+### Files
+
+- `src/mc/mod.rs` (doc comment rephrase - correction 8a)
+- `docs/roadmap/phase_11/PHASE_11_STATUS.md` (new)
+- `docs/roadmap/phase_11/tasks/PHASE_11_TASK_14_STATUS.md` (new)
+- `docs/roadmap/phase_11/PHASE_11_PLAN.md` (correction 8a)
+- `docs/roadmap/CURRENT_STATE.md` (row 11 COMPLETE)
+- `TASKS.md` (this entry)

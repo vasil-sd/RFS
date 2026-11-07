@@ -13,6 +13,8 @@ For rationale and algorithm detail, follow the links to Class A (`docs/dev/`)
 |------|--------|------------|
 | `TASK_MAP.md` | 400 | functionality to files/functions: every CLI command, subsystem, test suite |
 | `CHANGE_IMPACT.md` | 250 | change type to affected source files + tests + doc fragments |
+| `SRC_STRUCTURE.md` | 1710 | full source inventory: every fn/type with Depends - impact calculation (PROTOCOL.md section 4) |
+| `TEST_STRUCTURE.md` | 1287 | full test-tree inventory: same treatment for tests/ + crates/*/tests/ + fuzz targets |
 | per-module cards (11) | 120-200 each | one compact card per core module: responsibility, key items, invariants |
 
 The 11 module cards: `parser.md` (120), `validator.md` (120),

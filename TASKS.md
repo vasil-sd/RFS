@@ -2044,3 +2044,32 @@ PHASE 8 IS NOW COMPLETE.
 
 - `TEST_STRUCTURE.md` (change - actualized per above)
 - `TASKS.md` (this entry)
+
+## 2026-11-07 05:12 — Phase 11 task 13 (complete): inventories moved to docs/llm/ + PROTOCOL.md impact-calculation and correspondence rules; backfilled the two missing task 11-12 STATUS files first
+
+### Interpretation & plan
+
+- Requested: backfill PHASE_11_TASK_11_STATUS.md + PHASE_11_TASK_12_STATUS.md (committed complete as b1e5687/fd0a876 without their status files - a PROTOCOL.md section 3 step m gap), commit, then execute task 13 per its task file; open question answered: yes, add 2 rows to docs/llm/README.md.
+- Plan: (1) reconstruct both status files from the commit records + TASKS.md entries + task exit criteria (all met at commit time), backfill noted in each; (2) git mv both inventories into docs/llm/; (3) PROTOCOL.md sections 4 (impact calculation - mandatory Depends-column consultation, linked by new paths) + 5 (correspondence - same-commit inventory update, string-masked audit as check); PRINCIPLES.md section-2 pointer bullet; README index rows.
+
+### Report
+
+- Backfill commit cbb23be: both STATUS files written per FORMATTING.md section 6.2 (task 11: audit EXACT 936 fns / 196 types; task 12: audit EXACT 942 fns / 34 types), each noting the backfill in its findings.
+- The move broke dev_docs_test in two unforeseen ways (plan correction 13a): (1) Class B budget rule - every docs/llm/*.md needs a `<!-- llm-budget: N -->` header; added one line per inventory (SRC_STRUCTURE.md 1710, TEST_STRUCTURE.md 1287 = old line count + header); (2) check_doc_code_refs then failed on 27 backticked spans - 25 src/-relative rename-rule prose paths in the Naming scheme section (some naming OLD paths that no longer exist, unfixable by prefixing) + 2 identifier-format EXAMPLES in TEST_STRUCTURE.md's Conventions preamble (`it_parses`, `Spec` - illustrative, not real rows). Fix: check_doc_code_refs skips exactly those two paths, documented in its doc comment (inventories are machine-audited data tables - the string-masked grep audit per PROTOCOL.md section 5 is strictly stronger than reference resolution). No fn/type/source file added/removed/renamed - no inventory row changes required.
+- PROTOCOL.md sections 4+5 added after section 3 with working relative links to docs/llm/{SRC,TEST}_STRUCTURE.md; PRINCIPLES.md section 2 gained the pointer bullet; README.md index table gained the two rows (budgets 1710/1287, within its 70-line budget).
+- Pre-existing environment failure hit on the first full-suite run: mmdc lost its chrome-headless-shell (puppeteer cache) - parity_external_mmd_pinned_subset failed. Restored the browser cache (same fix as task 6's); unrelated to this task's changes.
+- Verification: cargo test 535/535 exact baseline (all 31 binaries), docs_md_test 5/5 (inventories parse at new home, mermaid renders, new links resolve), dev_docs_test 9/9, fmt clean, clippy no new warnings (zero in dev_docs_test.rs).
+- Task corrections recorded in the task file (3 rows) + plan correction 13a; PHASE_11_TASK_13_STATUS.md written.
+
+### Files
+
+- `docs/llm/SRC_STRUCTURE.md` (moved from repo root + budget header)
+- `docs/llm/TEST_STRUCTURE.md` (moved from repo root + budget header)
+- `docs/roadmap/PROTOCOL.md` (sections 4+5)
+- `docs/roadmap/PRINCIPLES.md` (section-2 bullet)
+- `docs/llm/README.md` (2 index rows)
+- `tests/dev_docs_test.rs` (inventory exclusion in check_doc_code_refs)
+- `docs/roadmap/phase_11/tasks/PHASE_11_TASK_13_STATUS.md` (new)
+- `docs/roadmap/phase_11/tasks/PHASE_11_TASK_13.md` (Task corrections)
+- `docs/roadmap/phase_11/PHASE_11_PLAN.md` (correction 13a)
+- `TASKS.md` (this entry)

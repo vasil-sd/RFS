@@ -29,6 +29,10 @@ and later IDE support.
   learned goes into `PHASE_N_PLAN.md` (corrections) or `PHASE_N_STATUS.md`, never
   silently into the phase file.
 - Keep `CURRENT_STATE.md` (the phase-state table) current.
+- Impact calculation and docs<->source correspondence are protocol
+  obligations (`PROTOCOL.md` sections 4-5): every source change consults the
+  structure inventories' Depends columns before scoping, and updates the
+  affected inventory rows in the same commit.
 - Backend parity (guiding principle) applies to ALL phases and ALL tasks: every plan must
   include per-backend tasks for every backend feature and at least one
   cross-backend differential test comparing backends' behavior on identical

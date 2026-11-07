@@ -95,3 +95,28 @@ s) Update all related documentation files; re-check that docs are aligned with
    the current state of the project (`KB.md`, `DESIGN.md`, `BUILD.md`,
    `CODEGEN.md`, backend docs, and `CURRENT_STATE.md`).
 t) Update `TASKS.md` (entry per its first-paragraph template) and commit.
+
+## 4. Impact calculation (mandatory before scoping any source change)
+
+Before scoping ANY source-code change, consult the affected rows' Depends
+columns in the structure inventories:
+
+- non-test source (`src/`, `src/bin/`, `crates/*/src/`):
+  [`docs/llm/SRC_STRUCTURE.md`](../llm/SRC_STRUCTURE.md)
+- test source (`tests/`, `crates/*/tests/`, `fuzz/fuzz_targets/`, inline test
+  modules): [`docs/llm/TEST_STRUCTURE.md`](../llm/TEST_STRUCTURE.md)
+
+The Depends columns are bidirectional edges: a row's own dependencies AND
+every row that depends on it define the change's blast radius. A change plan
+that names no inventory rows is incomplete - scope against the rows, not
+against memory of the tree.
+
+## 5. Docs<->source correspondence (the inventories are living documents)
+
+Every commit that adds, removes or renames a function, type or source file
+updates the affected inventory rows (identifier, Depends, description) in the
+SAME commit - never in a follow-up. The inventories describe the tree as it is,
+and the string-masked grep audit (the Phase 10/11 close-out method: extract
+every fn/type identifier from the source with strings masked, diff against the
+inventory rows per file) is the check: zero per-file diffs, or the commit is
+not done.

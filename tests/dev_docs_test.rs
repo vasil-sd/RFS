@@ -436,9 +436,23 @@ fn file_declares_item(path: &Path, item: &str) -> bool {
 
 /// doc→code: every reference in every doc must resolve to an existing file,
 /// and (for `.rs` + `::item`) to an item declared in that file.
+///
+/// The two structure inventories are excluded: their backticked paths are
+/// identifier-format examples and rename-rule prose (see each file's
+/// Conventions / Naming scheme sections), not navigational references - some
+/// deliberately name OLD paths that no longer exist. Their freshness is
+/// enforced by the string-masked grep audit (PROTOCOL.md section 5), which is
+/// a strictly stronger check than reference resolution.
 fn check_doc_code_refs(root: &Path, docs: &[PathBuf]) -> Vec<String> {
+    let inventories = [
+        root.join("docs/llm/SRC_STRUCTURE.md"),
+        root.join("docs/llm/TEST_STRUCTURE.md"),
+    ];
     let mut problems = vec![];
     for path in docs {
+        if inventories.contains(path) {
+            continue; // inventory tables: audited, not reference-resolved
+        }
         let Ok(content) = std::fs::read_to_string(path) else {
             continue; // unreadable files are caught elsewhere
         };

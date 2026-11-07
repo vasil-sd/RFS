@@ -1,3 +1,4 @@
+<!-- llm-budget: 1287 -->
 # RFS Test Structure - function and type inventory
 
 Complete, dependency-annotated inventory of every function and every data

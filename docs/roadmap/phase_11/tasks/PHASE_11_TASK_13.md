@@ -100,3 +100,11 @@ dev_docs_test 9/9.
 
 ## Non-goals
 - No inventory content change (that was tasks 11-12); no other doc restructured.
+
+## Task corrections
+
+| Correction | Description + rationale |
+|------------|-------------------------|
+| Gate-forced llm-budget headers on both inventories | `dev_docs_test` auto-discovers EVERY `.md` under `docs/llm/` and requires a `<!-- llm-budget: N -->` header within the first 10 lines of each (Class B rule, machine-checked). The inventories had none, so the move alone breaks the gate. Minimal mechanical addition - one header line at the top of each file (`SRC_STRUCTURE.md`: 1710 = 1709 + header; `TEST_STRUCTURE.md`: 1287 = 1286 + header) - no content change, recorded here because the task file said "no content edits". |
+| User-directed docs/llm/README.md index rows | The README's index table did not list the two new files; strictly outside the frozen scope ("no other doc restructured"). The user answered the open question with "yes, add 2 rows" - two table rows added (budgets 1710 / 1287), within the README's 70-line budget. |
+| Gate-forced dev_docs_test exclusion of the inventories from doc→code reference resolution | Moving the files into docs/llm/ brought them under `check_doc_code_refs` for the first time (at repo root they were never scanned): 27 failures - 25 src/-relative rename-rule prose paths in SRC_STRUCTURE.md's Naming scheme section (some naming OLD paths that no longer exist, so prefixing cannot fix them) + 2 identifier-format EXAMPLES in TEST_STRUCTURE.md's Conventions preamble (`it_parses`, `Spec` - illustrative items, not real rows). The inventories are machine-audited data tables whose freshness the string-masked grep audit (PROTOCOL.md section 5) enforces strictly more strongly than reference resolution; `tests/dev_docs_test.rs::check_doc_code_refs` now skips exactly those two paths, documented in its doc comment. No fn/type/source file added, removed or renamed - no inventory row changes required under the correspondence rule. |

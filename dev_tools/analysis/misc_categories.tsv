@@ -1,0 +1,4 @@
+# misc classification - Phase 12 task 3.4
+category	count	abstract_pattern	example1	example2	example3
+conversation-recall	83	recall conversation history after context compaction or between sessions: 'Execute task N' resume prompts, phase close-out procedures, what was done/committed in earlier tasks, plan and task-file details - restoring working context without re-reading files	Execute task 32	Ok, confirm, phase is done. Perform phase close-out.	phase close-out procedure steps PHASE_STATUS.md full verification
+web-docs-lookup	34	external documentation lookup: crate APIs (mermaid-rs-renderer, plantuml-core, layout-rs, railroad, mdr on docs.rs / crates.io / github) and tool syntax references (PlantUML EBNF + state diagrams, mermaid) - three recorded forms: query (3), url fetch (24), image_queries (7)	mermaid-rs-renderer crate docs.rs Rust mermaid renderer SVG	mermaid-rs-renderer rust crate	https://docs.rs/mermaid-rs-renderer/latest/mermaid_rs_renderer/

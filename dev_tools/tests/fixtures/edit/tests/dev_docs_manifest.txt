@@ -1,0 +1,2 @@
+# Fixture marker for rfs-dev --root resolution (resolve_root requires this
+# file). No manifest entries: the edit tools operate on Rust sources only.

@@ -12,6 +12,10 @@ members = [
     "crates/examples/sync_handler",
     "crates/examples/async_handler",
     "crates/examples/fuzz_rust",
+    # Phase 12 task 1: LLM-assistant maintenance tooling (binary `rfs-dev`).
+    # Operates on the repo's sources/docs as data; nothing in the rfs
+    # build/test path invokes it.
+    "dev_tools",
 ]
 
 [package]

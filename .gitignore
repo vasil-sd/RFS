@@ -7,6 +7,11 @@ fuzz/target
 fuzz/corpus/
 fuzz/artifacts/
 
+# Phase 12 task 1: the commands.md call inventory is regenerable output of
+# dev_tools/analysis/extract_calls.py (committed) - only the compact
+# classification TSVs and the README sections are tracked.
+dev_tools/analysis/calls.jsonl
+
 # Python caches (training.py and auxiliary scripts)
 __pycache__/
 *.pyc

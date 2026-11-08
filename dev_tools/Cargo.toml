@@ -1,0 +1,33 @@
+# Phase 12 task 1: LLM-assistant maintenance tooling (binary `rfs-dev`).
+#
+# Dependency constraint (PHASE_12.md): a SUBSET of the RFS project's
+# dependencies plus exactly two declared exceptions - syn (Rust-source
+# parsing, with `full` for impl/trait items) and pulldown-cmark (Markdown
+# parsing). No other dependency may be added without a plan correction.
+[package]
+name = "rfs-dev"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+name = "rfs_dev"
+path = "src/lib.rs"
+
+[[bin]]
+name = "rfs-dev"
+path = "src/main.rs"
+
+[dependencies]
+# `visit` (task 5.3): the AST walker behind the edit-* rewrite core.
+syn = { version = "2", features = ["full", "visit"] }
+# `span-locations` (task 5.3): byte-accurate token spans so edits are surgical
+# text replacements - everything outside a rewritten token stays byte-identical.
+proc-macro2 = { version = "1", features = ["span-locations"] }
+pulldown-cmark = "0.13"
+# Third declared dependency exception (task 5.6, user-authorized plan
+# correction): the `regex` crate for the rule-by-rule port of the python
+# analysis scripts' pattern matching. Already in Cargo.lock (transitively), so
+# no new lock entry and offline rebuilds keep working. The one python pattern
+# that uses a backreference + lookahead (the fenced-form close) is handled with
+# a regex-open + line-scan hybrid because `regex` omits both by design.
+regex = "1"

@@ -1,0 +1,3 @@
+# fixture manifest (Phase 12 task 5.1)
+src/alpha.rs
+src/beta.rs

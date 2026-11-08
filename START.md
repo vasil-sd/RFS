@@ -137,9 +137,39 @@ model-checkable (no unbounded data, floats, or arbitrary functions in the core).
   `docs/dev/*.md` to clickable relative links; fixed stale cross-references in
   `docs/SEMANTICS.md`, `docs/dev/DECISIONS.md`, and both toolchain_fuzz docs;
   removed KB.md's superseded sections (old 8/9/12/13) and renumbered the rest.
-- Known-good baseline (re-measured 2026-11-01, Phase 8 task 14 close-out;
-  preserved through Phase 9's docs-only changes):
-  535/535 main tests (559 with `--workspace`, 537 with `--features smt`),
+- Phase 10 (source structure analysis and refactoring preparation) is COMPLETE
+  (close-out 2026-11-05: full verification green, `PHASE_10_STATUS.md`) per
+  `docs/roadmap/phase_10/PHASE_10_PLAN.md`. Analysis-only phase - it produced
+  the two structure inventories (`docs/llm/SRC_STRUCTURE.md` +
+  `TEST_STRUCTURE.md`, the bidirectional Depends-column maps of every fn/type)
+  and the refactoring proposals Phase 11 executes, validated by the string-
+  masked completeness audit (EXACT: SRC 936 fns / 196 types, TEST 942 fns /
+  34 types).
+- Phase 11 (source refactoring per the Phase 10 proposals - no functionality
+  change) is COMPLETE (close-out 2026-11-07: full verification green,
+  `PHASE_11_STATUS.md`) per `docs/roadmap/phase_11/PHASE_11_PLAN.md`. Executed
+  the Phase 10 proposals: 43 source-file renames + a module merge, 8 new source
+  files, import-site rewrites, and the docs<->source re-sync (1,794 stale
+  references); moved the inventories into `docs/llm/` and added the PROTOCOL.md
+  impact-calculation + correspondence rules. Byte-identity end-to-end preserved
+  (535 main tests + 1683 generated tests unchanged).
+- Phase 12 (LLM assistant development tooling) is COMPLETE (close-out
+  2026-11-08: full verification green, `PHASE_12_STATUS.md`) per
+  `docs/roadmap/phase_12/PHASE_12_PLAN.md`. Added the `dev_tools/` workspace
+  member (binary `rfs-dev`): six maintenance tools derived from an analysis of
+  the 12,596 recorded assistant tool calls - sync-check/sync-fix (docs<->source
+  reference re-syncing), context (one-command impact context), edit-rename/
+  edit-move/edit-replace-item (syn-parsed source edits immune to string/comment
+  phantoms), doc-section (heading-path doc retrieval), inventory add/update/
+  remove/audit (structure-inventory maintenance + the completeness check), and
+  calls extract/classify (the Rust port of the analysis pipeline, byte-identical
+  to the python oracle). Dependencies: syn + pulldown-cmark + regex (the third
+  declared exception). No rfs toolchain functionality changed.
+- Known-good baseline (re-measured 2026-11-08, Phase 12 task 6 close-out;
+  the 535 main-test count was preserved through Phases 9-11's docs-only and
+  functionality-preserving refactoring changes):
+  535/535 main tests (663 with `--workspace` - the 559 pre-dev_tools baseline +
+  rfs-dev's 104 tests; 537 with `--features smt`),
   1683/1683 generated-code tests (192 modules), clippy without errors
   (46 warning lines / 35 unique - dead-code in shared test modules
   `tests/common/{prod_driver,mc_json,fail_variants}.rs` + pre-existing patterns
@@ -201,6 +231,12 @@ src/bin/             build_training, extract_training_snippets, generate_code_te
 crates/rfs-build/    build.rs helper crate (RFS_BIN resolution, rerun directives)
 crates/rfs-adapters/ ProtocolFsm trait + 4 generic adapters (channel/async/callback/minimal)
 crates/examples/     sync_handler, async_handler, fuzz_rust (cargo members) + c_sync_handler, fuzz_c (Makefile-driven)
+dev_tools/           Phase 12 maintenance tooling (workspace member, binary `rfs-dev`): src/{sync,context,
+                     edit,doc_section,inventory,calls}.rs the six tools; tests/ per-tool integration suites
+                     + committed fixtures/; analysis/ the committed python oracle (extract_calls.py +
+                     classify_calls.py) + the four category TSVs (calls.jsonl gitignored); README.md carries
+                     the frozen tool-call analysis + the proposed-tools table; PROTOCOL.md the future re-run
+                     protocol. Deps: syn + pulldown-cmark + regex (third declared exception).
 ide/                 TextMate grammar + snippets for .rfs (VS Code/Sublime install notes)
 tests/               example_corpus_test, frontend_test, codegen_test, backend_parity_test, benchmark_mc_test,
                    liveness_mc_test, monitor_integration_test, example_projects_test, endpoint_protocol_test,

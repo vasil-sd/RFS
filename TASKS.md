@@ -2096,3 +2096,226 @@ PHASE 8 IS NOW COMPLETE.
 - `docs/roadmap/phase_11/PHASE_11_PLAN.md` (correction 8a)
 - `docs/roadmap/CURRENT_STATE.md` (row 11 COMPLETE)
 - `TASKS.md` (this entry)
+
+## 2026-11-07 14:50 — Phase 12 task 1: dev_tools crate scaffold + pinned CLI stubs
+
+### Interpretation & plan
+
+- Requested: execute Phase 12 task 1 per `docs/roadmap/phase_12/tasks/PHASE_12_TASK_1.md` (plan + task file user-confirmed).
+- Plan: register `dev_tools` as a workspace member; write the crate (lib + bin `rfs-dev`, deps syn-full + pulldown-cmark only); fix the FULL 9-subcommand CLI surface as pinned stubs (exit 2, pinned messages, no unimplemented!()); README skeleton with the two section headers; gitignore calls.jsonl; dispatch tests at unit + binary level; full verification.
+
+### Report
+
+- Added: `dev_tools/Cargo.toml` (rfs-dev v0.1.0; syn 2.0.119 [full] + pulldown-cmark 0.13.6 - the only two deps), `dev_tools/src/lib.rs` (doc comment only), `dev_tools/src/main.rs` (dispatch stub: sync-check/sync-fix/context/edit-rename/edit-move/edit-replace-item/doc-section/inventory<add|update|remove|audit>/calls<extract|classify>; usage + "not implemented yet (Phase 12 task 5)" pins, exit 2), `dev_tools/tests/dispatch_test.rs` (4 binary-level contract tests), `dev_tools/README.md` (two section headers + placeholders for tasks 3.5/4).
+- Changed: root `Cargo.toml` members += "dev_tools"; `.gitignore` += dev_tools/analysis/calls.jsonl; Cargo.lock +6 entries (rfs-dev + pulldown-cmark tree: bitflags/getopts/pulldown-cmark-escape/unicase) - syn/proc-macro2 already locked by pre-existing deps, zero new syn entries.
+- Findings: (1) the mdr docs gate caught three-backticks-in-prose in PHASE_12_TASK_2.md + PHASE_12_PLAN.md (unclosed fence under comrak GFM) - rephrased to "fenced code block"; rule recorded for tasks 3-6. (2) New sandbox had an empty puppeteer cache -> parity_external_mmd_pinned_subset failed; restored via `npx puppeteer browsers install chrome-headless-shell` (known remedy, TOOLCHAIN.md §6).
+- Verification: cargo test -p rfs-dev 8/8; root package 535/535 UNCHANGED (rfs untouched); workspace 567 (= 559 + 8); clippy --all-targets zero rfs-dev warnings (pre-existing rfs baseline only); fmt clean after one auto-fix; docs_md_test 5/5 after the backtick fix.
+- Status: `docs/roadmap/phase_12/tasks/PHASE_12_TASK_1_STATUS.md`.
+
+## 2026-11-07 15:20 — Phase 12 task 2: commands.md extracted into a reconciled call inventory
+
+### Interpretation & plan
+
+- Requested: execute Phase 12 task 2 per `docs/roadmap/phase_12/tasks/PHASE_12_TASK_2.md`.
+- Plan: committed stdlib-only extractor (both payload forms, edit_file JSON validation, path classes); run + reconcile against raw grep counts; 5 spread spot-checks.
+
+### Report
+
+- Added `dev_tools/analysis/extract_calls.py` (committed) + `dev_tools/analysis/calls.jsonl` (gitignored): **12,596 rows** = every recorded call; per-kind totals exact vs raw file: terminal 9,623 (9,621 parsed + 2 genuinely payload-less: ordinal 4367 empty call, 4439 compaction artifact), edit_file 2,038, python 818, search_conversation 83, web_search 34.
+- Two parser fixes found by the reconciliation (recorded as task corrections in the task file): (1) 102 edit_file entries use FOUR-backtick fences because the JSON content contains triple-backtick markdown lines - extractor now width-matches fence close; (2) web_search has three recorded forms - query (3), url-only (24), image_queries-only (7) - extractor falls back query->url->image_queries.
+- Spot-checks ordinals 1/3149/6298/9447/12596: all PASS (payload verbatim-in-raw, independent substring check; covers inline + fenced forms incl. a 5,922-char heredoc). edit_file shape data for task 3.2: 324 new-file creations, edits-per-call 1x1443/2x272/3x127..., path classes sources 1,069 / docs 945 / other 18 / scratch 6.
+- Verification: internal reconciliation EXACT (rows == marker lines); raw grep cross-check EXACT; git check-ignore OK; no other file changed.
+- Status: `docs/roadmap/phase_12/tasks/PHASE_12_TASK_2_STATUS.md`.
+
+## 2026-11-07 15:55 — Phase 12 task 3.1: terminal calls classified (11 categories, exact reconciliation)
+
+### Interpretation & plan
+
+- Requested: execute subtask 3.1 of Phase 12 task 3 per `docs/roadmap/phase_12/tasks/PHASE_12_TASK_3.md` Action 1.
+- Plan: committed four-mode classifier script (terminal mode now), ordered rule set per the task file's stable vocabulary, TSV output, reconciliation to 9,623, deviation analysis vs plan-Context expectations.
+
+### Report
+
+- Added `dev_tools/analysis/classify_calls.py` (stdlib-only; terminal mode implemented, edit_file/python/mic modes stubbed for subtasks 3.2-3.4) + `dev_tools/analysis/terminal_categories.tsv` (true tab separation - pattern/example fields contain commas).
+- Distribution (sums exactly to 9,623): lookup-docs 2,035 / lookup-sources 3,376 / lookup-vendored-deps 125 / build-test-run 2,126 / git 583 / shell-write 182 / shell-edit 32 / file-ops 47 / env-check 207 / python-via-shell 207 / other 703 (incl. the 2 payload-less calls).
+- Deviations >5% vs plan-Context expectations, all root-caused as recon artifacts (first-segment-only heuristics), not classifier errors: python-via-shell 43->207 (recon missed python in later segments), lookup-vendored-deps 33->125 (recon counted only var-assignment-led registry reads; classifier matches .cargo/registry anywhere incl. ~/.cargo), env-check 110->207 (version probes + toolchain-dir exploration now captured), shell-edit 51->32 (compound rewrite+`&& cargo test` commands go to build-test-run per the ordered rule - verified on real payloads), shell-write 208->182 (heredoc-to-python excluded by design), file-ops 58->47, lookup total 5,880->5,536 (recon counted grep-as-output-filter on cargo commands as lookups), other 383->703 (absorbs scratch/system lookups w/o repo target, job polling, npm internals, installs). Findings carried into the task-3 status file at close-out (after 3.5).
+- Parser fixes during the subtask: env-check absolute-path regex was anchored to segment start (missed `find / -name X`, `ls /workspace/host/.cargo/bin`) - fixed with an argument-position pattern; TSV writer joined with commas despite the .tsv name - fixed to tabs.
+- Verification: category counts sum exactly to the 9,623 terminal rows (script self-reconciles, exit 1 otherwise); sample-level validation of python-via-shell / vendored-deps / env-check / other buckets against raw payloads; sed -i misclassification probe confirmed correct ordered-rule behavior.
+
+## 2026-11-07 16:20 — Phase 12 task 3.2: edit_file calls classified (path class x new/modify + shape stats)
+
+### Interpretation & plan
+
+- Requested: execute subtask 3.2 of Phase 12 task 3 per `docs/roadmap/phase_12/tasks/PHASE_12_TASK_3.md` Action 2.
+- Plan: add the edit_file mode to the committed classifier (category = path class x new/modify + residual other), compute shape stats (edits-per-call histogram, replace_all usage, single-edit share, whole-file-rewrite share) as extra TSV columns, reconcile to 2,038.
+
+### Report
+
+- `dev_tools/analysis/classify_calls.py` gained the edit_file mode (registered in MODES); `dev_tools/analysis/edit_file_categories.tsv` written - true tab separation, 9 columns (standard 6 + single_edit_share + replace_all_count + whole_rewrite_share), histogram/replace_all/whole-rewrite totals as trailing comment lines.
+- Distribution (sums exactly to 2,038): docs-new 225 / docs-modify 720 / sources-new 91 / sources-modify 978 / other 24. Cross-checks vs task-2 shape data all agree: docs total 945, sources total 1,069, other 24 (= 18 session-local scripts + 6 scratch), new-file creations 324 (316 in docs/sources + 8 in other), edits-per-call histogram identical to task 2's (1:1443 2:272 3:127 4:71 5:37 6:31 ...).
+- Shape findings: replace_all used only 10 times across all 2,038 calls (near-zero - bulk replacement was done via python scripts instead); whole-file rewrites 363 (17.8%) = 324 new files + 39 single edits with old_string >= 1000 chars (the documented proxy threshold WHOLE_REWRITE_OLD_LEN, part of the output contract for the task-5.6 port).
+- Examples column uses `<path> [N edit(s)|NEW FILE] <first old_string head>` instead of raw edits-JSON (uninformative at 160 chars) - rule documented in the script.
+- Verification: category counts sum exactly to 2,038 (script self-reconciles); one spot-check per category verified against raw inventory fields; 'other' bucket contents = audit_src_structure.py x9, fix_mapping_table.py x3, build_entries.py x3, audit_test_structure.py x2, verify_p7.sh x2, .gitignore x2, rewrite_*.py x2.
+
+## 2026-11-07 16:50 — Phase 12 task 3.3: python calls classified (6 purpose categories, exact reconciliation)
+
+### Interpretation & plan
+
+- Requested: execute subtask 3.3 of Phase 12 task 3 per `docs/roadmap/phase_12/tasks/PHASE_12_TASK_3.md` Action 3.
+- Plan: add the python mode to the committed classifier (ordered code-shape tests per the task file: bulk-rewrite, audit-mask, orchestration, json-processing, transform, residual analysis), reconcile to 818, root-cause deviations vs plan-Context expectations.
+
+### Report
+
+- `dev_tools/analysis/classify_calls.py` gained the python mode (registered in MODES); `dev_tools/analysis/python_categories.tsv` written (standard 6-column TSV).
+- Distribution (sums exactly to 818): bulk-rewrite 229 / audit-mask 68 / transform 170 / json-processing 51 / orchestration 26 / analysis 274.
+- Deviations vs plan-Context expectations, all root-caused as recon substring artifacts (verified row-by-row), not classifier errors: audit-mask 99->68 (-31%, recon's bare-substring 'diff'/'grep' matched prose like "different" and non-audit scripts; the classifier uses an identifier-aware rule - bare word, underscore-joined name like mask_code, or call form diff() - which a first draft got wrong with \b...\b, missing exactly the underscore-joined audit function names; fixed), transform 181->170 (-6.1%, recon's substring 'write' mislabeled read-only scripts AND missed pathlib read_text/write_text in both directions), json-processing 56->51 (-8.9%, recon's substring 'json' matched filenames without actual json-module calls), orchestration 23->26 (+13%, documented ordering: subprocess+rewrite scripts classify bulk-rewrite first), analysis 228->274 (+20.2%, absorbs the recon-mislabeled read-only scripts - the dominant 131-row transform->analysis move). bulk-rewrite 231->229 (-0.9%, within tolerance).
+- The 11 scripts defining mask*/audit* helpers but classified bulk-rewrite are CORRECT per the ordered rule (their primary operation is writeback + .replace(); the masker is auxiliary) - verified, not a miss.
+- Combined-count input for task 4: pattern-fragile rewrites = 229 python bulk-rewrite + 32 terminal shell-edit (+ the 57 pathlib rewrites already inside the 229); audit method = 68 python audit-mask scripts (the Phase 10/11 masker lineage).
+- Verification: category counts sum exactly to 818 (script self-reconciles); move-diagnosis vs the recon rule set printed and reviewed; TSV column count uniform (6).
+
+## 2026-11-07 17:05 — Phase 12 task 3.4: misc calls classified (conversation-recall + web-docs-lookup)
+
+### Interpretation & plan
+
+- Requested: execute subtask 3.4 of Phase 12 task 3 per `docs/roadmap/phase_12/tasks/PHASE_12_TASK_3.md` Action 4.
+- Plan: add the misc mode (direct kind mapping), author abstract patterns from the actual query data, reconcile to 117.
+
+### Report
+
+- `dev_tools/analysis/classify_calls.py` gained the misc mode - all four modes now registered (terminal/edit_file/python/misc); `dev_tools/analysis/misc_categories.tsv` written (standard 6-column TSV).
+- Distribution (sums exactly to 117): conversation-recall 83 / web-docs-lookup 34. Patterns authored from reading ALL queries of both kinds: conversation-recall = post-compaction context restoration ('Execute task N' resume prompts, close-out procedures, earlier-task/commit recall); web-docs-lookup = external crate APIs (mermaid-rs-renderer, plantuml-core, layout-rs, railroad, mdr on docs.rs/crates.io/github) + tool syntax references (PlantUML EBNF/state diagrams, mermaid), in the three recorded forms found by task 2 (query 3 / url 24 / image_queries 7).
+- Expected outcome per the task file confirmed: NO dedicated tool for either category - conversation recall is a platform capability a repo tool cannot replace, and web-docs lookup is external + one-off (fails the "mechanical repeated repo operation" criterion). Task 4 records this as an explicit no-tool decision.
+- Verification: category counts sum exactly to 117 (script self-reconciles); TSV column count uniform (6). Subtasks 3.1-3.4 are now ALL complete - the four TSVs cover all 12,596 calls (9,623 + 2,038 + 818 + 117), ready for the 3.5 consolidation.
+
+## 2026-11-07 17:40 — Phase 12 task 3.5 (+ task 3 close-out): analysis consolidated into README, section frozen
+
+### Interpretation & plan
+
+- Requested: execute subtask 3.5 of Phase 12 task 3 per `docs/roadmap/phase_12/tasks/PHASE_12_TASK_3.md` Action 5 - the last subtask, so task 3 closes with it.
+- Plan: add a `consolidate` mode to the committed classifier that builds the entire README section from the four TSVs (zero manual numbers), splice it in place of the task-1 placeholder, verify arithmetic from the rendered markdown, freeze.
+
+### Report
+
+- `dev_tools/analysis/classify_calls.py` gained the consolidate mode (fifth, after the four classification modes): reads the four TSVs, emits the section - format table (incl. task-2's widened-fence + three-form web_search findings), 24-row master category table (count, share of total, abstract pattern from the TSVs, authored implication-for-dev_tools per category incl. the two distinct 'other' implications keyed by kind), four per-kind subtables, closing tool-set paragraph. Self-verifies: master sum == 12,596 or exit 1.
+- `dev_tools/README.md` §`## Analysis of tool calls patterns` filled and FROZEN (26.5 KB file); `## Proposed tools` placeholder intact for task 4. Re-verified from the rendered markdown itself: master 24 rows sum to 12,596; per-kind subtables re-sum to 9,623/2,038/818/117; 0 broken pipe-table spots; docs_md_test 5/5 green.
+- Four consolidator bugs found+fixed before splicing: duplicate "other" implications key (restructured to kind-keyed), eager default-arg KeyError (two-step lookup), blank lines between master-table rows terminating the markdown table (one-part assembly), main() output-path derivation writing a stray TSV for the markdown mode (explicit out arg).
+- Task 3 exit criteria all met: four TSVs with exact per-kind sums; master table sums to 12,596; every category has pattern + examples; vocabulary unchanged (no renames/merges); all >5% deviations from plan-Context expectations recorded with root causes and examples in the status file (3.1 recon-artifact analysis, 3.3 row-by-row move diagnosis, 3.2/3.4 none).
+- Status: `docs/roadmap/phase_12/tasks/PHASE_12_TASK_3_STATUS.md`. Task 3 COMPLETE - task 4 (proposal elaboration) consumes the frozen section read-only.
+
+## 2026-11-07 18:35 — Phase 12 task 4: proposed-tools table elaborated, DOCS_STRUCTURE.md rejected with data
+
+### Interpretation & plan
+
+- Requested: execute Phase 12 task 4 per `docs/roadmap/phase_12/tasks/PHASE_12_TASK_4.md`.
+- Plan: derive tool rows from the frozen analysis (three criteria per class), write the table + no-tool decisions + DOCS_STRUCTURE.md decision into dev_tools/README.md, verify CLI-surface consistency against task-1 stubs and frozen-section integrity.
+
+### Report
+
+- `dev_tools/README.md` §`## Proposed tools` filled: 9-row table (sync-check, sync-fix, context, edit-rename, edit-move, edit-replace-item, doc-section, inventory, calls) - every row cites its evidence category + count from the frozen master table; CLI conventions fixed (compact stdout, exit 0/1/2, --root, plan-first + --dry-run for mutating tools). No-tool decisions recorded for all eleven declining classes with reasons.
+- DOCS_STRUCTURE.md: REJECTED for this phase, decided from the frozen data - of 2,035 lookup-docs calls only 17.2% touch >=2 doc files (and those are ls/wc/reference-greps, not cross-file heading hunts); 32.5% are single-file range reads at known line numbers, 13.2% intra-file heading greps. On-the-fly pulldown-cmark walk + `doc-section all` covers the observed need; revisit trigger recorded.
+- Verification: CLI surface EXACTLY matches task-1's 15 stub subcommands (parsed from main.rs - zero plan corrections needed); frozen analysis section byte-identical to consolidate-mode regeneration; every row carries an Evidence clause; docs_md_test 5/5 green.
+- Task 5's authoritative list is now this table: expected subtasks 5.1 sync / 5.2 context / 5.3 edit-* / 5.4 doc-section (no DOCS_STRUCTURE.md) / 5.5 inventory / 5.6 calls + 5.x verification.
+- Status: `docs/roadmap/phase_12/tasks/PHASE_12_TASK_4_STATUS.md`.
+
+## 2026-11-07 21:53 — Phase 12 task 5.1 (backfill): sync-check / sync-fix implemented - entry missed by the executing session, reconstructed from the committed code
+
+### Interpretation & plan
+
+- Requested: execute subtask 5.1 of Phase 12 task 5 per `docs/roadmap/phase_12/tasks/PHASE_12_TASK_5.md` Action 1.
+- Plan: implement sync-check (three-direction reference check, compact fix-list, exit 0/1) and sync-fix (path-mapping rewrites, plan-first + --dry-run) as `dev_tools/src/sync.rs`, unit tests in-module, one integration test file on committed fixture repos, demonstration on the real tree.
+- NOTE: this entry is a BACKFILL - the session that executed 5.1 ended after implementation and green tests without writing its TASKS.md record (a PROTOCOL.md step-m/t gap of the same class as the Phase 11 tasks 11-12 backfill, commit cbb23be). Content reconstructed from the delivered code, tests and fixtures plus a fresh re-run of every verification below.
+
+### Report
+
+- Added `dev_tools/src/sync.rs`: reference-extraction core shared by check and fix (they cannot drift apart) - `//! Docs:` pointer lines of manifest-listed .rs files (code->doc), backticked source-path references in the LIVING doc set docs/dev/** + docs/llm/** (doc->code, exactly the dev_docs_test gate's scope; roadmap history and the two structure inventories excluded by design), orphan fragments. sync-fix applies `--map OLD=NEW` path mappings plan-first with `--dry-run`. Item-declaration semantics mirror tests/dev_docs_test.rs so tool and gate agree on what resolves.
+- Added `dev_tools/tests/sync_test.rs` (5 integration tests) + committed fixture repos `tests/fixtures/sync/{clean,stale,moved}` - planted stale/missing/orphan cases, dry-run no-write pin, mapping-rewrite-then-clean round trip.
+- Changed: main.rs dispatch (sync-check/sync-fix filled, `resolve_root` helper), lib.rs module declaration, dispatch_test.rs stub list (context still stubbed at the time).
+- Verification (re-run for this backfill): at 5.1 time cargo test -p rfs-dev was 17/17 green (4 lib unit + 4 main-dispatch unit + 4 dispatch_test integration + 5 sync_test integration); root package 535/535 UNCHANGED; clippy -p rfs-dev --all-targets zero warnings; fmt clean.
+- Demonstration on the REAL tree (re-run for this backfill): `rfs-dev sync-check` -> exit 0, empty fix-list = CLEAN, exactly the expected outcome (the tree is in sync after Phase 11) - no findings.
+- Task 5 as a whole stays open: subtasks 5.2-5.6 + 5.x remain; PHASE_12_TASK_5_STATUS.md is written once, at task completion, per FORMATTING.md section 6.2.
+
+## 2026-11-07 21:53 — Phase 12 task 5.2 (complete): context - one-command impact context for a fn/type
+
+### Interpretation & plan
+
+- Requested: execute subtask 5.2 of Phase 12 task 5 per `docs/roadmap/phase_12/tasks/PHASE_12_TASK_5.md` Action 2.
+- Plan: implement `rfs-dev context <name> [--file F] [--depth N]` per the task-4 row - inventory-row lookup across both structure documents, depth-bounded Depends closure (default 1), Documented-in fragment content extracted by anchor, related DECISIONS.md entries; render the FIXED five-heading markdown template (the output contract); unit tests in-module, one integration test file byte-pinning the template on a committed fixture repo, demonstration on the real tree.
+
+### Report
+
+- Added `dev_tools/src/context.rs`: inventory table parsing (exact `Function`/`Type` header detection, `\|`-escaped cell splitting - the inventories carry operator lists like `\|\|` in description cells), whole-segment bare-name matching with optional `--file` restriction, BFS Depends closure that reports each identifier at its FIRST depth only (cycle/diamond-safe) and marks unresolved dependencies `(missing from inventory)` without expanding them, fence-aware fragment extraction (anchor must be immediately followed by a heading - the sync-check rule; content runs to the next anchor or same-or-higher-level heading, deeper headings included), DECISIONS.md entry scan (exact backticked-identifier match under `###` headings, continuation lines counted, fenced spans ignored, de-duplicated).
+- Template contract pinned byte-for-byte by the integration test: `## Context for <name>` / `### Inventory row` (the three original table lines verbatim) / `### Depends closure` (`depth limit: N` + `- depth k:` groups) / `### Documented in` (`#### <frag> — <file>` + verbatim content, column order preserved) / `### Related decisions` (`- <entry> (docs/dev/DECISIONS.md)`); all three sections render a pinned `(none)` when empty. stdout is byte-identical to the rendered template (print!, single trailing newline).
+- Added `dev_tools/tests/context_test.rs` (8 integration tests) + committed fixture repo `tests/fixtures/context/`: 2-deep Depends chain, planted missing dependency, ambiguous bare name across SRC/TEST inventories, fragment boundary cases (deeper heading included, same-level heading stops, fenced anchor ignored), DECISIONS.md continuation-line + fenced negative control.
+- Changed: main.rs dispatch (`context` filled; usage errors exit 2 - missing name, two positionals, full identifier instead of bare name, `--depth` non-positive/non-integer, unknown flag, valueless `--file`; operational failures exit 1 - no match, ambiguous with the full row list), lib.rs module declaration, dispatch_test.rs stub list.
+- Verification: cargo test -p rfs-dev 34/34 green (13 lib unit [9 context + 4 sync] + 4 main-dispatch unit + 8 context_test + 4 dispatch_test + 5 sync_test integration, 0 doc-tests); root package 535/535 UNCHANGED; clippy -p rfs-dev --all-targets zero warnings (three first-pass findings fixed: unnecessary_map_or, question_mark, needless_range_loop); fmt clean.
+- Demonstrations on the REAL tree (acceptance test): (1) `rfs-dev context parse_source` -> exit 0, 776-line populated template - all 7 depth-1 dependencies resolved (zero missing markers), 8 fragments extracted from docs/dev/parser.md + ALGORITHMS.md + CODE_MAP.md + DECISIONS.md + REFERENCES.md + llm/parser.md, related decisions 9.1 + 9.5; (2) `rfs-dev context parse_source --depth 2` -> depth-2 group correctly expands to module/Span/is_ident_byte/Module; (3) `rfs-dev context new` -> exit 1 ambiguous with all 21 matching rows listed per document; (4) `rfs-dev context new --file src/lang/ir.rs` -> exit 0, Ir::new row with pinned `(none)` empty closure. The grep+sed+read lookup-sources sequence (3,376 calls, 26.8% of all recorded tool calls) is now one command.
+- No plan or task corrections: the CLI surface shipped exactly as task 4's table says; no README change needed. Task 5 stays open (5.3-5.6 + 5.x remain); PHASE_12_TASK_5_STATUS.md is written once, at task completion.
+
+## 2026-11-08 00:30 — Phase 12 task 5.3 (complete): edit-rename / edit-move / edit-replace-item - syn-parsed source edits
+
+### Interpretation & plan
+
+- Requested: execute subtask 5.3 of Phase 12 task 5 per `docs/roadmap/phase_12/tasks/PHASE_12_TASK_5.md` Action 3.
+- Plan: implement the three edit-* operations as `dev_tools/src/edit.rs` over one shared syn-based rewrite core (span collection + back-to-front text replacement - only rewritten tokens change bytes, everything else survives identically), per the task-4 CLI rows; unit tests in-module, one integration test file on a committed fixture mini-crate (copied to a temp work area per test so fixtures are never mutated), demonstrations on /tmp copies of a REAL module with rustc compile-after-edit as the semantic-completeness proof.
+
+### Report
+
+- Added `dev_tools/src/edit.rs` (~1,050 lines incl. tests): `edit-rename <old> <new>` counts declaration sites first (top-level fn/struct/enum/trait/type/const/static/mod/union + associated items; zero -> not found, >1 -> ambiguous, both exit 1), then rewrites the declaration ident, every path whose LAST segment is the name, and use-tree names (`use a::b::old;`, `use a::{old};`, `use a::old as alias` - the alias itself never touched). `edit-move <from> <to>` derives both module paths (segments after the nearest `src/`), rewrites every import site where the old path occurs as a contiguous segment sequence in any path or use-tree chain (leftmost match, overlapping ranges collapsed), and performs mod-declaration surgery: same-parent moves rewrite the stem in place; cross-parent moves remove the declaration from the old parent's file, add it to the new parent's, and - for a brand-new intermediate directory - create its `mod.rs` AND declare the new directory module in its (already-existing) parent's declaration file. `edit-replace-item <file> <item> --new-from FILE` locates one item by name (top-level ident or impl-block self type; associated items included, so same-named methods across impls are caught as ambiguity), replaces its byte range - leading attributes through closing brace/semicolon, the item's own line terminator moves with it - with the file's content. All three: plan-first stdout, `--dry-run`, exit 0/1/2 per convention.
+- The phantom guarantee is structural, not pattern-based: string literals and comments are not Path/Ident nodes, so they can never match. One real gap found and closed during implementation: macro invocations hold their arguments as a raw token stream the default syn traversal never descends into - `visit_macro` now walks it explicitly (ident tokens only; Lit strings inside macro args still survive), which the NIST-vector test module in the demonstration file exercises for real.
+- Added `dev_tools/tests/edit_test.rs` (13 integration tests) + committed fixture mini-crate `tests/fixtures/edit/` (lib.rs with cross-module imports carrying the old name in a string literal AND a comment - the phantom negative control; alpha.rs declaring the rename target exactly once; beta.rs with a use-import + bare call). Tests cover: every import site rewritten, phantoms byte-identical after rename AND after move, dry-run no-write pins for all three operations, not-found/ambiguous exit-1 with full site lists, usage errors exit 2, move mod surgery (cross-parent with intermediate-dir creation + same-parent stem rewrite), replace-item swap with sibling survival.
+- Changed: main.rs dispatch (three subcommands filled; shared `parse_edit_args` helper; bare-name validation), lib.rs module declaration, dispatch_test.rs stub list (edit-* removed - their contracts are pinned by edit_test.rs instead), Cargo.toml (syn gains the `visit` feature; proc-macro2 added as a direct dep with `span-locations` for byte-accurate token spans - both within the PHASE_12.md allowed set, no new crate).
+- Verification: cargo test -p rfs-dev 61/61 green (27 lib unit [13 edit + 9 context + 4 sync + 1 replace_spans] + 4 main-dispatch unit + 13 edit_test + 8 context_test + 5 sync_test + 4 dispatch_test integration, 0 doc-tests); root package 535/535 UNCHANGED; clippy -p rfs-dev --all-targets zero warnings (one first-pass finding fixed: useless_borrows_in_formatting in a test helper); fmt clean; `rfs-dev sync-check` on the real tree still exit 0 CLEAN.
+- Demonstrations on /tmp copies of the REAL `src/utils/hash.rs` + `rng.rs` modules (acceptance test, each followed by a rustc compile of the whole copied crate): (1) `edit-rename sha256_hex sha256_digest` -> declaration + 8 references rewritten across hash.rs (incl. 5 inside `assert_eq!`/`assert!` macro args - the gap this demonstration exists to catch) and a harness module's use-tree + call site; the string literal carrying the old name survived byte-identical; rustc exit 0. (2) `edit-move src/utils/rng.rs src/utils/randgen/rng.rs` -> declaration removed from utils/mod.rs, new randgen/mod.rs created, `pub mod randgen;` added to utils/mod.rs, the harness's `use crate::utils::rng::Rng` rewritten to the new path; rustc exit 0. (3) `edit-replace-item src/checksum.rs digest --new-from new_digest.txt` -> the fn replaced with new content (its doc comment goes with it), sibling fn untouched; rustc exit 0.
+- No plan or task corrections: the CLI surface shipped exactly as task 4's table says (`--root` accepted by edit-replace-item per the global convention even though its row omits it - file paths resolve against it); no README change needed. Task 5 stays open (5.4-5.6 + 5.x remain); PHASE_12_TASK_5_STATUS.md is written once, at task completion.
+
+## 2026-11-08 07:33 — Phase 12 task 5.4 (complete): doc-section - retrieve doc content by heading path
+
+### Interpretation & plan
+
+- Requested: execute subtask 5.4 of Phase 12 task 5 per `docs/roadmap/phase_12/tasks/PHASE_12_TASK_5.md` Action 4.
+- Plan: implement `rfs-dev doc-section <file|all> <heading...>` per the task-4 row - a heading-path walk that prints the addressed section's content verbatim; `all` searches every docs file and prefixes matches with the file name. Task 4 REJECTED DOCS_STRUCTURE.md, so no section-inventory builder this subtask. Unit tests on fixture docs (nested headings, same heading in two files), one integration test file byte-pinning the output shape, demonstration on a real KB.md/DESIGN.md section cross-checked against the sed range read it replaces.
+
+### Report
+
+- Added `dev_tools/src/doc_section.rs`: fence-aware ATX heading scan (a ``` line toggles the fence; only 1-6 `#` + space/EOL outside a fence are headings; an optional closing `#` sequence is stripped from the text). Path resolution: element 0 = FIRST exact-text match in the document; element k+1 = first STRICTLY DEEPER exact-text match inside element k's section (a same-or-shallower heading can never be a child). Section content runs from the line after the matched heading to the next fence-aware heading of the same or higher level - deeper headings are INCLUDED - with leading AND trailing blank lines stripped. An empty section prints the pinned `(none)` marker (the context tool's empty-section vocabulary). `all` mode walks docs/**/*.md in sorted order and renders each match as a `<file>: <path>` line followed by the verbatim content, matches separated by one blank line.
+- PLAN CORRECTION (recorded per the plan Context fallback): the plan said "pulldown-cmark heading walk", but pulldown-cmark 0.13.6's event API exposes NO source spans (the 0.12+ rewrite dropped `sourcepos`), so byte-accurate section extraction is impossible from the parser alone. The walk is therefore line-based fence-aware - which is also exactly the semantics context.rs's `extract_fragment` and sync-check's anchor rule already use, keeping doc-section's section boundaries byte-identical to the two existing consumers of "what a heading is" in this repo. No new dependency; pulldown-cmark remains declared (used by sync) but doc-section does not call it.
+- Added `dev_tools/tests/doc_section_test.rs` (10 integration tests) + committed fixture docs `tests/fixtures/docs/`: two synthetic docs with overlapping heading names at different depths (a `## Overview` and a nested `### Overview` in alpha.md, the same name in beta.md), a fenced block carrying fake headings (negative control - they are neither resolvable nor do they truncate the real section), and an empty section (pins `(none)`). Tests pin: verbatim single-heading output, nested-path == direct-addressing bytes, first-occurrence-wins for repeated headings, depth scoping reaching the nested Overview, the `(none)` marker, fenced fake-headings ignored, all-mode cross-file search with filename prefixes + sorted order + blank-line separators, no-match exit 1, missing-file exit 1, usage errors exit 2.
+- Changed: main.rs dispatch (`doc-section` filled; each positional after the file is ONE heading element - quote multi-word headings), lib.rs module declaration, dispatch_test.rs stub list (doc-section removed - its contract is pinned by doc_section_test.rs instead).
+- Verification: cargo test -p rfs-dev 77/77 green (33 lib unit [6 doc_section + 13 edit + 9 context + 4 sync + 1 replace_spans] + 4 main-dispatch unit + 10 doc_section_test + 13 edit_test + 8 context_test + 5 sync_test + 4 dispatch_test integration, 0 doc-tests); root package 535/535 UNCHANGED; clippy -p rfs-dev --all-targets zero warnings; fmt clean; `rfs-dev sync-check` on the real tree still exit 0 CLEAN.
+- Demonstrations on the REAL tree (acceptance test): (1) `doc-section KB.md "2. Design decisions" "2.1 Purpose of RFS"` -> exit 0, the section's 3 lines byte-identical to the sed range read of the same span (the tool additionally strips the leading blank line per contract) - the token-saving replacement for the sed-range read, proven on a live doc. (2) `doc-section all "Conventions (binding for all rows)"` -> exit 0, matched in BOTH docs/llm/SRC_STRUCTURE.md and docs/llm/TEST_STRUCTURE.md, each prefixed with its file name, verbatim content; the near-miss heading `Conventions` (without its suffix) correctly does NOT match - exact-text contract confirmed on real data. (3) `doc-section KB.md "99. Ghost section"` -> exit 1 with a clear not-found message.
+- Task 5 stays open (5.5 inventory, 5.6 calls + 5.x final verification remain); PHASE_12_TASK_5_STATUS.md is written once, at task completion.
+
+## 2026-11-08 10:25 — Phase 12 task 5.5 (complete): inventory add/update/remove/audit - the string-masked completeness check productized
+
+### Interpretation & plan
+
+- Requested: execute subtask 5.5 of Phase 12 task 5 per `docs/roadmap/phase_12/tasks/PHASE_12_TASK_5.md` Action 5.
+- Plan: implement `rfs-dev inventory audit` (the Phase 10/11 string-masked completeness check, conventions from PHASE_11_TASK_11_STATUS.md findings) reporting per-file diffs with exit 1 on any diff, plus `inventory add/update/remove --doc SRC|TEST` row operations keeping the tables mechanically valid; unit tests on fixture inventories, integration test running audit to EXACT on a committed fixture tree, demonstration on the REAL tree (expected EXACT - Phase 11 left it clean).
+
+### Report
+
+- Added `dev_tools/src/inventory.rs`: a syn-based extractor that walks every in-region source file and emits each fn/type identifier in the inventory's naming conventions - top-level items `<file>::<name>`, inherent methods `<file>::<Type>::<method>`, trait-impl methods in the MARKED form `<file>::<Type>(<Trait>)::<method>`, trait-definition methods `<file>::<Trait>::<method>`, nested fn/type/impl inside function bodies (parent-fn prefixed), inline mods recursed with their name as a path segment, and the libfuzzer `fuzz_target!(...)` macro counted as a fn named `fuzz_target` (the Phase 10/11 "macro entries"). Associated-type bindings inside impls are excluded (phantoms, per the Phase 11 finding). `#[cfg(test)]` tracking separates host-file test items from production items.
+- The audit derives its conventions FROM THE DOCUMENTS (the Phase 11 method): the marked set is parsed out of the inventories (a trait-impl method keeps its marked form only where a row carries it, else the `(Trait)` group is stripped); matching uses flexible `::`-suffix equality so the per-file irregular nested-type naming (test.rs `Guard` unprefixed vs ref_mc `run::St` prefixed) resolves without hardcoding; scope is derived from the inventories themselves (a file in both = host, audited non-cfg for SRC and cfg-only for TEST; only in TEST = whole-file test; only in SRC = production); a completeness net flags any in-region source file with items that no inventory covers, excluding crate-local fuzz harnesses (`crates/**/fuzz/**`) which the Phase 10/11 scope deliberately omitted.
+- PLAN CORRECTION (recorded per the plan Context): the plan said "string-masked grep audit"; the implementation uses syn parsing instead of string-masking + grep. Syn is strictly more robust (it cannot confuse a string literal's contents for an identifier, which is exactly the failure the masking existed to prevent) and reproduces the Phase 10/11 conventions exactly - proven by the EXACT demonstration below. No new dependency (syn was already allowed).
+- Added `inventory add/update/remove`: row operations that keep the six-column tables mechanically valid - pipe escaping on write (`\|`), exact identifier match for update/remove, file-grouped insertion for add (a new row lands after the last row of its file), duplicate/missing-row detection, plan-first + `--dry-run`. The task-4 table's terse `--doc SRC|TEST ...` was elaborated to `--doc --kind fn|type --id <file.rs::name>` plus optional cell flags (add) / `--set COLUMN=VALUE` (update) - an elaboration of the pinned surface, not a rename.
+- Added `dev_tools/tests/inventory_test.rs` (5 integration tests) + committed fixtures `tests/fixtures/inventory/` (a mini source tree whose inventories are audit-clean: EXACT) and `tests/fixtures/inventory_stale/` (one phantom row + one un-inventoried fn: the audit reports both, exit 1). Round-trip add->update->remove verified to restore the table byte-for-byte; dry-run verified to write nothing.
+- Changed: main.rs dispatch (all four inventory subverbs filled; a shared flag-scan helper), lib.rs module declaration, dispatch_test.rs + main.rs stub lists (inventory removed - only `calls` remains stubbed).
+- Verification: cargo test -p rfs-dev 91/91 green (42 lib unit [10 inventory + 6 doc_section + 13 edit + 9 context + 4 sync + 1 replace_spans + others] + 4 main-dispatch unit + 5 inventory_test + 10 doc_section_test + 13 edit_test + 8 context_test + 5 sync_test + 4 dispatch_test integration, 0 doc-tests); root package 535/535 UNCHANGED; clippy -p rfs-dev --all-targets zero warnings; fmt clean; sync-check CLEAN.
+- Demonstration on the REAL tree (acceptance test): `rfs-dev inventory audit` -> exit 0, "EXACT: SRC 936 fns / 196 types, TEST 942 fns / 34 types - zero per-file diffs" - the counts match the Phase 11 close-out record (936/196 and 942/34) exactly, proving the reconstruction is faithful and no longer needs to be done by hand.
+- Task 5 stays open (5.6 calls + 5.x final verification remain); PHASE_12_TASK_5_STATUS.md is written once, at task completion.
+
+## 2026-11-08 17:23 — Phase 12 task 6 (complete): close-out - full verification green, docs synced, PHASE_12_STATUS.md written, phase -> COMPLETE
+
+### Interpretation & plan
+
+- Requested: execute Phase 12 task 6 (close-out) per `docs/roadmap/phase_12/tasks/PHASE_12_TASK_6.md` - run the full verification with dev_tools in the workspace, synchronize every document that inventories the tree/commands, write `PHASE_12_STATUS.md`, update `CURRENT_STATE.md` + append the `TASKS.md` entry.
+- Plan: (1) measure the baselines (root must stay 535, smt 537, workspace = 559 + dev_tools' tests, clippy at the 46-line baseline with zero in dev_tools, fmt clean); (2) sync BUILD.md (sections 3/4/5), START.md (sections 1/3), KB.md (section 4.2, grep+sed-range only); (3) write `PHASE_12_STATUS.md` per FORMATTING.md section 4; (4) set CURRENT_STATE phase 12 -> COMPLETE + append this entry.
+
+### Report
+
+- Action 1 (measurement): root `cargo test` = **535** (UNCHANGED - proof nothing in the rfs package was touched); `--features smt` = **537** (unchanged); `cargo test --workspace` = **663** (= the 559 pre-dev_tools baseline + rfs-dev's **104** tests, exactly); `cargo test -p rfs-dev` = 104 (52 lib unit + 4 dispatch unit + 4 calls + 8 context + 3 dispatch + 10 doc-section + 13 edit + 5 inventory + 5 sync integration); `cargo clippy --all-targets` = **46 warning lines** = the exact known-good baseline, ZERO in any dev_tools file; `cargo fmt --check` clean workspace-wide.
+- Action 2 (doc sync): BUILD.md section 3 workspace row 559->663 + new `-p rfs-dev` suite row (104); section 4 dev_tools build/test/run command row; section 5 "touched dev_tools" checklist bullet + baseline re-measured at Phase 12 close-out. START.md section 1: added the missing Phase 10/11 completion lines + the Phase 12 line, baseline refreshed (663 workspace, 535 root unchanged); section 3 source tree: a `dev_tools/` map line. KB.md section 4.2: a `dev_tools/` file-map row (edited by grep+sed-range, never read fully).
+- Action 3: wrote `docs/roadmap/phase_12/PHASE_12_STATUS.md` per FORMATTING.md section 4 - every added source/test/fixture file, the changed root Cargo.toml + .gitignore, the doc changes, the new rfs-dev functionality (hierarchical per tool), the tests table with exact counts, the found problems (task-3 analysis deviations, plan corrections 5.4/5.5/5.6, the Regex::clone perf bug, the TsvGuard parallelism bug), and the other findings (DOCS_STRUCTURE.md REJECTED, port-equality result, per-tool demonstrations).
+- Action 4: CURRENT_STATE.md phase 12 row -> COMPLETE (close-out 2026-11-08, full file list); this TASKS.md entry appended.
+- Phase exit criteria (PHASE_12.md) checked verbatim - ALL met: dep constraint (syn + pulldown-cmark + regex the authorized third exception), analysis section sums to 12,596, proposed-tools table matches implementation, per-tool demonstrations on real operations, full verification green with dev_tools included, no rfs toolchain functionality/CLI/codegen change. **Phase 12 is COMPLETE.**
+- No source changes in this task (documentation + measurement only, per its non-goals).

@@ -62,7 +62,9 @@ ROOT_DOCS = {
     "TEST_STRUCTURE.md",
 }
 
-REPO_PREFIX = "/workspace/host/RFS/"
+# Repo root derived from this script's location (dev_tools/analysis/ -> repo),
+# so path classification is portable - no hardcoded machine path.
+REPO_PREFIX = str(Path(__file__).resolve().parent.parent.parent) + "/"
 
 
 def path_class(p: str) -> str:

@@ -47,6 +47,16 @@ project-local z3 install: activation env vars per `TOOLCHAIN.md` section 5.2
 (`PATH=/workspace/host/z3/bin:$PATH` + `Z3_LIBRARY_PATH_OVERRIDE`); generated C
 SMT output compiles per section 5.3.
 
+**Portability (Phase 12):** no source or test file hardcodes a tool path. Every
+external tool (gcc, rustc, clang, cargo, dot, plantuml, mmdc, make, z3) resolves
+as `RFS_*` env var > standard Unix var (`CC`/`RUSTC`/`CARGO`) > auto-discovery
+(bare name on PATH, or `pkg-config` for z3). On this machine nothing is exported,
+so it falls through to the bare names / project-local z3 exactly as before; on
+NixOS a `nix develop` shell supplies the standard vars and pkg-config finds z3,
+so the whole suite runs with zero overrides. Real-tool tests SKIP (never fail)
+when a tool is genuinely absent, and the skip-guard mirrors the resolver. Full
+contract + NixOS example: `TOOLCHAIN.md` section 8.
+
 ## 3. Test layout and expected current results
 
 | Suite | Command | Current result |
@@ -162,6 +172,9 @@ Additional checks depending on what changed:
 - Touched the fuzz pipelines (`rfs test --suite fuzz`) -> `cargo test --test frontend_test e2e_fuzz`
   (real-tool runs are availability-gated: clang for C, cargo-fuzz + a nightly
   toolchain for Rust - install per `TOOLCHAIN.md` section 7).
+- Touched external-tool resolution or any tool invocation (CLI `ext_tool`, the
+  `tests/common/toolchain.rs` helpers, or a Makefile) -> confirm no hardcoded tool
+  path was reintroduced (`grep -rnE 'Command::new\("(gcc|clang|rustc|make|cargo)"|/usr/bin/' src tests crates`) and that absent tools skip rather than fail; the precedence is `RFS_*` > standard var > PATH/pkg-config (`TOOLCHAIN.md` section 8).
 - Touched diagram generation or rendering -> `cargo test --test diagram_render_parity_test`
   (the internal half always runs; the external half is an availability-gated
   opt-in check: dot/plantuml/mmdc - install per `TOOLCHAIN.md` section 6).

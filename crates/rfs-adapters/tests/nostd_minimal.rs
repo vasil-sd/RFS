@@ -5,10 +5,29 @@
 //! toolchain's other compile checks; generation runs unconditionally.
 //! Docs: dev:workspace-crates-overview, dev:workspace-crates-adapters, llm:workspace-crates
 
+/// Resolve the Rust compiler: `RFS_RUSTC` > `RUSTC` > bare `rustc` on PATH
+/// (Phase 12 portability - mirrors the root test suites' toolchain helper).
+fn rustc_path() -> String {
+    std::env::var("RFS_RUSTC")
+        .ok()
+        .filter(|s| !s.trim().is_empty())
+        .or_else(|| std::env::var("RUSTC").ok().filter(|s| !s.trim().is_empty()))
+        .unwrap_or_else(|| "rustc".to_string())
+}
+
 fn rustc_on_path() -> bool {
-    std::env::var_os("PATH").map_or(false, |paths| {
-        std::env::split_paths(&paths).any(|dir| dir.join("rustc").is_file())
-    })
+    // An explicit override counts as present even if the bare name is absent
+    // from PATH (NixOS store paths); otherwise fall back to a PATH scan.
+    if ["RFS_RUSTC", "RUSTC"].iter().any(|v| {
+        std::env::var(v)
+            .ok()
+            .map(|s| !s.trim().is_empty())
+            .unwrap_or(false)
+    }) {
+        return true;
+    }
+    std::env::var_os("PATH")
+        .is_some_and(|paths| std::env::split_paths(&paths).any(|dir| dir.join("rustc").is_file()))
 }
 
 /// Locate the rfs-adapters rlib cargo built for this test run.
@@ -34,7 +53,7 @@ fn compile_nostd_lib(src: &str, rlib: &std::path::Path, out: &std::path::Path) -
     // -L dependency: the rlib's metadata references its own dependencies by
     // name (std is a sysroot crate; futures only under the `async` feature)
     // and rustc must be able to resolve them from the cargo deps dir.
-    let res = std::process::Command::new("rustc")
+    let res = std::process::Command::new(rustc_path())
         .args([
             "--edition",
             "2021",

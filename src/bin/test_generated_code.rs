@@ -45,7 +45,13 @@ fn main() -> ExitCode {
         return ExitCode::FAILURE;
     }
     let manifest = root.join("target/rfs_codegen_tests/Cargo.toml");
-    let status = Command::new("cargo")
+    // Honor CARGO (Phase 12 portability): a nix-shell / custom toolchain may
+    // put cargo at a non-PATH location.
+    let cargo = std::env::var("CARGO")
+        .ok()
+        .filter(|s| !s.trim().is_empty())
+        .unwrap_or_else(|| "cargo".to_string());
+    let status = Command::new(cargo)
         .arg("test")
         .arg("--manifest-path")
         .arg(&manifest)

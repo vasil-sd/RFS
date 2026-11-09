@@ -23,14 +23,10 @@
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
+mod common;
+
 fn repo_root() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-}
-
-fn tool_on_path(name: &str) -> bool {
-    std::env::var_os("PATH")
-        .map(|paths| std::env::split_paths(&paths).any(|dir| dir.join(name).is_file()))
-        .unwrap_or(false)
 }
 
 /// The boundary sequence, as (rust constructor, c initializer) pairs. Both
@@ -197,7 +193,9 @@ fn generate(backend: &str, command: &str) -> String {
 
 #[test]
 fn wide_ops_production_drivers_byte_identical_and_pinned() {
-    if !tool_on_path("rustc") || !tool_on_path("gcc") {
+    if !common::toolchain::available(rfs::cli::ext_tool::ExtTool::RUSTC)
+        || !common::toolchain::available(rfs::cli::ext_tool::ExtTool::GCC)
+    {
         eprintln!("note: rustc/gcc not available - wide-ops differential skipped");
         return;
     }
@@ -210,7 +208,7 @@ fn wide_ops_production_drivers_byte_identical_and_pinned() {
     let rust_c = dir.join("wide_ops_rust.rs");
     std::fs::write(&rust_c, rust_src).unwrap();
     let rust_bin = dir.join("wide_ops_rust");
-    let out = Command::new("rustc")
+    let out = Command::new(common::toolchain::rustc())
         .args(["--edition", "2021"])
         .arg(&rust_c)
         .arg("-o")
@@ -235,7 +233,7 @@ fn wide_ops_production_drivers_byte_identical_and_pinned() {
     let c_c = dir.join("wide_ops_c.c");
     std::fs::write(&c_c, c_src).unwrap();
     let c_bin = dir.join("wide_ops_c");
-    let out = Command::new("gcc")
+    let out = Command::new(common::toolchain::gcc())
         .arg("-Wall")
         .arg(&c_c)
         .arg("-o")
@@ -273,7 +271,9 @@ fn wide_ops_production_drivers_byte_identical_and_pinned() {
 
 #[test]
 fn wide_ops_exact_mc_status_parity() {
-    if !tool_on_path("rustc") || !tool_on_path("gcc") {
+    if !common::toolchain::available(rfs::cli::ext_tool::ExtTool::RUSTC)
+        || !common::toolchain::available(rfs::cli::ext_tool::ExtTool::GCC)
+    {
         eprintln!("note: rustc/gcc not available - wide-ops MC parity skipped");
         return;
     }
@@ -286,8 +286,12 @@ fn wide_ops_exact_mc_status_parity() {
         let ext = if backend == "c" { "c" } else { "rs" };
         let src_path = dir.join(format!("wide_ops_mc_{backend}.{ext}"));
         std::fs::write(&src_path, src).unwrap();
-        let cc = if backend == "c" { "gcc" } else { "rustc" };
-        let mut cmd = Command::new(cc);
+        let cc = if backend == "c" {
+            common::toolchain::gcc()
+        } else {
+            common::toolchain::rustc()
+        };
+        let mut cmd = Command::new(&cc);
         if backend == "rust" {
             cmd.args(["--edition", "2021"]);
         } else {

@@ -27,7 +27,9 @@ HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
 from extract_calls import path_class  # single source of truth for path labels
 
-REPO = "/workspace/host/RFS"
+# Repo root derived from this script's location (dev_tools/analysis/ -> repo),
+# so the classifier is portable - no hardcoded machine path.
+REPO = str(HERE.parent.parent)
 
 # ---------------------------------------------------------------------------
 # shared payload helpers
@@ -109,7 +111,7 @@ def effective_cwd(segs) -> str:
 
 
 PATH_MENTION_RE = re.compile(
-    r"(?:/workspace/host/RFS)?/?"
+    "(?:" + re.escape(REPO) + r")?/?"
     r"((?:docs|src|crates|tests|fuzz|examples|training|ide)/[\w./-]*)"
     r"|\b(START|BUILD|TOOLCHAIN|KB|DESIGN|CODEGEN|TASKS|README|SRC_STRUCTURE|"
     r"TEST_STRUCTURE)\.md\b"
@@ -201,16 +203,17 @@ def is_file_ops(cmd: str, segs) -> bool:
 
 # System/toolchain locations that mark a find/ls segment as environment
 # exploration (NOT /tmp - scratch work stays in the lookup residual).
+_TOOLCHAIN_DIR = str(Path(REPO).parent)  # dir holding .cargo / rustup
 SYSTEM_PATH_RE = re.compile(
     r"(?:^|\s)(/usr/|/opt/|/root/|~/?\.|\$HOME|"
-    r"/workspace/host/(\.cargo|rustup)|/\s)"
+    + re.escape(_TOOLCHAIN_DIR) + r"/(\.cargo|rustup)|/\s)"
 )
 
 
 def is_env_check(cmd: str, segs) -> bool:
     """whoami/id/uname/env/which/date probes, bare tool version probes, and
     system/toolchain-path exploration (/, ~, /usr, /opt, $HOME,
-    /workspace/host/.cargo, /workspace/host/rustup) - but never payloads that
+    $CARGO_HOME, $RUSTUP_HOME) - but never payloads that
     mention repo paths or the vendored registry (those belong to the lookup
     family / vendored-deps)."""
     if repo_path_classes(cmd, effective_cwd(segs)):
@@ -546,13 +549,13 @@ def run_edit_file(inv: Path, out: Path) -> int:
 TERMINAL_PATTERNS = {
     "lookup-docs": "cd <repo>[/<docs subdir>] && (sed -n '<a>,<b>p' | head -c N | tail -c +N | cat | grep -n 'pat') <doc file(s)> [; second doc in the same command] - chunked reads of START/BUILD/TOOLCHAIN/KB/DESIGN/CODEGEN/TASKS/docs/** per the token-economy protocol",
     "lookup-sources": "cd <repo> && (sed -n '<a>,<b>p' | grep -n 'pat' | head/tail | cat | awk) <src/tests/crates file(s)> - chunked reads and pattern searches over Rust sources, test suites and workspace crates",
-    "lookup-vendored-deps": "L=/workspace/host/.cargo/registry/src/index.crates.io-*/<crate>-<ver>; ls $L/src/ && cat/grep $L/src/<file> - reading vendored dependency sources (layout-rs, arbitrary, z3, ...) to answer API questions",
+    "lookup-vendored-deps": "L=$CARGO_HOME/registry/src/index.crates.io-*/<crate>-<ver>; ls $L/src/ && cat/grep $L/src/<file> - reading vendored dependency sources (layout-rs, arbitrary, z3, ...) to answer API questions",
     "build-test-run": "export RUSTUP_HOME=... CARGO_HOME=... PATH=... && cd <repo> && cargo (test [--workspace|-p X|--test Y|--features smt] | build | clippy --all-targets | fmt [--check] | run -- <rfs subcmd>) - plus direct rustc/gcc/make/clang compiles, ./target/{debug,release}/rfs executions and timeout-wrapped fuzz runs",
     "git": "cd <repo> && [export GIT_CONFIG_COUNT=1 ...safe.directory...] && git (log --oneline -N | status --short | show --stat <sha> | add <paths> && commit -m '...') - history inspection and the per-task commits",
     "shell-write": "cd <repo> && cat > <file> <<'EOF' ... EOF  /  cat >> TASKS.md <<'EOF' ... EOF  /  tee <file> - creating or appending whole file contents (status files, task files, TASKS.md entries) from heredocs",
     "shell-edit": "cd <repo> && sed -i 's/old/new/g' <file(s)>  /  sed -i '<a>,<b>d' <file>  /  perl -pi -e 's/.../' - in-place text surgery on sources or docs",
     "file-ops": "(mv | rm -rf | cp | mkdir -p | ln -s | touch) <paths> - tree manipulation: moving modules, cleaning scratch dirs, copying fixtures (incl. /tmp scratch work)",
-    "env-check": "(whoami | id | uname -a | which X | command -v X | X --version/-V | rustup toolchain list | find / -name X | ls ~/.cargo | ls /workspace/host/{.cargo,rustup}) - environment and toolchain probing, incl. hunting for missing tools",
+    "env-check": "(whoami | id | uname -a | which X | command -v X | X --version/-V | rustup toolchain list | find / -name X | ls ~/.cargo | ls $CARGO_HOME | ls $RUSTUP_HOME) - environment and toolchain probing, incl. hunting for missing tools",
     "python-via-shell": "cd <repo> && python3 - <<'PYEOF' ... PYEOF  /  python3 <script>.py  /  python3 -c '...' - scripted operations run from the shell (rewrites, audits, transforms)",
     "other": "residual: bare cd/export segments, for-loops over mixed operations, nohup/background runs, bash <script>.sh, install/network calls (apt-get, curl, npm, npx), echo-only commands, and the two payload-less recorded calls",
 }

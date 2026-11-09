@@ -840,7 +840,7 @@ fn ce_mc_binary(key: &str, backend: &str, src: &str) -> PathBuf {
     std::fs::write(&src_path, code).expect("write MC source");
     let bin = dir.join(format!("{stem}_mc_{backend}"));
     let out = if backend == "c" {
-        Command::new("/usr/bin/gcc")
+        Command::new(common::toolchain::gcc())
             .arg("-Wall")
             .arg(&src_path)
             .arg("-o")

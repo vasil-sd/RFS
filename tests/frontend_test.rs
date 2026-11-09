@@ -1504,13 +1504,6 @@ fn diagram_all_formats_sweep_valid_examples() {
     }
 }
 
-/// True when a bare tool name resolves on PATH (for gating real-tool tests).
-fn tool_on_path(name: &str) -> bool {
-    std::env::var_os("PATH")
-        .map(|paths| std::env::split_paths(&paths).any(|dir| dir.join(name).is_file()))
-        .unwrap_or(false)
-}
-
 fn write_stub(path: &std::path::Path, body: &str) {
     std::fs::write(path, body).unwrap();
     #[cfg(unix)]
@@ -1559,7 +1552,7 @@ fn e2e_diagram_invalid_spec_exits_one() {
 fn e2e_diagram_render_dot_real_tool() {
     let _g = diag_lock();
     clear_tool_env();
-    if !tool_on_path("dot") {
+    if !common::toolchain::available_named("dot") {
         eprintln!("skipping: dot not on PATH");
         return;
     }
@@ -1596,7 +1589,7 @@ fn e2e_diagram_render_dot_real_tool() {
 fn e2e_diagram_render_puml_real_tool() {
     let _g = diag_lock();
     clear_tool_env();
-    if !tool_on_path("plantuml") {
+    if !common::toolchain::available_named("plantuml") {
         eprintln!("skipping: plantuml not on PATH");
         return;
     }
@@ -1640,7 +1633,7 @@ fn e2e_diagram_render_puml_real_tool() {
 fn e2e_diagram_render_mmd_real_tool() {
     let _g = diag_lock();
     clear_tool_env();
-    if !tool_on_path("mmdc") {
+    if !common::toolchain::available_named("mmdc") {
         eprintln!("skipping: mmdc not on PATH");
         return;
     }
@@ -1684,7 +1677,7 @@ fn e2e_diagram_render_mmd_real_tool() {
 /// - and NOT be fooled by the error-SVG file plantuml still writes.
 #[test]
 fn diagram_puml_negative_control_exit_200() {
-    if !tool_on_path("plantuml") {
+    if !common::toolchain::available_named("plantuml") {
         eprintln!("skipping: plantuml not on PATH");
         return;
     }
@@ -1707,7 +1700,7 @@ fn diagram_puml_negative_control_exit_200() {
 /// Negative control: the harness MUST detect a mermaid parse error (exit 1).
 #[test]
 fn diagram_mmd_negative_control_parse_error() {
-    if !tool_on_path("mmdc") {
+    if !common::toolchain::available_named("mmdc") {
         eprintln!("skipping: mmdc not on PATH");
         return;
     }
@@ -3084,7 +3077,7 @@ fn e2e_fuzz_suite_selection_pinned() {
 
     // (b) --suite fuzz: no unit tests run at all (real clang this time).
     set_env(&[("RFS_CLANG", None)]);
-    if tool_on_path("clang") {
+    if common::toolchain::available_named("clang") {
         let out = std::process::Command::new(rfs_bin())
             .args([
                 "test",
@@ -3118,7 +3111,7 @@ fn e2e_fuzz_suite_selection_pinned() {
     }
 
     // (c) --suite unit,fuzz: both suites run.
-    if tool_on_path("clang") {
+    if common::toolchain::available_named("clang") {
         let out = std::process::Command::new(rfs_bin())
             .args([
                 "test",
@@ -3236,7 +3229,7 @@ fn e2e_fuzz_real_tools_both_backends_exit_zero() {
     let f = write_file(&root, "ok.rfs", VALID_RFS);
 
     // C: needs clang on PATH.
-    if tool_on_path("clang") {
+    if common::toolchain::available_named("clang") {
         let out = std::process::Command::new(rfs_bin())
             .args([
                 "test",

@@ -578,7 +578,7 @@ fn run_c_reference(def: &SpecDef, script: &str) -> String {
     let _g = REF_COMPILE_LOCK.lock().unwrap();
     {
         std::fs::write(&src, c_reference_source(def)).expect("write C reference");
-        let out = Command::new(prod_driver::GCC)
+        let out = Command::new(common::toolchain::gcc())
             .arg("-Wall")
             .arg(&src)
             .arg("-o")

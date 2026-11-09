@@ -156,9 +156,12 @@ npm install -g @mermaid-js/mermaid-cli # mmdc (bundles mermaid 12.2.0)
 | `plantuml` | `RFS_PLANTUML` | `RFS_PLANTUML_ARGS` | `--plantuml PATH`, `--plantuml-args "..."` |
 | `mmdc` | `RFS_MERMAID` | `RFS_MERMAID_ARGS` | `--mermaid PATH`, `--mermaid-args "..."` |
 
-Precedence: CLI flag > env var > bare name on PATH. Env args come first, CLI
-args appended (same as rustc/gcc). `--print-script` prints the exact invocation
-as a self-contained POSIX sh script instead of executing it.
+Precedence: **CLI flag > `RFS_*` env var > standard Unix var > bare name on
+PATH**. The standard-var tier is empty for these three (dot/plantuml/mmdc have
+no universal env var), so in practice it is CLI flag > `RFS_*` > bare name.
+Env args come first, CLI args appended (same as rustc/gcc). `--print-script`
+prints the exact invocation as a self-contained POSIX sh script instead of
+executing it. See section 8 for the full portability contract.
 
 ### 6.3 Running the tools by hand (`--renderer external`)
 
@@ -262,7 +265,10 @@ rustc +nightly --version    # the toolchain the Rust scaffold pins
 
 CLI overrides: `--clang PATH`, `--clang-args "..."`, `--cargo-fuzz PATH`,
 `--cargo-fuzz-args "..."`, `--fuzz-max-total-time SEC` (default 30),
-`--fuzz-flags "..."`. Precedence per tool: flag > env var > bare name on PATH.
+`--fuzz-flags "..."`. Precedence per tool: **flag > `RFS_*` env var > standard
+Unix var > bare name on PATH**. The standard-var tier is `CARGO` for the
+cargo-fuzz path; clang has NO standard tier (libFuzzer needs clang specifically,
+so a `CC=clang` system must not silently switch it). See section 8.
 
 ### 7.4 Gotchas (observed)
 
@@ -311,3 +317,81 @@ Conventions observed here (they bit us once - keep them when editing):
   are deliberately NOT made `Arbitrary`.
 - The CI-runnable layer is `tests/toolchain_fuzz_test.rs` (plain `cargo test`);
   long libFuzzer sessions stay manual/nightly. See BUILD.md section 6.
+
+## 8. Portability (Phase 12): tool resolution on any Linux/Unix system
+
+**Goal:** RFS builds, runs, and passes its tests on ANY Unix system - including
+NixOS, where nothing lives at a standard absolute path (`/usr/bin/gcc`,
+`/workspace/host/z3`, ...). No source or test file hardcodes a tool path.
+
+### 8.1 The one precedence model (CLI and tests agree)
+
+Every external tool resolves the same way, in both the `rfs` CLI
+(`src/cli/ext_tool.rs`) and the test suites (`tests/common/toolchain.rs`):
+
+```
+CLI flag  >  RFS_* env var  >  standard Unix var  >  auto-discovery (PATH / pkg-config)
+```
+
+Auto-discovery is the last resort: a bare name on `$PATH`, or `pkg-config` for
+z3. On this dev machine nothing is exported, so every tool falls through to the
+bare name / project-local path - identical behavior to before Phase 12. On NixOS
+the `nix develop` shell exports the standard vars (and pkg-config finds z3), so
+everything resolves with zero `RFS_*` overrides.
+
+### 8.2 Every tool and its env-var contract
+
+| Tool | Project var | Standard var | Auto-discovery fallback |
+|---|---|---|---|
+| C compiler (gcc) | `RFS_GCC` (+`RFS_GCC_ARGS`) | `CC` | bare `gcc` on PATH |
+| Rust compiler | `RFS_RUSTC` (+`RFS_RUSTC_ARGS`) | `RUSTC` | bare `rustc` on PATH |
+| clang (libFuzzer host) | `RFS_CLANG` (+`RFS_CLANG_ARGS`) | *(none - see note)* | bare `clang` on PATH |
+| cargo (fuzz scaffold) | `RFS_CARGO_FUZZ` (+`_ARGS`) | `CARGO` | bare `cargo` on PATH |
+| graphviz dot | `RFS_DOT` (+`RFS_DOT_ARGS`) | *(none)* | bare `dot` on PATH |
+| PlantUML | `RFS_PLANTUML` (+`RFS_PLANTUML_ARGS`) | *(none)* | bare `plantuml` on PATH |
+| Mermaid CLI (mmdc) | `RFS_MERMAID` (+`RFS_MERMAID_ARGS`) | *(none)* | bare `mmdc` on PATH |
+| make (C example projects) | `RFS_MAKE` | *(none)* | bare `make` on PATH |
+| z3 (SMT, feature-gated) | `RFS_Z3_DIR` | `Z3_SYS_Z3_DIR` | `pkg-config z3`, then `/workspace/host/z3` |
+
+Note: clang deliberately has NO standard tier. libFuzzer requires clang
+specifically, so a system with `CC=clang` must not be able to silently switch
+the fuzzer compiler through the generic `CC` var - set `RFS_CLANG` instead.
+
+### 8.3 z3 discovery chain (`tests/common/toolchain.rs::z3_dir()`)
+
+```
+RFS_Z3_DIR  >  Z3_SYS_Z3_DIR  >  pkg-config --variable=prefix z3  >  /workspace/host/z3
+```
+
+The last tier is this dev machine's project-local z3 5.3.1 (section 5) and is a
+**fallback only**. On NixOS the nixpkgs z3 is found via pkg-config or
+`Z3_SYS_Z3_DIR`, so no absolute path is assumed. The C link searches both
+`<z3>/lib` and `<z3>/bin` (nixpkgs uses `lib/`, the local install uses `bin/`);
+the Rust build sets `Z3_SYS_Z3_DIR` and pins `Z3_SYS_Z3_VERSION=5.3.1` only when
+it actually fell back to the local install.
+
+### 8.4 Test-suite behavior: skip, never fail, on absence
+
+Each real-tool test is gated by an availability check that **mirrors the
+resolver** (`toolchain::available` / `available_named`): a tool counts as present
+if ANY tier resolves - an `RFS_*`/standard var set to a non-empty value, OR the
+bare name on PATH. So a NixOS user who supplies a tool via env var (store path
+not on bare PATH) is NOT wrongly skipped, and a genuinely absent tool skips its
+test with a note instead of failing the suite. Generation-only and in-process
+checks run unconditionally.
+
+### 8.5 Example: running the suite under a NixOS dev shell
+
+```sh
+# nix develop (or nix-shell) providing gcc, clang, rustc, cargo, graphviz,
+# plantuml, mermaid-cli, make and z3 - no RFS_* vars needed:
+nix develop . -c cargo test --workspace
+
+# ...or pin explicit store paths if a tool is missing from the shell:
+RFS_GCC=$gcc/bin/gcc RFS_CLANG=$clang/bin/clang \
+RFS_Z3_DIR=$z3 cargo test --features smt
+```
+
+The C example Makefiles honor the same contract: `c_sync_handler` uses
+`CC ?= gcc` and `fuzz_c` uses `CLANG ?= clang`, so `make CC=/path/to/gcc`
+overrides them.

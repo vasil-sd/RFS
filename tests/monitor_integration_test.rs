@@ -15,6 +15,8 @@
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
+mod common;
+
 fn root() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
 }
@@ -31,11 +33,8 @@ fn scratch(name: &str) -> PathBuf {
 }
 
 fn rustc() -> String {
-    std::env::var("RUSTC").unwrap_or_else(|_| "rustc".to_string())
+    common::toolchain::rustc()
 }
-
-/// gcc location (plan assumption 5, verified since Phase 2).
-const GCC: &str = "/usr/bin/gcc";
 
 fn compile_rust(src: &Path, bin: &Path) {
     let out = Command::new(rustc())
@@ -54,7 +53,7 @@ fn compile_rust(src: &Path, bin: &Path) {
 }
 
 fn compile_c(src: &Path, bin: &Path, defines: &[&str]) {
-    let mut cmd = Command::new(GCC);
+    let mut cmd = Command::new(common::toolchain::gcc());
     cmd.arg("-Wall");
     for d in defines {
         cmd.arg(format!("-D{d}"));

@@ -45,10 +45,28 @@ fn cached_regex(pattern: &str) -> Arc<Regex> {
 // Shared constants (ported verbatim from the python scripts)
 // ===========================================================================
 
-/// extract_calls.py: REPO_PREFIX.
-const REPO_PREFIX: &str = "/workspace/host/RFS/";
-/// classify_calls.py: REPO.
-const REPO: &str = "/workspace/host/RFS";
+/// Repo root for log-path classification (Phase 12 portability). The recorded
+/// logs carry absolute paths from whatever machine produced them, so this is
+/// overridable via RFS_REPO_ROOT; otherwise derived from this crate's location
+/// (dev_tools lives at <repo>/dev_tools). No absolute path is baked into source.
+fn repo_root() -> String {
+    // Explicit override for parsing logs recorded on a different machine than
+    // the one running dev_tools. Otherwise derive from this crate's location:
+    // dev_tools lives at <repo>/dev_tools, so the repo root is its parent.
+    if let Some(p) = std::env::var("RFS_REPO_ROOT")
+        .ok()
+        .filter(|s| !s.trim().is_empty())
+    {
+        return p;
+    }
+    std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .expect("dev_tools must live inside a repo root")
+        .to_string_lossy()
+        .into_owned()
+}
+
+static REPO_ROOT: std::sync::LazyLock<String> = std::sync::LazyLock::new(repo_root);
 
 /// extract_calls.py: ROOT_DOCS - root-level living documents that count as `docs`.
 const ROOT_DOCS: &[&str] = &[
@@ -382,7 +400,8 @@ impl Row {
 
 /// extract_calls.py: path_class - classify one explicit path per the fixed labels.
 fn path_class(p: &str) -> String {
-    let q = if let Some(stripped) = p.strip_prefix(REPO_PREFIX) {
+    let repo_prefix = format!("{}/", REPO_ROOT.as_str());
+    let q = if let Some(stripped) = p.strip_prefix(&repo_prefix) {
         stripped
     } else {
         p
@@ -829,7 +848,7 @@ fn effective_cwd(segs: &[(String, String)]) -> String {
         if first == "cd" {
             if let Some(m) = re.captures(seg) {
                 let target = &m[1];
-                if let Some(sub) = target.strip_prefix(REPO) {
+                if let Some(sub) = target.strip_prefix(REPO_ROOT.as_str()) {
                     cwd = Some(sub.trim_matches('/').to_string());
                 }
             }
@@ -839,9 +858,14 @@ fn effective_cwd(segs: &[(String, String)]) -> String {
 }
 
 /// classify_calls.py: PATH_MENTION_RE - the five-alternative repo-path matcher.
+/// The optional absolute prefix is derived from REPO_ROOT (not hardcoded), so
+/// the classifier works on whatever machine dev_tools runs on.
 fn path_mention_re() -> Arc<Regex> {
+    let repo = regex::escape(REPO_ROOT.as_str());
+    let first =
+        format!(r"(?:{repo})?/?((?:docs|src|crates|tests|fuzz|examples|training|ide)/[\w./-]*)");
     let pattern = [
-        r"(?:/workspace/host/RFS)?/?((?:docs|src|crates|tests|fuzz|examples|training|ide)/[\w./-]*)",
+        first.as_str(),
         r"|\b(START|BUILD|TOOLCHAIN|KB|DESIGN|CODEGEN|TASKS|README|SRC_STRUCTURE|TEST_STRUCTURE)\.md\b",
         r"|\b([\w.-]+\.rs)\b",
         r"|\b(Cargo\.toml|training\.py|\.cargo/config\.toml)\b",
@@ -882,7 +906,7 @@ fn repo_path_classes(cmd: &str, cwd_sub: &str) -> Vec<String> {
         } else {
             continue;
         };
-        let c = path_class(&format!("{REPO}/{p}"));
+        let c = path_class(&format!("{}/{}", REPO_ROOT.as_str(), p));
         if c == "docs" || c == "sources" {
             classes.push(c);
         }
@@ -958,9 +982,16 @@ fn is_file_ops(segs: &[(String, String)]) -> bool {
         .any(|(first, _)| FILE_OP_VERBS.contains(&first.as_str()))
 }
 
-/// classify_calls.py: SYSTEM_PATH_RE.
+/// classify_calls.py: SYSTEM_PATH_RE. The toolchain-probing prefix is derived
+/// from REPO_ROOT's parent (the dir holding .cargo / rustup), not hardcoded.
 fn system_path_re() -> Arc<Regex> {
-    cached_regex(r"(?:^|\s)(/usr/|/opt/|/root/|~/?\.|\$HOME|/workspace/host/(\.cargo|rustup)|/\s)")
+    let host = std::path::Path::new(REPO_ROOT.as_str())
+        .parent()
+        .map(|p| regex::escape(p.to_string_lossy().as_ref()))
+        .unwrap_or_default();
+    cached_regex(&format!(
+        r"(?:^|\s)(/usr/|/opt/|/root/|~/?\.|\$HOME|{host}/(\.cargo|rustup)|/\s)"
+    ))
 }
 
 /// classify_calls.py: is_env_check.
@@ -1193,13 +1224,13 @@ fn classify_misc(row: &Row) -> String {
 const TERMINAL_PATTERNS: &[(&str, &str)] = &[
     ("lookup-docs", "cd <repo>[/<docs subdir>] && (sed -n '<a>,<b>p' | head -c N | tail -c +N | cat | grep -n 'pat') <doc file(s)> [; second doc in the same command] - chunked reads of START/BUILD/TOOLCHAIN/KB/DESIGN/CODEGEN/TASKS/docs/** per the token-economy protocol"),
     ("lookup-sources", "cd <repo> && (sed -n '<a>,<b>p' | grep -n 'pat' | head/tail | cat | awk) <src/tests/crates file(s)> - chunked reads and pattern searches over Rust sources, test suites and workspace crates"),
-    ("lookup-vendored-deps", "L=/workspace/host/.cargo/registry/src/index.crates.io-*/<crate>-<ver>; ls $L/src/ && cat/grep $L/src/<file> - reading vendored dependency sources (layout-rs, arbitrary, z3, ...) to answer API questions"),
+    ("lookup-vendored-deps", "L=$CARGO_HOME/registry/src/index.crates.io-*/<crate>-<ver>; ls $L/src/ && cat/grep $L/src/<file> - reading vendored dependency sources (layout-rs, arbitrary, z3, ...) to answer API questions"),
     ("build-test-run", "export RUSTUP_HOME=... CARGO_HOME=... PATH=... && cd <repo> && cargo (test [--workspace|-p X|--test Y|--features smt] | build | clippy --all-targets | fmt [--check] | run -- <rfs subcmd>) - plus direct rustc/gcc/make/clang compiles, ./target/{debug,release}/rfs executions and timeout-wrapped fuzz runs"),
     ("git", "cd <repo> && [export GIT_CONFIG_COUNT=1 ...safe.directory...] && git (log --oneline -N | status --short | show --stat <sha> | add <paths> && commit -m '...') - history inspection and the per-task commits"),
     ("shell-write", "cd <repo> && cat > <file> <<'EOF' ... EOF  /  cat >> TASKS.md <<'EOF' ... EOF  /  tee <file> - creating or appending whole file contents (status files, task files, TASKS.md entries) from heredocs"),
     ("shell-edit", "cd <repo> && sed -i 's/old/new/g' <file(s)>  /  sed -i '<a>,<b>d' <file>  /  perl -pi -e 's/.../' - in-place text surgery on sources or docs"),
     ("file-ops", "(mv | rm -rf | cp | mkdir -p | ln -s | touch) <paths> - tree manipulation: moving modules, cleaning scratch dirs, copying fixtures (incl. /tmp scratch work)"),
-    ("env-check", "(whoami | id | uname -a | which X | command -v X | X --version/-V | rustup toolchain list | find / -name X | ls ~/.cargo | ls /workspace/host/{.cargo,rustup}) - environment and toolchain probing, incl. hunting for missing tools"),
+    ("env-check", "(whoami | id | uname -a | which X | command -v X | X --version/-V | rustup toolchain list | find / -name X | ls ~/.cargo | ls $CARGO_HOME | ls $RUSTUP_HOME) - environment and toolchain probing, incl. hunting for missing tools"),
     ("python-via-shell", "cd <repo> && python3 - <<'PYEOF' ... PYEOF  /  python3 <script>.py  /  python3 -c '...' - scripted operations run from the shell (rewrites, audits, transforms)"),
     ("other", "residual: bare cd/export segments, for-loops over mixed operations, nohup/background runs, bash <script>.sh, install/network calls (apt-get, curl, npm, npx), echo-only commands, and the two payload-less recorded calls"),
 ];
@@ -1523,19 +1554,17 @@ mod tests {
 
     #[test]
     fn path_class_labels_match_the_python_rules() {
-        assert_eq!(path_class("/workspace/host/RFS/KB.md"), "docs");
+        let repo = REPO_ROOT.as_str();
+        assert_eq!(path_class(&format!("{repo}/KB.md")), "docs");
         assert_eq!(path_class("KB.md"), "docs");
-        assert_eq!(path_class("/workspace/host/RFS/docs/dev/parser.md"), "docs");
-        assert_eq!(
-            path_class("/workspace/host/RFS/src/lang/parser.rs"),
-            "sources"
-        );
+        assert_eq!(path_class(&format!("{repo}/docs/dev/parser.md")), "docs");
+        assert_eq!(path_class(&format!("{repo}/src/lang/parser.rs")), "sources");
         assert_eq!(path_class("parser.rs"), "sources");
-        assert_eq!(path_class("/workspace/host/RFS/Cargo.toml"), "sources");
+        assert_eq!(path_class(&format!("{repo}/Cargo.toml")), "sources");
         assert_eq!(path_class("/tmp/scratch.py"), "scratch");
         assert_eq!(path_class("target/debug/rfs"), "scratch");
         assert_eq!(
-            path_class("/workspace/host/RFS/.unsloth_tool_output/x"),
+            path_class(&format!("{repo}/.unsloth_tool_output/x")),
             "scratch"
         );
         assert_eq!(path_class("/etc/hosts"), "other");
@@ -1601,10 +1630,12 @@ mod tests {
 
     #[test]
     fn extract_inline_takes_to_line_end_minus_closing_backtick() {
-        let entry = "**command:** `ls -la /workspace/host/RFS/`\nnext";
-        let (p, unp) = extract_inline(entry, "command");
+        let repo = REPO_ROOT.as_str();
+        let entry = format!("**command:** `ls -la {repo}/`\nnext");
+        let (p, unp) = extract_inline(&entry, "command");
         assert!(!unp);
-        assert_eq!(p.as_deref(), Some("ls -la /workspace/host/RFS/"));
+        let expected = format!("ls -la {repo}/");
+        assert_eq!(p.as_deref(), Some(expected.as_str()));
     }
 
     #[test]
@@ -1637,14 +1668,15 @@ mod tests {
             is_new_file: None,
         };
         // build-test-run beats env-check even when a version probe is present
+        let repo = REPO_ROOT.as_str();
         assert_eq!(classify_terminal(&mk("rustc --version")), "build-test-run");
         assert_eq!(classify_terminal(&mk("whoami && uname -a")), "env-check");
         assert_eq!(
-            classify_terminal(&mk("sed -n '1,5p' /workspace/host/RFS/KB.md")),
+            classify_terminal(&mk(&format!("sed -n '1,5p' {repo}/KB.md"))),
             "lookup-docs"
         );
         assert_eq!(
-            classify_terminal(&mk("grep -n x /workspace/host/RFS/src/a.rs")),
+            classify_terminal(&mk(&format!("grep -n x {repo}/src/a.rs"))),
             "lookup-sources"
         );
         assert_eq!(classify_terminal(&mk("echo hi")), "other");

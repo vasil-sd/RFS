@@ -1,6 +1,8 @@
 use rfs::{codegen, collect_rfs_files};
 use std::path::{Path, PathBuf};
 
+mod common;
+
 fn files() -> Vec<PathBuf> {
     let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
     let mut files = Vec::new();
@@ -1055,8 +1057,8 @@ fn mc_enum_input_field_domain_qualified_both_backends() {
 
     // Compile + run both engines (gated on tool availability): the spec fails
     // with a property violation, and the outputs must be byte-identical.
-    let have_rustc = tool_on_path("rustc");
-    let have_gcc = std::path::Path::new("/usr/bin/gcc").exists();
+    let have_rustc = common::toolchain::available(rfs::cli::ext_tool::ExtTool::RUSTC);
+    let have_gcc = common::toolchain::available(rfs::cli::ext_tool::ExtTool::GCC);
     if have_rustc && have_gcc {
         let dir = std::env::temp_dir().join(format!("rfs_enum_mc_{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
@@ -1067,7 +1069,7 @@ fn mc_enum_input_field_domain_qualified_both_backends() {
         std::fs::write(&c, &c_code).unwrap();
         let rbin = dir.join("m_mc_rust");
         let cbin = dir.join("m_mc_c");
-        let out = std::process::Command::new("rustc")
+        let out = std::process::Command::new(common::toolchain::rustc())
             .args(["--edition", "2021"])
             .arg(&rs)
             .arg("-o")
@@ -1079,7 +1081,7 @@ fn mc_enum_input_field_domain_qualified_both_backends() {
             "rustc failed on enum-input MC codegen:\n{}",
             String::from_utf8_lossy(&out.stderr)
         );
-        let out = std::process::Command::new("/usr/bin/gcc")
+        let out = std::process::Command::new(common::toolchain::gcc())
             .arg("-Wall")
             .arg(&c)
             .arg("-o")
@@ -1345,12 +1347,6 @@ fn strip_generated_rust_header(code: &str) -> String {
         .join("\n")
 }
 
-fn tool_on_path(name: &str) -> bool {
-    std::env::var_os("PATH")
-        .map(|paths| std::env::split_paths(&paths).any(|dir| dir.join(name).is_file()))
-        .unwrap_or(false)
-}
-
 #[test]
 fn no_std_compile_sweep_and_body_parity_all_valid_examples() {
     // For EVERY valid example, in both monitor modes: (1) the no_std
@@ -1362,7 +1358,7 @@ fn no_std_compile_sweep_and_body_parity_all_valid_examples() {
     let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
     let specs = rfs::collect_rfs_files(root.join("examples/valid")).expect("examples/valid");
     assert_eq!(specs.len(), 50, "sweep must cover all valid examples");
-    let have_rustc = tool_on_path("rustc");
+    let have_rustc = common::toolchain::available(rfs::cli::ext_tool::ExtTool::RUSTC);
 
     let dir = std::env::temp_dir().join(format!("rfs_nostd_sweep_{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&dir);
@@ -1418,7 +1414,7 @@ fn no_std_compile_sweep_and_body_parity_all_valid_examples() {
             if have_rustc {
                 let path = dir.join(format!("{stem}_{mode}.rs"));
                 std::fs::write(&path, &nostd_code).unwrap();
-                let out = std::process::Command::new("rustc")
+                let out = std::process::Command::new(common::toolchain::rustc())
                     .args([
                         "--edition",
                         "2021",
@@ -2046,7 +2042,7 @@ fn c_test_emits_fuzz_skeleton_as_extra_file() {
     std::fs::write(&prod_c, &prod.code).unwrap();
     std::fs::write(&fuzz_c, fz).unwrap();
     for src_path in [&main_c, &fuzz_c] {
-        let out = std::process::Command::new("/usr/bin/gcc")
+        let out = std::process::Command::new(common::toolchain::gcc())
             .args(["-Wall", "-c"])
             .arg(src_path)
             .arg("-o")
@@ -2115,7 +2111,7 @@ fn c_fuzz_target_frees_per_input_and_bounded_run_stays_green() {
     // Real-tool regression: build + bounded run on the OOM spec. Before the
     // fix this exited non-zero with `libFuzzer: out-of-memory` after ~200k
     // runs; with per-input frees RSS stays flat for millions of runs.
-    if !tool_on_path("clang") {
+    if !common::toolchain::available(rfs::cli::ext_tool::ExtTool::CLANG) {
         eprintln!("note: clang not available - C fuzz bounded-run check skipped");
         return;
     }
@@ -2124,7 +2120,7 @@ fn c_fuzz_target_frees_per_input_and_bounded_run_stays_green() {
     std::fs::create_dir_all(&dir).unwrap();
     std::fs::write(dir.join("rfs_generated_fsm.c"), &prod.code).unwrap();
     std::fs::write(dir.join("fuzz_target.c"), fz).unwrap();
-    let build = std::process::Command::new("clang")
+    let build = std::process::Command::new(common::toolchain::clang())
         .args(["-O1", "-fsanitize=fuzzer,address"])
         .arg(dir.join("fuzz_target.c"))
         .arg("-o")

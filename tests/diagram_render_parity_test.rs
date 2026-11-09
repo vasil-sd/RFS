@@ -25,6 +25,8 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::Mutex;
 
+mod common;
+
 fn rfs_bin() -> &'static str {
     env!("CARGO_BIN_EXE_rfs")
 }
@@ -51,12 +53,6 @@ static TOOL_LOCK: Mutex<()> = Mutex::new(());
 
 fn tool_lock() -> std::sync::MutexGuard<'static, ()> {
     TOOL_LOCK.lock().unwrap_or_else(|e| e.into_inner())
-}
-
-fn tool_on_path(name: &str) -> bool {
-    std::env::var_os("PATH")
-        .map(|paths| std::env::split_paths(&paths).any(|dir| dir.join(name).is_file()))
-        .unwrap_or(false)
 }
 
 fn set_env(pairs: &[(&str, Option<&str>)]) {
@@ -163,8 +159,10 @@ fn parity_internal_mmd_all_valid_examples() {
 // ---------------------------------------------------------------------------
 
 fn external_matrix(format: &str, tool: &str, ext: &str) {
-    if !tool_on_path(tool) {
-        eprintln!("skipping: {tool} not on PATH (install per TOOLCHAIN.md section 6)");
+    if !common::toolchain::available_named(tool) {
+        eprintln!(
+            "skipping: {tool} unavailable (set RFS_{tool} or install per TOOLCHAIN.md section 6)"
+        );
         return;
     }
     let _g = tool_lock();

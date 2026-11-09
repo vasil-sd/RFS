@@ -34,12 +34,9 @@
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-/// gcc location (same assumption as the other suites).
-pub const GCC: &str = "/usr/bin/gcc";
-
-/// rustc override (same convention as backend_parity_test).
+/// rustc override - resolved portably (RFS_RUSTC > RUSTC > bare name on PATH).
 fn rustc() -> String {
-    std::env::var("RUSTC").unwrap_or_else(|_| "rustc".to_string())
+    super::toolchain::rustc()
 }
 
 /// One flattened input/output variant of a module (declaration order).
@@ -660,7 +657,7 @@ pub fn build_drivers(tag: &str, module: &rfs::Module, scratch_root: &Path) -> (P
     );
 
     let c_bin = dir.join(format!("{tag}_drv_c"));
-    let out = Command::new(GCC)
+    let out = Command::new(super::toolchain::gcc())
         .arg("-Wall")
         .arg(&c_drv)
         .arg("-o")
@@ -851,7 +848,7 @@ pub fn build_sample_drivers(
     )
     .expect("write c sample driver");
     let c_bin = dir.join(format!("{tag}_sdrv_c"));
-    let out = Command::new(GCC)
+    let out = Command::new(super::toolchain::gcc())
         .arg("-Wall")
         .arg(&c_drv)
         .arg("-o")

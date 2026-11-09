@@ -18,9 +18,13 @@
 //!   it has no tool path; the CLI `--fuzz-flags` value is appended after the
 //!   env value (same convention as the `*_ARGS` pairs).
 //!
-//! Precedence for the tool PATH: **CLI flag > environment variable > bare
-//! name on PATH**. For extra args both sources are used: env-var args first,
-//! then CLI args appended (unit-test-pinned).
+//! Precedence for the tool PATH: **CLI flag > `RFS_*` environment variable >
+//! standard Unix variable (`CC`/`RUSTC`/`CARGO`) > bare name on PATH**. The
+//! standard-variable tier (Phase 12 portability) lets a NixOS / nix-shell
+//! environment supply the toolchain with no `RFS_*` override; tools with no
+//! standard equivalent (dot/plantuml/mmdc/clang) skip the tier. For extra args
+//! both sources are used: env-var args first, then CLI args appended
+//! (unit-test-pinned).
 //!
 //! `Script` renders the `--print-script` mode: a deterministic POSIX sh
 //! script (no timestamps, no volatile temp paths) that performs exactly what
@@ -42,6 +46,10 @@ pub struct ExtTool {
     /// extra args (Phase 5 task 17). Empty for plain tools; "fuzz" for
     /// CARGO_FUZZ, which is a subcommand of `cargo`.
     pub subcommand: &'static str,
+    /// Standard Unix env var consulted AFTER `env_path_var` and BEFORE the
+    /// bare-name PATH fallback (Phase 12 portability). `None` for tools with
+    /// no standard equivalent (dot/plantuml/mmdc/clang).
+    pub std_env_var: Option<&'static str>,
 }
 
 impl ExtTool {
@@ -50,18 +58,21 @@ impl ExtTool {
         env_path_var: "RFS_RUSTC",
         env_args_var: "RFS_RUSTC_ARGS",
         subcommand: "",
+        std_env_var: Some("RUSTC"),
     };
     pub const GCC: ExtTool = ExtTool {
         name: "gcc",
         env_path_var: "RFS_GCC",
         env_args_var: "RFS_GCC_ARGS",
         subcommand: "",
+        std_env_var: Some("CC"),
     };
     pub const DOT: ExtTool = ExtTool {
         name: "dot",
         env_path_var: "RFS_DOT",
         env_args_var: "RFS_DOT_ARGS",
         subcommand: "",
+        std_env_var: None,
     };
     /// PlantUML (diagram SVG rendering, Phase 5 task 8).
     pub const PLANTUML: ExtTool = ExtTool {
@@ -69,6 +80,7 @@ impl ExtTool {
         env_path_var: "RFS_PLANTUML",
         env_args_var: "RFS_PLANTUML_ARGS",
         subcommand: "",
+        std_env_var: None,
     };
     /// Mermaid CLI `mmdc` (diagram SVG rendering, Phase 5 task 8).
     pub const MERMAID: ExtTool = ExtTool {
@@ -76,6 +88,7 @@ impl ExtTool {
         env_path_var: "RFS_MERMAID",
         env_args_var: "RFS_MERMAID_ARGS",
         subcommand: "",
+        std_env_var: None,
     };
     /// clang with the libFuzzer runtime (C fuzz targets, Phase 5 task 17).
     pub const CLANG: ExtTool = ExtTool {
@@ -83,6 +96,9 @@ impl ExtTool {
         env_path_var: "RFS_CLANG",
         env_args_var: "RFS_CLANG_ARGS",
         subcommand: "",
+        // libFuzzer requires clang specifically, so CC must NOT feed this
+        // preset (a CC=clang system would otherwise silently switch it).
+        std_env_var: None,
     };
     /// cargo-fuzz (Rust fuzz targets, Phase 5 task 17): a SUBCOMMAND of
     /// `cargo`, so the resolved path is the cargo binary and `fuzz` is
@@ -92,6 +108,7 @@ impl ExtTool {
         env_path_var: "RFS_CARGO_FUZZ",
         env_args_var: "RFS_CARGO_FUZZ_ARGS",
         subcommand: "fuzz",
+        std_env_var: Some("CARGO"),
     };
 
     /// Resolve the tool PATH and extra parameters.
@@ -105,7 +122,14 @@ impl ExtTool {
             Some(p) => p.to_string(),
             None => match non_empty(std::env::var(self.env_path_var).as_deref().ok()) {
                 Some(p) => p.to_string(),
-                None => self.name.to_string(),
+                // Standard Unix var tier (Phase 12): CC / RUSTC / CARGO.
+                None => {
+                    let std_path = self.std_env_var.and_then(|v| std::env::var(v).ok());
+                    match non_empty(std_path.as_deref()) {
+                        Some(p) => p.to_string(),
+                        None => self.name.to_string(),
+                    }
+                }
             },
         };
         let mut extra_args = split_args(std::env::var(self.env_args_var).as_deref().ok());
@@ -389,31 +413,58 @@ mod tests {
     }
 
     #[test]
-    fn resolve_precedence_flag_beats_env_beats_default() {
+    fn resolve_precedence_flag_beats_rfs_beats_std_beats_default() {
         let _g = ENV_LOCK.lock().unwrap();
+        // Control the FULL env - both RFS_* and the standard vars - so the
+        // bare-name fallback assertions are deterministic on any machine
+        // (a dev/CI shell may export CC/RUSTC/CARGO).
         set_env(&[
-            ("RFS_RUSTC", Some("/opt/custom/rustc")),
+            ("RFS_RUSTC", None),
             ("RFS_RUSTC_ARGS", None),
+            ("RUSTC", None),
+            ("RFS_GCC", None),
+            ("CC", None),
+            ("RFS_CARGO_FUZZ", None),
+            ("CARGO", None),
         ]);
 
-        // 1. CLI flag wins over env var.
+        // 1. CLI flag wins over everything.
+        set_env(&[
+            ("RFS_RUSTC", Some("/opt/custom/rustc")),
+            ("RUSTC", Some("/std/rustc")),
+        ]);
         let r = ExtTool::RUSTC.resolve(Some("/flag/rustc"), None);
         assert_eq!(r.path, "/flag/rustc");
 
-        // 2. Env var wins over the bare default.
+        // 2. RFS_* env var wins over the standard var.
         let r = ExtTool::RUSTC.resolve(None, None);
         assert_eq!(r.path, "/opt/custom/rustc");
 
-        // 3. Bare name when neither is set (empty string counts as unset).
-        set_env(&[("RFS_RUSTC", None), ("RFS_RUSTC", Some(""))]);
+        // 3. Standard var (RUSTC) wins over the bare default when RFS_* unset.
+        set_env(&[("RFS_RUSTC", None)]);
+        let r = ExtTool::RUSTC.resolve(None, None);
+        assert_eq!(r.path, "/std/rustc");
+
+        // 4. Bare name when neither is set (empty string counts as unset).
+        set_env(&[("RUSTC", None), ("RFS_RUSTC", Some(""))]);
         let r = ExtTool::RUSTC.resolve(Some(""), None);
         assert_eq!(r.path, "rustc");
 
-        // Unknown tool preset shape: GCC/DOT use their own vars.
+        // GCC: CC is its standard tier; RFS_GCC still beats CC.
+        set_env(&[("CC", Some("/std/cc"))]);
+        assert_eq!(ExtTool::GCC.resolve(None, None).path, "/std/cc");
         set_env(&[("RFS_GCC", Some("/usr/bin/gcc-custom"))]);
         assert_eq!(ExtTool::GCC.resolve(None, None).path, "/usr/bin/gcc-custom");
+
+        // DOT has no standard tier: bare name even with CC set.
         assert_eq!(ExtTool::DOT.resolve(None, None).path, "dot");
-        set_env(&[("RFS_RUSTC", None), ("RFS_GCC", None)]);
+
+        set_env(&[
+            ("RFS_RUSTC", None),
+            ("RUSTC", None),
+            ("RFS_GCC", None),
+            ("CC", None),
+        ]);
     }
 
     #[test]
@@ -509,9 +560,11 @@ mod tests {
         set_env(&[
             ("RFS_CLANG", Some("/opt/custom/clang")),
             ("RFS_CARGO_FUZZ", Some("/opt/custom/cargo")),
+            ("CARGO", None),
         ]);
 
-        // CLANG: flag > env var > bare name.
+        // CLANG: flag > env var > bare name. No standard tier, so a CC export
+        // cannot leak in (libFuzzer needs clang specifically).
         assert_eq!(
             ExtTool::CLANG.resolve(Some("/flag/clang"), None).path,
             "/flag/clang"
@@ -528,6 +581,13 @@ mod tests {
         let r = ExtTool::CARGO_FUZZ.resolve(None, None);
         assert_eq!(r.path, "cargo");
         assert_eq!(r.display_name(), "cargo-fuzz");
+
+        // Standard CARGO tier: used when RFS_CARGO_FUZZ is unset.
+        set_env(&[("CARGO", Some("/std/cargo"))]);
+        let r = ExtTool::CARGO_FUZZ.resolve(None, None);
+        assert_eq!(r.path, "/std/cargo");
+        assert_eq!(r.subcommand, "fuzz");
+        set_env(&[("CARGO", None)]);
     }
 
     /// The fixed subcommand is rendered/invoked right after the path, before

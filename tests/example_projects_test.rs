@@ -17,11 +17,7 @@ fn cargo_bin() -> &'static str {
     env!("CARGO")
 }
 
-fn tool_on_path(name: &str) -> bool {
-    std::env::var_os("PATH")
-        .map(|paths| std::env::split_paths(&paths).any(|dir| dir.join(name).is_file()))
-        .unwrap_or(false)
-}
+mod common;
 
 /// The scenario data lines (byte-identical between the Rust and C handlers;
 /// the header line is language-specific and not compared).
@@ -47,20 +43,22 @@ fn has_gcc_diagnostic(stderr: &str) -> bool {
 
 #[test]
 fn c_sync_handler_builds_wall_clean_and_matches_rust_scenario() {
-    if !tool_on_path("gcc") || !tool_on_path("make") {
+    if !common::toolchain::available(rfs::cli::ext_tool::ExtTool::GCC)
+        || !common::toolchain::available_env_or_path("RFS_MAKE", "make")
+    {
         eprintln!("note: gcc/make not available - c_sync_handler check skipped");
         return;
     }
     let dir = repo_root().join("crates/examples/c_sync_handler");
     // Rebuild from scratch via the project's own Makefile (RFS_BIN pinned to
     // this build's rfs binary).
-    let out = std::process::Command::new("make")
+    let out = std::process::Command::new(common::toolchain::make())
         .current_dir(&dir)
         .arg("clean")
         .output()
         .expect("spawn make clean");
     assert!(out.status.success());
-    let out = std::process::Command::new("make")
+    let out = std::process::Command::new(common::toolchain::make())
         .current_dir(&dir)
         .env("RFS_BIN", rfs_bin())
         .output()
@@ -115,7 +113,7 @@ fn c_sync_handler_builds_wall_clean_and_matches_rust_scenario() {
     assert!(c_out.contains("  out-of-band acks dropped: 5"));
     assert!(c_out.contains("  max window observed:      4 (bound 4)"));
 
-    let _ = std::process::Command::new("make")
+    let _ = std::process::Command::new(common::toolchain::make())
         .current_dir(&dir)
         .arg("clean")
         .output();
@@ -160,13 +158,13 @@ fn fuzz_rust_skeleton_compiles_in_cargo_fuzz_layout() {
 
 #[test]
 fn fuzz_c_generates_without_clang_and_builds_when_available() {
-    if !tool_on_path("make") {
+    if !common::toolchain::available_env_or_path("RFS_MAKE", "make") {
         eprintln!("note: make not available - fuzz_c check skipped");
         return;
     }
     let dir = repo_root().join("crates/examples/fuzz_c");
     // Generation only (no clang needed): the Makefile's generate target.
-    let out = std::process::Command::new("make")
+    let out = std::process::Command::new(common::toolchain::make())
         .current_dir(&dir)
         .env("RFS_BIN", rfs_bin())
         .arg("generate")
@@ -191,8 +189,8 @@ fn fuzz_c_generates_without_clang_and_builds_when_available() {
     ));
 
     // Build gated on clang availability (absent here: the gate + README path).
-    if tool_on_path("clang") {
-        let out = std::process::Command::new("make")
+    if common::toolchain::available(rfs::cli::ext_tool::ExtTool::CLANG) {
+        let out = std::process::Command::new(common::toolchain::make())
             .current_dir(&dir)
             .output()
             .expect("spawn make");
@@ -207,7 +205,7 @@ fn fuzz_c_generates_without_clang_and_builds_when_available() {
         );
     }
 
-    let _ = std::process::Command::new("make")
+    let _ = std::process::Command::new(common::toolchain::make())
         .current_dir(&dir)
         .arg("clean")
         .output();

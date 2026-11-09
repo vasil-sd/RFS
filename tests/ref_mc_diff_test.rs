@@ -38,9 +38,6 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::{LazyLock, Mutex};
 
-/// gcc location (plan assumption, verified since Phase 2).
-const GCC: &str = "/usr/bin/gcc";
-
 /// State budget for eligible runs (measured 2026-10-24, debug toolchain).
 const MAX_STATES: usize = 500_000;
 const TIMEOUT_SEC: u64 = 60;
@@ -144,7 +141,7 @@ fn compile_rust(src: &Path, bin: &Path) {
 }
 
 fn compile_c(src: &Path, bin: &Path) {
-    let out = Command::new(GCC)
+    let out = Command::new(common::toolchain::gcc())
         .arg("-Wall")
         .arg(src)
         .arg("-o")

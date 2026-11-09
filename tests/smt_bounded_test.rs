@@ -18,10 +18,7 @@
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-/// gcc location (plan assumption 5, verified since Phase 2).
-const GCC: &str = "/usr/bin/gcc";
-/// Project-local z3 5.3.1 install (TOOLCHAIN.md section 5.1).
-const Z3_DIR: &str = "/workspace/host/z3";
+mod common;
 
 fn root() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
@@ -143,13 +140,15 @@ fn generate(backend_name: &str, src: &str, what: &str) -> String {
 }
 
 fn compile_c(src: &Path, bin: &Path) {
-    let out = Command::new(GCC)
+    let z3 = common::toolchain::z3_dir().expect("z3 availability checked at test entry");
+    let out = Command::new(common::toolchain::gcc())
         .args(["-Wall", "-O2"])
         .arg(src)
         .arg("-o")
         .arg(bin)
-        .arg(format!("-I{Z3_DIR}/include"))
-        .arg(format!("-L{Z3_DIR}/bin"))
+        .arg(format!("-I{z3}/include"))
+        .arg(format!("-L{z3}/lib"))
+        .arg(format!("-L{z3}/bin"))
         .args(["-lz3", "-lm"])
         .output()
         .expect("run gcc on generated C");
@@ -188,13 +187,22 @@ fn rust_e2e_project(tag: &str) -> PathBuf {
 fn build_rust(project: &Path, src_code: &str) -> PathBuf {
     let src = project.join("src").join("main.rs");
     std::fs::write(&src, src_code).expect("write generated Rust");
-    let out = Command::new("cargo")
-        .args(["build", "--release", "--offline", "--quiet"])
-        .current_dir(project)
-        .env("Z3_LIBRARY_PATH_OVERRIDE", format!("{Z3_DIR}/bin"))
-        .env("Z3_SYS_Z3_VERSION", "5.3.1")
-        .output()
-        .expect("run cargo in scratch project");
+    // `explicit` is true when z3 came from RFS_Z3_DIR / Z3_SYS_Z3_DIR (the
+    // project-local install, whose version we pin) and false for a pkg-config
+    // system z3 (whose version z3-sys reads from the headers itself).
+    let (z3, explicit) = common::toolchain::z3().expect("z3 availability checked at test entry");
+    let lib_override = format!("{z3}/bin");
+    // Separate statements (not a chain): the builder methods return &mut Self,
+    // so chaining into a `let` would dangle the temporary Command.
+    let mut cmd = Command::new(common::toolchain::cargo());
+    cmd.args(["build", "--release", "--offline", "--quiet"]);
+    cmd.current_dir(project);
+    cmd.env("Z3_SYS_Z3_DIR", &z3);
+    cmd.env("Z3_LIBRARY_PATH_OVERRIDE", &lib_override);
+    if explicit {
+        cmd.env("Z3_SYS_Z3_VERSION", "5.3.1");
+    }
+    let out = cmd.output().expect("run cargo in scratch project");
     assert!(
         out.status.success(),
         "cargo build failed on generated Rust:\n{}",
@@ -204,9 +212,13 @@ fn build_rust(project: &Path, src_code: &str) -> PathBuf {
 }
 
 fn run_bin(bin: &Path, args: &[&str]) -> (i32, String) {
+    let z3 = common::toolchain::z3_dir().expect("z3 availability checked at test entry");
+    // libz3.so lives in bin/ for the project-local install and lib/ for a
+    // system (nixpkgs) one - expose both, prepended to any existing value.
+    let existing = std::env::var("LD_LIBRARY_PATH").unwrap_or_default();
     let out = Command::new(bin)
         .args(args)
-        .env("LD_LIBRARY_PATH", format!("{Z3_DIR}/bin"))
+        .env("LD_LIBRARY_PATH", format!("{z3}/lib:{z3}/bin:{existing}"))
         .output()
         .expect("run generated binary");
     (
@@ -223,6 +235,12 @@ fn run_bin(bin: &Path, args: &[&str]) -> (i32, String) {
 /// status/label/step lines, incomplete labeling on the PASS spec.
 #[test]
 fn smt_bounded_backend_parity() {
+    if !common::toolchain::z3_available() {
+        eprintln!(
+            "note: z3 not available - SMT bounded suite skipped (set RFS_Z3_DIR or install z3)"
+        );
+        return;
+    }
     let project = rust_e2e_project("parity");
     for (what, src) in [
         ("fail", SMT_FAIL_SRC),
@@ -294,6 +312,12 @@ fn smt_bounded_backend_parity() {
 /// (same behavior, same output shape).
 #[test]
 fn smt_bounded_runtime_bound_flag() {
+    if !common::toolchain::z3_available() {
+        eprintln!(
+            "note: z3 not available - SMT bounded suite skipped (set RFS_Z3_DIR or install z3)"
+        );
+        return;
+    }
     let project = rust_e2e_project("boundflag");
     let dir = root().join("target").join("rfs_smt_bounded");
     std::fs::create_dir_all(&dir).expect("create scratch dir");

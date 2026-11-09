@@ -27,9 +27,6 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::{LazyLock, Mutex};
 
-/// gcc location (plan assumption 5, verified since Phase 2).
-const GCC: &str = "/usr/bin/gcc";
-
 fn root() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
 }
@@ -146,7 +143,7 @@ fn compile_rust(src: &Path, bin: &Path, as_test: bool) {
 }
 
 fn compile_c(src: &Path, bin: &Path) {
-    let out = Command::new(GCC)
+    let out = Command::new(common::toolchain::gcc())
         .arg("-Wall")
         .arg(src)
         .arg("-o")

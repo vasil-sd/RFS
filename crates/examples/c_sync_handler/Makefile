@@ -4,9 +4,12 @@
 #
 # Toolchain resolution mirrors rfs-build: RFS_BIN env var > bare `rfs` on
 # PATH; override with `make RFS=/path/to/rfs`. A cold checkout must run
-# `cargo build` first (produces target/debug/rfs) or set RFS_BIN.
+# `cargo build` first (produces target/debug/rfs) or set RFS_BIN. The C
+# compiler honors the standard CC variable (Phase 12 portability - NixOS /
+# nix-shell export CC); override with `make CC=/path/to/gcc`.
 
 RFS ?= $(if $(RFS_BIN),$(RFS_BIN),rfs)
+CC ?= gcc
 SPEC := ../../../examples/valid/43_sliding_window.rfs
 BUILD_DIR := build
 GEN_FSM := $(BUILD_DIR)/arq_fsm.c
@@ -24,7 +27,7 @@ $(GEN_FSM): $(SPEC)
 	$(RFS) codegen c production $(SPEC) --out $@
 
 c_sync_handler: src/handler.c $(GEN_FSM)
-	gcc -Wall -I$(BUILD_DIR) -o $@ src/handler.c
+	$(CC) -Wall -I$(BUILD_DIR) -o $@ src/handler.c
 
 run: c_sync_handler
 	./c_sync_handler

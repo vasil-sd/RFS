@@ -25,6 +25,8 @@
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
+mod common;
+
 /// Pinned seed sets: 3 seeds x 10 specs (specgen stateful sequence per seed).
 /// `24099` is the regression seed of plan correction 5a - its first spec is
 /// the one the task-5 `codegen` fuzz target found (reproducible via
@@ -41,9 +43,6 @@ const MAX_STATES: usize = 5000;
 const TIMEOUT_SEC: u64 = 60;
 const FUZZ_RUNS: &str = "5";
 const FUZZ_BOUND: &str = "5";
-
-/// gcc location (plan assumption, verified since Phase 2).
-const GCC: &str = "/usr/bin/gcc";
 
 fn root() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
@@ -91,7 +90,7 @@ fn compile_rust(tag: &str, backend_name: &str, kind: &str, src: &Path, out: &Pat
 }
 
 fn compile_c(tag: &str, backend_name: &str, src: &Path, out: &Path, compile_only: bool) {
-    let mut cmd = Command::new(GCC);
+    let mut cmd = Command::new(common::toolchain::gcc());
     cmd.arg("-Wall");
     if compile_only {
         // No main in the production artifact: compile-only (object file).
@@ -374,7 +373,7 @@ fn c_mc_trigger_step_zero_report_no_crash() {
         std::fs::write(&src_path, code.code.as_bytes()).expect("write source");
         let bin = dir.join(format!("trigger0_{backend_name}_mc_bin"));
         let status = if backend_name == "c" {
-            Command::new(GCC)
+            Command::new(common::toolchain::gcc())
                 .arg("-Wall")
                 .arg(&src_path)
                 .arg("-o")

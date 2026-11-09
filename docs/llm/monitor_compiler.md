@@ -40,7 +40,7 @@ harness) in both backends at once.
   verified in BOTH backends + ref_mc ground truth (tests/ref_mc_diff_test.rs,
   monitor_ref_test, psl_translation_test).
 
-**Change impact.** Placement rule first (CODEGEN.md section 2); verify with
+**Change impact.** Placement rule first (src/codegen/CODEGEN.md section 2); verify with
 cargo test --lib (in-module pins) + monitor_integration_test +
 backend_parity_test, then the full BUILD.md section 5 checklist. Full table:
 llm:change-impact.

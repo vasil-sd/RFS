@@ -41,7 +41,7 @@ constraint.
 - ref_mc is GROUND TRUTH: an independent implementation of SEMANTICS.md - its own monitor compiler + liveness decomposition must stay in sync with the documented semantics; the negative control ("no false PASS") lives in the diff suite.
 - Firing order everywhere = descending effective priority then source order - mirrors generated fsm_step AND the planner.
 
-**Change impact.** Placement rule first (CODEGEN.md section 2); verify with
+**Change impact.** Placement rule first (src/codegen/CODEGEN.md section 2); verify with
 cargo test --test ref_mc_diff_test + ref_mc_sweep_test + backend_parity_test,
 then the full BUILD.md section 5 checklist. Full table: llm:change-impact.
 

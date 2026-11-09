@@ -51,7 +51,7 @@ Where to go next:
 
 - [C.md](../../src/codegen/backends/C.md) - architecture + design decisions of the generated
   artifacts (anatomy, type mapping, value representation, known limitations);
-- [CODEGEN.md](../../CODEGEN.md) (repo root) - the extension guide: plugin API, CLI surface,
+- [CODEGEN.md](../../src/codegen/CODEGEN.md) - the extension guide: plugin API, CLI surface,
   adding-a-backend checklist, invariants;
 - function-level call graph: `dev:deps-fn-backend-c` in [DEPENDENCIES.md](DEPENDENCIES.md);
 - file entries: `dev:code-map-codegen` in [CODE_MAP.md](CODE_MAP.md);
@@ -408,7 +408,7 @@ no liveness properties), EXACT_RUN_C.
 
 **SMT_ENGINE_C.** C mirror of SMT_ENGINE_RUST: DEFAULT_BOUND <- {BOUND}. Parity-critical: step variables are z3 constants with FIXED names in fixed order s_i / v_i_j / ev_i / fld_i_g, constraints asserted in fixed order, queries in fixed order safety-then-liveness declaration order; two-arg Z3_mk_and/Z3_mk_or over 2-element arrays (the C counterpart of the Rust b_and/b_or wrappers - identical constraint trees). Unrolling: enabled_t = state match and class match and guard (firing order); fire_t = enabled and no earlier transition enabled (first match, prefix-OR chain); alive_i = alive_{i-1} and any_fire; next state/vars via ITE chains. Safety query viol_p = exists i<k: alive_i and not phi_p(i) -> FAIL + pinned summary line exit 1. Liveness query never_p (phi holds at no alive step) and cycle (exists a<b: identical (state, vars)) -> FAIL reason=liveness-violation + cycle length exit 1. Unknown -> UNKNOWN (solver inconclusive within bound {k}) + status=unknown exit 2. All Unsat -> PASS WITHIN BOUND {k} (incomplete - no completeness claim) + status=pass-within-bound exit 0. smt_print_trace emits the pinned witness format. Targets the z3 5.3.1 API surface (Z3_L_UNDEF, no Z3_del_solver, Z3_model_eval bool + out-ast) - one solver build shared with the Rust backend.
 
-**Embedded-copy rule.** Because the generated binary cannot depend on this crate, c_mc.rs embeds its own copies of the plan tables, parsing helpers, and JSON writer. The formats in `src/codegen/mc_concepts.rs` / `src/mc/plan.rs` are the SOURCE OF TRUTH - when a wire format changes, update both backends' emitters in the same change and extend the tests ([CODEGEN.md](../../CODEGEN.md) section 9).
+**Embedded-copy rule.** Because the generated binary cannot depend on this crate, c_mc.rs embeds its own copies of the plan tables, parsing helpers, and JSON writer. The formats in `src/codegen/mc_concepts.rs` / `src/mc/plan.rs` are the SOURCE OF TRUTH - when a wire format changes, update both backends' emitters in the same change and extend the tests ([CODEGEN.md](../../src/codegen/CODEGEN.md) section 9).
 
 Code: `src/codegen/backends/c/mc.rs::generate_model_checker`,
 `src/codegen/backends/c/mc.rs::shared_printers`,
@@ -486,7 +486,7 @@ Code: `src/codegen/backends/c/test.rs::generate_unit_tests`,
 One plan, two renderings: both backends consume the same codegen plans
 (`src/codegen/fsm.rs::build_variants`, `src/codegen/test_plan.rs::build_test_plan`,
 `src/mc/plan.rs::McPlan`, `src/mc/plan.rs::LivenessDecomposition`, the shared
-SMT spec) - differences are target syntax only (placement rule: [CODEGEN.md](../../CODEGEN.md)
+SMT spec) - differences are target syntax only (placement rule: [CODEGEN.md](../../src/codegen/CODEGEN.md)
 section 2). The Rust twin of each file is src/codegen/backends/rust/*.rs (deep dive:
 [backend_rust.md](backend_rust.md)).
 
@@ -533,7 +533,7 @@ Code: `src/codegen/fsm.rs::build_variants`,
 
 ## Changing the C backend
 
-Developer checklist (the placement rule is [CODEGEN.md](../../CODEGEN.md) section 2 - core-level
+Developer checklist (the placement rule is [CODEGEN.md](../../src/codegen/CODEGEN.md) section 2 - core-level
 analysis goes to the language-agnostic modules, target syntax stays here):
 
 1. Parity first: a new feature lands in EVERY backend in the same change,
@@ -578,5 +578,5 @@ analysis goes to the language-agnostic modules, target syntax stays here):
 8. Verify: cargo test --test codegen_test, cargo test --test
    backend_parity_test, cargo test --test prod_parity_test, cargo test --test
    wide_ops_parity_test, then the full [BUILD.md](../../BUILD.md) section 5 checklist. Docs
-   sync: [C.md](../../src/codegen/backends/C.md) (artifact design), [CODEGEN.md](../../CODEGEN.md) (if the plugin
+   sync: [C.md](../../src/codegen/backends/C.md) (artifact design), [CODEGEN.md](../../src/codegen/CODEGEN.md) (if the plugin
    surface changes), [KB.md](../../KB.md); training snippets if user-visible.

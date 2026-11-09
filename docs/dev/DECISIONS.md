@@ -842,7 +842,7 @@ a ProtocolFsm - composes). Because self-contained generated code is a design
 invariant, the trait CANNOT be linked into generated code: codegen OPTIONALLY
 emits `impl ProtocolFsm for Fsm` behind `--with-protocol-fsm` (OFF by default
 - every byte of default output unchanged; the one documented exception to
-invariant 1 in [CODEGEN.md](../../CODEGEN.md) section 9), placed after the inherent `impl Fsm`,
+invariant 1 in [CODEGEN.md](../../src/codegen/CODEGEN.md) section 9), placed after the inherent `impl Fsm`,
 before `#[cfg(test)]` in test artifacts, forwarding explicitly so it cannot
 recurse. `mc` rejects the flag (pinned `PROTOCOL_FSM_MC_ERROR`, CLI + library
 level, both backends); the C backend accepts and ignores it byte-identically.

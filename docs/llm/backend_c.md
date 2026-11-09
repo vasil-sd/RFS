@@ -45,7 +45,7 @@ rendered identically in Rust and C.
 - Generated artifacts stay dependency-free (the five standard includes) and deterministic; gcc -Wall at ZERO warnings on every artifact over all valid examples; the fuzz skeleton stays a separate file.
 - no_std / protocol-fsm no-ops: --no-std adds only its one comment line; --with-protocol-fsm is ignored by production/test, rejected by mc with the pinned error.
 
-**Change impact.** Placement rule first (CODEGEN.md section 2); verify with
+**Change impact.** Placement rule first (src/codegen/CODEGEN.md section 2); verify with
 cargo test --test codegen_test + backend_parity_test + prod_parity_test +
 wide_ops_parity_test, then the full BUILD.md section 5 checklist. Full table:
 llm:change-impact.
@@ -53,6 +53,6 @@ llm:change-impact.
 **Deep dive.** dev:backend-c-overview + dev:backend-c-plugin /
 dev:backend-c-fsm in docs/dev/backend_c.md (dev:backend-c-mc /
 dev:backend-c-test are task 10.2); artifact design: src/codegen/backends/C.md;
-extension guide: CODEGEN.md (repo root); the shared plans it renders:
+extension guide: src/codegen/CODEGEN.md; the shared plans it renders:
 dev:codegen-core-overview et al. in docs/dev/codegen_core.md; Rust twin:
 docs/dev/backend_rust.md.

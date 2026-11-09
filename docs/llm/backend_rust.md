@@ -44,7 +44,7 @@ one plan, rendered identically in Rust and C.
 - no_std: only the header may change - the body is byte-identical (pinned by the compile sweep over all 50 valid examples x both monitor modes).
 - Generated binaries embed their own copies of plan tables / parsing helpers / JSON writer - format changes must update both backends' emitters in the same change (source of truth: src/codegen/mc_concepts.rs, src/mc/plan.rs).
 
-**Change impact.** Placement rule first (CODEGEN.md section 2); verify with
+**Change impact.** Placement rule first (src/codegen/CODEGEN.md section 2); verify with
 cargo test --test codegen_test + backend_parity_test + liveness_mc_test +
 benchmark_mc_test, then the full BUILD.md section 5 checklist. Full table:
 llm:change-impact.
@@ -52,5 +52,5 @@ llm:change-impact.
 **Deep dive.** dev:backend-rust-overview + dev:backend-rust-plugin /
 dev:backend-rust-fsm / dev:backend-rust-test / dev:backend-rust-mc in
 docs/dev/backend_rust.md; artifact design: src/codegen/backends/RUST.md; extension
-guide: CODEGEN.md (repo root); the shared plans it renders:
+guide: src/codegen/CODEGEN.md; the shared plans it renders:
 dev:codegen-core-overview et al. in docs/dev/codegen_core.md.

@@ -146,7 +146,7 @@ pass - required the generated-crate `[workspace]` fix, see section 1),
 `cargo test-training` (5 pass).
 
 CLI behavior rules (file/dir handling, exit codes): `KB.md` section 4.5. Codegen
-plugin API and backend docs: `CODEGEN.md`, `src/codegen/backends/RUST.md`.
+plugin API and backend docs: `src/codegen/CODEGEN.md`, `src/codegen/backends/RUST.md`.
 
 ## 5. Verification checklist after changes
 

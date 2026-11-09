@@ -38,7 +38,7 @@ Where to go next:
 
 - [RUST.md](../../src/codegen/backends/RUST.md) - architecture + design decisions of the generated
   artifacts (anatomy, key decisions, known limitations);
-- [CODEGEN.md](../../CODEGEN.md) (repo root) - the extension guide: plugin API, CLI surface,
+- [CODEGEN.md](../../src/codegen/CODEGEN.md) - the extension guide: plugin API, CLI surface,
   adding-a-backend checklist, invariants;
 - function-level call graph: `dev:deps-fn-codegen-rust` in [DEPENDENCIES.md](DEPENDENCIES.md);
 - file entries: `dev:code-map-codegen` in [CODE_MAP.md](CODE_MAP.md);
@@ -578,7 +578,7 @@ event lines).
 crate, rust_mc.rs embeds its own copies of the plan tables, parsing helpers,
 and JSON writer. The formats in `src/codegen/mc_concepts.rs` / `src/mc/plan.rs` are
 the SOURCE OF TRUTH - when a wire format changes, update both backends'
-emitters in the same change and extend the tests ([CODEGEN.md](../../CODEGEN.md) section 9).
+emitters in the same change and extend the tests ([CODEGEN.md](../../src/codegen/CODEGEN.md) section 9).
 
 Code: `src/codegen/backends/rust/mc.rs::generate_model_checker`,
 `src/codegen/backends/rust/mc.rs::exact_codegen`,
@@ -595,7 +595,7 @@ Code: `src/codegen/backends/rust/mc.rs::generate_model_checker`,
 
 ## Changing the Rust backend
 
-Developer checklist (the placement rule is [CODEGEN.md](../../CODEGEN.md) section 2 - core-level
+Developer checklist (the placement rule is [CODEGEN.md](../../src/codegen/CODEGEN.md) section 2 - core-level
 analysis goes to the language-agnostic modules, target syntax stays here):
 
 1. Parity first: a new feature lands in EVERY backend in the same change,
@@ -632,5 +632,5 @@ analysis goes to the language-agnostic modules, target syntax stays here):
 7. Verify: cargo test --test codegen_test, cargo test --test
    backend_parity_test, cargo test --test liveness_mc_test, cargo test
    --test benchmark_mc_test, then the full [BUILD.md](../../BUILD.md) section 5 checklist.
-   Docs sync: [RUST.md](../../src/codegen/backends/RUST.md) (artifact design), [CODEGEN.md](../../CODEGEN.md) (if the
+   Docs sync: [RUST.md](../../src/codegen/backends/RUST.md) (artifact design), [CODEGEN.md](../../src/codegen/CODEGEN.md) (if the
    plugin surface changes), [KB.md](../../KB.md); training snippets if user-visible.

@@ -44,7 +44,7 @@ invokes external tools goes through the shared resolver (dev:cli-commands-
 ext-tool) and accepts --print-script.
 
 CLI behavior rules at file granularity: [KB.md](../../KB.md) section 4.5; external user
-documentation: docs/user/; codegen plugin API: [CODEGEN.md](../../CODEGEN.md) +
+documentation: docs/user/; codegen plugin API: [CODEGEN.md](../../src/codegen/CODEGEN.md) +
 [codegen_core.md](codegen_core.md).
 
 Code: `src/main.rs::main`, `src/cli/log.rs::LogLevel`, `src/cli/log.rs::Logger`
@@ -138,7 +138,7 @@ Consumers: the integration tests call library functions directly (e.g. the
 info-format walk runs `src/cli/commands/info.rs::run_info` in-process with json=true);
 `crates/rfs-build` invokes the BINARY (RFS_BIN resolution), not the library;
 external tooling goes through IR JSON (hand-rolled `src/json/json_rw.rs`). Full API
-list: [KB.md](../../KB.md) section 4.3; codegen plugin API: [CODEGEN.md](../../CODEGEN.md) +
+list: [KB.md](../../KB.md) section 4.3; codegen plugin API: [CODEGEN.md](../../src/codegen/CODEGEN.md) +
 [codegen_core.md](codegen_core.md).
 
 Code: `src/lib.rs::collect_rfs_files`, `src/lang/parser.rs::parse_source`,

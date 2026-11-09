@@ -1,7 +1,7 @@
 # Rust Codegen Backend
 
 Architecture and design decisions of the Rust target-language backend
-(`src/codegen/backends/rust/*.rs`). For the generic plugin API see `CODEGEN.md` at the
+(`src/codegen/backends/rust/*.rs`). For the generic plugin API see `src/codegen/CODEGEN.md` at the
 repository root; for semantics see `DESIGN.md`.
 
 ## 1. File layout
@@ -29,7 +29,7 @@ Every command emits **one self-contained `.rs` file**:
   {name}` - toolchain version from `env!("CARGO_PKG_VERSION")`, spec hash =
   SHA-256 of the canonical IR JSON of the whole input file (first 16 hex chars,
   computed in `src/codegen/mod.rs` via the hand-rolled `src/utils/hash.rs`) - see
-  CODEGEN.md section 9 invariant 7 and `docs/user/MIGRATION.md` section 2.5;
+  src/codegen/CODEGEN.md section 9 invariant 7 and `docs/user/MIGRATION.md` section 2.5;
 - header `#![allow(dead_code, unused_variables, ...)]` so generated code is
   warning-clean even for degenerate modules (no variables, no outputs);
 - deterministic: same IR + options ⇒ byte-identical output.
@@ -159,7 +159,7 @@ and renders (all names are stable; the C backend mirrors them in task 6):
 - **monitor-violation tests** `monitor_<label>_fires_on_violation`: drive the
   planner's violating trace and assert the sticky `property_violation` record
   holds the target label (the planner guarantees no other monitored property
-  records first - see `CODEGEN.md` 5.2);
+  records first - see `src/codegen/CODEGEN.md` 5.2);
 - **random-trace test** `random_trace_seed<seed>_steps<K>`: drive the
   precomputed LCG index sequence and print one deterministic coverage line
   (`ok`/`unexpected`/`assumption`/`property` counts + distinct visited
@@ -222,7 +222,7 @@ parts dispatched by the generated `main` on the runtime `--mode` flag:
   false pass). Peak RSS self-reporting (Phase 6 task 6): the exact-mode binary
   reads VmHWM from `/proc/self/status` at exit and emits it as
   `statistics.peak_rss_kb` in the JSON report (0 on read failure; informational
-  - zeroed before cross-backend byte comparisons, see CODEGEN.md section 5.3).
+  - zeroed before cross-backend byte comparisons, see src/codegen/CODEGEN.md section 5.3).
 - `FUZZ_RUNTIME` (`--mode fuzz`, legacy Phase 1/3 engine): embedded RNG
   (deterministic given `--seed`), `codegen_mc::McConfig` CLI wire format
   (`--bound/--runs/--seed/--assumes/--violate/--unexpected-prob`), phase-

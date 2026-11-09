@@ -17,6 +17,12 @@ The immediate Phase 0 goal is to freeze the core syntax/semantics boundary, defi
 
 ## 1. Purpose
 
+> Maintenance note: this document and the RFS source tree are maintained with the
+> `rfs-dev` tooling (`dev_tools/`). Read any section on demand via
+> `rfs-dev doc-section DESIGN.md <heading...>` and a symbol's impact via
+> `rfs-dev context <name>` (see `dev_tools/SKILL.md`). The design content below is
+> unchanged by that tooling.
+
 RFS is a constrained Rust-like DSL for finite-state protocol specifications -
 a domain-specific language for protocol control logic, intentionally
 constrained so that specifications can be model-checked by translating them

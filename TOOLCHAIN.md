@@ -395,3 +395,24 @@ RFS_Z3_DIR=$z3 cargo test --features smt
 The C example Makefiles honor the same contract: `c_sync_handler` uses
 `CC ?= gcc` and `fuzz_c` uses `CLANG ?= clang`, so `make CC=/path/to/gcc`
 overrides them.
+
+## 9. Building dev_tools (`rfs-dev`)
+
+`dev_tools/` is a workspace member, so it builds with the SAME activation block as
+everything else (section 2) - no separate toolchain:
+
+```sh
+export RUSTUP_HOME=/workspace/host/rustup
+export CARGO_HOME=/workspace/host/.cargo
+export PATH="$CARGO_HOME/bin:$PATH"
+cd /workspace/host/RFS
+cargo build -p rfs-dev        # or: cargo build --workspace (builds it too)
+```
+
+Its dependencies (`syn`, `pulldown-cmark`, `regex` - the declared exceptions) resolve
+from the same registry cache as the rest of the project, so an offline build works
+once the cache is populated. Verify it is available with `cargo run -p rfs-dev --
+doc-section START.md "0. System prompt"` (exit 0). The session-opening protocol in
+`START.md` builds any missing tools here; the usage guide for the six tools is
+`dev_tools/SKILL.md`. Nothing in the `rfs` build/test path invokes `rfs-dev`, so a
+missing `rfs-dev` never breaks `cargo build` / `cargo test` of the toolchain itself.

@@ -11,16 +11,37 @@ Project root: `/workspace/host/RFS`. Core principle: *one constrained specificat
 -> one versioned IR -> multiple Rust targets.* The DSL stays finite and
 model-checkable (no unbounded data, floats, or arbitrary functions in the core).
 
+**Session opening (run this sequence at the start of EVERY session, in order):**
+
+1. Read `START.md` fully (this file) - orientation, doc map, source tree, protocol.
+2. Read `TOOLCHAIN.md` - how to activate the toolchain and recover from failures.
+3. Check tool availability: cargo/rustc (the activation block in section 4), the
+   external tools your task needs (gcc/clang/dot/plantuml/mmdc/z3 - TOOLCHAIN.md
+   sections 5-8), AND `rfs-dev` (the maintenance tooling). A tool is "available" if
+   it resolves via its env var / standard var / PATH (TOOLCHAIN.md section 8);
+   `rfs-dev` is available once built.
+4. Build/install any missing tools: `cargo build --workspace` builds `rfs-dev`
+   (a workspace member) and everything else; install absent external tools per
+   TOOLCHAIN.md. Do not start a task that needs a tool you have not confirmed.
+5. Orient to `KB.md` and `DESIGN.md` via their section maps (section 5 below) - know
+   what each holds and where, without loading them fully.
+6. Read `docs/roadmap/INTRO.md` - the phase state and next priorities.
+
+After this you are operational: you know the documentation layout, the source layout,
+how to read anything on demand (preferably with `rfs-dev`, see `dev_tools/SKILL.md`),
+and you have a confirmed-working toolchain. Everything else is read on demand.
+
 **Operating protocol (token economy - follow it strictly):**
 
 1. This file is the only document you read fully at session start. Everything else is
    read **on demand**, in targeted chunks, when a task requires it (see section 6).
-2. Never load whole large documents into context. For `KB.md` / `DESIGN.md` use
-   `grep -n "^## \|^### " <file>` to get current line numbers, then
-   `sed -n '<a>,<b>p'` for just the needed section. Roadmap files in
-   `docs/roadmap/` are small by design: read `INTRO.md` (+ `PROTOCOL.md` /
-   `FORMATTING.md` as needed) once per phase task and only the specific
-   `phase_N/` file you need (never all of them).
+2. Never load whole large documents into context. To read a section of `KB.md` /
+   `DESIGN.md` / any docs file, prefer `rfs-dev doc-section <file> <heading...>`
+   (robust to line drift; see `dev_tools/SKILL.md`) - fall back to
+   `grep -n "^## \|^### " <file>` + `sed -n '<a>,<b>p'` only if `rfs-dev` is not
+   built. Roadmap files in `docs/roadmap/` are small by design: read `INTRO.md`
+   (+ `PROTOCOL.md` / `FORMATTING.md` as needed) once per phase task and only the
+   specific `phase_N/` file you need (never all of them).
 3. Toolchain: do not search for cargo/rustc. Use the activation block in section 4.
    If a build fails with a lock-file or version error, read `TOOLCHAIN.md` (it is
    short) and follow it - do not try other toolchains first.
@@ -46,6 +67,12 @@ model-checkable (no unbounded data, floats, or arbitrary functions in the core).
    for user review; the implementation stage requires that plan file to exist before
    any code is touched and executes tasks one at a time - every task starts only
    after explicit user confirmation.
+9. Use `rfs-dev` extensively for source and doc maintenance (full guide:
+   `dev_tools/SKILL.md`): `context` before editing an item, the `edit-*` tools for
+   renames/moves/replacements (never raw sed/perl on Rust items), `doc-section` for
+   reading docs, and `sync-check` / `inventory audit` in your verification. Raw shell
+   is reserved for the "no tool" cases listed in SKILL.md (build/test via cargo, git,
+   env probing, vendored-dep reads, new-file creation, scratch ops).
 
 ## 1. Project state snapshot (2026-10-28)
 
@@ -183,7 +210,8 @@ model-checkable (no unbounded data, floats, or arbitrary functions in the core).
 |---|---|---|---|
 | `START.md` | This file: orientation + protocol | Always, at session start | Fully (it is short) |
 | `BUILD.md` | Build files, all commands/aliases, test suites, expected results, post-change checklist | Before any build/test/run; when a command or its expected output is needed | Fully (~90 lines, safe) |
-| `TOOLCHAIN.md` | Rust toolchain paths/versions, activation, reinstall, env corner cases | Only when cargo/rustc fails or exact versions are needed | Fully (~70 lines, safe) |
+| `TOOLCHAIN.md` | Rust toolchain paths/versions, activation, reinstall, env corner cases, external-tool + z3 resolution (section 8 portability contract) | Only when cargo/rustc fails or exact versions are needed; at session start per the opening protocol | Fully (~90 lines, safe) |
+| `dev_tools/SKILL.md` | The `rfs-dev` maintenance-tool skill: when to use each of the six tools (`doc-section`, `context`, `edit-rename/move/replace-item`, `sync-check/fix`, `inventory`, `calls`), their CLIs + examples, and the "no tool" cases | At session start (right after START.md) and for ANY source/doc maintenance - it is the guide to using dev_tools extensively | Fully (~120 lines, safe) |
 | `KB.md` | Project state; design decisions and syntax reference as short pointers to `DESIGN.md` (the single source of truth for core design); source-code map (CLI behavior, training-set organization, TLA adaptation); build/test/run pointers; agent workflow experience; current limitations; roadmap pointer | For source layout, CLI rules, "how is X implemented", project state - language semantics questions route to `DESIGN.md` / `docs/SEMANTICS.md` first | **Never fully** - section map in section 5; grep + sed ranges |
 | `DESIGN.md` | RFS v0 design: architecture, core semantics, EBNF grammar, IR schema, parser/codegen/MC/PSL plans, design-choice tables | When changing language semantics, grammar, IR, or codegen/MC design | **Never fully** - section map in section 5 |
 | `docs/SEMANTICS.md` | Formal semantics (NORMATIVE): automaton model, transition relation, deterministic vs nondeterministic modes, property sampling, PSL operator semantics, strong/weak liveness + fairness, assumptions + handler policies, error/deadlock semantics, MC configurations/abstraction rules/status labeling | For precise "what does X mean" questions; the reference Phase 6's ref MC (task 3.2) and independent evaluators (tasks 4.x) implement against | Fully (medium size) or `grep -n "^## \|^### "` + sed ranges |
@@ -268,8 +296,10 @@ Paths, reinstall, and failure recovery: `TOOLCHAIN.md`.
 
 ## 5. Large-doc section maps (locate with grep, read only the needed range)
 
-Line numbers drift as docs evolve - always run `grep -n "^## \|^### " <file>` first,
-then `sed -n '<start>,<end>p'`. Sections:
+Line numbers drift as docs evolve. Preferred: `rfs-dev doc-section <file> <heading...>`
+fetches a section by its heading path with no line numbers at all (see
+`dev_tools/SKILL.md`). Fallback when `rfs-dev` is not built: run
+`grep -n "^## \|^### " <file>` first, then `sed -n '<start>,<end>p'`. Sections:
 
 - **KB.md**: 1 current project state / 2 design decisions (reference stubs to
   DESIGN.md sections 1-4, 7, 8, 12) / 3 RFS v0 syntax reference (reference stub
@@ -298,6 +328,10 @@ then `sed -n '<start>,<end>p'`. Sections:
   `phase_N/tasks/`. All small: read the specific file you need, fully.
 
 ## 6. Task -> read / do / verify table (lazy loading protocol)
+
+The "Read (on demand)" column names WHAT to consult; HOW you fetch it defaults to
+`rfs-dev` (`doc-section` for docs, `context` for a symbol's impact) - see
+dev_tools/SKILL.md. The grep/sed forms are the fallback when `rfs-dev` is absent.
 
 | Task type | Read (on demand) | Do | Verify |
 |---|---|---|---|

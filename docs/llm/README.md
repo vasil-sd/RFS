@@ -9,6 +9,11 @@ For rationale and algorithm detail, follow the links to Class A (`docs/dev/`)
 <a id="llm:index"></a>
 ## Index and context-budget rules
 
+Prefer `rfs-dev` for on-demand retrieval: `doc-section <file> <heading...>` reads a
+doc section by heading path (no line numbers) and `context <name>` returns a symbol's
+inventory row + Depends closure + doc fragments in one command - both are more robust
+than grep+sed and are the default way to read on demand (see `dev_tools/SKILL.md`).
+
 | File | Budget | Use it for |
 |------|--------|------------|
 | `TASK_MAP.md` | 400 | functionality to files/functions: every CLI command, subsystem, test suite |

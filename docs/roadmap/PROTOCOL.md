@@ -98,6 +98,11 @@ t) Update `TASKS.md` (entry per its first-paragraph template) and commit.
 
 ## 4. Impact calculation (mandatory before scoping any source change)
 
+Do this with `rfs-dev context <name>`: it returns the symbol's inventory row, its
+Depends closure, and every doc fragment that references it in one command - the
+one-command form of the manual grep+inventory walk below (see `dev_tools/SKILL.md`).
+The manual procedure remains the fallback when `rfs-dev` is not built.
+
 Before scoping ANY source-code change, consult the affected rows' Depends
 columns in the structure inventories:
 

@@ -512,6 +512,11 @@ This section records practical lessons for future LLM-assisted work in this repo
 
 - Use small targeted edits for bug fixes.
 - Use larger scripted rewrites only when replacing a module or many patterns.
+- For symbol-level source edits (rename a fn/type, move a file, replace one item),
+  prefer the `rfs-dev` tools over raw sed/perl - they are syn-parsed and immune to
+  string/comment pattern phantoms: `edit-rename <old> <new>`, `edit-move <from> <to>`,
+  `edit-replace-item <file> <item> --new-from FILE`. Run `rfs-dev context <name>` first
+  to see the impact (Depends closure + doc fragments). See `dev_tools/SKILL.md`.
 - After large rewrites, immediately run:
   - `cargo build`
   - `cargo test --lib`
@@ -606,6 +611,10 @@ When making a design-relevant change:
 3. Update `KB.md` if future agents need to know the new state, command, corner case, or limitation.
 4. Add or update examples/tests for the behavior.
 5. Run `cargo test`, `cargo clippy --all-targets`, and `cargo fmt`.
+6. Re-sync docs<->source references with `rfs-dev sync-check` (read-only), then
+   `rfs-dev sync-fix --dry-run` / `sync-fix` if it reports stale pointers; read any doc
+   section with `rfs-dev doc-section <file> <heading...>` instead of line-numbered sed.
+   See `dev_tools/SKILL.md`.
 
 ---
 

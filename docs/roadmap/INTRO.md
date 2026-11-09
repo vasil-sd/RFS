@@ -15,6 +15,8 @@ The maintained set splits into four documents plus one directory per phase:
 
 How to build/test/run this project: `BUILD.md`. Rust toolchain locations and
 activation: `TOOLCHAIN.md`. Session entry point for LLM-assisted work: `START.md`.
+Source/doc maintenance is done with the `rfs-dev` tooling (`dev_tools/`, built at
+session start per START.md's opening protocol); its usage guide is `dev_tools/SKILL.md`.
 
 ## 1. File set and naming
 

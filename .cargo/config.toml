@@ -1,16 +1,7 @@
-# Phase 12 portability defaults. These are the tool locations that are specific
-# to THIS project setup and not derivable from the crate tree or a standard PATH
-# name - currently just the project-local z3 install (a sibling of the repo,
-# outside it). Every other tool resolves via RFS_* / standard env vars / bare
-# name on PATH with no default baked into source.
-#
-# These [env] values are NON-FORCING: a real environment variable of the same
-# name always wins, so on NixOS (or anywhere) you override or unset them and the
-# resolvers fall through to pkg-config / PATH. Each value is also existence-
-# checked by its resolver before use, so a stale default on a foreign system is
-# skipped rather than trusted. See TOOLCHAIN.md section 8.
-[env]
-RFS_Z3_DIR = "/workspace/host/z3"
+# Project-specific tool-path defaults live in env.toml (included below) so the
+# machine-specific values stay out of this file and out of source. Rationale:
+# Phase 12 portability, TOOLCHAIN.md section 8.
+include = ["env.toml"]
 
 [alias]
 build-training = "run --bin build_training --"

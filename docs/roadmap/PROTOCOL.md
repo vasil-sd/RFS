@@ -66,7 +66,7 @@ h) Print a message to the user with the task number, a brief description (what
    is planned to be done, list of actions, what will be achieved) and a brief
    scope (which files will be changed).
 i) STOP here and ask the user to review the task file. This gate applies to
-   EVERY task, including tasks added during execution (steps e, q).
+   EVERY task, including tasks added during execution (steps e, r).
 j) Continue only after user confirmation (trigger: user says "let's execute the
    task").
 k) Execute the actions from the task file.
@@ -83,18 +83,21 @@ o) Reflect the plan-level corrections introduced during work in the "Plan
    "Planned tasks" table; follow the formatting rules in FORMATTING.md. If an
    unimplemented task was cancelled, write its `PHASE_N_TASK_M_STATUS.md`
    according to FORMATTING.md §6.1.
-p) Check for remaining not-cancelled tasks (consult
+p) Update `TASKS.md` (entry per its first-paragraph template) and commit this
+   task's work, strictly following the commit-message format in FORMATTING.md §7.
+q) Check for remaining not-cancelled tasks (consult
    `phase_N/PHASE_N_PLAN.md`); if any remain, repeat the loop (goto g).
-q) If no tasks remain, check the phase exit criteria
+r) If no tasks remain, check the phase exit criteria
    (`phase_N/PHASE_N.md`). If not reached, correct the plan ("Plan corrections"
    table), add new tasks (new task files) if needed, and re-execute the loop
    (goto d), repeat until the phase exit criteria are reached.
-r) After reaching the phase exit criteria, write
+s) After reaching the phase exit criteria, write
    `docs/roadmap/phase_N/PHASE_N_STATUS.md` according to FORMATTING.md §4.
-s) Update all related documentation files; re-check that docs are aligned with
+t) Update all related documentation files; re-check that docs are aligned with
    the current state of the project (`KB.md`, `DESIGN.md`, `BUILD.md`,
    `CODEGEN.md`, backend docs, and `CURRENT_STATE.md`).
-t) Update `TASKS.md` (entry per its first-paragraph template) and commit.
+u) Update `TASKS.md` (entry per its first-paragraph template) and commit the
+   phase close-out, strictly following the commit-message format in FORMATTING.md §7.
 
 ## 4. Impact calculation (mandatory before scoping any source change)
 

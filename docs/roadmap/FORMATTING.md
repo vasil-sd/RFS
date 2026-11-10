@@ -387,3 +387,31 @@ One row per suite actually run, with exact counts where known.
 ## Other important findings/information
 - bullet list of anything else a future session should know (omit if empty).
 ```
+
+## 7. Template: git commit message
+
+A commit message is a one-line subject, a blank line, then a body of three
+plain-text sections. The section labels are bare text, NOT `#`-prefixed - git
+strips `#` lines as comments, so a `# Changes` header would silently vanish from
+the stored message:
+
+```markdown
+<one-line short description of the change>
+
+Changes:
+- <what was actually changed (files, API, functionality, etc), one bullet per item>
+
+Issues and findings:
+- <issues or findings discovered during the work, one bullet each; omit this section if there are none>
+
+Verification results:
+- <the tests passed / checks run that confirm the goals were reached>
+```
+
+Rules:
+- The subject is a single line (imperative mood, no trailing period); it must stand
+  alone in `git log --oneline`.
+- Each section is a bare label followed by a bullet list; drop a whole section only
+  if it is genuinely empty.
+- Keep bullets factual and specific - name the files, commands and counts, not
+  narrative.

@@ -260,7 +260,7 @@ keywords vs context-sensitive ones. `int_lit` parses a u64 decimal literal;
 overflow is a semantic error. `KEYWORDS` (28 words) is the single source of
 truth for reserved words: `keyword_list_matches_parser_sites` pins it against
 the parser's own call sites in both directions, and the IDE grammar sanity
-test (`tests/frontend_test.rs`) asserts every keyword appears in
+test (`tests/utils_test.rs`) asserts every keyword appears in
 `ide/textmate/rfs.json`.
 
 Code: `src/lang/parser.rs::expr`, `src/lang/parser.rs::logic_or`,

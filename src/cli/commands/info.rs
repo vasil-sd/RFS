@@ -19,6 +19,9 @@ use crate::lang::ir::{
     UnaryOp,
 };
 use std::path::Path;
+use std::process::ExitCode;
+
+use crate::cli::args::usage;
 
 /// Options for the `info` command.
 #[derive(Debug, Clone, Copy, Default)]
@@ -33,13 +36,13 @@ pub struct InfoOptions {
 /// message for a parse/validation failure (the caller exits 1).
 pub fn run_info(path: &Path, opts: &InfoOptions) -> Result<String, String> {
     let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
-    let Some(fmt) = crate::cli::frontend::Format::from_extension(ext) else {
+    let Some(fmt) = crate::cli::utils::Format::from_extension(ext) else {
         return Err(format!(
             "input '{}' must have extension .rfs or .json",
             path.display()
         ));
     };
-    let ir = match crate::cli::frontend::convert_file_to_ir(path, fmt) {
+    let ir = match crate::cli::utils::convert_file_to_ir(path, fmt) {
         Ok(ir) => ir,
         Err(e) => return Err(format!("{}: {}", path.display(), e)),
     };
@@ -495,4 +498,170 @@ fn module_json(m: &Module) -> Json {
         ("properties".to_string(), props(&m.properties, false)),
         ("assumptions".to_string(), props(&m.assumptions, true)),
     ])
+}
+
+pub fn run_cli(args: &[String]) -> ExitCode {
+    use crate::cli::log::{LogLevel, Logger};
+    // Phase 7 task 5: `rfs info format ...` - dispatch on the bare first
+    // token BEFORE any path handling, so a file literally named `format`
+    // cannot collide (D-P7-6).
+    if args.first().map(String::as_str) == Some("format") {
+        return run_info_format(&args[1..]);
+    }
+    let mut json = false;
+    let mut log_level = LogLevel::Info;
+    let mut path: Option<String> = None;
+
+    let mut i = 0;
+    while i < args.len() {
+        let arg = args[i].clone();
+        if arg == "--help" || arg == "-h" {
+            println!("{}", usage());
+            return ExitCode::SUCCESS;
+        }
+        match arg.as_str() {
+            "--" => {}
+            "--json" => json = true,
+            "--log-level" => {
+                let Some(v) = args.get(i + 1).cloned() else {
+                    eprintln!(
+                        "error: --log-level requires a value (off|error|warn|info|debug)\n{}",
+                        usage()
+                    );
+                    return ExitCode::FAILURE;
+                };
+                i += 1;
+                match LogLevel::parse(&v) {
+                    Some(l) => log_level = l,
+                    None => {
+                        eprintln!(
+                            "error: --log-level expects off|error|warn|info|debug (got '{}')\n{}",
+                            v,
+                            usage()
+                        );
+                        return ExitCode::FAILURE;
+                    }
+                }
+            }
+            _ if arg.starts_with('-') => {
+                eprintln!("unknown option: {}\n{}", arg, usage());
+                return ExitCode::FAILURE;
+            }
+            _ => {
+                if path.is_some() {
+                    eprintln!("unexpected extra argument: {}\n{}", arg, usage());
+                    return ExitCode::FAILURE;
+                }
+                path = Some(arg);
+            }
+        }
+        i += 1;
+    }
+
+    let Some(path) = path else {
+        eprintln!("error: rfs info requires a spec file\n{}", usage());
+        return ExitCode::FAILURE;
+    };
+
+    // Fatal diagnostics bypass the logger (always stderr, drive exit code);
+    // the logger carries informational progress output only.
+    let logger = Logger::new(log_level);
+    let opts = InfoOptions { json };
+    match run_info(Path::new(&path), &opts) {
+        Ok(out) => {
+            logger.debug(&format!(
+                "info: rendered {} byte(s) for {}",
+                out.len(),
+                path
+            ));
+            println!("{out}");
+            ExitCode::SUCCESS
+        }
+        Err(e) => {
+            eprintln!("error: {e}");
+            ExitCode::FAILURE
+        }
+    }
+}
+
+/// `rfs info format [--list] <name?> [--output KIND]` (Phase 7 task 5):
+/// machine-readable descriptions of rfs input/output formats, rendered from
+/// the in-binary models (kept in sync with the code by tests).
+fn run_info_format(args: &[String]) -> ExitCode {
+    let mut list = false;
+    let mut output: Option<String> = None;
+    let mut name: Option<String> = None;
+
+    let mut i = 0;
+    while i < args.len() {
+        let arg = args[i].clone();
+        if arg == "--help" || arg == "-h" {
+            println!("{}", usage());
+            return ExitCode::SUCCESS;
+        }
+        match arg.as_str() {
+            "--" => {}
+            "--list" => list = true,
+            "--output" => {
+                let Some(v) = args.get(i + 1).cloned() else {
+                    eprintln!(
+                        "error: --output requires a value (md|plantuml|svg|schema)\n{}",
+                        usage()
+                    );
+                    return ExitCode::FAILURE;
+                };
+                i += 1;
+                if output.is_some() {
+                    eprintln!("error: --output given more than once\n{}", usage());
+                    return ExitCode::FAILURE;
+                }
+                output = Some(v);
+            }
+            _ if arg.starts_with('-') => {
+                eprintln!("unknown option: {}\n{}", arg, usage());
+                return ExitCode::FAILURE;
+            }
+            _ => {
+                if name.is_some() {
+                    eprintln!("unexpected extra argument: {}\n{}", arg, usage());
+                    return ExitCode::FAILURE;
+                }
+                name = Some(arg);
+            }
+        }
+        i += 1;
+    }
+
+    if list {
+        println!("{}", crate::cli::info_format::list_markdown());
+        return ExitCode::SUCCESS;
+    }
+
+    let Some(name) = name else {
+        eprintln!(
+            "error: rfs info format requires a format name (or --list)\n{}",
+            usage()
+        );
+        return ExitCode::FAILURE;
+    };
+
+    // Unknown names get the registry's own diagnostic (it lists the remedy).
+    let output = match crate::cli::info_format::find(&name) {
+        Some(entry) => output.unwrap_or_else(|| entry.outputs[0].to_string()),
+        None => {
+            eprintln!("error: unknown format '{name}'; run `rfs info format --list` for registered formats");
+            return ExitCode::FAILURE;
+        }
+    };
+
+    match crate::cli::info_format::render(&name, &output) {
+        Ok(doc) => {
+            print!("{doc}");
+            ExitCode::SUCCESS
+        }
+        Err(e) => {
+            eprintln!("error: {e}");
+            ExitCode::FAILURE
+        }
+    }
 }

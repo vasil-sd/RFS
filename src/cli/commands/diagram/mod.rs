@@ -24,6 +24,9 @@
 //! Docs: dev:cli-commands-overview, dev:cli-commands-diagram, llm:cli-commands
 
 use std::path::{Path, PathBuf};
+use std::process::ExitCode;
+
+use crate::cli::args::usage;
 
 pub mod dot;
 pub mod mermaid;
@@ -185,13 +188,13 @@ fn tool_override(plugin: &DiagramPlugin, opts: &DiagramOptions) -> ToolOverride 
 pub fn run_diagram(path: &Path, opts: &DiagramOptions) -> Result<DiagramResult, String> {
     // Load + validate (same contract as `rfs info`).
     let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
-    let Some(fmt) = crate::cli::frontend::Format::from_extension(ext) else {
+    let Some(fmt) = crate::cli::utils::Format::from_extension(ext) else {
         return Err(format!(
             "input '{}' must have extension .rfs or .json",
             path.display()
         ));
     };
-    let ir: Ir = match crate::cli::frontend::convert_file_to_ir(path, fmt) {
+    let ir: Ir = match crate::cli::utils::convert_file_to_ir(path, fmt) {
         Ok(ir) => ir,
         Err(e) => return Err(format!("{}: {}", path.display(), e)),
     };
@@ -469,5 +472,174 @@ pub(crate) fn render_check(tool: &ResolvedTool, args: &[String]) -> Result<(), V
             }
         )]),
         Ok(_) => Ok(()),
+    }
+}
+
+pub fn run_cli(args: &[String]) -> ExitCode {
+    use crate::cli::log::{LogLevel, Logger};
+    let mut opts = DiagramOptions::default();
+    let mut log_level = LogLevel::Info;
+    let mut path: Option<String> = None;
+
+    let mut i = 0;
+    while i < args.len() {
+        let arg = args[i].clone();
+        if arg == "--help" || arg == "-h" {
+            println!("{}", usage());
+            return ExitCode::SUCCESS;
+        }
+        match arg.as_str() {
+            "--" => {}
+            "--list" => {
+                for (name, desc) in list_diagrams() {
+                    println!("{name:<6} {desc}");
+                }
+                return ExitCode::SUCCESS;
+            }
+            "--format" => {
+                let Some(v) = args.get(i + 1).cloned() else {
+                    eprintln!(
+                        "error: --format requires a value ({} )\n{}",
+                        list_diagrams()
+                            .iter()
+                            .map(|(n, _)| *n)
+                            .collect::<Vec<_>>()
+                            .join("|"),
+                        usage()
+                    );
+                    return ExitCode::FAILURE;
+                };
+                i += 1;
+                opts.format = v;
+            }
+            "--out" => {
+                let Some(v) = args.get(i + 1).cloned() else {
+                    eprintln!("error: --out requires a value (FILE)\n{}", usage());
+                    return ExitCode::FAILURE;
+                };
+                i += 1;
+                opts.out = Some(std::path::PathBuf::from(v));
+            }
+            "--render" => {
+                let Some(v) = args.get(i + 1).cloned() else {
+                    eprintln!("error: --render requires a value (svg)\n{}", usage());
+                    return ExitCode::FAILURE;
+                };
+                i += 1;
+                if v != "svg" {
+                    eprintln!("error: --render expects svg (got '{}')\n{}", v, usage());
+                    return ExitCode::FAILURE;
+                }
+                opts.render_svg = true;
+            }
+            "--renderer" => {
+                let Some(v) = args.get(i + 1).cloned() else {
+                    eprintln!(
+                        "error: --renderer requires a value (internal|external)\n{}",
+                        usage()
+                    );
+                    return ExitCode::FAILURE;
+                };
+                i += 1;
+                opts.renderer = match v.as_str() {
+                    "internal" => Renderer::Internal,
+                    "external" => Renderer::External,
+                    _ => {
+                        eprintln!(
+                            "error: --renderer expects internal|external (got '{}')\n{}",
+                            v,
+                            usage()
+                        );
+                        return ExitCode::FAILURE;
+                    }
+                };
+            }
+            "--print-script" => opts.print_script = true,
+            "--log-level" => {
+                let Some(v) = args.get(i + 1).cloned() else {
+                    eprintln!(
+                        "error: --log-level requires a value (off|error|warn|info|debug)\n{}",
+                        usage()
+                    );
+                    return ExitCode::FAILURE;
+                };
+                i += 1;
+                match LogLevel::parse(&v) {
+                    Some(l) => log_level = l,
+                    None => {
+                        eprintln!(
+                            "error: --log-level expects off|error|warn|info|debug (got '{}')\n{}",
+                            v,
+                            usage()
+                        );
+                        return ExitCode::FAILURE;
+                    }
+                }
+            }
+            "--dot" | "--plantuml" | "--mermaid" => {
+                let Some(v) = args.get(i + 1).cloned() else {
+                    eprintln!("error: {} requires a value (PATH)\n{}", arg, usage());
+                    return ExitCode::FAILURE;
+                };
+                i += 1;
+                tool_override_mut(&mut opts, &arg).path = Some(v);
+            }
+            "--dot-args" | "--plantuml-args" | "--mermaid-args" => {
+                let Some(v) = args.get(i + 1).cloned() else {
+                    eprintln!("error: {} requires a value (ARGS)\n{}", arg, usage());
+                    return ExitCode::FAILURE;
+                };
+                i += 1;
+                tool_override_mut(&mut opts, &arg).args = Some(v);
+            }
+            _ if arg.starts_with('-') => {
+                eprintln!("unknown option: {}\n{}", arg, usage());
+                return ExitCode::FAILURE;
+            }
+            _ => {
+                if path.is_some() {
+                    eprintln!("unexpected extra argument: {}\n{}", arg, usage());
+                    return ExitCode::FAILURE;
+                }
+                path = Some(arg);
+            }
+        }
+        i += 1;
+    }
+
+    let Some(path) = path else {
+        eprintln!("error: rfs diagram requires a spec file\n{}", usage());
+        return ExitCode::FAILURE;
+    };
+
+    // Fatal diagnostics bypass the logger (always stderr, drive exit code);
+    // the logger carries informational progress output only.
+    let logger = Logger::new(log_level);
+    match run_diagram(std::path::Path::new(&path), &opts) {
+        Ok(result) => {
+            logger.debug(&result.note);
+            if let Some(text) = result.stdout {
+                // `print!` (not println): the generated text already ends with
+                // a newline, and callers may redirect stdout to a file - the
+                // bytes must be reproduced exactly (codegen convention).
+                print!("{text}");
+            }
+            ExitCode::SUCCESS
+        }
+        Err(e) => {
+            eprintln!("error: {e}");
+            ExitCode::FAILURE
+        }
+    }
+}
+
+/// Route a tool flag (`--dot`/`--plantuml`/`--mermaid`, with or without the
+/// `-args` suffix) to its override slot.
+fn tool_override_mut<'a>(opts: &'a mut DiagramOptions, flag: &str) -> &'a mut ToolOverride {
+    match flag.strip_suffix("-args").unwrap_or(flag) {
+        "--dot" => &mut opts.dot,
+        "--plantuml" => &mut opts.plantuml,
+        "--mermaid" => &mut opts.mermaid,
+        _ => unreachable!("flag checked by caller: {flag}"),
     }
 }

@@ -22,6 +22,9 @@
 //! Docs: dev:cli-commands-overview, dev:cli-commands-test, llm:cli-commands
 
 use std::path::{Path, PathBuf};
+use std::process::ExitCode;
+
+use crate::cli::args::usage;
 
 use crate::cli::ext_tool::{sh_quote, ExtTool, ResolvedTool, Script};
 use crate::cli::log::Logger;
@@ -122,13 +125,13 @@ pub struct TestOutcome {
 pub fn run_test(spec: &Path, opts: &TestOptions, log: &Logger) -> Result<TestOutcome, String> {
     // 1. Load + validate (same contract as `rfs info` / `rfs diagram`).
     let ext = spec.extension().and_then(|e| e.to_str()).unwrap_or("");
-    let Some(fmt) = crate::cli::frontend::Format::from_extension(ext) else {
+    let Some(fmt) = crate::cli::utils::Format::from_extension(ext) else {
         return Err(format!(
             "input '{}' must have extension .rfs or .json",
             spec.display()
         ));
     };
-    let ir = crate::cli::frontend::convert_file_to_ir(spec, fmt)
+    let ir = crate::cli::utils::convert_file_to_ir(spec, fmt)
         .map_err(|e| format!("{}: {}", spec.display(), e))?;
     if ir.modules.is_empty() {
         return Err(format!("no modules in {}", spec.display()));
@@ -887,4 +890,155 @@ fn heredoc(target: &str, delimiter: &str, content: &str) -> String {
         "cat > {} <<'{delimiter}'\n{body}{delimiter}",
         sh_quote(target)
     )
+}
+
+pub fn run_cli(args: &[String]) -> ExitCode {
+    use crate::cli::log::{LogLevel, Logger};
+    let mut opts = TestOptions::default();
+    let mut log_level = LogLevel::Info;
+    let mut path: Option<String> = None;
+    // The first --suite replaces the default [Unit]; later ones append.
+    let mut suite_given = false;
+
+    let mut i = 0;
+    while i < args.len() {
+        let arg = args[i].clone();
+        if arg == "--help" || arg == "-h" {
+            println!("{}", usage());
+            return ExitCode::SUCCESS;
+        }
+        match arg.as_str() {
+            "--" => {}
+            "--backend"
+            | "--steps"
+            | "--rustc"
+            | "--gcc"
+            | "--rustc-args"
+            | "--gcc-args"
+            | "--clang"
+            | "--clang-args"
+            | "--cargo-fuzz"
+            | "--cargo-fuzz-args"
+            | "--suite"
+            | "--fuzz-max-total-time"
+            | "--fuzz-flags"
+            | "--log-level" => {
+                let Some(v) = args.get(i + 1).cloned() else {
+                    eprintln!("error: {} requires a value\n{}", arg, usage());
+                    return ExitCode::FAILURE;
+                };
+                i += 1;
+                match arg.as_str() {
+                    "--backend" => opts.backend = v,
+                    "--steps" => match v.parse::<usize>() {
+                        Ok(n) => opts.steps = n,
+                        Err(_) => {
+                            eprintln!(
+                                "error: --steps expects a non-negative integer (got '{}')\n{}",
+                                v,
+                                usage()
+                            );
+                            return ExitCode::FAILURE;
+                        }
+                    },
+                    "--rustc" => opts.rustc_path = Some(v),
+                    "--gcc" => opts.gcc_path = Some(v),
+                    "--rustc-args" => opts.rustc_args = Some(v),
+                    "--gcc-args" => opts.gcc_args = Some(v),
+                    "--clang" => opts.clang_path = Some(v),
+                    "--clang-args" => opts.clang_args = Some(v),
+                    "--cargo-fuzz" => opts.cargo_fuzz_path = Some(v),
+                    "--cargo-fuzz-args" => opts.cargo_fuzz_args = Some(v),
+                    "--suite" => {
+                        // Repeatable or comma-separated; order-preserving dedupe.
+                        if !suite_given {
+                            opts.suites.clear();
+                            suite_given = true;
+                        }
+                        for part in v.split(',') {
+                            let part = part.trim();
+                            match TestSuite::from_str(part) {
+                                Some(s) => {
+                                    if !opts.suites.contains(&s) {
+                                        opts.suites.push(s);
+                                    }
+                                }
+                                None => {
+                                    eprintln!(
+                                        "error: --suite expects unit|fuzz (got '{}')\n{}",
+                                        part,
+                                        usage()
+                                    );
+                                    return ExitCode::FAILURE;
+                                }
+                            }
+                        }
+                    }
+                    "--fuzz-max-total-time" => match v.parse::<u64>() {
+                        Ok(n) if n > 0 => opts.fuzz_max_total_time = n,
+                        _ => {
+                            eprintln!(
+                                "error: --fuzz-max-total-time expects a positive integer (got '{}')\n{}",
+                                v,
+                                usage()
+                            );
+                            return ExitCode::FAILURE;
+                        }
+                    },
+                    "--fuzz-flags" => opts.fuzz_flags = Some(v),
+                    "--log-level" => match LogLevel::parse(&v) {
+                        Some(l) => log_level = l,
+                        None => {
+                            eprintln!(
+                                "error: --log-level expects off|error|warn|info|debug (got '{}')\n{}",
+                                v,
+                                usage()
+                            );
+                            return ExitCode::FAILURE;
+                        }
+                    },
+                    _ => unreachable!("flag checked by caller: {arg}"),
+                }
+            }
+            "--print-script" => opts.print_script = true,
+            _ if arg.starts_with('-') => {
+                eprintln!("unknown option: {}\n{}", arg, usage());
+                return ExitCode::FAILURE;
+            }
+            _ => {
+                if path.is_some() {
+                    eprintln!("unexpected extra argument: {}\n{}", arg, usage());
+                    return ExitCode::FAILURE;
+                }
+                path = Some(arg);
+            }
+        }
+        i += 1;
+    }
+
+    let Some(path) = path else {
+        eprintln!("error: rfs test requires a spec file\n{}", usage());
+        return ExitCode::FAILURE;
+    };
+
+    // Fatal diagnostics bypass the logger (always stderr, drive exit code);
+    // the logger carries informational progress output only.
+    let logger = Logger::new(log_level);
+    match run_test(Path::new(&path), &opts, &logger) {
+        Ok(result) => {
+            if let Some(script) = result.script {
+                // `print!` (not println): the script already ends with a
+                // newline and callers may redirect stdout to a file - the
+                // bytes must be reproduced exactly (codegen convention).
+                print!("{script}");
+            } else {
+                logger.info(&result.note);
+            }
+            ExitCode::SUCCESS
+        }
+        Err(e) => {
+            eprintln!("error: {e}");
+            ExitCode::FAILURE
+        }
+    }
 }

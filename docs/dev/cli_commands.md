@@ -16,11 +16,11 @@ module map:
 
 | Command | Logic entry | Deep-dive fragment |
 |---|---|---|
-| parse / validate | `src/cli/frontend.rs::run_conversion` / `src/cli/frontend.rs::run_validate` (+ `src/cli/frontend.rs::run_validate_structured` for --json) | dev:cli-commands-frontend |
+| parse / validate | `src/cli/utils.rs::run_conversion` / `src/cli/commands/validate.rs::run_validate` (+ `src/cli/commands/validate.rs::run_validate_structured` for --json) | dev:cli-commands-frontend |
 | info / info format | `src/cli/commands/info.rs::run_info` / `src/cli/info_format/mod.rs::FORMATS` | dev:cli-commands-info |
 | test | `src/cli/commands/test.rs::run_test` | dev:cli-commands-test |
 | diagram | `src/cli/commands/diagram/mod.rs::run_diagram` + the plugins in `src/cli/commands/diagram/` | dev:cli-commands-diagram |
-| codegen | `src/codegen/mod.rs` registry dispatch (via `src/main.rs::cmd_codegen`) | [codegen_core.md](codegen_core.md) |
+| codegen | `src/codegen/mod.rs` registry dispatch (via `src/cli/commands/codegen.rs::run_cli`) | [codegen_core.md](codegen_core.md) |
 | mc-ref | `src/cli/commands/mc_ref.rs::run_mc_ref` over `src/mc/ref_mc.rs` | dev:cli-commands-mc-ref-gen-spec |
 | gen-spec | `src/cli/commands/gen_spec.rs::run_cli` over `src/lang/specgen.rs` | dev:cli-commands-mc-ref-gen-spec |
 
@@ -53,7 +53,7 @@ Code: `src/main.rs::main`, `src/cli/log.rs::LogLevel`, `src/cli/log.rs::Logger`
 <a id="dev:cli-commands-dispatch"></a>
 ## Dispatch (`src/main.rs`)
 
-**usage().** `src/main.rs::usage` is the full usage text - one line per
+**usage().** `src/cli/args.rs::usage` is the full usage text - one line per
 command plus a help paragraph per command (flags, semantics, exit codes) and
 an examples block. It is printed by --help on every command and on unknown or
 missing subcommand.
@@ -66,52 +66,52 @@ no arguments prints the usage and exits 1.
 
 **Per-command wrappers.** All follow the same manual-parsing loop (a --
 token is skipped, flags consume their values via helpers like
-`src/main.rs::take_format`, anything else starting with - is an unknown
+`src/cli/args.rs::take_format`, anything else starting with - is an unknown
 option):
 
-- `src/main.rs::cmd_parse`: --input/--output (both required) + path + optional
-  --target-dir; calls `src/cli/frontend.rs::run_conversion`; prints one `wrote`
+- `src/cli/commands/parse.rs::run_cli`: --input/--output (both required) + path + optional
+  --target-dir; calls `src/cli/utils.rs::run_conversion`; prints one `wrote`
   line per output + a summary.
-- `src/main.rs::cmd_validate`: optional --input + --json. Text mode prints
+- `src/cli/commands/validate.rs::run_cli`: optional --input + --json. Text mode prints
   `valid` lines, warnings to stderr, and `invalid ... (N error(s), written
 to ...)` for directory-mode failures (file mode reports on stderr). JSON mode
-  renders the pinned document via `src/cli/frontend.rs::render_validate_json`
+  renders the pinned document via `src/cli/commands/validate.rs::render_validate_json`
   with print!; exit codes are unchanged by --json.
-- `src/main.rs::cmd_codegen`: delegates to `src/codegen/mod.rs::parse_codegen_args`
+- `src/cli/commands/codegen.rs::run_cli`: delegates to `src/codegen/mod.rs::parse_codegen_args`
   -> List / Help / BackendHelp / Generate. Generate resolves the backend,
   maps the input extension to a Format, loads via
-  `src/cli/frontend.rs::convert_file_to_ir`, builds `src/codegen/mod.rs::BackendOptions`
+  `src/cli/utils.rs::convert_file_to_ir`, builds `src/codegen/mod.rs::BackendOptions`
   (spec_hash starts empty - it is stamped from the whole-file canonical IR
   JSON by the command's run per D-P6-3), and calls
   `src/codegen/mod.rs::CodegenCommandKind::run`. With --out: parent directories
   are created, the artifact + any extra files (e.g. the rust test command's
   fuzz skeleton) are written next to it. Without --out: stdout mode REFUSES
   commands that emit additional files (strict - no silent file loss).
-- `src/main.rs::cmd_info`: --json/--log-level + path; dispatches on the BARE
+- `src/cli/commands/info.rs::run_cli`: --json/--log-level + path; dispatches on the BARE
   first token `format` BEFORE any path handling, so a spec file literally
   named format cannot collide (D-P7-6); otherwise calls
   `src/cli/commands/info.rs::run_info` and prints the result.
-- `src/main.rs::run_info_format`: --list prints
+- `src/cli/commands/info.rs::run_info_format`: --list prints
   `src/cli/info_format/mod.rs::list_markdown`; a name is required otherwise; unknown
   names get the registry's own diagnostic (it lists the remedy); the default
   --output is the entry's first; `src/cli/info_format/mod.rs::render` output goes to
   stdout via print!.
-- `src/main.rs::cmd_test`: builds `src/cli/commands/test.rs::TestOptions` (default
+- `src/cli/commands/test.rs::run_cli`: builds `src/cli/commands/test.rs::TestOptions` (default
   backend rust, suites [unit]); --suite is repeatable or comma-separated -
   the FIRST occurrence replaces the default, later ones append with order-
   preserving dedupe; tool path/args flags map onto the options; calls
   `src/cli/commands/test.rs::run_test` - a script result is printed via print!, a
   success note goes through logger.info.
-- `src/main.rs::cmd_diagram`: builds `src/cli/commands/diagram/mod.rs::DiagramOptions`
+- `src/cli/commands/diagram/mod.rs::run_cli`: builds `src/cli/commands/diagram/mod.rs::DiagramOptions`
   (default format dot, renderer internal); --render accepts only svg;
   --renderer internal|external; tool overrides are routed by
-  `src/main.rs::tool_override_mut` (--dot/--plantuml/--mermaid with or
+  `src/cli/commands/diagram/mod.rs::tool_override_mut` (--dot/--plantuml/--mermaid with or
   without the -args suffix); calls `src/cli/commands/diagram/mod.rs::run_diagram`.
 
-Code: `src/main.rs::usage`, `src/main.rs::main`, `src/main.rs::take_format`,
-`src/main.rs::cmd_parse`, `src/main.rs::cmd_validate`, `src/main.rs::cmd_codegen`,
-`src/main.rs::cmd_info`, `src/main.rs::run_info_format`, `src/main.rs::cmd_test`,
-`src/main.rs::cmd_diagram`, `src/main.rs::tool_override_mut`
+Code: `src/cli/args.rs::usage`, `src/main.rs::main`, `src/cli/args.rs::take_format`,
+`src/cli/commands/parse.rs::run_cli`, `src/cli/commands/validate.rs::run_cli`, `src/cli/commands/codegen.rs::run_cli`,
+`src/cli/commands/info.rs::run_cli`, `src/cli/commands/info.rs::run_info_format`, `src/cli/commands/test.rs::run_cli`,
+`src/cli/commands/diagram/mod.rs::run_cli`, `src/cli/commands/diagram/mod.rs::tool_override_mut`
 
 
 <a id="dev:cli-commands-library"></a>
@@ -125,7 +125,7 @@ specgen, test_cmd, training, validator); the CLI entry point is
 `src/main.rs`. Re-exports for external consumers: `src/lang/parser.rs::parse_source`
 / `src/lang/parser.rs::parse_file`, `src/lang/printer.rs::print_ir`,
 `src/lang/error.rs::ParseError` / Span, the whole IR model (ir::*), and the
-frontend API (`src/cli/frontend.rs::Format`, run_conversion, plan_conversion,
+frontend API (`src/cli/utils.rs::Format`, run_conversion, plan_conversion,
 convert_file_to_ir, render_ir, run_validate, validate_one,
 validate_one_with_warnings, ValidateResult, ValidateOneResult, FailedFile,
 normalize_abs, collect_files_with_ext, err_file_path, write_err_file).
@@ -146,19 +146,19 @@ Code: `src/lib.rs::collect_rfs_files`, `src/lang/parser.rs::parse_source`,
 
 
 <a id="dev:cli-commands-frontend"></a>
-## parse + validate (`src/cli/frontend.rs`)
+## parse + validate (conversion in `src/cli/utils.rs`, validation in `src/cli/commands/validate.rs`)
 
-**Format.** `src/cli/frontend.rs::Format` (Rfs | Json): name()/ext(),
+**Format.** `src/cli/utils.rs::Format` (Rfs | Json): name()/ext(),
 from_extension (case-insensitive), FromStr ("rfs"/"json", a clear error
 otherwise).
 
-**Path helpers.** `src/cli/frontend.rs::normalize_abs` lexically normalizes a path
+**Path helpers.** `src/cli/utils.rs::normalize_abs` lexically normalizes a path
 to absolute form, resolving . and .. components WITHOUT requiring the path to
-exist - the collision guard's comparison basis. `src/cli/frontend.rs::collect_files_with_ext`
+exist - the collision guard's comparison basis. `src/cli/utils.rs::collect_files_with_ext`
 recursively collects files with a case-insensitive extension match, sorted
 (subdirectories visited in sorted order for determinism).
 
-**Conversion.** `src/cli/frontend.rs::plan_conversion` computes the input/output
+**Conversion.** `src/cli/utils.rs::plan_conversion` computes the input/output
 pairs and returns ALL mapping errors (an empty error list is never returned
 with Err): a file input must carry the --input extension; a directory input is
 scanned recursively for that extension only (an empty result is an error);
@@ -166,47 +166,47 @@ output naming REPLACES the original extension, never stacks it (a.rfs ->
 a.json); without --target-dir each output is written next to its input, with
 it the input directory structure is preserved inside the target; the
 collision guard compares normalized absolute paths and refuses any conversion
-whose output would overwrite its input. `src/cli/frontend.rs::convert_file_to_ir` /
-`src/cli/frontend.rs::render_ir` / `src/cli/frontend.rs::run_conversion` execute the
+whose output would overwrite its input. `src/cli/utils.rs::convert_file_to_ir` /
+`src/cli/utils.rs::render_ir` / `src/cli/utils.rs::run_conversion` execute the
 plan - per-file parse errors in a directory run are collected and do not stop
 the remaining files.
 
-**Validation (text).** `src/cli/frontend.rs::validate_one` /
-`src/cli/frontend.rs::validate_one_with_warnings`: parse +
+**Validation (text).** `src/cli/commands/validate.rs::validate_one` /
+`src/cli/commands/validate.rs::validate_one_with_warnings`: parse +
 `src/lang/validator.rs::validate_ir`; warnings come from the Phase 2 non-fatal
 channel (`src/lang/validator.rs::module_warnings` per module). Result shapes:
-`src/cli/frontend.rs::ValidateResult { ok_files, warnings, failed, write_errors,
-is_directory }` and `src/cli/frontend.rs::FailedFile { path, errors, err_file }`
-(err_file is None in file mode). `src/cli/frontend.rs::run_validate`: file mode
+`src/cli/commands/validate.rs::ValidateResult { ok_files, warnings, failed, write_errors,
+is_directory }` and `src/cli/commands/validate.rs::FailedFile { path, errors, err_file }`
+(err_file is None in file mode). `src/cli/commands/validate.rs::run_validate`: file mode
 reports to stderr with no side files; directory mode writes a
 <name>.rfs-validation.err text file next to each failing source
-(`src/cli/frontend.rs::err_file_path` / `src/cli/frontend.rs::write_err_file`); exit 1
+(`src/cli/commands/validate.rs::err_file_path` / `src/cli/commands/validate.rs::write_err_file`); exit 1
 iff any file failed or an err file could not be written.
 
-**Validation (structured, --json).** `src/cli/frontend.rs::StructuredError {
+**Validation (structured, --json).** `src/cli/commands/validate.rs::StructuredError {
 kind, line, col, message }`: kind is "parse" or "semantic"; parse errors
 carry the real 1-based line/col from ParseError::line_col (which can read
 1:1 when the first module fails wholesale); semantic errors carry no span and
-are pinned to 0/0. `src/cli/frontend.rs::validate_one_structured` mirrors the text
+are pinned to 0/0. `src/cli/commands/validate.rs::validate_one_structured` mirrors the text
 path's contract (Ok = structured errors, empty on success; Err = CLI-level
-misuse). `src/cli/frontend.rs::validate_json_doc` builds the PINNED document shape
+misuse). `src/cli/commands/validate.rs::validate_json_doc` builds the PINNED document shape
 - one object with file / ok / errors (each error: kind, line, col, message) -
-through json_rw. `src/cli/frontend.rs::run_validate_structured` mirrors
+through json_rw. `src/cli/commands/validate.rs::run_validate_structured` mirrors
 run_validate's traversal/extension contract but reports only FAILING files
 and writes NO .err side files (editors consume stdout).
-`src/cli/frontend.rs::render_validate_json`: file mode = one object; directory
+`src/cli/commands/validate.rs::render_validate_json`: file mode = one object; directory
 mode = an array with one object per failing file.
 
-Code: `src/cli/frontend.rs::Format`, `src/cli/frontend.rs::normalize_abs`,
-`src/cli/frontend.rs::collect_files_with_ext`, `src/cli/frontend.rs::plan_conversion`,
-`src/cli/frontend.rs::convert_file_to_ir`, `src/cli/frontend.rs::render_ir`,
-`src/cli/frontend.rs::run_conversion`, `src/cli/frontend.rs::FailedFile`,
-`src/cli/frontend.rs::ValidateResult`, `src/cli/frontend.rs::validate_one`,
-`src/cli/frontend.rs::validate_one_with_warnings`, `src/cli/frontend.rs::StructuredError`,
-`src/cli/frontend.rs::validate_one_structured`, `src/cli/frontend.rs::validate_json_doc`,
-`src/cli/frontend.rs::run_validate_structured`, `src/cli/frontend.rs::render_validate_json`,
-`src/cli/frontend.rs::run_validate`, `src/cli/frontend.rs::err_file_path`,
-`src/cli/frontend.rs::write_err_file`
+Code: `src/cli/utils.rs::Format`, `src/cli/utils.rs::normalize_abs`,
+`src/cli/utils.rs::collect_files_with_ext`, `src/cli/utils.rs::plan_conversion`,
+`src/cli/utils.rs::convert_file_to_ir`, `src/cli/utils.rs::render_ir`,
+`src/cli/utils.rs::run_conversion`, `src/cli/commands/validate.rs::FailedFile`,
+`src/cli/commands/validate.rs::ValidateResult`, `src/cli/commands/validate.rs::validate_one`,
+`src/cli/commands/validate.rs::validate_one_with_warnings`, `src/cli/commands/validate.rs::StructuredError`,
+`src/cli/commands/validate.rs::validate_one_structured`, `src/cli/commands/validate.rs::validate_json_doc`,
+`src/cli/commands/validate.rs::run_validate_structured`, `src/cli/commands/validate.rs::render_validate_json`,
+`src/cli/commands/validate.rs::run_validate`, `src/cli/commands/validate.rs::err_file_path`,
+`src/cli/commands/validate.rs::write_err_file`
 
 
 <a id="dev:cli-commands-info"></a>
@@ -309,7 +309,7 @@ cargo-fuzz / a failing cargo-fuzz invocation get dedicated diagnostics
 **Scripts.** `src/cli/commands/test.rs::render_script` + `src/cli/commands/test.rs::heredoc`
 emit a self-contained POSIX sh script (shebang, set -e, header with rfs
 version + spec + RESOLVED tool paths/args, generated sources embedded in
-quoted heredocs); the output is byte-pinned in tests/frontend_test.rs.
+quoted heredocs); the output is byte-pinned in tests/utils_test.rs.
 
 Code: `src/cli/commands/test.rs::TestSuite`, `src/cli/commands/test.rs::TestOptions`,
 `src/cli/commands/test.rs::resolved_fuzz_flags`, `src/cli/commands/test.rs::run_test`,
@@ -319,7 +319,7 @@ Code: `src/cli/commands/test.rs::TestSuite`, `src/cli/commands/test.rs::TestOpti
 `src/cli/commands/test.rs::cargo_fuzz_missing_diagnostic`,
 `src/cli/commands/test.rs::cargo_fuzz_failure_diagnostic`,
 `src/cli/commands/test.rs::render_script`, `src/cli/commands/test.rs::render_fuzz_steps`,
-`src/cli/commands/test.rs::heredoc`, `tests/frontend_test.rs`
+`src/cli/commands/test.rs::heredoc`, `tests/utils_test.rs`
 
 
 <a id="dev:cli-commands-mc-ref-gen-spec"></a>
@@ -454,7 +454,7 @@ event summaries; `src/cli/commands/diagram/tables.rs::generate_table` /
 
 All generators are deterministic: states in State-enum declaration order,
 transitions in IR order, on_error edges last. Every format's output for pinned
-specs is byte-pinned in tests/frontend_test.rs; cross-renderer syntax parity
+specs is byte-pinned in tests/utils_test.rs; cross-renderer syntax parity
 (internal vs external - parse/render success only, never visual) lives in
 tests/diagram_render_parity_test.rs.
 
@@ -473,7 +473,7 @@ Code: `src/cli/commands/diagram/mod.rs::Renderer`, `src/cli/commands/diagram/mod
 `src/cli/commands/diagram/mermaid.rs::puppeteer_json`, `src/cli/commands/diagram/mermaid.rs::script_pup_path`,
 `src/cli/commands/diagram/mermaid.rs::render_svg_internal`, `src/cli/commands/diagram/tables.rs::TABLE_PLUGIN`,
 `src/cli/commands/diagram/tables.rs::MD_PLUGIN`, `src/cli/commands/diagram/tables.rs::generate_table`,
-`src/cli/commands/diagram/tables.rs::generate_md`, `tests/frontend_test.rs`,
+`src/cli/commands/diagram/tables.rs::generate_md`, `tests/utils_test.rs`,
 `tests/diagram_render_parity_test.rs`
 
 
@@ -504,8 +504,8 @@ header comment with the rfs version + spec; with_tool records the RESOLVED
 tool paths/args in the header; step(comment, cmdline) appends one commented
 step; render emits the script. Self-contained: generated sources are embedded
 in quoted heredocs by the callers (rfs test, rfs diagram --render svg);
-output is byte-pinned in tests/frontend_test.rs.
+output is byte-pinned in tests/utils_test.rs.
 
 Code: `src/cli/ext_tool.rs::ExtTool`, `src/cli/ext_tool.rs::ResolvedTool`,
 `src/cli/ext_tool.rs::ToolOutput`, `src/cli/ext_tool.rs::sh_quote`,
-`src/cli/ext_tool.rs::Script`, `tests/frontend_test.rs`
+`src/cli/ext_tool.rs::Script`, `tests/utils_test.rs`

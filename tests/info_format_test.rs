@@ -1642,14 +1642,14 @@ fn validate_json_walk_invalid_examples_both_kinds() {
     let mut kinds: std::collections::HashSet<&str> = std::collections::HashSet::new();
     for path in &files {
         // File mode: one object for the input file.
-        let failed = rfs::cli::frontend::run_validate_structured(None, path)
+        let failed = rfs::cli::commands::validate::run_validate_structured(None, path)
             .unwrap_or_else(|e| panic!("{}: {e:?}", path.display()));
         assert!(
             !failed.is_empty(),
             "{} must fail validation",
             path.display()
         );
-        let text = rfs::cli::frontend::render_validate_json(path, false, &failed);
+        let text = rfs::cli::commands::validate::render_validate_json(path, false, &failed);
         let json = rfs::json::json_rw::parse(&text).unwrap_or_else(|e| {
             panic!(
                 "{}: rendered document is not valid JSON: {e}",
@@ -1686,11 +1686,11 @@ fn validate_json_walk_valid_files_ok_true() {
     assert!(!files.is_empty(), "no valid examples found");
 
     for path in &files {
-        let failed = rfs::cli::frontend::run_validate_structured(None, path)
+        let failed = rfs::cli::commands::validate::run_validate_structured(None, path)
             .unwrap_or_else(|e| panic!("{}: {e:?}", path.display()));
         assert!(failed.is_empty(), "{} must validate clean", path.display());
         // File mode prints the object even on success: ok=true, errors=[].
-        let text = rfs::cli::frontend::render_validate_json(path, false, &failed);
+        let text = rfs::cli::commands::validate::render_validate_json(path, false, &failed);
         let json = rfs::json::json_rw::parse(&text).unwrap_or_else(|e| {
             panic!(
                 "{}: rendered document is not valid JSON: {e}",
@@ -1716,13 +1716,13 @@ fn validate_json_walk_directory_mode() {
 
     // All-failing directory: one object per failing file.
     let invalid_dir = root().join("examples/invalid");
-    let failed = rfs::cli::frontend::run_validate_structured(
-        Some(rfs::cli::frontend::Format::Rfs),
+    let failed = rfs::cli::commands::validate::run_validate_structured(
+        Some(rfs::cli::utils::Format::Rfs),
         &invalid_dir,
     )
     .expect("directory validation should run");
     assert_eq!(failed.len(), 13, "every invalid example must fail");
-    let text = rfs::cli::frontend::render_validate_json(&invalid_dir, true, &failed);
+    let text = rfs::cli::commands::validate::render_validate_json(&invalid_dir, true, &failed);
     let json = rfs::json::json_rw::parse(&text).expect("directory document must be valid JSON");
     walk_validate_json(&doc, &json, "directory mode examples/invalid");
     let arr = json.as_arr().cloned().unwrap();
@@ -1742,13 +1742,13 @@ fn validate_json_walk_directory_mode() {
 
     // All-valid directory: the array is EMPTY (valid files are omitted).
     let valid_dir = root().join("examples/valid");
-    let failed = rfs::cli::frontend::run_validate_structured(
-        Some(rfs::cli::frontend::Format::Rfs),
+    let failed = rfs::cli::commands::validate::run_validate_structured(
+        Some(rfs::cli::utils::Format::Rfs),
         &valid_dir,
     )
     .expect("directory validation should run");
     assert!(failed.is_empty(), "all valid examples must pass");
-    let text = rfs::cli::frontend::render_validate_json(&valid_dir, true, &failed);
+    let text = rfs::cli::commands::validate::render_validate_json(&valid_dir, true, &failed);
     let json = rfs::json::json_rw::parse(&text).unwrap();
     walk_validate_json(&doc, &json, "directory mode examples/valid");
     assert!(json.as_arr().cloned().unwrap().is_empty());

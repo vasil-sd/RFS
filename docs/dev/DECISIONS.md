@@ -242,7 +242,7 @@ with defensive states must not fail, and the existing valid examples had to
 keep passing; warnings are printed by `rfs validate` and surfaced through
 codegen output warnings.
 Table: [DESIGN.md](../../DESIGN.md) section 20, D4 - Code: `src/lang/validator.rs::module_warnings`,
-`src/cli/frontend.rs::run_validate`.
+`src/cli/commands/validate.rs::run_validate`.
 
 ### D5. Effective priority default - 0 (lowest)
 
@@ -904,7 +904,7 @@ unchanged.
 shapes, and making the parser's keyword list the grammar's source of truth
 prevents syntax highlighting from drifting from what the parser accepts.
 Table: [DESIGN.md](../../DESIGN.md) section 23, D-P5-13 - Code: `src/lang/parser.rs::KEYWORDS`,
-`src/cli/frontend.rs::run_validate_structured`.
+`src/cli/commands/validate.rs::run_validate_structured`.
 
 ### D-P5-14. Example-crate matrix (tasks 11/12)
 
@@ -1163,7 +1163,7 @@ error).
 (CI containers, air-gapped machines) while the external path stays available
 byte-for-byte for users who want the official renderers.
 Table: [DESIGN.md](../../DESIGN.md) section 25, D-P7-1 - Code: `src/cli/commands/diagram/mod.rs::Renderer`,
-`src/main.rs::cmd_diagram`.
+`src/cli/commands/diagram/mod.rs::run_cli`.
 
 ### D-P7-2. `DiagramPlugin.internal_render_svg` hook (task 1)
 
@@ -1245,7 +1245,7 @@ dispatch) reuses the CLI surface, and the static registry pattern mirrors the
 proven BACKENDS/DIAGRAMS registries so adding a format is one entry + one
 module.
 Table: [DESIGN.md](../../DESIGN.md) section 25, D-P7-6 - Code: `src/cli/info_format/mod.rs::FORMATS`,
-`src/cli/info_format/mod.rs::FormatInfo`, `src/main.rs::cmd_info`.
+`src/cli/info_format/mod.rs::FormatInfo`, `src/cli/commands/info.rs::run_cli`.
 
 ### D-P7-7. EBNF grammar model mirrors the parser (task 5)
 

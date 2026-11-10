@@ -12,8 +12,8 @@ versioned IR, and derives its output from that IR alone - there is no
 intermediate on-disk representation between stages.
 
 1. **Input** - a spec arrives as RFS source text (`.rfs`) or as IR JSON
-   (`.json`); `src/cli/frontend.rs::Format` maps extensions to formats and
-   `src/cli/frontend.rs::convert_file_to_ir` loads either form into the IR.
+   (`.json`); `src/cli/utils.rs::Format` maps extensions to formats and
+   `src/cli/utils.rs::convert_file_to_ir` loads either form into the IR.
 2. **Parse** - RFS source is parsed by the nom-based parser,
    `src/lang/parser.rs::parse_source` (or `src/lang/parser.rs::parse_file` for a path),
    producing an `Ir` with source spans attached to every node
@@ -48,8 +48,8 @@ intermediate on-disk representation between stages.
      `src/cli/ext_tool.rs::ExtTool`.
 
 The CLI (`src/main.rs`) exposes this pipeline as eight commands: `parse` and
-`validate` (frontend logic in `src/cli/frontend.rs::run_conversion` /
-`src/cli/frontend.rs::run_validate`), `info`, `test`, `diagram`, `codegen`,
+`validate` (frontend logic in `src/cli/utils.rs::run_conversion` /
+`src/cli/commands/validate.rs::run_validate`), `info`, `test`, `diagram`, `codegen`,
 `mc-ref`, and `gen-spec` (the one producer-side command: it writes a random
 spec, then parses + validates it before writing).
 
@@ -173,7 +173,7 @@ flowchart TD
   checking, diagrams, `rfs info` - reads the validated `src/lang/ir.rs::Ir`; no
   component passes live data structures to another outside the shared helper
   modules. All file-based commands load their spec through the frontend
-  gateway `src/cli/frontend.rs::convert_file_to_ir`; `gen-spec`
+  gateway `src/cli/utils.rs::convert_file_to_ir`; `gen-spec`
   (`src/lang/specgen.rs`) is the only producer-side command.
 - **Two plugin registries, one pattern.** Codegen
   (`src/codegen/mod.rs::BACKENDS`, lookup `src/codegen/mod.rs::get_backend`) and

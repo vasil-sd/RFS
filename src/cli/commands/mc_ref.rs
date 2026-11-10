@@ -25,7 +25,7 @@
 use std::path::Path;
 use std::process::ExitCode;
 
-use crate::cli::frontend::{self, Format};
+use crate::cli::utils::{self, Format};
 use crate::mc::ref_mc::{self, RefConfig};
 
 /// Counterexample report format on the wire.
@@ -84,7 +84,7 @@ pub fn run_mc_ref(path: &Path, opts: &McRefOptions) -> Result<(ExitCode, String)
             path.display()
         )
     })?;
-    let ir = frontend::convert_file_to_ir(path, fmt)?;
+    let ir = utils::convert_file_to_ir(path, fmt)?;
     if ir.modules.is_empty() {
         return Err(format!("no modules in {}", path.display()));
     }

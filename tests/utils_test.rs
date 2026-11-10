@@ -7,7 +7,7 @@ use std::path::{Path, PathBuf};
 
 mod common;
 
-use rfs::{cli::frontend, lang::printer, Format, Ir};
+use rfs::{cli::commands::validate, cli::utils, lang::printer, Format, Ir};
 
 const VALID_RFS: &str =
     "module m { enum State { A, B } initial A event Go transition A on Go { next B; } }";
@@ -78,7 +78,7 @@ fn format_from_str_and_extension() {
 fn file_input_rejects_unsupported_extension() {
     let root = tmp_root("ext_file");
     let f = write_file(&root, "a.txt", VALID_RFS);
-    let (written, errors) = frontend::run_conversion(Format::Rfs, Format::Json, &f, None);
+    let (written, errors) = utils::run_conversion(Format::Rfs, Format::Json, &f, None);
     assert!(written.is_empty());
     assert_eq!(errors.len(), 1);
     assert!(errors[0].contains("a.txt"));
@@ -94,7 +94,7 @@ fn file_input_rejects_unsupported_extension() {
 fn file_input_rejects_mismatched_format_extension() {
     let root = tmp_root("ext_mismatch");
     let f = write_file(&root, "a.json", VALID_RFS); // .json content but --input rfs
-    let (written, errors) = frontend::run_conversion(Format::Rfs, Format::Json, &f, None);
+    let (written, errors) = utils::run_conversion(Format::Rfs, Format::Json, &f, None);
     assert!(written.is_empty());
     assert_eq!(errors.len(), 1);
     assert!(
@@ -111,7 +111,7 @@ fn directory_scan_only_collects_matching_extension() {
     write_file(&root, "good.rfs", VALID_RFS);
     write_file(&root, "other.json", &ir_json(VALID_RFS)); // must be ignored for --input rfs
     write_file(&root, "notes.txt", "hello");
-    let (written, errors) = frontend::run_conversion(Format::Rfs, Format::Json, &root, None);
+    let (written, errors) = utils::run_conversion(Format::Rfs, Format::Json, &root, None);
     assert!(errors.is_empty(), "unexpected errors: {:?}", errors);
     assert_eq!(written.len(), 1);
     assert!(written[0].ends_with("good.json"));
@@ -125,7 +125,7 @@ fn directory_scan_only_collects_matching_extension() {
 fn output_names_drop_original_extension_without_double_extensions() {
     let root = tmp_root("ext_doubled");
     let f = write_file(&root, "a.rfs", VALID_RFS);
-    let (written, errors) = frontend::run_conversion(Format::Rfs, Format::Json, &f, None);
+    let (written, errors) = utils::run_conversion(Format::Rfs, Format::Json, &f, None);
     assert!(errors.is_empty());
     assert_eq!(written, vec![root.join("a.json")]);
     assert!(
@@ -135,7 +135,7 @@ fn output_names_drop_original_extension_without_double_extensions() {
 
     // And the reverse direction.
     let j = write_file(&root, "b.json", &ir_json(VALID_RFS));
-    let (written, errors) = frontend::run_conversion(Format::Json, Format::Rfs, &j, None);
+    let (written, errors) = utils::run_conversion(Format::Json, Format::Rfs, &j, None);
     assert!(errors.is_empty());
     assert_eq!(written, vec![root.join("b.rfs")]);
     assert!(
@@ -153,7 +153,7 @@ fn output_names_drop_original_extension_without_double_extensions() {
 fn file_input_writes_next_to_source_without_target_dir() {
     let root = tmp_root("place_file");
     let f = write_file(&root, "sub/a.rfs", VALID_RFS);
-    let (written, errors) = frontend::run_conversion(Format::Rfs, Format::Json, &f, None);
+    let (written, errors) = utils::run_conversion(Format::Rfs, Format::Json, &f, None);
     assert!(errors.is_empty());
     assert_eq!(written, vec![root.join("sub/a.json")]);
     cleanup(&root);
@@ -164,7 +164,7 @@ fn file_input_with_target_dir_writes_into_target_dir() {
     let root = tmp_root("place_file_td");
     let f = write_file(&root, "in/a.rfs", VALID_RFS);
     let td = root.join("out");
-    let (written, errors) = frontend::run_conversion(Format::Rfs, Format::Json, &f, Some(&td));
+    let (written, errors) = utils::run_conversion(Format::Rfs, Format::Json, &f, Some(&td));
     assert!(errors.is_empty());
     assert_eq!(written, vec![root.join("out/a.json")]);
     cleanup(&root);
@@ -177,7 +177,7 @@ fn directory_input_preserves_structure_in_target_dir() {
     write_file(&root, "in/sub/deep.rfs", VALID_RFS);
     let td = root.join("out");
     let (written, errors) =
-        frontend::run_conversion(Format::Rfs, Format::Json, &root.join("in"), Some(&td));
+        utils::run_conversion(Format::Rfs, Format::Json, &root.join("in"), Some(&td));
     assert!(errors.is_empty());
     let mut expected = vec![root.join("out/sub/deep.json"), root.join("out/top.json")];
     expected.sort();
@@ -192,8 +192,7 @@ fn directory_input_without_target_dir_writes_next_to_each_source() {
     let root = tmp_root("place_dir");
     write_file(&root, "d/top.rfs", VALID_RFS);
     write_file(&root, "d/sub/deep.rfs", VALID_RFS);
-    let (written, errors) =
-        frontend::run_conversion(Format::Rfs, Format::Json, &root.join("d"), None);
+    let (written, errors) = utils::run_conversion(Format::Rfs, Format::Json, &root.join("d"), None);
     assert!(errors.is_empty());
     let mut expected = vec![root.join("d/top.json"), root.join("d/sub/deep.json")];
     expected.sort();
@@ -209,11 +208,11 @@ fn directory_input_without_target_dir_writes_next_to_each_source() {
 
 #[test]
 fn normalize_abs_resolves_relative_components() {
-    let a = frontend::normalize_abs(Path::new("x/../y.rfs"));
-    let b = frontend::normalize_abs(Path::new("y.rfs"));
+    let a = utils::normalize_abs(Path::new("x/../y.rfs"));
+    let b = utils::normalize_abs(Path::new("y.rfs"));
     assert_eq!(a, b);
-    let c = frontend::normalize_abs(Path::new("./z/./w.json"));
-    let d = frontend::normalize_abs(Path::new("z/w.json"));
+    let c = utils::normalize_abs(Path::new("./z/./w.json"));
+    let d = utils::normalize_abs(Path::new("z/w.json"));
     assert_eq!(c, d);
 }
 
@@ -223,7 +222,7 @@ fn in_place_same_format_conversion_is_rejected() {
     // input; this must be refused.
     let root = tmp_root("collision_inplace");
     let f = write_file(&root, "a.rfs", VALID_RFS);
-    let (written, errors) = frontend::run_conversion(Format::Rfs, Format::Rfs, &f, None);
+    let (written, errors) = utils::run_conversion(Format::Rfs, Format::Rfs, &f, None);
     assert!(written.is_empty());
     assert_eq!(errors.len(), 1);
     assert!(
@@ -241,7 +240,7 @@ fn target_dir_equal_to_source_dir_is_rejected() {
     let root = tmp_root("collision_td");
     let f = write_file(&root, "a.rfs", VALID_RFS);
     let (written, errors) =
-        frontend::run_conversion(Format::Rfs, Format::Rfs, &f, Some(root.as_path()));
+        utils::run_conversion(Format::Rfs, Format::Rfs, &f, Some(root.as_path()));
     assert!(written.is_empty());
     assert_eq!(errors.len(), 1);
     assert!(errors[0].contains("refusing to overwrite"));
@@ -253,7 +252,7 @@ fn directory_conversion_into_its_own_tree_is_rejected() {
     let root = tmp_root("collision_dir");
     write_file(&root, "d/a.rfs", VALID_RFS);
     // Converting d/ (rfs->rfs) into d/ itself collides for every file.
-    let (written, errors) = frontend::run_conversion(
+    let (written, errors) = utils::run_conversion(
         Format::Rfs,
         Format::Rfs,
         &root.join("d"),
@@ -283,7 +282,7 @@ fn check_roundtrip_source(source: &str, json: &str) {
 fn converts_rfs_to_json() {
     let root = tmp_root("conv_r2j");
     let f = write_file(&root, "a.rfs", VALID_RFS);
-    let (written, errors) = frontend::run_conversion(Format::Rfs, Format::Json, &f, None);
+    let (written, errors) = utils::run_conversion(Format::Rfs, Format::Json, &f, None);
     assert!(errors.is_empty());
     let out = written[0].clone();
     let json = std::fs::read_to_string(&out).unwrap();
@@ -299,7 +298,7 @@ fn converts_json_to_rfs() {
     let root = tmp_root("conv_j2r");
     let json = ir_json(VALID_RFS);
     let f = write_file(&root, "a.json", &json);
-    let (written, errors) = frontend::run_conversion(Format::Json, Format::Rfs, &f, None);
+    let (written, errors) = utils::run_conversion(Format::Json, Format::Rfs, &f, None);
     assert!(errors.is_empty());
     let out = written[0].clone();
     let rfs_text = std::fs::read_to_string(&out).unwrap();
@@ -314,7 +313,7 @@ fn converts_rfs_to_rfs_with_target_dir() {
     let root = tmp_root("conv_r2r");
     let f = write_file(&root, "in/a.rfs", VALID_RFS);
     let td = root.join("out");
-    let (written, errors) = frontend::run_conversion(Format::Rfs, Format::Rfs, &f, Some(&td));
+    let (written, errors) = utils::run_conversion(Format::Rfs, Format::Rfs, &f, Some(&td));
     assert!(errors.is_empty());
     let rfs_text = std::fs::read_to_string(&written[0]).unwrap();
     let ir1 = rfs::parse_source(VALID_RFS).unwrap();
@@ -332,7 +331,7 @@ fn converts_json_to_json_with_target_dir() {
     let json = ir_json(VALID_RFS);
     let f = write_file(&root, "in/a.json", &json);
     let td = root.join("out");
-    let (written, errors) = frontend::run_conversion(Format::Json, Format::Json, &f, Some(&td));
+    let (written, errors) = utils::run_conversion(Format::Json, Format::Json, &f, Some(&td));
     assert!(errors.is_empty(), "unexpected errors: {:?}", errors);
     let out_text = std::fs::read_to_string(&written[0]).unwrap();
     let ir1 = json_ir(&json);
@@ -345,7 +344,7 @@ fn converts_json_to_json_with_target_dir() {
 fn json_to_json_in_place_is_rejected_by_collision_guard() {
     let root = tmp_root("conv_j2j_collide");
     let f = write_file(&root, "a.json", &ir_json(VALID_RFS));
-    let (written, errors) = frontend::run_conversion(Format::Json, Format::Json, &f, None);
+    let (written, errors) = utils::run_conversion(Format::Json, Format::Json, &f, None);
     assert!(written.is_empty());
     assert_eq!(errors.len(), 1);
     assert!(
@@ -361,7 +360,7 @@ fn conversion_reports_errors_and_continues_other_files() {
     let root = tmp_root("conv_mixed");
     write_file(&root, "good.rfs", VALID_RFS);
     write_file(&root, "bad.rfs", UNPARSEABLE_RFS);
-    let (written, errors) = frontend::run_conversion(Format::Rfs, Format::Json, &root, None);
+    let (written, errors) = utils::run_conversion(Format::Rfs, Format::Json, &root, None);
     assert_eq!(written.len(), 1);
     assert!(written[0].ends_with("good.json"));
     assert_eq!(errors.len(), 1);
@@ -373,7 +372,7 @@ fn conversion_reports_errors_and_continues_other_files() {
 fn conversion_rejects_nonexistent_path() {
     let root = tmp_root("conv_missing");
     let (written, errors) =
-        frontend::run_conversion(Format::Rfs, Format::Json, &root.join("nope.rfs"), None);
+        utils::run_conversion(Format::Rfs, Format::Json, &root.join("nope.rfs"), None);
     assert!(written.is_empty());
     assert_eq!(errors.len(), 1);
     cleanup(&root);
@@ -383,7 +382,7 @@ fn conversion_rejects_nonexistent_path() {
 fn conversion_rejects_directory_without_matching_files() {
     let root = tmp_root("conv_empty");
     write_file(&root, "only.txt", "x");
-    let (written, errors) = frontend::run_conversion(Format::Rfs, Format::Json, &root, None);
+    let (written, errors) = utils::run_conversion(Format::Rfs, Format::Json, &root, None);
     assert!(written.is_empty());
     assert_eq!(errors.len(), 1);
     assert!(errors[0].contains("no .rfs files"));
@@ -394,7 +393,7 @@ fn conversion_rejects_directory_without_matching_files() {
 fn conversion_rejects_invalid_json_input() {
     let root = tmp_root("conv_badjson");
     let f = write_file(&root, "a.json", "{\"not\": \"an ir\"}");
-    let (written, errors) = frontend::run_conversion(Format::Json, Format::Rfs, &f, None);
+    let (written, errors) = utils::run_conversion(Format::Json, Format::Rfs, &f, None);
     assert!(written.is_empty());
     assert_eq!(errors.len(), 1);
     assert!(errors[0].contains("invalid RFS IR JSON"));
@@ -409,7 +408,7 @@ fn conversion_rejects_invalid_json_input() {
 fn validate_valid_rfs_file() {
     let root = tmp_root("val_rfs_ok");
     let f = write_file(&root, "a.rfs", VALID_RFS);
-    let res = frontend::run_validate(None, &f).expect("no misuse error");
+    let res = validate::run_validate(None, &f).expect("no misuse error");
     assert!(!res.is_directory);
     assert_eq!(res.ok_files, vec![f.clone()]);
     assert!(res.failed.is_empty());
@@ -420,7 +419,7 @@ fn validate_valid_rfs_file() {
 fn validate_valid_json_file() {
     let root = tmp_root("val_json_ok");
     let f = write_file(&root, "a.json", &ir_json(VALID_RFS));
-    let res = frontend::run_validate(None, &f).expect("no misuse error");
+    let res = validate::run_validate(None, &f).expect("no misuse error");
     assert_eq!(res.ok_files, vec![f.clone()]);
     assert!(res.failed.is_empty());
     cleanup(&root);
@@ -430,7 +429,7 @@ fn validate_valid_json_file() {
 fn validate_invalid_rfs_file_reports_errors() {
     let root = tmp_root("val_rfs_bad");
     let f = write_file(&root, "a.rfs", BAD_STATE_RFS);
-    let res = frontend::run_validate(None, &f).expect("no misuse error");
+    let res = validate::run_validate(None, &f).expect("no misuse error");
     assert!(res.ok_files.is_empty());
     assert_eq!(res.failed.len(), 1);
     assert_eq!(res.failed[0].path, f);
@@ -447,7 +446,7 @@ fn validate_invalid_rfs_file_reports_errors() {
 fn validate_unparseable_file_reports_error() {
     let root = tmp_root("val_parse_err");
     let f = write_file(&root, "a.rfs", UNPARSEABLE_RFS);
-    let res = frontend::run_validate(None, &f).expect("no misuse error");
+    let res = validate::run_validate(None, &f).expect("no misuse error");
     assert_eq!(res.failed.len(), 1);
     assert!(!res.failed[0].errors.is_empty());
     cleanup(&root);
@@ -457,7 +456,7 @@ fn validate_unparseable_file_reports_error() {
 fn validate_file_with_conflicting_input_format_is_misuse() {
     let root = tmp_root("val_conflict");
     let f = write_file(&root, "a.rfs", VALID_RFS);
-    let err = frontend::run_validate(Some(Format::Json), &f).expect_err("must be misuse");
+    let err = validate::run_validate(Some(Format::Json), &f).expect_err("must be misuse");
     assert!(err[0].contains("conflicts"));
     cleanup(&root);
 }
@@ -466,7 +465,7 @@ fn validate_file_with_conflicting_input_format_is_misuse() {
 fn validate_file_with_unknown_extension_is_misuse() {
     let root = tmp_root("val_badext");
     let f = write_file(&root, "a.txt", VALID_RFS);
-    let err = frontend::run_validate(None, &f).expect_err("must be misuse");
+    let err = validate::run_validate(None, &f).expect_err("must be misuse");
     assert!(err[0].contains(".rfs or .json"));
     cleanup(&root);
 }
@@ -474,7 +473,7 @@ fn validate_file_with_unknown_extension_is_misuse() {
 #[test]
 fn validate_nonexistent_path_is_misuse() {
     let root = tmp_root("val_missing");
-    let err = frontend::run_validate(None, &root.join("nope.rfs")).expect_err("must be misuse");
+    let err = validate::run_validate(None, &root.join("nope.rfs")).expect_err("must be misuse");
     assert_eq!(err.len(), 1);
     cleanup(&root);
 }
@@ -487,7 +486,7 @@ fn validate_nonexistent_path_is_misuse() {
 fn validate_directory_requires_input_format() {
     let root = tmp_root("val_dir_needs_fmt");
     write_file(&root, "a.rfs", VALID_RFS);
-    let err = frontend::run_validate(None, &root).expect_err("must be misuse");
+    let err = validate::run_validate(None, &root).expect_err("must be misuse");
     assert!(err[0].contains("--input"));
     cleanup(&root);
 }
@@ -497,7 +496,7 @@ fn validate_directory_writes_err_files_next_to_failures() {
     let root = tmp_root("val_dir_err");
     write_file(&root, "good.rfs", VALID_RFS);
     let bad = write_file(&root, "bad.rfs", BAD_STATE_RFS);
-    let res = frontend::run_validate(Some(Format::Rfs), &root).expect("no misuse error");
+    let res = validate::run_validate(Some(Format::Rfs), &root).expect("no misuse error");
     assert!(res.is_directory);
     assert_eq!(res.ok_files.len(), 1);
     assert_eq!(res.failed.len(), 1);
@@ -523,7 +522,7 @@ fn validate_json_directory_writes_err_files_with_json_name() {
     let tampered = ir_json(BAD_STATE_RFS);
     assert!(tampered.contains("\"Nope\""));
     let bad = write_file(&root, "bad.json", &tampered);
-    let res = frontend::run_validate(Some(Format::Json), &root).expect("no misuse error");
+    let res = validate::run_validate(Some(Format::Json), &root).expect("no misuse error");
     assert_eq!(res.ok_files.len(), 1);
     assert_eq!(res.failed.len(), 1);
     assert_eq!(res.failed[0].path, bad);
@@ -537,7 +536,7 @@ fn validate_directory_all_valid_has_no_err_files() {
     let root = tmp_root("val_dir_all_ok");
     write_file(&root, "a.rfs", VALID_RFS);
     write_file(&root, "sub/b.rfs", VALID_RFS);
-    let res = frontend::run_validate(Some(Format::Rfs), &root).expect("no misuse error");
+    let res = validate::run_validate(Some(Format::Rfs), &root).expect("no misuse error");
     assert_eq!(res.ok_files.len(), 2);
     assert!(res.failed.is_empty());
     assert!(!root.join("a.rfs.rfs-validation.err").exists());
@@ -558,7 +557,7 @@ fn positive_specs_pass_validation() {
     for (i, s) in specs.iter().enumerate() {
         let root = tmp_root(&format!("val_pos_{i}"));
         let f = write_file(&root, "a.rfs", s);
-        let res = frontend::run_validate(None, &f).expect("no misuse error");
+        let res = validate::run_validate(None, &f).expect("no misuse error");
         assert!(
             res.failed.is_empty(),
             "spec {i} should validate: {:?}",
@@ -582,7 +581,7 @@ fn negative_specs_fail_validation_with_messages() {
     for (i, (label, src)) in cases.iter().enumerate() {
         let root = tmp_root(&format!("val_neg_{i}"));
         let f = write_file(&root, "a.rfs", src);
-        let res = frontend::run_validate(None, &f).expect("no misuse error");
+        let res = validate::run_validate(None, &f).expect("no misuse error");
         assert!(
             res.failed.len() == 1 && !res.failed[0].errors.is_empty(),
             "case {label} should fail validation"

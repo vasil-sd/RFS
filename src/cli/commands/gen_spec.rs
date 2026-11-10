@@ -14,7 +14,7 @@
 use std::path::Path;
 use std::process::ExitCode;
 
-use crate::cli::frontend::{self, Format};
+use crate::cli::utils::{self, Format};
 use crate::lang::specgen::{self, Bounds, SpecGen};
 use crate::utils::rng::Rng;
 
@@ -57,7 +57,7 @@ pub fn mutate_base(base_path: &Path, k: usize, seed: u64) -> Result<String, Stri
             base_path.display()
         )
     })?;
-    let ir = frontend::convert_file_to_ir(base_path, fmt)?;
+    let ir = utils::convert_file_to_ir(base_path, fmt)?;
     if ir.modules.is_empty() {
         return Err(format!("no modules in {}", base_path.display()));
     }

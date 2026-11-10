@@ -143,12 +143,12 @@ links both ways. The pointer scope is driven by `tests/dev_docs_manifest.txt`.
   (`commands`).
 - `src/cli/log.rs` - minimal stderr logging for the CLI commands:
   `src/cli/log.rs::LogLevel` + `src/cli/log.rs::Logger`.
-- `src/cli/frontend.rs` - frontend CLI logic behind `rfs parse` / `rfs validate`:
-  format detection (`src/cli/frontend.rs::Format`), file collection, conversion
-  through the IR (`src/cli/frontend.rs::convert_file_to_ir`,
-  `src/cli/frontend.rs::render_ir`, `src/cli/frontend.rs::run_conversion`) and
-  validation dispatch (`src/cli/frontend.rs::run_validate`,
-  `src/cli/frontend.rs::validate_one`).
+- `src/cli/utils.rs` - conversion/format utilities behind `rfs parse` (format detection, file collection, IR conversion) + `src/cli/commands/validate.rs` - validation dispatch and the `rfs validate` plugin:
+  format detection (`src/cli/utils.rs::Format`), file collection, conversion
+  through the IR (`src/cli/utils.rs::convert_file_to_ir`,
+  `src/cli/utils.rs::render_ir`, `src/cli/utils.rs::run_conversion`) and
+  validation dispatch (`src/cli/commands/validate.rs::run_validate`,
+  `src/cli/commands/validate.rs::validate_one`).
 - `src/cli/ext_tool.rs` - external-tool resolution, invocation, deterministic
   script emission: `ExtTool`, `ResolvedTool`, `Script`, `sh_quote`.
 

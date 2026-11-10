@@ -1,11 +1,11 @@
 //! CLI surface: shared command infrastructure (the level-filtered stderr
-//! logger, the frontend conversion/validation logic behind `rfs parse` /
-//! `rfs validate`, the external-tool resolver) + the per-command modules in
-//! `commands/`.
+//! logger, the conversion/format utilities in `utils`, the external-tool
+//! resolver) + one plugin per top-level `rfs <command>` in `commands/`.
 //! Docs: dev:code-map-cli-surface
 
+pub mod args;
 pub mod commands;
 pub mod ext_tool;
-pub mod frontend;
 pub mod info_format;
 pub mod log;
+pub mod utils;

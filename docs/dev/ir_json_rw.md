@@ -24,9 +24,9 @@ Position in the pipeline, both directions:
   parse and the downstream consumers (codegen, model checking, diagrams,
   info).
 - `.json` input loads the same type directly:
-  `src/cli/frontend.rs::convert_file_to_ir` runs `src/json/json_rw.rs::parse` and then
+  `src/cli/utils.rs::convert_file_to_ir` runs `src/json/json_rw.rs::parse` and then
   `src/lang/ir.rs::from_json`; JSON output is the mirror image in
-  `src/cli/frontend.rs::render_ir` (pretty rendering + trailing newline).
+  `src/cli/utils.rs::render_ir` (pretty rendering + trailing newline).
 - The canonical whole-file rendering (`src/lang/ir.rs::to_json`) feeds the spec
   hash stamped into every generated artifact header (`src/codegen/mod.rs::run`,
   see the spec-hash section below), and the field model of the `spec-json`
@@ -49,7 +49,7 @@ Where to go next:
 
 Code: `src/lang/ir.rs::Ir`, `src/lang/ir.rs::IR_VERSION`, `src/json/json_rw.rs::Json`,
 `src/json/json_rw.rs::parse`, `src/json/json_schema.rs::SchemaDoc`,
-`src/utils/hash.rs::spec_hash16`, `src/cli/frontend.rs::convert_file_to_ir`,
+`src/utils/hash.rs::spec_hash16`, `src/cli/utils.rs::convert_file_to_ir`,
 `src/codegen/mod.rs::run`
 
 <a id="dev:ir-model"></a>
@@ -176,7 +176,7 @@ tagged enums "unknown {what} kind '{got}' at {path} (expected one of: ...)"
 rooted at "$" by the public `src/lang/ir.rs::from_json`, e.g.
 $.modules[0].transitions[2].guard.
 
-**Pins.** `tests/frontend_test.rs` pins the exact compact and pretty text of
+**Pins.** `tests/utils_test.rs` pins the exact compact and pretty text of
 a representative spec (GOLDEN_SPEC_RFS: enums, bit types, unit + struct
 event/output variants, guards, emits with args, assignments, a liveness
 property), the version read policy (v0 loads, v2 rejected with the pinned
@@ -186,7 +186,7 @@ re-checks it through the printer.
 
 Code: `src/lang/ir.rs::IrJson`, `src/lang/ir.rs::uint_json`, `src/lang/ir.rs::uint_field`,
 `src/lang/ir.rs::kind`, `src/lang/ir.rs::unknown_kind`, `src/lang/ir.rs::to_json`,
-`src/lang/ir.rs::from_json`, file-level `tests/frontend_test.rs`
+`src/lang/ir.rs::from_json`, file-level `tests/utils_test.rs`
 
 <a id="dev:json-rw"></a>
 ## Hand-rolled JSON reader/writer
@@ -374,7 +374,7 @@ cross-backend parity, and schema sync walks all fail on drift. Checklist:
    spec_json_walk_all_valid_examples walks every valid example's parse JSON
    and fails on drift (D-P7-9).
 3. **Expect the golden pins to fire.** ir_json_golden_compact_pins_key_order
-   / ir_json_golden_pretty_pins_layout in `tests/frontend_test.rs` pin exact
+   / ir_json_golden_pretty_pins_layout in `tests/utils_test.rs` pin exact
    text; the round-trip property runs over all valid examples; the version-
 policy test pins the rejection message.
 4. **json_rw changes are cross-cutting.** The formatting contract (escaping,

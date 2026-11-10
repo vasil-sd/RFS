@@ -26,12 +26,12 @@ Entry points:
 
 The error model is deliberately thin: `src/lang/validator.rs::ValidationError`
 carries a message and nothing else - no span. Semantic errors therefore carry
-line/col 0 in `rfs validate --json` (`src/cli/frontend.rs::StructuredError`),
+line/col 0 in `rfs validate --json` (`src/cli/commands/validate.rs::StructuredError`),
 in contrast to parse errors, which point at the exact byte via
 `src/lang/error.rs::ParseError`. The CLI flow is in
-`src/cli/frontend.rs::validate_one_with_warnings`: on fatal errors they are all
+`src/cli/commands/validate.rs::validate_one_with_warnings`: on fatal errors they are all
 surfaced for the file and codegen is blocked; on success the warning pass
-runs and its output is advisory only. `src/cli/frontend.rs::run_validate`
+runs and its output is advisory only. `src/cli/commands/validate.rs::run_validate`
 drives this per file/directory.
 
 What codegen may rely on after validation: every transition's state and
@@ -53,8 +53,8 @@ Where to go next:
 - file entries: `dev:code-map-frontend` in [CODE_MAP.md](CODE_MAP.md).
 
 Code: `src/lang/validator.rs::validate_ir`, `src/lang/validator.rs::module_warnings`,
-`src/lang/validator.rs::ValidationError`, `src/cli/frontend.rs::validate_one_with_warnings`,
-`src/cli/frontend.rs::run_validate`, `src/lang/error.rs::ParseError`
+`src/lang/validator.rs::ValidationError`, `src/cli/commands/validate.rs::validate_one_with_warnings`,
+`src/cli/commands/validate.rs::run_validate`, `src/lang/error.rs::ParseError`
 
 <a id="dev:validator-fatal-pass"></a>
 ## Fatal validation pass
@@ -251,7 +251,7 @@ Checklist for developers changing what the validator accepts or reports:
 2. Update `src/lang/validator.rs::validate_module` (fatal) or
    `src/lang/validator.rs::module_warnings` (advisory) - keep the all-errors-
    collection discipline (never fail-fast).
-3. Error MESSAGE SHAPES ARE PINNED: `tests/frontend_test.rs`
+3. Error MESSAGE SHAPES ARE PINNED: `tests/utils_test.rs`
    e2e_validate_json_semantic_error_shape_pinned pins exact message text
    (kind "semantic", line/col 0), and the 24 unit tests in `mod tests` pin
    individual behaviors (duplicate-priority split, shadowed duplicates,

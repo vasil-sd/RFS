@@ -45,7 +45,7 @@ toolchain. Four files: `src/lang/ir.rs` (types + per-type to_json/from_json),
 **Change impact (wire format).** The most constrained area in the repo:
 update `src/lang/ir.rs` to_json/from_json AND `src/cli/info_format/mod.rs::spec_json_schema`
 together (the walk test fails on drift); expect the golden pins + round-trip
-property + version-policy test in tests/frontend_test.rs to fire; json_rw
+property + version-policy test in tests/utils_test.rs to fire; json_rw
 formatting changes also hit cross-backend byte parity (generated MC engines
 embed writer copies). Verify: cargo test --lib json_rw, cargo test --test
 frontend_test, cargo test --test info_format_test. Full table:

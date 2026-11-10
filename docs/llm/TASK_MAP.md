@@ -22,12 +22,12 @@ Shared infrastructure: external tools `src/cli/ext_tool.rs::ExtTool` / `resolve`
 
 | Command | Read fragment | Files/functions |
 |---|---|---|
-| parse / validate | dev:cli-commands-frontend | `src/cli/frontend.rs::run_conversion`, `plan_conversion`, `run_validate`, `run_validate_structured`, `render_validate_json`; dispatch `src/main.rs::cmd_parse` / `cmd_validate` |
-| info | dev:cli-commands-info | `src/cli/commands/info.rs::run_info`, `render_text`, `render_json`, `monitor_status`; dispatch `src/main.rs::cmd_info` |
-| info format | dev:cli-commands-info | `src/cli/info_format/mod.rs::FORMATS`, `find`, `list_markdown`, `render`; dispatch `src/main.rs::run_info_format` |
-| test | dev:cli-commands-test | `src/cli/commands/test.rs::run_test`, `run_unit_suite`, `run_fuzz_c`, `run_fuzz_rust`, `render_script`; dispatch `src/main.rs::cmd_test` |
-| diagram | dev:cli-commands-diagram | `src/cli/commands/diagram/mod.rs::run_diagram`, `DIAGRAMS`, `DiagramPlugin`; plugins `src/cli/commands/diagram/dot.rs::DOT_PLUGIN`, `src/cli/commands/diagram/plantuml.rs::PUML_PLUGIN`, `src/cli/commands/diagram/mermaid.rs::MMD_PLUGIN`, `src/cli/commands/diagram/tables.rs::TABLE_PLUGIN` / `MD_PLUGIN`; dispatch `src/main.rs::cmd_diagram` |
-| codegen | dev:codegen-plugin-api | `src/codegen/mod.rs::parse_codegen_args`, `get_backend`, `list_backends`, `CodegenCommandKind::run`; backends `src/codegen/backends/rust/mod.rs` / `src/codegen/backends/c/mod.rs`; dispatch `src/main.rs::cmd_codegen` |
+| parse / validate | dev:cli-commands-frontend | `src/cli/utils.rs::run_conversion`, `plan_conversion`, `run_validate`, `run_validate_structured`, `render_validate_json`; dispatch `src/cli/commands/parse.rs::run_cli` / `cmd_validate` |
+| info | dev:cli-commands-info | `src/cli/commands/info.rs::run_info`, `render_text`, `render_json`, `monitor_status`; dispatch `src/cli/commands/info.rs::run_cli` |
+| info format | dev:cli-commands-info | `src/cli/info_format/mod.rs::FORMATS`, `find`, `list_markdown`, `render`; dispatch `src/cli/commands/info.rs::run_info_format` |
+| test | dev:cli-commands-test | `src/cli/commands/test.rs::run_test`, `run_unit_suite`, `run_fuzz_c`, `run_fuzz_rust`, `render_script`; dispatch `src/cli/commands/test.rs::run_cli` |
+| diagram | dev:cli-commands-diagram | `src/cli/commands/diagram/mod.rs::run_diagram`, `DIAGRAMS`, `DiagramPlugin`; plugins `src/cli/commands/diagram/dot.rs::DOT_PLUGIN`, `src/cli/commands/diagram/plantuml.rs::PUML_PLUGIN`, `src/cli/commands/diagram/mermaid.rs::MMD_PLUGIN`, `src/cli/commands/diagram/tables.rs::TABLE_PLUGIN` / `MD_PLUGIN`; dispatch `src/cli/commands/diagram/mod.rs::run_cli` |
+| codegen | dev:codegen-plugin-api | `src/codegen/mod.rs::parse_codegen_args`, `get_backend`, `list_backends`, `CodegenCommandKind::run`; backends `src/codegen/backends/rust/mod.rs` / `src/codegen/backends/c/mod.rs`; dispatch `src/cli/commands/codegen.rs::run_cli` |
 | mc-ref | dev:cli-commands-mc-ref-gen-spec + dev:mc-engine-exact | `src/cli/commands/mc_ref.rs::run_mc_ref`, `exit_code_for`, `run_cli`; engine `src/mc/ref_mc.rs::run` |
 | gen-spec | dev:cli-commands-mc-ref-gen-spec | `src/cli/commands/gen_spec.rs::run_cli`, `generate_random`, `mutate_base`; engine `src/lang/specgen.rs::SpecGen`, `mutate_traced` |
 
@@ -89,7 +89,7 @@ Shared infrastructure: external tools `src/cli/ext_tool.rs::ExtTool` / `resolve`
 | Suite | Pins | Related fragments |
 |---|---|---|
 | tests/example_corpus_test.rs | file-driven valid/invalid example suite (adding examples needs no test-code change) | dev:parser-overview, dev:validator-overview |
-| tests/frontend_test.rs | parse/validate/diagram/test-script byte pins + .err side files | dev:cli-commands-frontend / -diagram / -test |
+| tests/utils_test.rs | parse/validate/diagram/test-script byte pins + .err side files | dev:cli-commands-frontend / -diagram / -test |
 | tests/info_format_test.rs | D-P7-9 sync walk: real tool output vs the embedded format models | dev:cli-commands-info |
 | tests/codegen_test.rs | per-command generation (all backends x commands) | dev:codegen-plugin-api |
 | tests/backend_parity_test.rs | forced-violation parity + production-FSM cross-backend parity | dev:backend-rust-overview, dev:backend-c-overview |
@@ -121,14 +121,16 @@ this). One-line role per file; for functionality-level pointers use the Map
 above.
 
 - `src/lib.rs` - crate root: module tree, public API surface
-- `src/main.rs` - CLI entry point: argument parsing and command dispatch
-- `src/cli/mod.rs` - module root of the CLI surface (log + frontend + ext_tool + commands)
+- `src/main.rs` - pure command dispatcher (resolves the command name to its plugin's `run_cli`)
+- `src/cli/args.rs` - shared CLI argument processing (global usage text, flag takers, error conventions)
+- `src/cli/mod.rs` - module root of the CLI surface (args + log + utils + ext_tool + commands)
 - `src/cli/log.rs` - minimal stderr logging for the new CLI commands
-- `src/cli/frontend.rs` - frontend CLI logic: RFS/JSON conversion, validation dispatch
+- `src/cli/utils.rs` - conversion/format utilities (RFS/JSON conversion, file collection)
+- `src/cli/commands/validate.rs` - validation dispatch + the `rfs validate` plugin
 - `src/cli/info_format/mod.rs` - rfs info format: machine-readable input/output format descriptions
 - `src/cli/info_format/ebnf_grammar.rs` - EBNF grammar model + renderers for IDE/tooling output
 - `src/cli/ext_tool.rs` - external-tool resolution, invocation, deterministic script emission
-- `src/cli/commands/mod.rs` - module root of the per-command modules (test + gen_spec + mc_ref + info)
+- `src/cli/commands/mod.rs` - command registry (`ALL_COMMANDS` + `find`) + one plugin per top-level command (parse, validate, codegen, info, test, diagram, mc-ref, gen-spec)
 - `src/cli/commands/diagram/mod.rs` - rfs diagram: registry + shared label helpers (merged from diagrams/mod.rs)
 - `src/cli/commands/diagram/dot.rs` - Graphviz DOT state diagrams (pure-Rust generation)
 - `src/cli/commands/diagram/plantuml.rs` - PlantUML state diagrams (verified syntax subset)

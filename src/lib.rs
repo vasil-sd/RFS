@@ -14,10 +14,13 @@ pub mod mc;
 pub mod training;
 pub mod utils;
 
-pub use cli::frontend::{
-    collect_files_with_ext, convert_file_to_ir, err_file_path, normalize_abs, plan_conversion,
-    render_ir, run_conversion, run_validate, validate_one, validate_one_with_warnings,
-    write_err_file, FailedFile, Format, ValidateOneResult, ValidateResult,
+pub use cli::commands::validate::{
+    err_file_path, run_validate, validate_one, validate_one_with_warnings, write_err_file,
+    FailedFile, ValidateOneResult, ValidateResult,
+};
+pub use cli::utils::{
+    collect_files_with_ext, convert_file_to_ir, normalize_abs, plan_conversion, render_ir,
+    run_conversion, Format,
 };
 pub use lang::error::{ParseError, Span};
 pub use lang::ir::*;

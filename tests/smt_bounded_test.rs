@@ -139,17 +139,40 @@ fn generate(backend_name: &str, src: &str, what: &str) -> String {
         .code
 }
 
-fn compile_c(src: &Path, bin: &Path) {
+/// z3 compile+link flags. Prefer pkg-config: it knows nixpkgs' split `lib`/`dev`
+/// outputs and emits the exact `-I`/`-L` for each (a single `--variable=prefix`
+/// points only at the bin-only `out`, whose `include/` does not exist). Fall back
+/// to a unified project-local install dir when pkg-config has no z3 module.
+/// `-lm` is always appended: the generated SMT C calls libm directly, and the
+/// shared libz3's DT_NEEDED does not guarantee it on every toolchain.
+fn z3_compile_args() -> Vec<String> {
+    if let Ok(out) = Command::new("pkg-config").args(["--cflags", "--libs", "z3"]).output() {
+        if out.status.success() {
+            let s = String::from_utf8_lossy(&out.stdout);
+            let mut args: Vec<String> = s.split_whitespace().map(str::to_string).collect();
+            if !args.is_empty() {
+                args.push("-lm".to_string());
+                return args;
+            }
+        }
+    }
     let z3 = common::toolchain::z3_dir().expect("z3 availability checked at test entry");
+    vec![
+        format!("-I{z3}/include"),
+        format!("-L{z3}/lib"),
+        format!("-L{z3}/bin"),
+        "-lz3".to_string(),
+        "-lm".to_string(),
+    ]
+}
+
+fn compile_c(src: &Path, bin: &Path) {
     let out = Command::new(common::toolchain::gcc())
         .args(["-Wall", "-O2"])
         .arg(src)
         .arg("-o")
         .arg(bin)
-        .arg(format!("-I{z3}/include"))
-        .arg(format!("-L{z3}/lib"))
-        .arg(format!("-L{z3}/bin"))
-        .args(["-lz3", "-lm"])
+        .args(z3_compile_args())
         .output()
         .expect("run gcc on generated C");
     let stderr = String::from_utf8_lossy(&out.stderr);

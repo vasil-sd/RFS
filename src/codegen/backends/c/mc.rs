@@ -2410,15 +2410,23 @@ static int run_fuzz(int argc, char** argv) {{
     violation_spec_t specs[16];
     int n_specs = 0;
     double unexpected_prob = 0.0;
+    // Function-scoped so the `specs[i].label` pointers (which point into this
+    // buffer via parse_violation_spec) stay valid for the whole run. Declaring
+    // it inside the --violate branch left them dangling after that block ended:
+    // gcc and clang -O0 kept the stack contents by luck, but clang -O2 reuses the
+    // slot, so strcmp(label, specs[i].label) read garbage and forced violations
+    // never matched (completed=N instead of assumption_stops=N).
+    char violate_buf[512];
     for (int i = 1; i < argc; i++) {{
         if (strcmp(argv[i], "--bound") == 0 && i + 1 < argc) bound = atoi(argv[++i]);
         else if (strcmp(argv[i], "--runs") == 0 && i + 1 < argc) runs = atoi(argv[++i]);
         else if (strcmp(argv[i], "--seed") == 0 && i + 1 < argc) seed = strtoull(argv[++i], 0, 10);
         else if (strcmp(argv[i], "--assumes") == 0 && i + 1 < argc) assumes_arg = argv[++i];
         else if (strcmp(argv[i], "--violate") == 0 && i + 1 < argc) {{
-            // comma-separated label:prob:percent% entries
-            char buf[512]; strncpy(buf, argv[++i], sizeof(buf) - 1); buf[sizeof(buf) - 1] = 0;
-            for (char* tok = strtok(buf, ","); tok && n_specs < 16; tok = strtok(0, ",")) {{
+            // comma-separated label:prob:percent% entries. `violating`/labels
+            // point into violate_buf (function-scoped, see above).
+            strncpy(violate_buf, argv[++i], sizeof(violate_buf) - 1); violate_buf[sizeof(violate_buf) - 1] = 0;
+            for (char* tok = strtok(violate_buf, ","); tok && n_specs < 16; tok = strtok(0, ",")) {{
                 parse_violation_spec(tok, &specs[n_specs++]); // tok is a mutable buffer
             }}
         }}

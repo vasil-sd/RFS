@@ -402,6 +402,24 @@ impl<'a> Gen<'a> {
             self.options.spec_hash,
             self.module.name
         );
+        // The C backend emits a shared helper API (trace helpers, debug
+        // printers, monitor constructors) of which any single generated program
+        // uses only a subset. A strict -Wall compiler flags the unused ones with
+        // -Wunused-function: clang always does, gcc is lenient on `static inline`.
+        // Under nix the C toolchain may be clang (the resolver honours CC), so the
+        // "generated C compiles warning-free" invariant would otherwise trip. The
+        // dead helpers are intentional API surface, not a codegen bug, so suppress
+        // exactly that category - every other -Wall diagnostic (unused vars,
+        // sign-compare, set-but-unused) still fires and is caught. `__GNUC__` is
+        // defined by both gcc and clang; the guard keeps non-GNU compilers quiet.
+        let _ = writeln!(
+            self.code,
+            "// Shared helper API: a given program uses only a subset of these, so\n\
+             // -Wunused-function on the rest is expected, not a codegen defect.\n\
+             #ifdef __GNUC__\n\
+             #pragma GCC diagnostic ignored \"-Wunused-function\"\n\
+             #endif"
+        );
         // --no-std (Phase 5 task 9): accepted for CLI symmetry with the Rust
         // backend; plain C is already dependency-free, so it is a no-op here.
         if self.options.no_std {
@@ -603,6 +621,41 @@ fn c_contains_ident(s: &str, ident: &str) -> bool {
         start = p + 1;
     }
     false
+}
+
+/// If `s` is exactly one fully-parenthesized expression - a leading `(` whose
+/// matching close is the final character - return the inner text; otherwise
+/// return `s` unchanged. Used to drop the redundant outer parens that
+/// `gen_expr_c` adds around a binary op before it is wrapped again by an
+/// `if (...)`: without this, a single-equality guard renders as
+/// `if ((c == COLOR_GREEN))`, which clang's -Wparentheses-equality (part of
+/// -Wall) flags as "extraneous parentheses" while gcc stays silent. Unwrapping
+/// one layer is always safe: the `if`-parens remain, and a bare identifier guard
+/// (no outer parens) passes through untouched.
+fn strip_redundant_outer_parens(s: &str) -> String {
+    let b = s.as_bytes();
+    if b.first() != Some(&b'(') || b.last() != Some(&b')') {
+        return s.to_string();
+    }
+    let mut depth = 0i32;
+    for (i, &c) in b.iter().enumerate() {
+        match c {
+            b'(' => depth += 1,
+            b')' => {
+                depth -= 1;
+                if depth == 0 {
+                    // The opening paren closes before the end: not a single
+                    // wrapping pair (e.g. "(a) + (b)") - leave it alone.
+                    if i != b.len() - 1 {
+                        return s.to_string();
+                    }
+                    break;
+                }
+            }
+            _ => {}
+        }
+    }
+    s[1..b.len() - 1].to_string()
 }
 
 fn gen_expr_c(e: &Expr, env: &Env, ctx: &Ctx, module: &Module) -> Result<String, String> {
@@ -1583,9 +1636,12 @@ impl<'a> Gen<'a> {
             }
         }
 
-        // Guard.
+        // Guard. `gen_expr_c` wraps a binary op in its own parens; dropping that
+        // one redundant layer keeps a single-equality guard from rendering as
+        // `if ((c == COLOR_GREEN))`, which clang -Wall flags (-Wparentheses-
+        // equality) while gcc accepts.
         if let Some(gexpr) = &guard_str {
-            let _ = writeln!(out, "            if ({}) {{", gexpr);
+            let _ = writeln!(out, "            if ({}) {{", strip_redundant_outer_parens(gexpr));
         }
 
         // Actions: outputs, next state, simultaneous var updates via temps.
@@ -2053,8 +2109,13 @@ impl<'a> Gen<'a> {
                 }
 
                 // Guard.
+                // Same redundant-paren unwrap as the production guard above:
+                // keep a single-equality guard from rendering as `if ((...))`.
                 if let Some(gexpr) = &guard_str {
-                    out.push_str(&format!("            if ({}) {{\n", gexpr));
+                    out.push_str(&format!(
+                        "            if ({}) {{\n",
+                        strip_redundant_outer_parens(gexpr)
+                    ));
                 }
 
                 // Effect body (no commit: collect into `out[n]`).

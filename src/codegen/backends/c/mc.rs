@@ -990,7 +990,7 @@ static void mc_expand_range(
         int found_violation = 0;
         for (int iidx = 0; iidx < n_inputs; iidx++) {
             input_t in = inputs[iidx];
-            mc_effect_t effs[MC_MAX_EFFECTS];
+            mc_effect_t effs[MC_MAX_EFFECTS] = {0};
             int n_eff = mc_step_all(node.state, &node.vars, in, effs);
             if (n_eff == 0) {
                 mc_outcome_t x; memset(&x, 0, sizeof(x));
@@ -1096,7 +1096,7 @@ static void mc_replay(const int* p_cid, const int* p_input, const int* p_trans, 
     f->n_active_assumes = n_active;
     for (int i = 0; i < n_steps; i++) {
         input_t in = inputs[p_input[i]];
-        mc_effect_t effs[MC_MAX_EFFECTS];
+        mc_effect_t effs[MC_MAX_EFFECTS] = {0};
         int n_eff = mc_step_all(f->state, &f->vars, in, effs);
         const mc_effect_t* eff = &effs[0];
         if (p_trans[i] == -1) {
@@ -1189,7 +1189,7 @@ static uint32_t liv_bits_at(const liv_graph_t* g, uint32_t* cache, unsigned char
     const mc_edge_t* e = &g->edges[ei];
     const mc_node_t* node = &g->nodes[c];
     const input_t* in = &g->inputs[e->input_idx];
-    mc_effect_t effs[MC_MAX_EFFECTS];
+    mc_effect_t effs[MC_MAX_EFFECTS] = {0};
     int n_eff = mc_step_all(node->state, &node->vars, *in, effs);
     const mc_effect_t* eff = (n_eff > 0) ? &effs[0] : 0;
     if (eff && e->trans_id != -1 && g->nondet) {
@@ -1262,7 +1262,7 @@ static void liv_sample_at(const liv_graph_t* g, const liv_witness_t* w, int pos,
     const mc_node_t* node = &g->nodes[c];
     const input_t* in = &g->inputs[w->lasso_input[pos - 1]];
     int tid = w->lasso_trans[pos - 1];
-    mc_effect_t effs[MC_MAX_EFFECTS];
+    mc_effect_t effs[MC_MAX_EFFECTS] = {0};
     int n_eff = mc_step_all(node->state, &node->vars, *in, effs);
     const mc_effect_t* eff = (n_eff > 0) ? &effs[0] : 0;
     if (eff && tid != -1 && g->nondet) {

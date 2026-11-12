@@ -1999,7 +1999,12 @@ impl<'a> Gen<'a> {
         out.push_str(
             "typedef struct { state_t next_state; vars_t next_vars; output_t outputs[MAX_OUTPUTS]; int n_outputs; int transition_id; } mc_effect_t;\n",
         );
-        out.push_str("static int mc_step_all(state_t state, const vars_t* vars, input_t in, mc_effect_t* out) {\n    int n = 0;\n");
+        // Contract: callers must zero-initialize the effects array
+        // (`mc_effect_t effs[MC_MAX_EFFECTS] = {0};`). Only out[0..n) is written,
+        // and gcc -O1+'s -Wmaybe-uninitialized cannot track writes through this
+        // pointer, so it warns on reads of the unwritten tail unless the array
+        // starts initialized (clang never warns; gcc -O0 does not either).
+        out.push_str("// Callers must zero-initialize `out` (see the = {0} at each call site).\nstatic int mc_step_all(state_t state, const vars_t* vars, input_t in, mc_effect_t* out) {\n    int n = 0;\n");
 
         // Per-state firing order (identical to emit_fsm_impl).
         let mut state_order: Vec<&str> = Vec::new();

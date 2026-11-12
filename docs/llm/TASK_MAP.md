@@ -93,6 +93,7 @@ Shared infrastructure: external tools `src/cli/ext_tool.rs::ExtTool` / `resolve`
 | tests/info_format_test.rs | D-P7-9 sync walk: real tool output vs the embedded format models | dev:cli-commands-info |
 | tests/codegen_test.rs | per-command generation (all backends x commands) | dev:codegen-plugin-api |
 | tests/backend_parity_test.rs | forced-violation parity + production-FSM cross-backend parity | dev:backend-rust-overview, dev:backend-c-overview |
+| tests/c_compiler_agnostic_test.rs | generated-C compiler agnosticism: warning-free gcc+clang -O2 compiles of every variant, no double-paren equality guards, byte-identical forced-violation runs across compilers | dev:backend-c-overview, dev:backend-c-fsm |
 | tests/prod_parity_test.rs | production-FSM cross-backend byte parity | dev:backend-rust-fsm, dev:backend-c-fsm |
 | tests/benchmark_mc_test.rs | MC benchmark specs 43/44/45 + 47/48/49 (peak_rss_kb / ce_steps) | dev:mc-engine-exact |
 | tests/liveness_mc_test.rs | liveness eventually/until + lasso counterexamples | dev:mc-engine-liveness |

@@ -34,6 +34,89 @@
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
+/// Compile one generated C source to an object with `gcc -Wall`, enforcing the
+/// zero-warning bar (generated C must compile warning-free). `-I include_dir`
+/// lets a source resolve its own header / the fsm header by bare file name.
+pub fn compile_c_object(src: &Path, obj: &Path, include_dir: &Path) {
+    let out = Command::new(super::toolchain::gcc())
+        .arg("-Wall")
+        .arg("-c")
+        .arg(src)
+        .arg("-I")
+        .arg(include_dir)
+        .arg("-o")
+        .arg(obj)
+        .output()
+        .expect("run gcc -c on generated code");
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(
+        out.status.success(),
+        "gcc -c failed on {}:\n{stderr}",
+        src.display()
+    );
+    assert!(
+        !stderr.lines().any(|l| l.contains("warning:")),
+        "gcc -Wall emitted warnings on {} (generated C must be warning-free):\n{stderr}",
+        src.display()
+    );
+}
+
+/// Build a C model-checker binary from a `CodegenOutput` (Phase 14 task 3):
+/// write the four-file artifact set (fsm.h/fsm.c/mc.h/mc.c) under their
+/// standalone default names into `dir`, compile fsm.c and mc.c to objects with
+/// the zero-warning bar, and link them into `bin`. The generator stamps the
+/// standalone default header names (`rfs_fsm.h` / `rfs_mc.h`) when
+/// `BackendOptions` carries no resolved names, so the sources' self- and
+/// fsm-includes resolve from `dir` via `-I dir`.
+pub fn build_c_mc_binary(out: &rfs::codegen::CodegenOutput, dir: &Path, bin: &Path) -> PathBuf {
+    std::fs::create_dir_all(dir).expect("create c mc pair dir");
+    let fsm_h = dir.join("rfs_fsm.h");
+    let fsm_c = dir.join("rfs_fsm.c");
+    let mc_h = dir.join("rfs_mc.h");
+    let mc_c = dir.join("rfs_mc.c");
+    std::fs::write(
+        &fsm_h,
+        out.fsm_header
+            .as_deref()
+            .expect("c mc fills the fsm-header slot"),
+    )
+    .expect("write fsm header");
+    std::fs::write(
+        &fsm_c,
+        out.fsm_code
+            .as_deref()
+            .expect("c mc fills the fsm-code slot"),
+    )
+    .expect("write fsm source");
+    std::fs::write(
+        &mc_h,
+        out.mc_header
+            .as_deref()
+            .expect("c mc fills the mc-header slot"),
+    )
+    .expect("write mc header");
+    std::fs::write(
+        &mc_c,
+        out.mc_code.as_deref().expect("c mc fills the mc-code slot"),
+    )
+    .expect("write mc source");
+    compile_c_object(&fsm_c, &dir.join("rfs_fsm.o"), dir);
+    compile_c_object(&mc_c, &dir.join("rfs_mc.o"), dir);
+    let linked = Command::new(super::toolchain::gcc())
+        .arg(dir.join("rfs_fsm.o"))
+        .arg(dir.join("rfs_mc.o"))
+        .arg("-o")
+        .arg(bin)
+        .output()
+        .expect("link c mc objects");
+    assert!(
+        linked.status.success(),
+        "link of c mc objects failed:\n{}",
+        String::from_utf8_lossy(&linked.stderr)
+    );
+    bin.to_path_buf()
+}
+
 /// rustc override - resolved portably (RFS_RUSTC > RUSTC > bare name on PATH).
 fn rustc() -> String {
     super::toolchain::rustc()

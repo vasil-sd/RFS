@@ -130,23 +130,13 @@ pub fn write_artifacts(
     // --- Referenced fsm artifact (mc/test): take-or-emit. ---
     if !owns_fsm {
         // Resolve the reference: form-2 pair > form-1/file stem > BASE-derived.
-        let (header_path, source_path): (Option<String>, String) = if is_c {
-            match (&args.fsm_file_header, &args.fsm_file_source, &args.fsm_file) {
-                (Some(h), Some(s), None) => (Some(h.clone()), s.clone()),
-                (_, _, Some(stem)) => (Some(format!("{stem}.h")), format!("{stem}.c")),
-                _ => (
-                    Some(format!("{base_name}-fsm.h")),
-                    format!("{base_name}-fsm.c"),
-                ),
-            }
-        } else {
-            let name = match &args.fsm_file {
-                Some(f) if f.ends_with(".rs") => f.clone(),
-                Some(f) => format!("{f}.rs"),
-                None => format!("{base_name}-fsm.rs"),
-            };
-            (None, name)
-        };
+        let (header_path, source_path) = resolve_fsm_reference(
+            args.fsm_file_header.as_deref(),
+            args.fsm_file_source.as_deref(),
+            args.fsm_file.as_deref(),
+            &base_name,
+            is_c,
+        );
 
         // Presence check: a partial C pair is a usage error (no silent
         // overwrite of the lone file).
@@ -192,6 +182,38 @@ pub fn write_artifacts(
     }
 
     ExitCode::SUCCESS
+}
+
+/// Resolve the referenced fsm artifact's file names (D14-2): an explicit
+/// form-2 pair (`--fsm-file-header` + `--fsm-file-source`) wins, then a form-1
+/// / `--fsm-file` stem (C expands to `STEM.h` + `STEM.c`; Rust appends `.rs`
+/// when the extension is omitted), then the BASE-derived default. Shared by the
+/// write loop (take-or-emit) and the CLI stamping of `BackendOptions`, so the
+/// name a generated source `#include`s always matches where the file lands.
+fn resolve_fsm_reference(
+    fsm_file_header: Option<&str>,
+    fsm_file_source: Option<&str>,
+    fsm_file: Option<&str>,
+    base_name: &str,
+    is_c: bool,
+) -> (Option<String>, String) {
+    if is_c {
+        match (fsm_file_header, fsm_file_source, fsm_file) {
+            (Some(h), Some(s), None) => (Some(h.to_string()), s.to_string()),
+            (_, _, Some(stem)) => (Some(format!("{stem}.h")), format!("{stem}.c")),
+            _ => (
+                Some(format!("{base_name}-fsm.h")),
+                format!("{base_name}-fsm.c"),
+            ),
+        }
+    } else {
+        let name = match fsm_file {
+            Some(f) if f.ends_with(".rs") => f.to_string(),
+            Some(f) => format!("{f}.rs"),
+            None => format!("{base_name}-fsm.rs"),
+        };
+        (None, name)
+    }
 }
 
 /// Write `content` to `path` (creating parent dirs), printing the conventional
@@ -324,33 +346,43 @@ pub fn run_cli(args: &[String]) -> ExitCode {
                     return ExitCode::FAILURE;
                 }
             };
-            // Phase 14 task 2: stamp the resolved C fsm-header/source names so
-            // the generated source #includes its own header by the correct
-            // name and the include guard matches. Only C production emits a
-            // pair; everything else stays None (standalone default).
-            let is_c_prod =
-                backend_name == "c" && command == codegen::CodegenCommandKind::Production;
+            // Phase 14 task 2/3: stamp the resolved C artifact names so a
+            // generated source #includes its own header (and, for mc, the fsm
+            // header) by the correct name and the include guard matches. C
+            // production OWNS the fsm pair (named by --out-fsm-*); C mc
+            // REFERENCES it (named by --fsm-file*, resolved exactly as the write
+            // loop's take-or-emit does) and OWNS an mc header/source pair.
+            // Everything else stays None (standalone default).
+            let is_c = backend_name == "c";
+            let is_c_prod = is_c && command == codegen::CodegenCommandKind::Production;
+            let is_c_mc = is_c && command == codegen::CodegenCommandKind::ModelChecker;
             let base_name = base.clone().unwrap_or_else(|| {
                 Path::new(&input)
                     .file_stem()
                     .map(|s| s.to_string_lossy().into_owned())
                     .unwrap_or_else(|| "spec".into())
             });
-            let fsm_header_name = if is_c_prod {
-                Some(
+            let (fsm_header_name, fsm_source_name) = if is_c_prod {
+                (
                     out_fsm_header
                         .clone()
-                        .unwrap_or_else(|| format!("{base_name}-fsm.h")),
+                        .or(Some(format!("{base_name}-fsm.h"))),
+                    out_fsm_code.clone().or(Some(format!("{base_name}-fsm.c"))),
                 )
+            } else if is_c_mc {
+                let (h, s) = resolve_fsm_reference(
+                    fsm_file_header.as_deref(),
+                    fsm_file_source.as_deref(),
+                    fsm_file.as_deref(),
+                    &base_name,
+                    true,
+                );
+                (h, Some(s))
             } else {
-                None
+                (None, None)
             };
-            let fsm_source_name = if is_c_prod {
-                Some(
-                    out_fsm_code
-                        .clone()
-                        .unwrap_or_else(|| format!("{base_name}-fsm.c")),
-                )
+            let mc_header_name = if is_c_mc {
+                out_mc_header.clone().or(Some(format!("{base_name}-mc.h")))
             } else {
                 None
             };
@@ -370,6 +402,7 @@ pub fn run_cli(args: &[String]) -> ExitCode {
                 spec_hash: String::new(),
                 fsm_header_name,
                 fsm_source_name,
+                mc_header_name,
             };
             match command.run(backend, &ir, &options) {
                 Err(errors) => {

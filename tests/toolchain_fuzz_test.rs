@@ -214,6 +214,15 @@ fn run_one(tag: &str, ir: &rfs::Ir) {
             let out_path = dir.join(format!("{tag}_{backend_name}_{kind}{suffix}"));
             if backend_name == "rust" {
                 compile_rust(tag, backend_name, kind, &src_path, &out_path);
+            } else if kind == "mc" {
+                // Phase 14 task 3: object+link build of the mc/fsm pair (own
+                // subdir so parallel test threads don't collide on the fixed
+                // rfs_fsm.h / rfs_mc.h names).
+                common::prod_driver::build_c_mc_binary(
+                    &code,
+                    &dir.join(format!("{tag}_c_mc_pair")),
+                    &out_path,
+                );
             } else {
                 compile_c(tag, backend_name, &src_path, &out_path, compile_only);
             }
@@ -378,31 +387,22 @@ fn c_mc_trigger_step_zero_report_no_crash() {
         let code = rfs::codegen::CodegenCommandKind::ModelChecker
             .run(backend, &ir, &rfs::codegen::BackendOptions::default())
             .unwrap_or_else(|e| panic!("{backend_name} mc codegen: {e:?}"));
-        let ext = if backend_name == "c" { "c" } else { "rs" };
-        let src_path = dir.join(format!("trigger0_{backend_name}_mc.{ext}"));
-        std::fs::write(&src_path, code.primary_code().as_bytes()).expect("write source");
         let bin = dir.join(format!("trigger0_{backend_name}_mc_bin"));
-        let status = if backend_name == "c" {
-            Command::new(common::toolchain::gcc())
-                .arg("-Wall")
-                .arg(&src_path)
-                .arg("-o")
-                .arg(&bin)
-                .status()
-                .expect("run gcc")
+        if backend_name == "c" {
+            // Phase 14 task 3: object+link build of the mc/fsm pair.
+            common::prod_driver::build_c_mc_binary(&code, &dir.join("trigger0_c_mc_pair"), &bin);
         } else {
-            Command::new(rustc())
+            let src_path = dir.join("trigger0_rust_mc.rs");
+            std::fs::write(&src_path, code.primary_code().as_bytes()).expect("write source");
+            let status = Command::new(rustc())
                 .args(["--edition", "2021"])
                 .arg(&src_path)
                 .arg("-o")
                 .arg(&bin)
                 .status()
-                .expect("run rustc")
-        };
-        assert!(
-            status.success(),
-            "{backend_name}: compile of generated MC failed"
-        );
+                .expect("run rustc");
+            assert!(status.success(), "rust: compile of generated MC failed");
+        }
         let out = Command::new(&bin)
             .args([
                 "--mode", "fuzz", "--runs", "3", "--bound", "4", "--seed", "1",

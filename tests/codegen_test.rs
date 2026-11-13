@@ -1426,9 +1426,7 @@ fn mc_enum_input_field_domain_qualified_both_backends() {
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
         let rs = dir.join("m_mc.rs");
-        let c = dir.join("m_mc.c");
         std::fs::write(&rs, &rust_code).unwrap();
-        std::fs::write(&c, &c_code).unwrap();
         let rbin = dir.join("m_mc_rust");
         let cbin = dir.join("m_mc_c");
         let out = std::process::Command::new(common::toolchain::rustc())
@@ -1443,18 +1441,8 @@ fn mc_enum_input_field_domain_qualified_both_backends() {
             "rustc failed on enum-input MC codegen:\n{}",
             String::from_utf8_lossy(&out.stderr)
         );
-        let out = std::process::Command::new(common::toolchain::gcc())
-            .arg("-Wall")
-            .arg(&c)
-            .arg("-o")
-            .arg(&cbin)
-            .output()
-            .expect("spawn gcc");
-        assert!(
-            out.status.success(),
-            "gcc failed on enum-input MC codegen:\n{}",
-            String::from_utf8_lossy(&out.stderr)
-        );
+        // Phase 14 task 3: object+link build of the mc/fsm pair.
+        common::prod_driver::build_c_mc_binary(&c_code_out, &dir, &cbin);
         let r = std::process::Command::new(&rbin)
             .output()
             .expect("run rust engine");

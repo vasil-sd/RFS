@@ -138,7 +138,7 @@ fn cached_binary(key: &str, make: impl FnOnce(&Path) -> PathBuf) -> PathBuf {
     path
 }
 
-fn generate_from_source(backend_name: &str, src: &str, what: &str) -> String {
+fn generate_from_source(backend_name: &str, src: &str, what: &str) -> rfs::codegen::CodegenOutput {
     let ir = rfs::parse_source(src)
         .unwrap_or_else(|e| panic!("{what} must parse ({backend_name}): {e}"));
     assert_eq!(ir.modules.len(), 1);
@@ -154,8 +154,6 @@ fn generate_from_source(backend_name: &str, src: &str, what: &str) -> String {
     rfs::codegen::CodegenCommandKind::ModelChecker
         .run(backend, &ir, &options)
         .unwrap_or_else(|e| panic!("codegen {backend_name} for {what} must succeed: {e:?}"))
-        .primary_code()
-        .to_string()
 }
 
 /// The benchmark suite is a performance artifact as well as a correctness
@@ -177,39 +175,16 @@ fn compile_rust(src: &Path, bin: &Path) {
     );
 }
 
-fn compile_c(src: &Path, bin: &Path) {
-    let out = Command::new(common::toolchain::gcc())
-        .arg("-Wall")
-        .arg(src)
-        .arg("-o")
-        .arg(bin)
-        .output()
-        .expect("run gcc on generated code");
-    let stderr = String::from_utf8_lossy(&out.stderr);
-    assert!(
-        out.status.success(),
-        "gcc failed on {}:\n{stderr}",
-        src.display()
-    );
-    // Hard bar (task 7 exit criterion): generated C compiles with `gcc -Wall`
-    // without warnings.
-    assert!(
-        !stderr.lines().any(|l| l.contains("warning:")),
-        "gcc -Wall emitted warnings on {} (generated C must be warning-free):\n{stderr}",
-        src.display()
-    );
-}
-
 fn bench_binary(stem: &str, backend_name: &str, source: &str) -> PathBuf {
     cached_binary(&format!("bench|{stem}|{backend_name}"), |dir| {
-        let ext = if backend_name == "c" { "c" } else { "rs" };
-        let src = dir.join(format!("{stem}_mc.{ext}"));
-        std::fs::write(&src, generate_from_source(backend_name, source, stem))
-            .expect("write MC source");
         let bin = dir.join(format!("{stem}_mc_{backend_name}"));
+        let out = generate_from_source(backend_name, source, stem);
         if backend_name == "c" {
-            compile_c(&src, &bin);
+            // Phase 14 task 3: object+link build of the mc/fsm pair.
+            common::prod_driver::build_c_mc_binary(&out, dir, &bin);
         } else {
+            let src = dir.join(format!("{stem}_mc.rs"));
+            std::fs::write(&src, out.primary_code()).expect("write MC source");
             compile_rust(&src, &bin);
         }
         bin

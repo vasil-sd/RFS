@@ -169,21 +169,27 @@ fn compile_c(src: &Path, bin: &Path) {
 fn mc_binary(spec: &Path, backend_name: &str) -> PathBuf {
     let stem = spec.file_stem().unwrap().to_string_lossy().into_owned();
     cached_binary(&format!("mc|{stem}|{backend_name}"), |dir| {
-        let ext = if backend_name == "c" { "c" } else { "rs" };
-        let src = dir.join(format!("{stem}_mc.{ext}"));
-        std::fs::write(
-            &src,
-            generate(
+        let bin = dir.join(format!("{stem}_mc_{backend_name}"));
+        if backend_name == "c" {
+            // Phase 14 task 3: the C MC is a header/source pair that references
+            // the separately generated fsm pair - build via object+link.
+            let out = generate_full(
                 backend_name,
                 rfs::codegen::CodegenCommandKind::ModelChecker,
                 spec,
-            ),
-        )
-        .expect("write MC source");
-        let bin = dir.join(format!("{stem}_mc_{backend_name}"));
-        if backend_name == "c" {
-            compile_c(&src, &bin);
+            );
+            common::prod_driver::build_c_mc_binary(&out, dir, &bin);
         } else {
+            let src = dir.join(format!("{stem}_mc.rs"));
+            std::fs::write(
+                &src,
+                generate(
+                    backend_name,
+                    rfs::codegen::CodegenCommandKind::ModelChecker,
+                    spec,
+                ),
+            )
+            .expect("write MC source");
             compile_rust(&src, &bin, false);
         }
         bin
@@ -957,8 +963,8 @@ module liv_safety_precedence {
 }
 "#;
 
-/// MC codegen for an inline spec (the file-based twin of [`generate`]).
-fn generate_inline(backend_name: &str, src: &str) -> String {
+/// MC codegen for an inline spec (the file-based twin of [`generate_full`]).
+fn generate_inline(backend_name: &str, src: &str) -> rfs::codegen::CodegenOutput {
     let ir = rfs::parse_source(src)
         .unwrap_or_else(|e| panic!("inline liveness spec must parse ({backend_name}): {e}"));
     assert_eq!(ir.modules.len(), 1);
@@ -973,19 +979,17 @@ fn generate_inline(backend_name: &str, src: &str) -> String {
     rfs::codegen::CodegenCommandKind::ModelChecker
         .run(backend, &ir, &options)
         .unwrap_or_else(|e| panic!("MC codegen ({backend_name}) must succeed: {e:?}"))
-        .primary_code()
-        .to_string()
 }
 
 fn liv_mc_binary(tag: &str, backend_name: &str, src: &str) -> PathBuf {
     cached_binary(&format!("mc|liv_{tag}|{backend_name}"), |dir| {
-        let ext = if backend_name == "c" { "c" } else { "rs" };
-        let s = dir.join(format!("liv_{tag}_mc.{ext}"));
-        std::fs::write(&s, generate_inline(backend_name, src)).expect("write MC source");
         let b = dir.join(format!("liv_{tag}_mc_{backend_name}"));
+        let out = generate_inline(backend_name, src);
         if backend_name == "c" {
-            compile_c(&s, &b);
+            common::prod_driver::build_c_mc_binary(&out, dir, &b);
         } else {
+            let s = dir.join(format!("liv_{tag}_mc.rs"));
+            std::fs::write(&s, out.primary_code()).expect("write MC source");
             compile_rust(&s, &b, false);
         }
         b
@@ -1131,7 +1135,7 @@ fn json_options() -> rfs::codegen::BackendOptions {
     }
 }
 
-fn generate_spec_json(backend_name: &str, spec: &Path) -> String {
+fn generate_spec_json(backend_name: &str, spec: &Path) -> rfs::codegen::CodegenOutput {
     let src = std::fs::read_to_string(spec).unwrap_or_else(|e| panic!("read {:?}: {e}", spec));
     let ir = rfs::parse_source(&src)
         .unwrap_or_else(|e| panic!("{:?} must parse ({backend_name}): {e}", spec));
@@ -1146,27 +1150,25 @@ fn generate_spec_json(backend_name: &str, spec: &Path) -> String {
                 spec
             )
         })
-        .primary_code()
-        .to_string()
 }
 
 fn mc_json_binary(spec: &Path, backend_name: &str) -> PathBuf {
     let stem = spec.file_stem().unwrap().to_string_lossy().into_owned();
     cached_binary(&format!("mcjson|{stem}|{backend_name}"), |dir| {
-        let ext = if backend_name == "c" { "c" } else { "rs" };
-        let src = dir.join(format!("{stem}_mc_json.{ext}"));
-        std::fs::write(&src, generate_spec_json(backend_name, spec)).expect("write MC source");
         let bin = dir.join(format!("{stem}_mc_json_{backend_name}"));
+        let out = generate_spec_json(backend_name, spec);
         if backend_name == "c" {
-            compile_c(&src, &bin);
+            common::prod_driver::build_c_mc_binary(&out, dir, &bin);
         } else {
+            let src = dir.join(format!("{stem}_mc_json.rs"));
+            std::fs::write(&src, out.primary_code()).expect("write MC source");
             compile_rust(&src, &bin, false);
         }
         bin
     })
 }
 
-fn generate_inline_json(backend_name: &str, src: &str) -> String {
+fn generate_inline_json(backend_name: &str, src: &str) -> rfs::codegen::CodegenOutput {
     let ir = rfs::parse_source(src)
         .unwrap_or_else(|e| panic!("inline spec must parse ({backend_name}): {e}"));
     assert_eq!(ir.modules.len(), 1);
@@ -1175,19 +1177,17 @@ fn generate_inline_json(backend_name: &str, src: &str) -> String {
     rfs::codegen::CodegenCommandKind::ModelChecker
         .run(backend, &ir, &json_options())
         .unwrap_or_else(|e| panic!("MC codegen ({backend_name}) must succeed: {e:?}"))
-        .primary_code()
-        .to_string()
 }
 
 fn mc_json_binary_for(tag: &str, backend_name: &str, src: &str) -> PathBuf {
     cached_binary(&format!("mcjson|{tag}|{backend_name}"), |dir| {
-        let ext = if backend_name == "c" { "c" } else { "rs" };
-        let s = dir.join(format!("{tag}_mc_json.{ext}"));
-        std::fs::write(&s, generate_inline_json(backend_name, src)).expect("write MC source");
         let b = dir.join(format!("{tag}_mc_json_{backend_name}"));
+        let out = generate_inline_json(backend_name, src);
         if backend_name == "c" {
-            compile_c(&s, &b);
+            common::prod_driver::build_c_mc_binary(&out, dir, &b);
         } else {
+            let s = dir.join(format!("{tag}_mc_json.rs"));
+            std::fs::write(&s, out.primary_code()).expect("write MC source");
             compile_rust(&s, &b, false);
         }
         b

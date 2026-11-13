@@ -111,7 +111,7 @@ fn cached_binary(key: &str, make: impl FnOnce(&Path) -> PathBuf) -> PathBuf {
     path
 }
 
-fn generate_mc_json(backend_name: &str, ir: &rfs::Ir) -> String {
+fn generate_mc_json(backend_name: &str, ir: &rfs::Ir) -> rfs::codegen::CodegenOutput {
     let backend = rfs::codegen::get_backend(backend_name)
         .unwrap_or_else(|| panic!("backend {backend_name} registered"));
     let options = rfs::codegen::BackendOptions {
@@ -121,8 +121,6 @@ fn generate_mc_json(backend_name: &str, ir: &rfs::Ir) -> String {
     rfs::codegen::CodegenCommandKind::ModelChecker
         .run(backend, ir, &options)
         .unwrap_or_else(|e| panic!("MC codegen ({backend_name}) must succeed: {e:?}"))
-        .primary_code()
-        .to_string()
 }
 
 fn compile_rust(src: &Path, bin: &Path) {
@@ -141,22 +139,6 @@ fn compile_rust(src: &Path, bin: &Path) {
     );
 }
 
-fn compile_c(src: &Path, bin: &Path) {
-    let out = Command::new(common::toolchain::gcc())
-        .arg("-Wall")
-        .arg(src)
-        .arg("-o")
-        .arg(bin)
-        .output()
-        .expect("run gcc on generated code");
-    assert!(
-        out.status.success(),
-        "gcc failed on {}:\n{}",
-        src.display(),
-        String::from_utf8_lossy(&out.stderr)
-    );
-}
-
 /// Cache/file tag: the example name without its `.rfs` extension (a dot in
 /// the file name would derive an invalid Rust crate name).
 fn tag_of(name: &str) -> String {
@@ -166,13 +148,14 @@ fn tag_of(name: &str) -> String {
 fn mc_json_binary(tag: &str, backend_name: &str, ir: &rfs::Ir) -> PathBuf {
     let tag = tag_of(tag);
     cached_binary(&format!("mcjson|{tag}|{backend_name}"), |dir| {
-        let ext = if backend_name == "c" { "c" } else { "rs" };
-        let src = dir.join(format!("{tag}_mc_json.{ext}"));
-        std::fs::write(&src, generate_mc_json(backend_name, ir)).expect("write MC source");
         let bin = dir.join(format!("{tag}_mc_json_{backend_name}"));
+        let out = generate_mc_json(backend_name, ir);
         if backend_name == "c" {
-            compile_c(&src, &bin);
+            // Phase 14 task 3: object+link build of the mc/fsm pair.
+            common::prod_driver::build_c_mc_binary(&out, dir, &bin);
         } else {
+            let src = dir.join(format!("{tag}_mc_json.rs"));
+            std::fs::write(&src, out.primary_code()).expect("write MC source");
             compile_rust(&src, &bin);
         }
         bin

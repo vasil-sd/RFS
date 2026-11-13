@@ -152,6 +152,12 @@ untested.
 - No Rust backend changes (task 5).
 - No `rfs test` pipeline changes (the mc command is not part of `rfs test`).
 
+## Task corrections
+
+| Correction | Description + rationale |
+|------------|-------------------------|
+| Action 3.1 under-scoped the header's required content | The action assumed only the MC engine's report types needed hoisting into the mc header. In reality the MC engine calls FSM internals that were source-local statics (`rfs_commit`, `trace_vars`, `assume_monitors_step`, `prop_monitors_step`, `ASSUME_LABELS`/`N_ASSUME_LABELS`) - visible only because the FSM core used to be inlined into the same translation unit. Exposing them as EXTERNAL symbols declared in the fsm header (a `c/fsm.rs` change, plus `mod.rs`/`codegen.rs` plumbing) was a hard requirement of the object+link split, not an optional refactor. The mc header itself stays thin (run entry points + the fsm-header include that supplies the report/trace types). Rationale: the MC cannot link against the fsm object unless the symbols it calls are exported; see Plan correction 3a. |
+
 ## Other information
 
 - Re-check at implementation start: whether any report struct is defined

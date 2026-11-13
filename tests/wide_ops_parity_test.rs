@@ -303,28 +303,32 @@ fn wide_ops_exact_mc_status_parity() {
     std::fs::create_dir_all(&dir).unwrap();
 
     let run = |backend: &str, bin: &Path| -> String {
-        let src = generate(backend, "mc");
-        let ext = if backend == "c" { "c" } else { "rs" };
-        let src_path = dir.join(format!("wide_ops_mc_{backend}.{ext}"));
-        std::fs::write(&src_path, src).unwrap();
-        let cc = if backend == "c" {
-            common::toolchain::gcc()
+        let ir = rfs::parse_file(&repo_root().join("examples/valid/50_wide_ops.rfs"))
+            .expect("50_wide_ops parses");
+        let backend_def = rfs::codegen::get_backend(backend).expect("backend registered");
+        let out = rfs::codegen::CodegenCommandKind::ModelChecker
+            .run(backend_def, &ir, &rfs::codegen::BackendOptions::default())
+            .expect("mc codegen succeeds");
+        if backend == "c" {
+            // Phase 14 task 3: object+link build of the mc/fsm pair.
+            common::prod_driver::build_c_mc_binary(&out, &dir, bin);
         } else {
-            common::toolchain::rustc()
-        };
-        let mut cmd = Command::new(&cc);
-        if backend == "rust" {
-            cmd.args(["--edition", "2021"]);
-        } else {
-            cmd.arg("-Wall");
+            let src_path = dir.join("wide_ops_mc_rust.rs");
+            std::fs::write(&src_path, out.primary_code()).unwrap();
+            let cc = common::toolchain::rustc();
+            let o = Command::new(&cc)
+                .args(["--edition", "2021"])
+                .arg(&src_path)
+                .arg("-o")
+                .arg(bin)
+                .output()
+                .expect("spawn rustc");
+            assert!(
+                o.status.success(),
+                "rustc for mc: {}",
+                String::from_utf8_lossy(&o.stderr)
+            );
         }
-        cmd.arg(&src_path).arg("-o").arg(bin);
-        let out = cmd.output().expect("spawn compiler");
-        assert!(
-            out.status.success(),
-            "{cc} for {backend} mc: {}",
-            String::from_utf8_lossy(&out.stderr)
-        );
         let out = Command::new(bin).output().expect("run mc");
         assert!(
             out.status.success(),

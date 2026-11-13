@@ -63,6 +63,16 @@ fn property_bearing_examples() -> Vec<PathBuf> {
 }
 
 fn generate(backend_name: &str, command: rfs::codegen::CodegenCommandKind, spec: &Path) -> String {
+    generate_full(backend_name, command, spec)
+        .primary_code()
+        .to_string()
+}
+
+fn generate_full(
+    backend_name: &str,
+    command: rfs::codegen::CodegenCommandKind,
+    spec: &Path,
+) -> rfs::codegen::CodegenOutput {
     let src = std::fs::read_to_string(spec).unwrap_or_else(|e| panic!("read {:?}: {e}", spec));
     let ir = rfs::parse_source(&src)
         .unwrap_or_else(|e| panic!("{:?} must parse ({backend_name}): {e}", spec));
@@ -78,8 +88,6 @@ fn generate(backend_name: &str, command: rfs::codegen::CodegenCommandKind, spec:
     command
         .run(backend, &ir, &options)
         .unwrap_or_else(|e| panic!("codegen {backend_name} {:?} must succeed: {e:?}", spec))
-        .primary_code()
-        .to_string()
 }
 
 fn c_options(header_name: Option<&str>) -> rfs::codegen::BackendOptions {
@@ -144,6 +152,49 @@ fn compile_warning_free_i(cc: &str, src: &Path, inc: &Path, obj: &Path) {
         !stderr.lines().any(|l| l.contains("warning:")),
         "{cc} -O2 -Wall emitted warnings on {}:\n{stderr}",
         src.display()
+    );
+}
+
+/// Phase 14 task 3: build a C MC binary from the four-file artifact set under
+/// compiler `cc` at -O2 -Wall. Writes fsm.h/fsm.c/mc.h/mc.c into `subdir` under
+/// their standalone default names, compiles BOTH sources to objects (zero-
+/// warning bar), and links them into `bin`. Used by the gcc/clang parity legs.
+fn build_mc_pair(cc: &str, out: &rfs::codegen::CodegenOutput, subdir: &Path, bin: &Path) {
+    std::fs::create_dir_all(subdir).expect("create mc pair subdir");
+    let fsm_h = subdir.join("rfs_fsm.h");
+    let fsm_c = subdir.join("rfs_fsm.c");
+    let mc_h = subdir.join("rfs_mc.h");
+    let mc_c = subdir.join("rfs_mc.c");
+    std::fs::write(
+        &fsm_h,
+        out.fsm_header.as_deref().expect("c mc fills fsm-header"),
+    )
+    .expect("w");
+    std::fs::write(
+        &fsm_c,
+        out.fsm_code.as_deref().expect("c mc fills fsm-code"),
+    )
+    .expect("w");
+    std::fs::write(
+        &mc_h,
+        out.mc_header.as_deref().expect("c mc fills mc-header"),
+    )
+    .expect("w");
+    std::fs::write(&mc_c, out.mc_code.as_deref().expect("c mc fills mc-code")).expect("w");
+    compile_warning_free_i(cc, &fsm_c, subdir, &subdir.join("rfs_fsm.o"));
+    compile_warning_free_i(cc, &mc_c, subdir, &subdir.join("rfs_mc.o"));
+    let linked = Command::new(cc)
+        .args(["-O2"])
+        .arg(subdir.join("rfs_fsm.o"))
+        .arg(subdir.join("rfs_mc.o"))
+        .arg("-o")
+        .arg(bin)
+        .output()
+        .expect("link mc objects");
+    assert!(
+        linked.status.success(),
+        "link of {cc} mc objects failed:\n{}",
+        String::from_utf8_lossy(&linked.stderr)
     );
 }
 
@@ -215,6 +266,25 @@ fn generated_c_compiles_warning_free_under_every_compiler() {
                         &src,
                         &dir,
                         &dir.join(format!("{stem}_{variant}_clang.o")),
+                    );
+                }
+            } else if variant == "mc" {
+                // Phase 14 task 3: the C MC is a header/source pair referencing
+                // the fsm pair - compile BOTH sources under each compiler and
+                // link (the single-file shape no longer exists).
+                let out = generate_full("c", command, &spec);
+                build_mc_pair(
+                    &gcc,
+                    &out,
+                    &dir.join(format!("{stem}_mc_gcc")),
+                    &dir.join(format!("{stem}_{variant}_gcc.bin")),
+                );
+                if have_clang {
+                    build_mc_pair(
+                        &common::toolchain::clang(),
+                        &out,
+                        &dir.join(format!("{stem}_mc_clang")),
+                        &dir.join(format!("{stem}_{variant}_clang.bin")),
                     );
                 }
             } else {
@@ -327,12 +397,9 @@ fn forced_violation_parity_across_compilers() {
             continue;
         };
         let stem = spec.file_stem().unwrap().to_string_lossy().into_owned();
-        let src = dir.join(format!("{stem}_vio.c"));
-        std::fs::write(
-            &src,
-            generate("c", rfs::codegen::CodegenCommandKind::ModelChecker, &spec),
-        )
-        .expect("write MC source");
+        // Phase 14 task 3: object+link build of the mc/fsm pair under each
+        // compiler (the single-file MC source no longer exists).
+        let out = generate_full("c", rfs::codegen::CodegenCommandKind::ModelChecker, &spec);
 
         let mut bins: Vec<(String, PathBuf)> = Vec::new();
         for (cc, name) in [(&gcc, "gcc"), (&common::toolchain::clang(), "clang")] {
@@ -340,17 +407,7 @@ fn forced_violation_parity_across_compilers() {
                 continue;
             }
             let bin = dir.join(format!("{stem}_vio_{name}"));
-            let out = Command::new(cc)
-                .args(["-Wall", "-O2"])
-                .arg(&src)
-                .arg("-o")
-                .arg(&bin)
-                .output()
-                .expect("compile MC binary");
-            assert!(
-                out.status.success(),
-                "compile failed for {stem} with {name}"
-            );
+            build_mc_pair(cc, &out, &dir.join(format!("{stem}_vio_{name}_pair")), &bin);
             bins.push((name.to_string(), bin));
         }
 

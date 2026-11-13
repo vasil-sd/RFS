@@ -173,6 +173,12 @@ pub struct BackendOptions {
     /// Resolved C fsm-source file name (Phase 14 task 2); carried for symmetry
     /// with the header name. None = standalone default.
     pub fsm_source_name: Option<String>,
+    /// Resolved C mc-header file name (Phase 14 task 3): the CLI layer stamps
+    /// this from the resolved output path so the generated mc source `#include`s
+    /// its own header by the correct name and the include guard matches. None =
+    /// a library caller generating standalone content, which uses the fixed
+    /// default `rfs_mc.h`.
+    pub mc_header_name: Option<String>,
 }
 
 impl Default for BackendOptions {
@@ -191,6 +197,7 @@ impl Default for BackendOptions {
             counterexample_format: crate::codegen::mc_concepts::CounterexampleFormat::Text,
             fsm_header_name: None,
             fsm_source_name: None,
+            mc_header_name: None,
             with_protocol_fsm: false,
             spec_hash: String::new(),
         }
@@ -314,24 +321,17 @@ impl CodegenOutput {
         s.as_deref()
     }
 
-    /// The sole filled PRIMARY slot's content (fsm_code / test_code /
-    /// mc_code - the header and fuzz-target slots are not primaries).
-    /// Every command fills exactly one primary slot, so this is unambiguous;
-    /// it panics if that invariant breaks (a generator bug).
+    /// The command's OWN primary artifact (fsm_code / test_code / mc_code -
+    /// the header and fuzz-target slots are not primaries): mc_code for `mc`, test_code for
+    /// `test`, fsm_code for `production`. C `mc` additionally fills fsm_code
+    /// (the referenced fsm pair it co-emits via take-or-emit, Phase 14 task 3),
+    /// so the priority is mc > test > fsm - the most derived artifact wins.
+    /// Panics if no primary slot is filled (a generator bug).
     pub fn primary_code(&self) -> &str {
-        let filled = [
-            self.fsm_code.is_some(),
-            self.test_code.is_some(),
-            self.mc_code.is_some(),
-        ]
-        .into_iter()
-        .filter(|b| *b)
-        .count();
-        assert_eq!(filled, 1, "exactly one primary slot must be filled");
-        self.fsm_code
+        self.mc_code
             .as_deref()
             .or(self.test_code.as_deref())
-            .or(self.mc_code.as_deref())
+            .or(self.fsm_code.as_deref())
             .expect("a primary slot is filled")
     }
 

@@ -835,31 +835,26 @@ fn ce_mc_binary(key: &str, backend: &str, src: &str) -> PathBuf {
             }
         })
         .collect();
-    let ext = if backend == "c" { "c" } else { "rs" };
-    let src_path = dir.join(format!("{stem}_mc.{ext}"));
-    std::fs::write(&src_path, code).expect("write MC source");
     let bin = dir.join(format!("{stem}_mc_{backend}"));
-    let out = if backend == "c" {
-        Command::new(common::toolchain::gcc())
-            .arg("-Wall")
-            .arg(&src_path)
-            .arg("-o")
-            .arg(&bin)
-            .output()
+    if backend == "c" {
+        // Phase 14 task 3: object+link build of the mc/fsm pair.
+        common::prod_driver::build_c_mc_binary(&mc_out, &dir, &bin);
     } else {
-        Command::new(rustc_path())
+        let src_path = dir.join(format!("{stem}_mc.rs"));
+        std::fs::write(&src_path, code).expect("write MC source");
+        let out = Command::new(rustc_path())
             .args(["--edition", "2021", "-O"])
             .arg(&src_path)
             .arg("-o")
             .arg(&bin)
             .output()
-    };
-    let out = out.unwrap_or_else(|e| panic!("run compiler for {key}: {e}"));
-    assert!(
-        out.status.success(),
-        "{backend} compile failed for {key}:\n{}",
-        String::from_utf8_lossy(&out.stderr)
-    );
+            .unwrap_or_else(|e| panic!("run compiler for {key}: {e}"));
+        assert!(
+            out.status.success(),
+            "{backend} compile failed for {key}:\n{}",
+            String::from_utf8_lossy(&out.stderr)
+        );
+    }
     cache.insert(key.to_string(), bin.clone());
     bin
 }
@@ -2687,6 +2682,23 @@ fn artifact_header_generated_output_matches_documented_format() {
                         "{what}: header line 1 not in the documented header form"
                     );
                 }
+                if backend_name == "c"
+                    && matches!(command, rfs::codegen::CodegenCommandKind::ModelChecker)
+                {
+                    // Phase 14 task 3: the mc header and the referenced fsm
+                    // header each carry their OWN line-1 stamp (D-P6-3).
+                    for (slot, slot_what) in [
+                        (out.mc_header.as_deref(), "mc-header"),
+                        (out.fsm_header.as_deref(), "fsm-header"),
+                    ] {
+                        let hdr = slot.expect(&format!("{what}: c mc fills the {slot_what} slot"));
+                        assert_eq!(
+                            hdr.lines().next(),
+                            Some(expected_header_line(&ir).as_str()),
+                            "{what}: {slot_what} line 1 not in the documented header form"
+                        );
+                    }
+                }
                 if matches!(command, rfs::codegen::CodegenCommandKind::UnitTests) {
                     let skel = out
                         .fuzz_target
@@ -2702,12 +2714,21 @@ fn artifact_header_generated_output_matches_documented_format() {
                 }
                 // Only the command's own slots are filled: one primary slot,
                 // plus the fuzz-target slot for test, plus the header slot for
-                // C production (task 2 split).
+                // C production (task 2 split), plus - for C mc - the mc header
+                // and the referenced fsm pair (task 3 split: 4 slots total).
                 let filled = out.filled_slots();
                 let is_test = matches!(command, rfs::codegen::CodegenCommandKind::UnitTests);
                 let is_c_prod = backend_name == "c"
                     && matches!(command, rfs::codegen::CodegenCommandKind::Production);
-                let expected_n = if is_test || is_c_prod { 2 } else { 1 };
+                let is_c_mc = backend_name == "c"
+                    && matches!(command, rfs::codegen::CodegenCommandKind::ModelChecker);
+                let expected_n = if is_c_mc {
+                    4
+                } else if is_test || is_c_prod {
+                    2
+                } else {
+                    1
+                };
                 assert_eq!(filled.len(), expected_n, "{what}: unexpected slots filled");
             }
         }

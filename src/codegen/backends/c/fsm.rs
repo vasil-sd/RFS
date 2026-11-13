@@ -29,12 +29,23 @@ pub fn generate_production(
     } else {
         PropertyMonitorMode::Off
     };
+    generate_fsm_pair(module, options, mode)
+}
+
+/// The C production header/source pair (Phase 14 task 2), shared by the
+/// `production` command and any command that co-emits or references the fsm
+/// artifact (task 3: `mc`). The header carries the include guard + types +
+/// public prototypes; the source includes its own header (by the resolved
+/// name) and carries the pragma + all bodies. Both carry their own line-1
+/// artifact header (D-P6-3). Fills BOTH fsm slots so the CLI write loop can
+/// apply take-or-emit to them.
+pub(crate) fn generate_fsm_pair(
+    module: &Module,
+    options: &crate::codegen::BackendOptions,
+    mode: PropertyMonitorMode,
+) -> Result<crate::codegen::CodegenOutput, Vec<String>> {
     let mut warnings = Vec::new();
     let gen = Gen::new(module, options, mode, &mut warnings)?;
-    // Phase 14 task 2: the production artifact is a header/source pair. The
-    // header carries the include guard + types + public prototypes; the source
-    // includes its own header (by the resolved name) and carries the pragma +
-    // all bodies. Both carry their own line-1 artifact header (D-P6-3).
     let guard = format!("{}_FSM_H", c_ident(&module.name).to_uppercase());
     let own_header = options
         .fsm_header_name
@@ -638,9 +649,12 @@ impl<'a> Gen<'a> {
             Piece::Source,
             "static inline state_t trace_state(const rfs_trace_t* t, int pos) { return pos == 0 ? t->initial_state : t->steps[pos - 1].to; }\n",
         );
+        // Phase 14 task 3: `trace_vars` is part of the engine-facing API the
+        // separately compiled model checker links against, so it is external
+        // (declared in the header) rather than a source-local static.
         self.emit(
             Piece::Source,
-            "static inline vars_t trace_vars(const rfs_trace_t* t, int pos) { return pos == 0 ? t->initial_vars : t->steps[pos - 1].vars; }\n",
+            "vars_t trace_vars(const rfs_trace_t* t, int pos) { return pos == 0 ? t->initial_vars : t->steps[pos - 1].vars; }\n",
         );
         self.emit(
             Piece::Source,
@@ -1034,7 +1048,7 @@ impl<'a> Gen<'a> {
         } else {
             // Empty aggregate keeps the fsm_t shape and call sites uniform.
             let types = "typedef struct { int _unused; } assume_monitors_t;\n";
-            let fns = "static inline void assume_monitors_new(assume_monitors_t* m) { (void)m; }\nstatic inline const char* assume_monitors_step(assume_monitors_t* m, const rfs_sample_t* s, int idx, const char** active_assumes, int n_active) { (void)m; (void)s; (void)idx; (void)active_assumes; (void)n_active; return 0; }\n";
+            let fns = "static inline void assume_monitors_new(assume_monitors_t* m) { (void)m; }\nconst char* assume_monitors_step(assume_monitors_t* m, const rfs_sample_t* s, int idx, const char** active_assumes, int n_active) { (void)m; (void)s; (void)idx; (void)active_assumes; (void)n_active; return 0; }\n";
             self.code.push_str(types);
             self.code.push_str(fns);
             self.header.push_str(types);
@@ -1057,38 +1071,36 @@ impl<'a> Gen<'a> {
                 .map(|s| format!("\"{}\"", s))
                 .collect()
         };
-        // `RFS_UNUSED`: the label tables exist for MC/test runtimes and user
-        // code (D-P3-4); a production TU without them referenced must not
-        // warn under -Wall. All static -> source.
-        self.emit(
-            Piece::Source,
-            "#if defined(__GNUC__) || defined(__clang__)\n#define RFS_UNUSED __attribute__((unused))\n#else\n#define RFS_UNUSED\n#endif\n",
-        );
+        // Label constants (D-P3-4): kept for MC/test runtimes and user code.
+        // Phase 14 task 3: the model checker links against the fsm object and
+        // reads ASSUME_LABELS/N_ASSUME_LABELS, so the tables are external
+        // definitions (declared `extern` in the header) rather than source-local
+        // statics - an exported symbol is never flagged by -Wall as unused.
         self.emit(
             Piece::Source,
             &format!(
-                "static const char* PROPERTY_LABELS[] RFS_UNUSED = {{{}}};\n",
+                "const char* PROPERTY_LABELS[] = {{{}}};\n",
                 props.join(", ")
             ),
         );
         self.emit(
             Piece::Source,
             &format!(
-                "static const int N_PROPERTY_LABELS RFS_UNUSED = {};\n",
+                "const int N_PROPERTY_LABELS = {};\n",
                 self.property_names.len()
             ),
         );
         self.emit(
             Piece::Source,
             &format!(
-                "static const char* ASSUME_LABELS[] RFS_UNUSED = {{{}}};\n",
+                "const char* ASSUME_LABELS[] = {{{}}};\n",
                 assumes.join(", ")
             ),
         );
         self.emit(
             Piece::Source,
             &format!(
-                "static const int N_ASSUME_LABELS RFS_UNUSED = {};\n",
+                "const int N_ASSUME_LABELS = {};\n",
                 self.active_assumes.len()
             ),
         );
@@ -1414,7 +1426,7 @@ impl<'a> Gen<'a> {
             fields = fields.join(" "),
         );
         let fns = format!(
-            "static inline void assume_monitors_new(assume_monitors_t* m) {{ {inits} }}\n/// Step all assumption monitors on sample `idx`. Returns the label of a\n/// newly failed ACTIVE assumption (first in declaration order), or NULL.\nstatic inline const char* assume_monitors_step(assume_monitors_t* m, const rfs_sample_t* s, int idx, const char** active_assumes, int n_active) {{\n    const char* r = 0;\n{steps}\n    return r;\n}}\n",
+            "static inline void assume_monitors_new(assume_monitors_t* m) {{ {inits} }}\n/// Step all assumption monitors on sample `idx`. Returns the label of a\n/// newly failed ACTIVE assumption (first in declaration order), or NULL.\nconst char* assume_monitors_step(assume_monitors_t* m, const rfs_sample_t* s, int idx, const char** active_assumes, int n_active) {{\n    const char* r = 0;\n{steps}\n    return r;\n}}\n",
             inits = inits.join(" "),
             steps = steps.join("\n"),
         );
@@ -1426,7 +1438,7 @@ impl<'a> Gen<'a> {
     fn render_prop_monitors(&self) -> (String, String, String) {
         if self.prop_plans.is_empty() {
             let types = "typedef struct { int _unused; } prop_monitors_t;\n".to_string();
-            let fns = "static inline void prop_monitors_new(prop_monitors_t* m) { (void)m; }\nstatic inline int prop_monitors_step(prop_monitors_t* m, const rfs_sample_t* s, int idx, rfs_property_violation_t* out) { (void)m; (void)s; (void)idx; (void)out; return 0; }\n".to_string();
+            let fns = "static inline void prop_monitors_new(prop_monitors_t* m) { (void)m; }\nint prop_monitors_step(prop_monitors_t* m, const rfs_sample_t* s, int idx, rfs_property_violation_t* out) { (void)m; (void)s; (void)idx; (void)out; return 0; }\n".to_string();
             return (format!("{types}{fns}"), types, fns);
         }
         let fields: Vec<String> = self
@@ -1457,7 +1469,7 @@ impl<'a> Gen<'a> {
             fields = fields.join(" "),
         );
         let fns = format!(
-            "static inline void prop_monitors_new(prop_monitors_t* m) {{ {inits} }}\n/// Step all property monitors on sample `idx`. Returns 1 and fills `out`\n/// with the first newly failed monitor's violation (declaration order).\nstatic inline int prop_monitors_step(prop_monitors_t* m, const rfs_sample_t* s, int idx, rfs_property_violation_t* out) {{\n    int found = 0;\n{steps}\n    return found;\n}}\n",
+            "static inline void prop_monitors_new(prop_monitors_t* m) {{ {inits} }}\n/// Step all property monitors on sample `idx`. Returns 1 and fills `out`\n/// with the first newly failed monitor's violation (declaration order).\nint prop_monitors_step(prop_monitors_t* m, const rfs_sample_t* s, int idx, rfs_property_violation_t* out) {{\n    int found = 0;\n{steps}\n    return found;\n}}\n",
             inits = inits.join(" "),
             steps = steps.join("\n"),
         );
@@ -1557,7 +1569,7 @@ impl<'a> Gen<'a> {
         );
         let _ = writeln!(
             body,
-            "static RFS_UNUSED step_result_t rfs_commit(fsm_t* f, const input_t* in, const output_t* outs, int n_out, state_t next_state, const vars_t* new_vars, rfs_assumption_handler handler, void* user) {{\n    trace_step_t s; s.input = *in; for (int i = 0; i < n_out && i < MAX_OUTPUTS; i++) s.outputs[i] = outs[i]; s.n_outputs = n_out; s.from = f->state; s.to = next_state; s.vars = *new_vars;\n    trace_push(&f->trace, &s);\n    int idx = f->trace.len;\n    rfs_sample_t sample = {{ in, outs, n_out, s.from, s.to, s.vars }};\n    const char* al = assume_monitors_step(&f->assume_monitors, &sample, idx, f->active_assumes, f->n_active_assumes);\n    if (al) {{\n        rfs_policy_t pol = handler(user, al);\n        if (pol == RFS_STOP) {{ step_result_t r = rfs_make_result(RFS_ASSUMPTION_VIOLATION); strncpy(r.assume_label, al, sizeof(r.assume_label) - 1); r.assume_label[sizeof(r.assume_label) - 1] = 0; return r; }}\n        if (pol == RFS_PANIC) {{ fprintf(stderr, \"RFS assumption violated: %s\\n\", al); abort(); }}\n    }}{prop_check}\n    f->state = next_state; f->vars = *new_vars;\n    step_result_t r = rfs_make_result(RFS_OK); for (int i = 0; i < n_out && i < MAX_OUTPUTS; i++) r.outputs[i] = outs[i]; r.n_outputs = n_out; return r;\n}}"
+            "step_result_t rfs_commit(fsm_t* f, const input_t* in, const output_t* outs, int n_out, state_t next_state, const vars_t* new_vars, rfs_assumption_handler handler, void* user) {{\n    trace_step_t s; s.input = *in; for (int i = 0; i < n_out && i < MAX_OUTPUTS; i++) s.outputs[i] = outs[i]; s.n_outputs = n_out; s.from = f->state; s.to = next_state; s.vars = *new_vars;\n    trace_push(&f->trace, &s);\n    int idx = f->trace.len;\n    rfs_sample_t sample = {{ in, outs, n_out, s.from, s.to, s.vars }};\n    const char* al = assume_monitors_step(&f->assume_monitors, &sample, idx, f->active_assumes, f->n_active_assumes);\n    if (al) {{\n        rfs_policy_t pol = handler(user, al);\n        if (pol == RFS_STOP) {{ step_result_t r = rfs_make_result(RFS_ASSUMPTION_VIOLATION); strncpy(r.assume_label, al, sizeof(r.assume_label) - 1); r.assume_label[sizeof(r.assume_label) - 1] = 0; return r; }}\n        if (pol == RFS_PANIC) {{ fprintf(stderr, \"RFS assumption violated: %s\\n\", al); abort(); }}\n    }}{prop_check}\n    f->state = next_state; f->vars = *new_vars;\n    step_result_t r = rfs_make_result(RFS_OK); for (int i = 0; i < n_out && i < MAX_OUTPUTS; i++) r.outputs[i] = outs[i]; r.n_outputs = n_out; return r;\n}}"
         );
 
         // step(): grouped by state, priority-ordered within a state (Phase 2).
@@ -1635,6 +1647,29 @@ impl<'a> Gen<'a> {
         // types they reference.
         self.header.push_str(
             "void fsm_new(fsm_t* f);\nvoid fsm_free(fsm_t* f);\nstep_result_t fsm_step(fsm_t* f, input_t in, rfs_assumption_handler handler, void* user);\n",
+        );
+        // Engine-facing API (Phase 14 task 3): the separately compiled model
+        // checker and test runtimes link against the fsm object and call these,
+        // so they are declared here (external definitions live in the source).
+        // Emitted directly to the header - like the public prototypes above, not
+        // part of the legacy single file, which defines them inline.
+        self.header.push_str(
+            "// Engine-facing API (used by the generated model checker / test runtimes).\n\
+             vars_t trace_vars(const rfs_trace_t* t, int pos);\n\
+             step_result_t rfs_commit(fsm_t* f, const input_t* in, const output_t* outs, int n_out, state_t next_state, const vars_t* new_vars, rfs_assumption_handler handler, void* user);\n\
+             const char* assume_monitors_step(assume_monitors_t* m, const rfs_sample_t* s, int idx, const char** active_assumes, int n_active);\n",
+        );
+        // prop_monitors_step references the prop-gated types (prop_monitors_t,
+        // rfs_property_violation_t), so it is emitted under the same guard as
+        // the property-monitor machinery - absent in Off mode.
+        self.header.push_str(&self.prop_emit(
+            "int prop_monitors_step(prop_monitors_t* m, const rfs_sample_t* s, int idx, rfs_property_violation_t* out);\n",
+        ));
+        self.header.push_str(
+            "extern const char* PROPERTY_LABELS[];\n\
+             extern const int N_PROPERTY_LABELS;\n\
+             extern const char* ASSUME_LABELS[];\n\
+             extern const int N_ASSUME_LABELS;\n",
         );
         Ok(())
     }

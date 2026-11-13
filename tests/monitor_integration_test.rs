@@ -102,6 +102,17 @@ fn generate(
     source: &str,
     with_property_monitors: bool,
 ) -> String {
+    generate_full(backend_name, command, source, with_property_monitors)
+        .primary_code()
+        .to_string()
+}
+
+fn generate_full(
+    backend_name: &str,
+    command: rfs::codegen::CodegenCommandKind,
+    source: &str,
+    with_property_monitors: bool,
+) -> rfs::codegen::CodegenOutput {
     let ir = rfs::parse_source(source)
         .unwrap_or_else(|e| panic!("spec must parse ({backend_name}): {e}"));
     assert_eq!(ir.modules.len(), 1);
@@ -117,8 +128,6 @@ fn generate(
     command
         .run(backend, &ir, &options)
         .unwrap_or_else(|e| panic!("codegen {backend_name} must succeed: {e:?}"))
-        .primary_code()
-        .to_string()
 }
 
 // ---------------------------------------------------------------------------
@@ -160,13 +169,9 @@ fn parse_mc_violation(stdout: &str) -> Option<McViolation> {
 fn mc_buggy_run(backend_name: &str, dir: &Path) -> McViolation {
     let kind = rfs::codegen::CodegenCommandKind::ModelChecker;
     if backend_name == "c" {
-        let p = dir.join("mc.c");
-        std::fs::write(
-            &p,
-            generate(backend_name, kind, &buggy_spec_source(), false),
-        )
-        .expect("write C MC source");
-        compile_c(&p, &dir.join("mc"), &[]);
+        // Phase 14 task 3: object+link build of the mc/fsm pair.
+        let out = generate_full(backend_name, kind, &buggy_spec_source(), false);
+        common::prod_driver::build_c_mc_binary(&out, dir, &dir.join("mc"));
     } else {
         let p = dir.join("mc.rs");
         std::fs::write(
@@ -255,14 +260,14 @@ fn parse_mc_summary(stdout: &str) -> Option<Vec<(String, String)>> {
 
 fn mc_good_run(backend_name: &str, dir: &Path) -> Vec<(String, String)> {
     let kind = rfs::codegen::CodegenCommandKind::ModelChecker;
-    let src = generate(backend_name, kind, &example41_source(), false);
     if backend_name == "c" {
-        let p = dir.join("mc.c");
-        std::fs::write(&p, src).expect("write C MC source");
-        compile_c(&p, &dir.join("mc"), &[]);
+        // Phase 14 task 3: object+link build of the mc/fsm pair.
+        let out = generate_full(backend_name, kind, &example41_source(), false);
+        common::prod_driver::build_c_mc_binary(&out, dir, &dir.join("mc"));
     } else {
         let p = dir.join("mc.rs");
-        std::fs::write(&p, src).expect("write Rust MC source");
+        std::fs::write(&p, generate(backend_name, kind, &example41_source(), false))
+            .expect("write Rust MC source");
         compile_rust(&p, &dir.join("mc"));
     }
     // Seedless exact mode (D-P4-14): the full reachable graph is explored.

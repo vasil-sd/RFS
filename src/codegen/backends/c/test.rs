@@ -31,7 +31,7 @@ use crate::codegen::test_plan::{
     self, build_fuzz_decode, FuzzFieldStrategy, InputCase, InvariantCase, MonitorViolationCase,
     OutputCase, RandomTraceCase, TransitionExpectation, TransitionTestCase, VarValue,
 };
-use crate::codegen::{BackendOptions, CodegenOutput, ExtraFile};
+use crate::codegen::{BackendOptions, CodegenOutput};
 use crate::lang::ir::*;
 use std::fmt::Write as _;
 
@@ -798,6 +798,10 @@ pub fn generate_unit_tests(
         options,
         crate::codegen::PropertyMonitorMode::Always,
     )?;
+    let prod_code = prod
+        .fsm_code
+        .clone()
+        .expect("production core fills the fsm-code slot");
     let variants = fsm::build_variants(module);
     let plan = test_plan::build_test_plan(&variants, module, options.steps);
 
@@ -942,7 +946,7 @@ pub fn generate_unit_tests(
                    \x20   return 1;\n\
                    }\n";
 
-    let mut code = prod.code;
+    let mut code = prod_code;
     code.push_str(&harness);
     code.push_str(&initial_state_block);
     code.push_str(&positive);
@@ -950,18 +954,16 @@ pub fn generate_unit_tests(
     code.push_str(&extended);
     code.push_str(&closing.replace("{table}", &table_entries.join("\n")));
 
-    // The fuzz skeleton is a SEPARATE file: it needs a libFuzzer-enabled
-    // clang build, which the dependency-free test artifact must not pull in.
-    let mut result = CodegenOutput {
-        code,
+    // Phase 14 task 1: the fused test artifact goes into the test-code slot;
+    // the fuzz skeleton (a SEPARATE file - it needs a libFuzzer-enabled clang
+    // build, which the dependency-free test artifact must not pull in) goes
+    // into the named fuzz-target slot.
+    Ok(CodegenOutput {
+        test_code: Some(code),
+        fuzz_target: Some(emit_fuzz_target_c(module, &variants, &options.spec_hash)?),
         warnings: prod.warnings,
-        extra_files: Vec::new(),
-    };
-    result.extra_files.push(ExtraFile {
-        name: "fuzz_target.c".to_string(),
-        content: emit_fuzz_target_c(module, &variants, &options.spec_hash)?,
-    });
-    Ok(result)
+        ..Default::default()
+    })
 }
 
 fn render_negative_c(

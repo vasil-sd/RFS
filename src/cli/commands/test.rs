@@ -28,7 +28,7 @@ use crate::cli::args::usage;
 
 use crate::cli::ext_tool::{sh_quote, ExtTool, ResolvedTool, Script};
 use crate::cli::log::Logger;
-use crate::codegen::{self, Backend, BackendOptions, CodegenCommandKind, ExtraFile};
+use crate::codegen::{self, Backend, BackendOptions, CodegenCommandKind};
 
 /// A test suite selectable with `--suite` (Phase 5 task 17).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -182,17 +182,11 @@ pub fn run_test(spec: &Path, opts: &TestOptions, log: &Logger) -> Result<TestOut
         .map_err(|e| e.join("; "))?;
     let run_unit = opts.suites.contains(&TestSuite::Unit);
     let run_fuzz = opts.suites.contains(&TestSuite::Fuzz);
-    if !out.extra_files.is_empty() {
+    if out.fuzz_target.is_some() {
         if run_fuzz {
-            log.debug(&format!(
-                "consuming {} extra file(s) for the fuzz suite",
-                out.extra_files.len()
-            ));
+            log.debug("consuming the emitted fuzz skeleton for the fuzz suite");
         } else {
-            log.debug(&format!(
-                "skipping {} extra file(s) (fuzz skeletons - select them with `--suite fuzz`)",
-                out.extra_files.len()
-            ));
+            log.debug("skipping the emitted fuzz skeleton (select it with `--suite fuzz`)");
         }
     }
 
@@ -212,7 +206,7 @@ pub fn run_test(spec: &Path, opts: &TestOptions, log: &Logger) -> Result<TestOut
                 spec,
                 opts,
                 &resolved,
-                &out.code,
+                out.primary(CodegenCommandKind::UnitTests),
                 fuzz_ctx.as_ref(),
             )),
             note: "printed script (no execution)".into(),
@@ -234,7 +228,13 @@ pub fn run_test(spec: &Path, opts: &TestOptions, log: &Logger) -> Result<TestOut
     // surfaces all problems.
     let mut failures: Vec<String> = Vec::new();
     if run_unit {
-        if let Err(e) = run_unit_suite(opts, &resolved, &out.code, &dir, log) {
+        if let Err(e) = run_unit_suite(
+            opts,
+            &resolved,
+            out.primary(CodegenCommandKind::UnitTests),
+            &dir,
+            log,
+        ) {
             failures.push(e);
         }
     }
@@ -324,8 +324,15 @@ struct FuzzContext {
     tool: ResolvedTool,
     /// Generated PRODUCTION source (the lib root / the #include target).
     prod_source: String,
-    /// The emitted fuzz skeleton (extra file of the test codegen).
-    skeleton: ExtraFile,
+    /// C production header (Phase 14 task 2): the source now #includes its
+    /// own header, so the C pipeline writes it next to the source. None for
+    /// the Rust backend (single self-contained lib.rs).
+    prod_header: Option<String>,
+    /// The header file name the C source #includes (matches the stamped
+    /// `fsm_header_name`, or the standalone default `rfs_fsm.h`).
+    header_name: String,
+    /// The emitted fuzz skeleton content (named slot of the test codegen).
+    skeleton: String,
 }
 
 fn build_fuzz_context(
@@ -335,9 +342,10 @@ fn build_fuzz_context(
     options: &BackendOptions,
     test_out: &crate::codegen::CodegenOutput,
 ) -> Result<FuzzContext, String> {
-    let skeleton = test_out.extra_files.first().cloned().ok_or_else(|| {
-        "the test codegen emitted no fuzz skeleton extra file (backend bug?)".to_string()
-    })?;
+    let skeleton = test_out
+        .fuzz_target
+        .clone()
+        .ok_or_else(|| "the test codegen emitted no fuzz skeleton (backend bug?)".to_string())?;
     let prod = CodegenCommandKind::Production
         .run(backend, ir, options)
         .map_err(|e| e.join("; "))?;
@@ -352,7 +360,15 @@ fn build_fuzz_context(
     };
     Ok(FuzzContext {
         tool,
-        prod_source: prod.code,
+        prod_source: prod
+            .fsm_code
+            .clone()
+            .expect("production fills the fsm-code slot"),
+        prod_header: prod.fsm_header.clone(),
+        header_name: options
+            .fsm_header_name
+            .clone()
+            .unwrap_or_else(|| "rfs_fsm.h".into()),
         skeleton,
     })
 }
@@ -382,10 +398,17 @@ fn run_fuzz_c(
 ) -> Result<(), String> {
     let skel_path = dir.join("fuzz_target.c");
     let fsm_path = dir.join("rfs_generated_fsm.c");
-    std::fs::write(&skel_path, &ctx.skeleton.content)
+    std::fs::write(&skel_path, &ctx.skeleton)
         .map_err(|e| format!("failed to write {}: {e}", skel_path.display()))?;
     std::fs::write(&fsm_path, &ctx.prod_source)
         .map_err(|e| format!("failed to write {}: {e}", fsm_path.display()))?;
+    // Phase 14 task 2: the C source #includes its own header - write it next
+    // to the source so the include resolves (Rust has no header; skip).
+    if let Some(header) = &ctx.prod_header {
+        let header_path = dir.join(&ctx.header_name);
+        std::fs::write(&header_path, header)
+            .map_err(|e| format!("failed to write {}: {e}", header_path.display()))?;
+    }
 
     let bin_path = dir.join("fuzz_bin");
     log.info(&format!("building fuzz target with {}", ctx.tool.path));
@@ -447,11 +470,8 @@ fn run_fuzz_rust(
     std::fs::write(proj.join("fuzz/Cargo.toml"), RUST_FUZZ_HARNESS_MANIFEST)
         .map_err(|e| format!("failed to write fuzz manifest: {e}"))?;
 
-    let adapted = ctx
-        .skeleton
-        .content
-        .replace("use crate::{", "use rfs_fuzz::{");
-    if adapted == ctx.skeleton.content {
+    let adapted = ctx.skeleton.replace("use crate::{", "use rfs_fuzz::{");
+    if adapted == ctx.skeleton {
         return Err(
             "emitted skeleton lost its `use crate::{` import line - adaptation failed".into(),
         );
@@ -764,10 +784,7 @@ fn render_fuzz_steps(script: Script, opts: &TestOptions, ctx: &FuzzContext) -> S
     flags.extend(resolved_fuzz_flags(opts));
 
     if opts.backend == "rust" {
-        let adapted = ctx
-            .skeleton
-            .content
-            .replace("use crate::{", "use rfs_fuzz::{");
+        let adapted = ctx.skeleton.replace("use crate::{", "use rfs_fuzz::{");
         script
             .step(
                 "scaffold the temp cargo-fuzz project",
@@ -842,11 +859,17 @@ fn render_fuzz_steps(script: Script, opts: &TestOptions, ctx: &FuzzContext) -> S
         script
             .step(
                 "write the emitted fuzz skeleton (from `rfs codegen c test` extra file)",
-                &heredoc("fuzz_target.c", "__RFS_FUZZ_TARGET_C__", &ctx.skeleton.content),
+                &heredoc("fuzz_target.c", "__RFS_FUZZ_TARGET_C__", &ctx.skeleton),
             )
             .step(
                 "write the generated production source (the skeleton's hardcoded #include target)",
                 &heredoc("rfs_generated_fsm.c", "__RFS_GENERATED_FSM_C__", &ctx.prod_source),
+            )
+            // Phase 14 task 2: the C source #includes its own header - write it
+            // so the include resolves (the Rust path has no header).
+            .step(
+                "write the generated production header (the source's #include target)",
+                &heredoc(&ctx.header_name, "__RFS_GENERATED_FSM_H__", ctx.prod_header.as_deref().unwrap_or("")),
             )
             .step(
                 "build the C fuzz target",
@@ -861,7 +884,7 @@ fn render_fuzz_steps(script: Script, opts: &TestOptions, ctx: &FuzzContext) -> S
             )
             .step(
                 "clean up generated artifacts",
-                "rm -f fuzz_target.c rfs_generated_fsm.c fuzz_bin",
+                &format!("rm -f fuzz_target.c rfs_generated_fsm.c {} fuzz_bin", ctx.header_name),
             )
     }
 }

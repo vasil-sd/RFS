@@ -13,21 +13,23 @@ CC ?= gcc
 SPEC := ../../../examples/valid/43_sliding_window.rfs
 BUILD_DIR := build
 GEN_FSM := $(BUILD_DIR)/arq_fsm.c
+GEN_FSM_H := $(BUILD_DIR)/arq_fsm.h
 
 .PHONY: all run generate clean
 
 all: c_sync_handler
 
-# Generation only (no gcc needed): the C FSM source under the name handler.c
-# includes.
-generate: $(GEN_FSM)
+# Generation only (no gcc needed): the C FSM header/source pair under the name
+# handler.c includes. Phase 14 task 2: production is a split - the source
+# #includes its own header, so BOTH files must be generated.
+generate: $(GEN_FSM) $(GEN_FSM_H)
 
-$(GEN_FSM): $(SPEC)
+$(GEN_FSM) $(GEN_FSM_H): $(SPEC)
 	mkdir -p $(BUILD_DIR)
-	$(RFS) codegen c production $(SPEC) --out $@
+	$(RFS) codegen c production $(SPEC) --out-fsm-header $(GEN_FSM_H) --out-fsm-code $(GEN_FSM)
 
-c_sync_handler: src/handler.c $(GEN_FSM)
-	$(CC) -Wall -I$(BUILD_DIR) -o $@ src/handler.c
+c_sync_handler: src/handler.c $(GEN_FSM) $(GEN_FSM_H)
+	$(CC) -Wall -I$(BUILD_DIR) -I. -o $@ src/handler.c
 
 run: c_sync_handler
 	./c_sync_handler

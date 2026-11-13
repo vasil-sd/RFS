@@ -819,10 +819,10 @@ fn ce_mc_binary(key: &str, backend: &str, src: &str) -> PathBuf {
     assert_eq!(ir.modules.len(), 1);
     let be = rfs::codegen::get_backend(backend)
         .unwrap_or_else(|| panic!("backend {backend} registered"));
-    let code = rfs::codegen::CodegenCommandKind::ModelChecker
+    let mc_out = rfs::codegen::CodegenCommandKind::ModelChecker
         .run(be, &ir, &rfs::codegen::BackendOptions::default())
-        .unwrap_or_else(|e| panic!("codegen {backend} for {key}: {e:?}"))
-        .code;
+        .unwrap_or_else(|e| panic!("codegen {backend} for {key}: {e:?}"));
+    let code = mc_out.primary_code();
 
     // The file name doubles as the rustc crate name: sanitize the cache key.
     let stem: String = key
@@ -2664,29 +2664,51 @@ fn artifact_header_generated_output_matches_documented_format() {
                     )
                 });
                 let what = format!("{path:?} {backend_name} {command:?}");
+                // Phase 14 task 2: the primary slot carries the documented
+                // line-1 header; for C production the header slot carries its
+                // OWN copy of the same stamp (D-P6-3); the test command's
+                // fuzz-target slot carries the same stamp; no other slots are
+                // filled.
                 assert_eq!(
-                    out.code.lines().next(),
+                    out.primary_code().lines().next(),
                     Some(expected_header_line(&ir).as_str()),
                     "{what}: line 1 not in the documented header form"
                 );
-                // The test command's fuzz skeleton extra file carries the same
-                // stamp; no other command emits extra files.
-                if matches!(command, rfs::codegen::CodegenCommandKind::UnitTests) {
-                    assert_eq!(out.extra_files.len(), 1, "{what}: one extra file");
-                    let name = if backend_name == "rust" {
-                        "fuzz_target.rs"
-                    } else {
-                        "fuzz_target.c"
-                    };
-                    assert_eq!(out.extra_files[0].name, name, "{what}");
+                if backend_name == "c"
+                    && matches!(command, rfs::codegen::CodegenCommandKind::Production)
+                {
+                    let hdr = out
+                        .fsm_header
+                        .as_deref()
+                        .expect("{what}: c production fills the header slot");
                     assert_eq!(
-                        out.extra_files[0].content.lines().next(),
+                        hdr.lines().next(),
+                        Some(expected_header_line(&ir).as_str()),
+                        "{what}: header line 1 not in the documented header form"
+                    );
+                }
+                if matches!(command, rfs::codegen::CodegenCommandKind::UnitTests) {
+                    let skel = out
+                        .fuzz_target
+                        .as_deref()
+                        .expect("{what}: test command fills the fuzz-target slot");
+                    assert_eq!(
+                        skel.lines().next(),
                         Some(expected_header_line(&ir).as_str()),
                         "{what}: fuzz skeleton line 1 not in the documented header form"
                     );
                 } else {
-                    assert!(out.extra_files.is_empty(), "{what}: no extra files");
+                    assert!(out.fuzz_target.is_none(), "{what}: no fuzz target");
                 }
+                // Only the command's own slots are filled: one primary slot,
+                // plus the fuzz-target slot for test, plus the header slot for
+                // C production (task 2 split).
+                let filled = out.filled_slots();
+                let is_test = matches!(command, rfs::codegen::CodegenCommandKind::UnitTests);
+                let is_c_prod = backend_name == "c"
+                    && matches!(command, rfs::codegen::CodegenCommandKind::Production);
+                let expected_n = if is_test || is_c_prod { 2 } else { 1 };
+                assert_eq!(filled.len(), expected_n, "{what}: unexpected slots filled");
             }
         }
     }

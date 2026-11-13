@@ -55,7 +55,10 @@ fn property_bearing_examples() -> Vec<PathBuf> {
             })
         })
         .collect();
-    assert!(!out.is_empty(), "dynamic enumeration found no property-bearing examples");
+    assert!(
+        !out.is_empty(),
+        "dynamic enumeration found no property-bearing examples"
+    );
     out
 }
 
@@ -75,7 +78,73 @@ fn generate(backend_name: &str, command: rfs::codegen::CodegenCommandKind, spec:
     command
         .run(backend, &ir, &options)
         .unwrap_or_else(|e| panic!("codegen {backend_name} {:?} must succeed: {e:?}", spec))
-        .code
+        .primary_code()
+        .to_string()
+}
+
+fn c_options(header_name: Option<&str>) -> rfs::codegen::BackendOptions {
+    rfs::codegen::BackendOptions {
+        assumptions: rfs::codegen::AssumptionSelection::All,
+        steps: 4,
+        with_property_monitors: false,
+        fsm_header_name: header_name.map(|s| s.to_string()),
+        ..rfs::codegen::BackendOptions::default()
+    }
+}
+
+fn generate_with_header(
+    backend_name: &str,
+    command: rfs::codegen::CodegenCommandKind,
+    spec: &Path,
+    header_name: &str,
+) -> String {
+    let src = std::fs::read_to_string(spec).unwrap();
+    let ir = rfs::parse_source(&src).unwrap();
+    let backend = rfs::codegen::get_backend(backend_name).unwrap();
+    command
+        .run(backend, &ir, &c_options(Some(header_name)))
+        .unwrap()
+        .primary_code()
+        .to_string()
+}
+
+fn c_production_header(
+    command: rfs::codegen::CodegenCommandKind,
+    spec: &Path,
+    header_name: &str,
+) -> String {
+    let src = std::fs::read_to_string(spec).unwrap();
+    let ir = rfs::parse_source(&src).unwrap();
+    let backend = rfs::codegen::get_backend("c").unwrap();
+    command
+        .run(backend, &ir, &c_options(Some(header_name)))
+        .unwrap()
+        .fsm_header
+        .clone()
+        .expect("C production fills the fsm-header slot")
+}
+
+fn compile_warning_free_i(cc: &str, src: &Path, inc: &Path, obj: &Path) {
+    let out = Command::new(cc)
+        .args(["-Wall", "-O2", "-I"])
+        .arg(inc)
+        .arg(src)
+        .arg("-c")
+        .arg("-o")
+        .arg(obj)
+        .output()
+        .unwrap_or_else(|e| panic!("run {cc} on {:?}: {e}", src));
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(
+        out.status.success(),
+        "{cc} -O2 failed on {}:\n{stderr}",
+        src.display()
+    );
+    assert!(
+        !stderr.lines().any(|l| l.contains("warning:")),
+        "{cc} -O2 -Wall emitted warnings on {}:\n{stderr}",
+        src.display()
+    );
 }
 
 /// Compile `src` with `cc` at -O2 -Wall into `obj`; assert success and zero
@@ -126,19 +195,46 @@ fn generated_c_compiles_warning_free_under_every_compiler() {
             ("test", rfs::codegen::CodegenCommandKind::UnitTests),
         ] {
             let src = dir.join(format!("{stem}_{variant}.c"));
-            std::fs::write(&src, generate("c", command, &spec)).expect("write generated C");
-            compile_warning_free(&gcc, &src, &dir.join(format!("{stem}_{variant}_gcc.o")));
-            if have_clang {
-                compile_warning_free(
-                    &common::toolchain::clang(),
+            if variant == "production" {
+                // Phase 14 task 2: C production is a header/source pair. Stamp
+                // a per-spec header name (so specs don't collide on the default
+                // rfs_fsm.h), write both files, and compile the source with -I.
+                let src_text = generate_with_header("c", command, &spec, &format!("{stem}_fsm.h"));
+                std::fs::write(&src, &src_text).expect("write generated C source");
+                let header = c_production_header(command, &spec, &format!("{stem}_fsm.h"));
+                std::fs::write(dir.join(format!("{stem}_fsm.h")), header).expect("write header");
+                compile_warning_free_i(
+                    &gcc,
                     &src,
-                    &dir.join(format!("{stem}_{variant}_clang.o")),
+                    &dir,
+                    &dir.join(format!("{stem}_{variant}_gcc.o")),
                 );
+                if have_clang {
+                    compile_warning_free_i(
+                        &common::toolchain::clang(),
+                        &src,
+                        &dir,
+                        &dir.join(format!("{stem}_{variant}_clang.o")),
+                    );
+                }
+            } else {
+                std::fs::write(&src, generate("c", command, &spec)).expect("write generated C");
+                compile_warning_free(&gcc, &src, &dir.join(format!("{stem}_{variant}_gcc.o")));
+                if have_clang {
+                    compile_warning_free(
+                        &common::toolchain::clang(),
+                        &src,
+                        &dir.join(format!("{stem}_{variant}_clang.o")),
+                    );
+                }
             }
             compiled += 1;
         }
     }
-    assert!(compiled >= 3, "expected at least one example x 3 variants, got {compiled}");
+    assert!(
+        compiled >= 3,
+        "expected at least one example x 3 variants, got {compiled}"
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -150,14 +246,20 @@ fn generated_c_compiles_warning_free_under_every_compiler() {
 /// -Wparentheses-equality flags). Compound guards like `((a == b) && c)` are
 /// fine: their outer parens are load-bearing.
 fn has_double_paren_equality_guard(line: &str) -> bool {
-    let Some(idx) = line.find("if (") else { return false };
+    let Some(idx) = line.find("if (") else {
+        return false;
+    };
     let rest = &line[idx + 4..]; // starts at the `(` of the if-parens
-    let Some(inner_open) = rest.find('(') else { return false };
+    let Some(inner_open) = rest.find('(') else {
+        return false;
+    };
     let inner = &rest[inner_open..];
     // The guard is a single equality iff the text between the second `(` and
     // its matching `)` contains exactly one `==` and no other operator that
     // would make the outer parens load-bearing.
-    let Some(close) = inner.rfind(')') else { return false };
+    let Some(close) = inner.rfind(')') else {
+        return false;
+    };
     if close < inner.len() - 1 {
         return false; // more text after the closing paren: not a bare guard
     }
@@ -203,7 +305,10 @@ fn first_assume_label(spec: &Path) -> Option<String> {
     src.lines().find_map(|l| {
         let t = l.trim_start();
         let t = t.strip_prefix("assume ")?;
-        let label: String = t.chars().take_while(|c| c.is_ascii_alphanumeric() || *c == '_').collect();
+        let label: String = t
+            .chars()
+            .take_while(|c| c.is_ascii_alphanumeric() || *c == '_')
+            .collect();
         (!label.is_empty()).then_some(label)
     })
 }
@@ -218,11 +323,16 @@ fn forced_violation_parity_across_compilers() {
     const RUNS: i32 = 7;
     let mut checked = 0;
     for spec in property_bearing_examples() {
-        let Some(label) = first_assume_label(&spec) else { continue };
+        let Some(label) = first_assume_label(&spec) else {
+            continue;
+        };
         let stem = spec.file_stem().unwrap().to_string_lossy().into_owned();
         let src = dir.join(format!("{stem}_vio.c"));
-        std::fs::write(&src, generate("c", rfs::codegen::CodegenCommandKind::ModelChecker, &spec))
-            .expect("write MC source");
+        std::fs::write(
+            &src,
+            generate("c", rfs::codegen::CodegenCommandKind::ModelChecker, &spec),
+        )
+        .expect("write MC source");
 
         let mut bins: Vec<(String, PathBuf)> = Vec::new();
         for (cc, name) in [(&gcc, "gcc"), (&common::toolchain::clang(), "clang")] {
@@ -237,7 +347,10 @@ fn forced_violation_parity_across_compilers() {
                 .arg(&bin)
                 .output()
                 .expect("compile MC binary");
-            assert!(out.status.success(), "compile failed for {stem} with {name}");
+            assert!(
+                out.status.success(),
+                "compile failed for {stem} with {name}"
+            );
             bins.push((name.to_string(), bin));
         }
 
@@ -255,8 +368,15 @@ fn forced_violation_parity_across_compilers() {
         ];
         let mut outputs: Vec<(String, String, i32)> = Vec::new();
         for (name, bin) in &bins {
-            let out = Command::new(bin).args(&args).output().unwrap_or_else(|e| panic!("run {bin:?}: {e}"));
-            outputs.push((name.clone(), String::from_utf8_lossy(&out.stdout).into_owned(), out.status.code().unwrap_or(-1)));
+            let out = Command::new(bin)
+                .args(&args)
+                .output()
+                .unwrap_or_else(|e| panic!("run {bin:?}: {e}"));
+            outputs.push((
+                name.clone(),
+                String::from_utf8_lossy(&out.stdout).into_owned(),
+                out.status.code().unwrap_or(-1),
+            ));
         }
 
         // Cross-compiler parity: identical stdout and exit code. Under the old
@@ -268,7 +388,10 @@ fn forced_violation_parity_across_compilers() {
                 "{stem}: forced-violation output differs between {} and {}:\n--- {} ---\n{}\n--- {} ---\n{}",
                 outputs[0].0, outputs[i].0, outputs[0].0, outputs[0].1, outputs[i].0, outputs[i].1
             );
-            assert_eq!(outputs[i].2, outputs[0].2, "{stem}: exit code differs across compilers");
+            assert_eq!(
+                outputs[i].2, outputs[0].2,
+                "{stem}: exit code differs across compilers"
+            );
         }
 
         // Anchored behaviour: on the safety-assumption demo every run must stop
@@ -276,7 +399,8 @@ fn forced_violation_parity_across_compilers() {
         if stem == "37_assumption_demo" {
             let summary = &outputs[0].1;
             assert!(
-                summary.contains(&format!("assumption_stops={RUNS}")) && summary.contains("completed=0"),
+                summary.contains(&format!("assumption_stops={RUNS}"))
+                    && summary.contains("completed=0"),
                 "37_assumption_demo: forced violation must stop every run, got:\n{summary}"
             );
         }

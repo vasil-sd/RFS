@@ -56,9 +56,8 @@ pub fn generate_model_checker(
         code.push_str(&crate::mc::smt_emit::emit_c_spec(&spec));
         code.push_str(&SMT_ENGINE_C.replace("{BOUND}", &options.mc_smt_bound.to_string()));
         return Ok(CodegenOutput {
-            code,
-            warnings: Vec::new(),
-            extra_files: Vec::new(),
+            mc_code: Some(code),
+            ..Default::default()
         });
     }
     // The model checker reuses the production FSM core without unit tests.
@@ -69,7 +68,12 @@ pub fn generate_model_checker(
         crate::codegen::PropertyMonitorMode::Always,
     )?;
     let plan = McPlan::compute(module, &options.assumptions);
-    let mut code = prod.code;
+    // Phase 14 task 1: the self-contained executable (FSM inlined) goes into
+    // the mc-code slot; the header/source split + fsm reference land in task 3.
+    let mut code = prod
+        .fsm_code
+        .clone()
+        .expect("production core fills the fsm-code slot");
     // Shared trace/vars printers (used by both runtimes; defined once).
     code.push_str(&shared_printers(module));
     let (exact, liv_warnings) = exact_codegen_c(module, &plan, options).map_err(|e| vec![e])?;
@@ -77,9 +81,9 @@ pub fn generate_model_checker(
     code.push_str(&fuzz_runtime(module));
     code.push_str(MAIN_DISPATCH_C);
     Ok(CodegenOutput {
-        code,
+        mc_code: Some(code),
         warnings: prod.warnings.into_iter().chain(liv_warnings).collect(),
-        extra_files: Vec::new(),
+        ..Default::default()
     })
 }
 

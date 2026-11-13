@@ -46,7 +46,7 @@ fn codegen_mc(src: &str) -> (String, Vec<String>) {
     let out = rfs::codegen::CodegenCommandKind::ModelChecker
         .run(backend, &ir, &options)
         .expect("MC codegen must succeed");
-    (out.code, out.warnings)
+    (out.primary_code().to_string(), out.warnings)
 }
 
 fn build(src: &str, dir: &Path, name: &str) -> PathBuf {

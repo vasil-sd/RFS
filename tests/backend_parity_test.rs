@@ -117,7 +117,8 @@ fn generate_full(
 }
 
 fn generate(backend_name: &str, command: rfs::codegen::CodegenCommandKind, spec: &Path) -> String {
-    generate_full(backend_name, command, spec).code
+    let out = generate_full(backend_name, command, spec);
+    out.primary_code().to_string()
 }
 
 fn compile_rust(src: &Path, bin: &Path, as_test: bool) {
@@ -768,19 +769,12 @@ fn generated_test_executables_parity_all_property_bearing_examples() {
     let mut failing: Vec<String> = Vec::new();
     for spec in property_bearing_examples() {
         let name = example_name(&spec);
-        // Fuzz skeletons must exist in BOTH backends (one extra file each).
+        // Fuzz skeletons must exist in BOTH backends (Phase 14 task 1: the
+        // named fuzz-target slot, one per backend).
         let rfull = generate_full("rust", rfs::codegen::CodegenCommandKind::UnitTests, &spec);
         let cfull = generate_full("c", rfs::codegen::CodegenCommandKind::UnitTests, &spec);
-        assert_eq!(rfull.extra_files.len(), 1, "[{name}] rust fuzz skeleton");
-        assert_eq!(
-            rfull.extra_files[0].name, "fuzz_target.rs",
-            "[{name}] rust fuzz skeleton name"
-        );
-        assert_eq!(cfull.extra_files.len(), 1, "[{name}] c fuzz skeleton");
-        assert_eq!(
-            cfull.extra_files[0].name, "fuzz_target.c",
-            "[{name}] c fuzz skeleton name"
-        );
+        assert!(rfull.fuzz_target.is_some(), "[{name}] rust fuzz skeleton");
+        assert!(cfull.fuzz_target.is_some(), "[{name}] c fuzz skeleton");
 
         let rbin = test_binary(&spec, "rust");
         let cbin = test_binary(&spec, "c");
@@ -979,7 +973,8 @@ fn generate_inline(backend_name: &str, src: &str) -> String {
     rfs::codegen::CodegenCommandKind::ModelChecker
         .run(backend, &ir, &options)
         .unwrap_or_else(|e| panic!("MC codegen ({backend_name}) must succeed: {e:?}"))
-        .code
+        .primary_code()
+        .to_string()
 }
 
 fn liv_mc_binary(tag: &str, backend_name: &str, src: &str) -> PathBuf {
@@ -1151,7 +1146,8 @@ fn generate_spec_json(backend_name: &str, spec: &Path) -> String {
                 spec
             )
         })
-        .code
+        .primary_code()
+        .to_string()
 }
 
 fn mc_json_binary(spec: &Path, backend_name: &str) -> PathBuf {
@@ -1179,7 +1175,8 @@ fn generate_inline_json(backend_name: &str, src: &str) -> String {
     rfs::codegen::CodegenCommandKind::ModelChecker
         .run(backend, &ir, &json_options())
         .unwrap_or_else(|e| panic!("MC codegen ({backend_name}) must succeed: {e:?}"))
-        .code
+        .primary_code()
+        .to_string()
 }
 
 fn mc_json_binary_for(tag: &str, backend_name: &str, src: &str) -> PathBuf {

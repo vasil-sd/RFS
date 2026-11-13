@@ -52,10 +52,14 @@ pub(crate) fn generate_core(
     }
     let mut warnings = Vec::new();
     let gen = Gen::new(module, options, &mut warnings, with_tests, prop_mode)?;
+    // Phase 14 task 1: the generated text (pure FSM, or fused FSM + tests when
+    // `with_tests`) goes into the fsm-code slot; the test command re-slots the
+    // fused content into test_code, and task 5 splits the rendering so the
+    // fused contract here stays byte-identical for the aggregate crate.
     Ok(CodegenOutput {
-        code: gen.code,
+        fsm_code: Some(gen.code),
         warnings,
-        extra_files: Vec::new(),
+        ..Default::default()
     })
 }
 

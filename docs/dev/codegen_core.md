@@ -99,13 +99,16 @@ map monitor activation to their compile-time debug switch: Rust renders
 Gated as `#[cfg(debug_assertions)]`, C as `#ifdef RFS_PROPERTY_MONITORS`;
 test and mc always use Always.
 
-**Output.** `src/codegen/mod.rs::CodegenOutput` = generated source text +
-non-fatal warnings (e.g. properties outside the translated subset) +
-`src/codegen/mod.rs::ExtraFile` entries written next to `--out`. The Rust/C
-`test` commands emit their fuzz skeleton (`fuzz_target.rs` / `fuzz_target.c`) as an
-EXTRA file because it depends on libFuzzer and must not be inlined into the
-dependency-free test artifact; the CLI refuses to run a command with extras
-in stdout mode.
+**Output.** `src/codegen/mod.rs::CodegenOutput` = named artifact slots
+(`src/codegen/mod.rs::ArtifactSlot`: fsm-header / fsm-code / mc-header /
+mc-code / test-code / fuzz-target, each an optional content string) +
+non-fatal warnings (e.g. properties outside the translated subset). A command
+fills exactly the slots its artifacts occupy; the Rust/C `test` commands fill
+the fuzz-target slot (`fuzz_target.rs` / `fuzz_target.c`) because the skeleton
+depends on libFuzzer and must not be inlined into the dependency-free test
+artifact. The CLI write loop resolves each filled slot to its output path
+(per-artifact flag > BASE-derived default) and refuses stdout mode (`--out -`)
+when more than one slot would be written.
 
 **CLI parsing.** `src/codegen/mod.rs::parse_codegen_args` parses
 `rfs codegen [--list | --help | <backend> ...]` into a

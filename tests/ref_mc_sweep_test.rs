@@ -111,7 +111,7 @@ fn prep(path: PathBuf) -> Result<Prep, String> {
         text,
         json,
         exit,
-        src: out.code,
+        src: out.primary_code().to_string(),
     })
 }
 

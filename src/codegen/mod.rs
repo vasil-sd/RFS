@@ -164,6 +164,15 @@ pub struct BackendOptions {
     /// code. Empty only when a library caller renders without going through
     /// `run` and did not stamp it.
     pub spec_hash: String,
+    /// Resolved C fsm-header file name (Phase 14 task 2): the CLI layer and
+    /// `rfs test` stamp this from the resolved output path so the generated
+    /// source `#include`s its own header by the correct name and the include
+    /// guard matches. None = a library caller generating standalone content,
+    /// which uses the fixed default `rfs_fsm.h`.
+    pub fsm_header_name: Option<String>,
+    /// Resolved C fsm-source file name (Phase 14 task 2); carried for symmetry
+    /// with the header name. None = standalone default.
+    pub fsm_source_name: Option<String>,
 }
 
 impl Default for BackendOptions {
@@ -180,6 +189,8 @@ impl Default for BackendOptions {
             mc_threads: crate::codegen::mc_concepts::EXACT_DEFAULT_THREADS,
             mc_smt_bound: crate::codegen::mc_concepts::SMT_DEFAULT_BOUND,
             counterexample_format: crate::codegen::mc_concepts::CounterexampleFormat::Text,
+            fsm_header_name: None,
+            fsm_source_name: None,
             with_protocol_fsm: false,
             spec_hash: String::new(),
         }
@@ -200,28 +211,142 @@ pub enum PropertyMonitorMode {
     Always,
 }
 
-/// An additional file emitted alongside the primary artifact. Used when a
-/// command produces more than one file - for example the Rust `test` command
-/// also emits `fuzz_target.rs`, which depends on `libfuzzer_sys` and must not
-/// be inlined into the dependency-free test artifact.
-#[derive(Debug, Clone)]
-pub struct ExtraFile {
-    /// File name relative to the primary artifact's directory.
-    pub name: String,
-    /// The file content.
-    pub content: String,
+/// The named artifact slots a generation command can fill (Phase 14 task 1).
+/// A command fills exactly the slots its artifacts occupy: production fills
+/// the fsm slots, mc the mc slots, test the test + fuzz-target slots; the C
+/// backend additionally fills the header slots (tasks 2-3). The CLI write loop
+/// resolves each filled slot to its output path and applies take-or-emit to
+/// the referenced fsm slots.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ArtifactSlot {
+    /// C production: the FSM public header (types + API declarations).
+    FsmHeader,
+    /// Production command: the FSM implementation source (all backends).
+    FsmCode,
+    /// C mc: the MC engine public header (run entry + report types).
+    McHeader,
+    /// Mc command: the model-checker executable source (all backends).
+    McCode,
+    /// Test command: the unit-test artifact source (all backends).
+    TestCode,
+    /// Test command: the libFuzzer target skeleton (all backends; it needs a
+    /// libFuzzer-enabled build, so it is never inlined into the test artifact).
+    FuzzTarget,
 }
 
-/// Result of a backend generation command.
-#[derive(Debug)]
+impl ArtifactSlot {
+    /// The default file name for this slot under BASE - the documented
+    /// expansion table (`BASE-fsm.h`/`BASE-fsm.c`, `BASE-mc.h`/`BASE-mc.c`,
+    /// `BASE-test.c`, `BASE-fuzz-target.c`; Rust without headers). Header slots
+    /// exist for the C backend only.
+    pub fn default_name(&self, base: &str, c_backend: bool) -> String {
+        match (*self, c_backend) {
+            (ArtifactSlot::FsmHeader, true) => format!("{base}-fsm.h"),
+            (ArtifactSlot::FsmCode, true) => format!("{base}-fsm.c"),
+            (ArtifactSlot::McHeader, true) => format!("{base}-mc.h"),
+            (ArtifactSlot::McCode, true) => format!("{base}-mc.c"),
+            (ArtifactSlot::TestCode, true) => format!("{base}-test.c"),
+            (ArtifactSlot::FuzzTarget, true) => format!("{base}-fuzz-target.c"),
+            (ArtifactSlot::FsmCode, false) => format!("{base}-fsm.rs"),
+            (ArtifactSlot::McCode, false) => format!("{base}-mc.rs"),
+            (ArtifactSlot::TestCode, false) => format!("{base}-test.rs"),
+            (ArtifactSlot::FuzzTarget, false) => format!("{base}-fuzz-target.rs"),
+            _ => panic!("header slots are C-only"),
+        }
+    }
+}
+
+/// Result of a backend generation command: named artifact slots instead of a
+/// single primary string + unnamed extras (Phase 14 task 1).
+#[derive(Debug, Default)]
 pub struct CodegenOutput {
-    /// The generated source text.
-    pub code: String,
+    /// C production only: the FSM public header.
+    pub fsm_header: Option<String>,
+    /// Production command: the FSM implementation source (all backends).
+    pub fsm_code: Option<String>,
+    /// C mc only: the MC engine public header.
+    pub mc_header: Option<String>,
+    /// Mc command: the model-checker executable source (all backends).
+    pub mc_code: Option<String>,
+    /// Test command: the unit-test artifact source (all backends).
+    pub test_code: Option<String>,
+    /// Test command: the libFuzzer target skeleton (all backends).
+    pub fuzz_target: Option<String>,
     /// Non-fatal notes (for example properties outside the translated subset).
     pub warnings: Vec<String>,
-    /// Additional files written next to `--out` (the CLI refuses to run a
-    /// command with extras in stdout mode - see `main.rs`).
-    pub extra_files: Vec<ExtraFile>,
+}
+
+impl CodegenOutput {
+    /// The filled slots in canonical order with their content.
+    pub fn filled_slots(&self) -> Vec<(ArtifactSlot, &str)> {
+        let mut v = Vec::new();
+        if let Some(s) = &self.fsm_header {
+            v.push((ArtifactSlot::FsmHeader, s.as_str()));
+        }
+        if let Some(s) = &self.fsm_code {
+            v.push((ArtifactSlot::FsmCode, s.as_str()));
+        }
+        if let Some(s) = &self.mc_header {
+            v.push((ArtifactSlot::McHeader, s.as_str()));
+        }
+        if let Some(s) = &self.mc_code {
+            v.push((ArtifactSlot::McCode, s.as_str()));
+        }
+        if let Some(s) = &self.test_code {
+            v.push((ArtifactSlot::TestCode, s.as_str()));
+        }
+        if let Some(s) = &self.fuzz_target {
+            v.push((ArtifactSlot::FuzzTarget, s.as_str()));
+        }
+        v
+    }
+
+    /// The content of one named slot, if filled.
+    pub fn slot_content(&self, slot: ArtifactSlot) -> Option<&str> {
+        let s = match slot {
+            ArtifactSlot::FsmHeader => &self.fsm_header,
+            ArtifactSlot::FsmCode => &self.fsm_code,
+            ArtifactSlot::McHeader => &self.mc_header,
+            ArtifactSlot::McCode => &self.mc_code,
+            ArtifactSlot::TestCode => &self.test_code,
+            ArtifactSlot::FuzzTarget => &self.fuzz_target,
+        };
+        s.as_deref()
+    }
+
+    /// The sole filled PRIMARY slot's content (fsm_code / test_code /
+    /// mc_code - the header and fuzz-target slots are not primaries).
+    /// Every command fills exactly one primary slot, so this is unambiguous;
+    /// it panics if that invariant breaks (a generator bug).
+    pub fn primary_code(&self) -> &str {
+        let filled = [
+            self.fsm_code.is_some(),
+            self.test_code.is_some(),
+            self.mc_code.is_some(),
+        ]
+        .into_iter()
+        .filter(|b| *b)
+        .count();
+        assert_eq!(filled, 1, "exactly one primary slot must be filled");
+        self.fsm_code
+            .as_deref()
+            .or(self.test_code.as_deref())
+            .or(self.mc_code.as_deref())
+            .expect("a primary slot is filled")
+    }
+
+    /// The command's primary slot content (production -> fsm_code, test ->
+    /// test_code, mc -> mc_code). Panics on an empty slot - a generator bug,
+    /// not a runtime condition.
+    pub fn primary(&self, command: CodegenCommandKind) -> &str {
+        let slot = match command {
+            CodegenCommandKind::Production => &self.fsm_code,
+            CodegenCommandKind::UnitTests => &self.test_code,
+            CodegenCommandKind::ModelChecker => &self.mc_code,
+        };
+        slot.as_deref()
+            .expect("primary slot filled by its generator")
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -440,6 +565,12 @@ impl CodegenCommandKind {
 }
 
 /// A parsed `rfs codegen` CLI request.
+// The Generate variant carries the full flag family (per-artifact output
+// names + fsm-reference forms), which makes it far larger than List/Help/
+// BackendHelp. Boxing would ripple through every construction and match site
+// for a struct that is built once per process invocation and matched once -
+// not worth the indirection.
+#[allow(clippy::large_enum_variant)]
 #[derive(Debug)]
 pub enum CodegenRequest {
     /// `rfs codegen --list`.
@@ -448,12 +579,27 @@ pub enum CodegenRequest {
     Help,
     /// `rfs codegen <backend> --help`.
     BackendHelp(String),
-    /// `rfs codegen <backend> <command> <input> [--out FILE] [options]`.
+    /// `rfs codegen <backend> <command> <input> [output options] [options]`.
     Generate {
         backend_name: String,
         command: CodegenCommandKind,
         input: String,
-        out: Option<String>,
+        /// The `--out` value: the BASE name all default artifact names derive
+        /// from, or "-" for stdout mode. None = the spec-file-stem default.
+        base: Option<String>,
+        /// Per-artifact output-name overrides (each command accepts only its
+        /// own subset - enforced by the parser).
+        out_fsm_code: Option<String>,
+        out_fsm_header: Option<String>,
+        out_mc_code: Option<String>,
+        out_mc_header: Option<String>,
+        out_test_code: Option<String>,
+        out_fuzz_target: Option<String>,
+        /// Fsm-reference flags (mc/test only): Rust `NAME[.rs]`, C form 1
+        /// `STEM` (-> STEM.h + STEM.c), C form 2 via the header/source pair.
+        fsm_file: Option<String>,
+        fsm_file_header: Option<String>,
+        fsm_file_source: Option<String>,
         assumptions: AssumptionSelection,
         steps: usize,
         no_std: bool,
@@ -518,7 +664,16 @@ pub fn parse_codegen_args(args: &[String]) -> Result<CodegenRequest, Vec<String>
     };
     let input = rest[1].clone();
 
-    let mut out = None;
+    let mut base = None;
+    let mut out_fsm_code = None;
+    let mut out_fsm_header = None;
+    let mut out_mc_code = None;
+    let mut out_mc_header = None;
+    let mut out_test_code = None;
+    let mut out_fuzz_target = None;
+    let mut fsm_file = None;
+    let mut fsm_file_header = None;
+    let mut fsm_file_source = None;
     let mut assumptions = AssumptionSelection::default();
     let mut steps = 4usize;
     let mut no_std = false;
@@ -537,8 +692,134 @@ pub fn parse_codegen_args(args: &[String]) -> Result<CodegenRequest, Vec<String>
             "--out" => {
                 i += 1;
                 match rest.get(i) {
-                    Some(v) => out = Some(v.clone()),
+                    Some(v) => base = Some(v.clone()),
                     None => errors.push("--out requires a file argument".into()),
+                }
+            }
+            "--out-fsm-code" => {
+                if command != CodegenCommandKind::Production {
+                    errors.push(
+                        "--out-fsm-code is only valid for the production command; mc and test name their referenced fsm artifact with --fsm-file"
+                            .into(),
+                    );
+                } else {
+                    i += 1;
+                    match rest.get(i) {
+                        Some(v) => out_fsm_code = Some(v.clone()),
+                        None => errors.push("--out-fsm-code requires a file argument".into()),
+                    }
+                }
+            }
+            "--out-fsm-header" => {
+                if backend_name != "c" {
+                    errors.push(
+                        "--out-fsm-header is only valid for the c backend (the rust backend has no header files)"
+                            .into(),
+                    );
+                } else if command != CodegenCommandKind::Production {
+                    errors.push(
+                        "--out-fsm-header is only valid for the production command; mc and test name their referenced fsm artifact with --fsm-file"
+                            .into(),
+                    );
+                } else {
+                    i += 1;
+                    match rest.get(i) {
+                        Some(v) => out_fsm_header = Some(v.clone()),
+                        None => errors.push("--out-fsm-header requires a file argument".into()),
+                    }
+                }
+            }
+            "--out-mc-code" => {
+                if command != CodegenCommandKind::ModelChecker {
+                    errors.push("--out-mc-code is only valid for the mc command".into());
+                } else {
+                    i += 1;
+                    match rest.get(i) {
+                        Some(v) => out_mc_code = Some(v.clone()),
+                        None => errors.push("--out-mc-code requires a file argument".into()),
+                    }
+                }
+            }
+            "--out-mc-header" => {
+                if backend_name != "c" {
+                    errors.push(
+                        "--out-mc-header is only valid for the c backend (the rust backend has no header files)"
+                            .into(),
+                    );
+                } else if command != CodegenCommandKind::ModelChecker {
+                    errors.push("--out-mc-header is only valid for the mc command".into());
+                } else {
+                    i += 1;
+                    match rest.get(i) {
+                        Some(v) => out_mc_header = Some(v.clone()),
+                        None => errors.push("--out-mc-header requires a file argument".into()),
+                    }
+                }
+            }
+            "--out-test-code" => {
+                if command != CodegenCommandKind::UnitTests {
+                    errors.push("--out-test-code is only valid for the test command".into());
+                } else {
+                    i += 1;
+                    match rest.get(i) {
+                        Some(v) => out_test_code = Some(v.clone()),
+                        None => errors.push("--out-test-code requires a file argument".into()),
+                    }
+                }
+            }
+            "--out-fuzz-target-code" => {
+                if command != CodegenCommandKind::UnitTests {
+                    errors.push("--out-fuzz-target-code is only valid for the test command".into());
+                } else {
+                    i += 1;
+                    match rest.get(i) {
+                        Some(v) => out_fuzz_target = Some(v.clone()),
+                        None => {
+                            errors.push("--out-fuzz-target-code requires a file argument".into())
+                        }
+                    }
+                }
+            }
+            "--fsm-file" => {
+                if command == CodegenCommandKind::Production {
+                    errors.push(
+                        "--fsm-file is only valid for the mc and test commands (production IS the fsm artifact; name it with --out-fsm-code/--out-fsm-header or --out)"
+                            .into(),
+                    );
+                } else {
+                    i += 1;
+                    match rest.get(i) {
+                        Some(v) => fsm_file = Some(v.clone()),
+                        None => errors.push("--fsm-file requires a file argument".into()),
+                    }
+                }
+            }
+            "--fsm-file-header" | "--fsm-file-source" => {
+                let is_header = rest[i] == "--fsm-file-header";
+                if backend_name != "c" {
+                    errors.push(
+                        format!(
+                            "{} is only valid for the c backend (the rust backend names its referenced fsm file with --fsm-file)",
+                            rest[i]
+                        ),
+                    );
+                } else if command == CodegenCommandKind::Production {
+                    errors.push(format!(
+                        "{} is only valid for the mc and test commands",
+                        rest[i]
+                    ));
+                } else {
+                    i += 1;
+                    match rest.get(i) {
+                        Some(v) => {
+                            if is_header {
+                                fsm_file_header = Some(v.clone());
+                            } else {
+                                fsm_file_source = Some(v.clone());
+                            }
+                        }
+                        None => errors.push(format!("{} requires a file argument", rest[i - 1])),
+                    }
                 }
             }
             "--assumes" => {
@@ -634,12 +915,36 @@ pub fn parse_codegen_args(args: &[String]) -> Result<CodegenRequest, Vec<String>
         i += 1;
     }
 
+    // C form 2: the header/source pair must be given together, and it cannot
+    // be combined with the form-1 --fsm-file stem.
+    if fsm_file_header.is_some() != fsm_file_source.is_some() {
+        errors.push(
+            "--fsm-file-header and --fsm-file-source must be given together (the c form-2 fsm reference)"
+                .into(),
+        );
+    }
+    if fsm_file.is_some() && (fsm_file_header.is_some() || fsm_file_source.is_some()) {
+        errors.push(
+            "--fsm-file cannot be combined with --fsm-file-header/--fsm-file-source (pick the form-1 stem OR the form-2 pair)"
+                .into(),
+        );
+    }
+
     finish(
         CodegenRequest::Generate {
             backend_name,
             command,
             input,
-            out,
+            base,
+            out_fsm_code,
+            out_fsm_header,
+            out_mc_code,
+            out_mc_header,
+            out_test_code,
+            out_fuzz_target,
+            fsm_file,
+            fsm_file_header,
+            fsm_file_source,
             assumptions,
             steps,
             no_std,

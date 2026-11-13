@@ -31,7 +31,7 @@ fn generate_fsm_source(out_dir: &Path) -> PathBuf {
         .expect("production codegen must succeed");
     std::fs::create_dir_all(out_dir).expect("create scratch dir");
     let path = out_dir.join("endpoint_fsm.rs");
-    std::fs::write(&path, &out.code).expect("write generated source");
+    std::fs::write(&path, out.primary_code()).expect("write generated source");
     path
 }
 

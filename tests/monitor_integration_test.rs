@@ -117,7 +117,8 @@ fn generate(
     command
         .run(backend, &ir, &options)
         .unwrap_or_else(|e| panic!("codegen {backend_name} must succeed: {e:?}"))
-        .code
+        .primary_code()
+        .to_string()
 }
 
 // ---------------------------------------------------------------------------
@@ -450,16 +451,28 @@ fn rust_production_debug_monitors_surface_property_violation() {
 #[test]
 fn c_production_monitors_surface_property_violation_parity() {
     let dir = scratch("c_prod");
+    // Phase 14 task 2: C production is a header/source pair - write both so the
+    // driver's `#include "fsm.c"` -> `#include "rfs_fsm.h"` chain resolves.
+    let ir = rfs::parse_source(&example41_source()).expect("spec 41 parses");
+    let backend = rfs::codegen::get_backend("c").expect("c backend registered");
+    let options = rfs::codegen::BackendOptions {
+        assumptions: rfs::codegen::AssumptionSelection::All,
+        steps: 4,
+        with_property_monitors: true,
+
+        ..rfs::codegen::BackendOptions::default()
+    };
+    let out = rfs::codegen::CodegenCommandKind::Production
+        .run(backend, &ir, &options)
+        .expect("c production codegen");
+    std::fs::write(dir.join("fsm.c"), out.primary_code()).expect("write generated FSM");
     std::fs::write(
-        dir.join("fsm.c"),
-        generate(
-            "c",
-            rfs::codegen::CodegenCommandKind::Production,
-            &example41_source(),
-            true,
-        ),
+        dir.join("rfs_fsm.h"),
+        out.fsm_header
+            .as_deref()
+            .expect("c production fills the header slot"),
     )
-    .expect("write generated FSM");
+    .expect("write generated header");
     std::fs::write(dir.join("driver.c"), C_DRIVER).expect("write driver");
     // -DRFS_PROPERTY_MONITORS activates the #ifdef-gated monitor code.
     compile_c(

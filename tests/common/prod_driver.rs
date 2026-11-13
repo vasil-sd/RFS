@@ -597,31 +597,42 @@ pub fn production_artifacts(
         with_property_monitors: true,
         ..rfs::codegen::BackendOptions::default()
     };
-    let rust_code = rfs::codegen::CodegenCommandKind::Production
+    let rust_out = rfs::codegen::CodegenCommandKind::Production
         .run(
             rfs::codegen::get_backend("rust").expect("rust backend"),
             &ir,
             &options,
         )
-        .expect("rust production codegen")
-        .code;
-    let c_code = rfs::codegen::CodegenCommandKind::Production
+        .expect("rust production codegen");
+    let rust_code = rust_out.primary_code();
+    let c_out = rfs::codegen::CodegenCommandKind::Production
         .run(
             rfs::codegen::get_backend("c").expect("c backend"),
             &ir,
             &options,
         )
-        .expect("c production codegen")
-        .code;
+        .expect("c production codegen");
+    let c_code = c_out.primary_code();
+
+    // Phase 14 task 2: C production is a header/source pair. The source
+    // includes its own header by the standalone default name (rfs_fsm.h); write
+    // both into this per-tag dir so the include resolves (quoted includes
+    // search the including file's directory first).
+    let c_header = c_out
+        .fsm_header
+        .as_deref()
+        .expect("c production fills the header slot");
 
     let rust_art = dir.join(format!("{tag}_prod.rs"));
     let c_art = dir.join(format!("{tag}_prod.c"));
-    std::fs::write(&rust_art, &rust_code).expect("write rust artifact");
-    std::fs::write(&c_art, &c_code).expect("write c artifact");
+    let c_hdr = dir.join("rfs_fsm.h");
+    std::fs::write(&rust_art, rust_code).expect("write rust artifact");
+    std::fs::write(&c_art, c_code).expect("write c artifact");
+    std::fs::write(&c_hdr, c_header).expect("write c header");
     ProductionArtifacts {
         rust_path: rust_art,
         c_path: c_art,
-        rust_code,
+        rust_code: rust_code.to_string(),
     }
 }
 

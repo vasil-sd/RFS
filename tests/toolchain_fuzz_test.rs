@@ -186,8 +186,18 @@ fn run_one(tag: &str, ir: &rfs::Ir) {
                 .run(backend, &parsed, &options)
                 .unwrap_or_else(|e| panic!("[{tag}/{backend_name}] {kind} codegen: {e:?}"));
             let src_path = dir.join(format!("{tag}_{backend_name}_{kind}.{ext}"));
-            std::fs::write(&src_path, code.code.as_bytes())
+            std::fs::write(&src_path, code.primary_code().as_bytes())
                 .unwrap_or_else(|e| panic!("[{tag}/{backend_name}] write {kind} source: {e}"));
+            // Phase 14 task 2: C production is a header/source pair - write the
+            // header alongside so the source's self-include resolves (same dir).
+            if backend_name == "c" && kind == "production" {
+                let hdr = code
+                    .fsm_header
+                    .as_deref()
+                    .expect("c production fills the header slot");
+                std::fs::write(dir.join("rfs_fsm.h"), hdr)
+                    .unwrap_or_else(|e| panic!("[{tag}/c] write production header: {e}"));
+            }
             // 3. Compile (success = no invalid target-language code).
             let compile_only = kind == "production";
             let suffix = if backend_name == "rust" {
@@ -370,7 +380,7 @@ fn c_mc_trigger_step_zero_report_no_crash() {
             .unwrap_or_else(|e| panic!("{backend_name} mc codegen: {e:?}"));
         let ext = if backend_name == "c" { "c" } else { "rs" };
         let src_path = dir.join(format!("trigger0_{backend_name}_mc.{ext}"));
-        std::fs::write(&src_path, code.code.as_bytes()).expect("write source");
+        std::fs::write(&src_path, code.primary_code().as_bytes()).expect("write source");
         let bin = dir.join(format!("trigger0_{backend_name}_mc_bin"));
         let status = if backend_name == "c" {
             Command::new(common::toolchain::gcc())

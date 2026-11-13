@@ -121,7 +121,8 @@ fn generate_mc_json(backend_name: &str, ir: &rfs::Ir) -> String {
     rfs::codegen::CodegenCommandKind::ModelChecker
         .run(backend, ir, &options)
         .unwrap_or_else(|e| panic!("MC codegen ({backend_name}) must succeed: {e:?}"))
-        .code
+        .primary_code()
+        .to_string()
 }
 
 fn compile_rust(src: &Path, bin: &Path) {

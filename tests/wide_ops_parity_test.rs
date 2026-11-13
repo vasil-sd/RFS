@@ -188,7 +188,8 @@ fn generate(backend: &str, command: &str) -> String {
     };
     kind.run(backend_def, &ir, &rfs::codegen::BackendOptions::default())
         .expect("codegen succeeds")
-        .code
+        .primary_code()
+        .to_string()
 }
 
 #[test]
@@ -229,9 +230,29 @@ fn wide_ops_production_drivers_byte_identical_and_pinned() {
     let rust_stdout = String::from_utf8_lossy(&out.stdout).to_string();
 
     // --- C: generated production code + appended driver, concatenated.
-    let c_src = generate("c", "production") + &c_driver_source();
+    // Phase 14 task 2: production is a header/source pair - the source includes
+    // its own header (rfs_fsm.h), so write it alongside; the concatenated file
+    // lives in dir/, so the quoted include resolves via the file's own directory.
+    let ir = rfs::parse_file(&repo_root().join("examples/valid/50_wide_ops.rfs"))
+        .expect("50_wide_ops parses");
+    let c_out = rfs::codegen::CodegenCommandKind::Production
+        .run(
+            rfs::codegen::get_backend("c").expect("c backend registered"),
+            &ir,
+            &rfs::codegen::BackendOptions::default(),
+        )
+        .expect("c production codegen");
+    let c_src = c_out.primary_code().to_string() + &c_driver_source();
     let c_c = dir.join("wide_ops_c.c");
     std::fs::write(&c_c, c_src).unwrap();
+    std::fs::write(
+        dir.join("rfs_fsm.h"),
+        c_out
+            .fsm_header
+            .as_deref()
+            .expect("c production fills the header slot"),
+    )
+    .unwrap();
     let c_bin = dir.join("wide_ops_c");
     let out = Command::new(common::toolchain::gcc())
         .arg("-Wall")

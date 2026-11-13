@@ -154,10 +154,10 @@ fn minimal_compiles_against_nostd_generated_fsm() {
         with_protocol_fsm: true,
         ..Default::default()
     };
-    let generated = rfs::codegen::CodegenCommandKind::Production
+    let prod_out = rfs::codegen::CodegenCommandKind::Production
         .run(backend, &ir, &options)
-        .expect("no_std + protocol-fsm codegen must succeed")
-        .code;
+        .expect("no_std + protocol-fsm codegen must succeed");
+    let generated = prod_out.primary_code().to_string();
     // v1.0 unified line-1 header (Phase 6, D-P6-3): toolchain version + spec
     // hash (SHA-256 of the canonical IR JSON, first 16 hex) + module name.
     assert!(generated.starts_with(

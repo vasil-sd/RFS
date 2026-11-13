@@ -2790,8 +2790,10 @@ fn e2e_test_print_script_pinned_and_no_execution() {
     let script = String::from_utf8_lossy(&out.stdout);
 
     // The heredoc body is exactly the codegen output (cross-checked).
+    // Phase 14 task 1: --out carries the BASE name; the test artifact lands
+    // at gen-test.rs.
     let gen = std::process::Command::new(rfs_bin())
-        .args(["codegen", "rust", "test", "ok.rfs", "--out", "gen.rs"])
+        .args(["codegen", "rust", "test", "ok.rfs", "--out", "gen"])
         .current_dir(&root)
         .output()
         .expect("spawn rfs codegen");
@@ -2800,7 +2802,7 @@ fn e2e_test_print_script_pinned_and_no_execution() {
         "{}",
         String::from_utf8_lossy(&gen.stderr)
     );
-    let expected_source = std::fs::read_to_string(root.join("gen.rs")).unwrap();
+    let expected_source = std::fs::read_to_string(root.join("gen-test.rs")).unwrap();
 
     let start = "cat > spec_test.rs <<'__RFS_TEST_SOURCE__'\n";
     let end = "\n__RFS_TEST_SOURCE__\n";
@@ -3441,8 +3443,10 @@ fn e2e_fuzz_print_script_pinned_and_no_execution() {
     let script = String::from_utf8_lossy(&out.stdout).to_string();
 
     // Cross-check the heredoc bodies against actual codegen output.
+    // Phase 14 task 1: --out carries the BASE name; the artifacts land at
+    // gen_test-fuzz-target.c / gen_prod-fsm.c.
     let gen = std::process::Command::new(rfs_bin())
-        .args(["codegen", "c", "test", "ok.rfs", "--out", "gen_test.c"])
+        .args(["codegen", "c", "test", "ok.rfs", "--out", "gen_test"])
         .current_dir(&root)
         .output()
         .expect("spawn rfs codegen");
@@ -3451,15 +3455,22 @@ fn e2e_fuzz_print_script_pinned_and_no_execution() {
         "{}",
         String::from_utf8_lossy(&gen.stderr)
     );
-    let expected_skeleton = std::fs::read_to_string(root.join("fuzz_target.c")).unwrap();
+    let expected_skeleton = std::fs::read_to_string(root.join("gen_test-fuzz-target.c")).unwrap();
+    // Phase 14 task 2: the script's embedded fsm source includes its own header
+    // by the standalone default name (rfs_fsm.h) - the `test` command stamps no
+    // custom header name. Generate the cross-check with that SAME header name so
+    // the include line matches byte-for-byte (a `--out gen_prod` base would stamp
+    // gen_prod-fsm.h and drift on exactly that line).
     let gen = std::process::Command::new(rfs_bin())
         .args([
             "codegen",
             "c",
             "production",
             "ok.rfs",
-            "--out",
-            "gen_prod.c",
+            "--out-fsm-header",
+            "rfs_fsm.h",
+            "--out-fsm-code",
+            "gen_prod-fsm.c",
         ])
         .current_dir(&root)
         .output()
@@ -3469,9 +3480,12 @@ fn e2e_fuzz_print_script_pinned_and_no_execution() {
         "{}",
         String::from_utf8_lossy(&gen.stderr)
     );
-    let expected_fsm = std::fs::read_to_string(root.join("gen_prod.c")).unwrap();
+    let expected_fsm = std::fs::read_to_string(root.join("gen_prod-fsm.c")).unwrap();
+    // The same invocation wrote the header to rfs_fsm.h (the standalone default
+    // name the script's source includes) - cross-check that heredoc too.
+    let expected_header = std::fs::read_to_string(root.join("rfs_fsm.h")).unwrap();
 
-    // Extract the two heredoc bodies.
+    // Extract the three heredoc bodies.
     let extract = |script: &str, start_marker: &str, end_marker: &str| -> String {
         let si = script.find(start_marker).expect("heredoc start");
         let body_start = si + start_marker.len();
@@ -3490,8 +3504,17 @@ fn e2e_fuzz_print_script_pinned_and_no_execution() {
         "cat > rfs_generated_fsm.c <<'__RFS_GENERATED_FSM_C__'\n",
         "\n__RFS_GENERATED_FSM_C__\n",
     );
+    let header_body = extract(
+        &script,
+        "cat > rfs_fsm.h <<'__RFS_GENERATED_FSM_H__'\n",
+        "\n__RFS_GENERATED_FSM_H__\n",
+    );
     assert_eq!(skel_body, expected_skeleton, "skeleton heredoc drifted");
-    assert_eq!(fsm_body, expected_fsm, "production heredoc drifted");
+    assert_eq!(fsm_body, expected_fsm, "production source heredoc drifted");
+    assert_eq!(
+        header_body, expected_header,
+        "production header heredoc drifted"
+    );
 
     // The wrapper is byte-pinned around the bodies.
     let pinned_prefix = format!(
@@ -3508,17 +3531,23 @@ fn e2e_fuzz_print_script_pinned_and_no_execution() {
 __RFS_FUZZ_TARGET_C__\n\
 # step 2: write the generated production source (the skeleton's hardcoded #include target)\n\
 cat > rfs_generated_fsm.c <<'__RFS_GENERATED_FSM_C__'\n";
-    let pinned_suffix = "\
+    let pinned_middle2 = "\
 __RFS_GENERATED_FSM_C__\n\
-# step 3: build the C fuzz target\n\
+# step 3: write the generated production header (the source's #include target)\n\
+cat > rfs_fsm.h <<'__RFS_GENERATED_FSM_H__'\n";
+    let pinned_suffix = "\
+__RFS_GENERATED_FSM_H__\n\
+# step 4: build the C fuzz target\n\
 /nonexistent/clang-stub -O1 -fsanitize=fuzzer,address -o fuzz_bin fuzz_target.c\n\
-# step 4: run the C fuzz target bounded (leak detection off - no free API in the generated FSM)\n\
+# step 5: run the C fuzz target bounded (leak detection off - no free API in the generated FSM)\n\
 ASAN_OPTIONS=\"detect_leaks=0${ASAN_OPTIONS:+:$ASAN_OPTIONS}\" ./fuzz_bin -max_total_time=30\n\
-# step 5: clean up generated artifacts\n\
-rm -f fuzz_target.c rfs_generated_fsm.c fuzz_bin\n";
+# step 6: clean up generated artifacts\n\
+rm -f fuzz_target.c rfs_generated_fsm.c rfs_fsm.h fuzz_bin\n";
     assert_eq!(
         script,
-        format!("{pinned_prefix}{skel_body}{pinned_middle}{fsm_body}{pinned_suffix}"),
+        format!(
+            "{pinned_prefix}{skel_body}{pinned_middle}{fsm_body}{pinned_middle2}{header_body}{pinned_suffix}"
+        ),
         "script wrapper drifted"
     );
 
@@ -3879,7 +3908,7 @@ fn mc_ref_output_agrees_with_generated_binary_text_and_json() {
         let out = (backend.generate_model_checker)(module, &opts)
             .unwrap_or_else(|e| panic!("{name}: codegen: {e:?}"));
         let src = work.join(format!("{name}.rs"));
-        std::fs::write(&src, &out.code).unwrap();
+        std::fs::write(&src, out.primary_code()).unwrap();
         let crate_name: String = name
             .chars()
             .map(|c| {

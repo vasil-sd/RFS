@@ -43,7 +43,7 @@ use crate::codegen::test_plan::{
     self, build_fuzz_decode, FuzzFieldStrategy, InputCase, InvariantCase, MonitorViolationCase,
     OutputCase, RandomTraceCase, TransitionExpectation, TransitionTestCase, VarValue,
 };
-use crate::codegen::{BackendOptions, CodegenOutput, ExtraFile};
+use crate::codegen::{BackendOptions, CodegenOutput};
 use crate::lang::ir::*;
 use std::fmt::Write as _;
 
@@ -59,21 +59,24 @@ pub fn generate_unit_tests(
             crate::codegen::NO_STD_PRODUCTION_ONLY_ERROR.to_string()
         ]);
     }
-    let mut result = crate::codegen::backends::rust::fsm::generate_core(
+    let core = crate::codegen::backends::rust::fsm::generate_core(
         module,
         options,
         true,
         crate::codegen::PropertyMonitorMode::Always,
     )?;
-    // The fuzz skeleton is a SEPARATE file: it depends on libfuzzer_sys,
-    // which the dependency-free test artifact (and the aggregate generated
-    // crate) must not pull in.
+    // Phase 14 task 1: the fused FSM + tests artifact goes into the test-code
+    // slot (task 5 re-renders it as include! + test section). The fuzz skeleton
+    // is a SEPARATE file - it depends on libfuzzer_sys, which the dependency-
+    // free test artifact (and the aggregate generated crate) must not pull in
+    // - and goes into the named fuzz-target slot.
     let variants = fsm::build_variants(module);
-    result.extra_files.push(ExtraFile {
-        name: "fuzz_target.rs".to_string(),
-        content: emit_fuzz_target(module, &variants, &options.spec_hash)?,
-    });
-    Ok(result)
+    Ok(CodegenOutput {
+        test_code: core.fsm_code,
+        fuzz_target: Some(emit_fuzz_target(module, &variants, &options.spec_hash)?),
+        warnings: core.warnings,
+        ..Default::default()
+    })
 }
 
 /// Render the `#[cfg(test)]` module appended by the `test` command.
@@ -948,7 +951,13 @@ pub fn generate_aggregate_test_crate(
                 crate::codegen::ident::snake(file_stem),
                 crate::codegen::ident::snake(&module.name)
             );
-            let _ = writeln!(lib, "pub mod {} {{\n{}\n}}\n", mod_name, result.code);
+            // The aggregate crate consumes the FUSED core string directly
+            // (Phase 14 task 5 preserves this contract byte-for-byte).
+            let fused = result
+                .fsm_code
+                .as_deref()
+                .expect("core fills the fsm-code slot");
+            let _ = writeln!(lib, "pub mod {} {{\n{}\n}}\n", mod_name, fused);
             count += 1;
         }
     }

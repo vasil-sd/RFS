@@ -2338,3 +2338,19 @@ PHASE 8 IS NOW COMPLETE.
 - Verification: cargo test 535/535 exact baseline (unchanged), fmt clean, clippy at baseline (zero new warnings - all lib warnings in pre-existing files); exit-code spot checks confirm behaviour preserved (no-arg/bogus=1, --help=0, validate/info/diagram/codegen=0).
 - Close-out finding: the dev_docs sync gate initially failed - SRC_STRUCTURE.md grew to 1716 lines vs its llm-budget 1710 (the rename added 6 net new required inventory rows); fixed by raising the budget to 1750. Sync gate now green (9/9).
 - Phase bookkeeping written: PHASE_13.md, PHASE_13_PLAN.md, PHASE_13_STATUS.md; CURRENT_STATE.md phase 13 row -> COMPLETE; this TASKS.md entry appended. The consolidated working file new_cli_processing.md was deleted per the phase plan. **Phase 13 is COMPLETE.**
+
+## 2026-11-13 16:59 — Phase 14 task 2 (complete): C production split into an idiomatic header/source pair
+
+### Interpretation & plan
+
+- Requested: "Execute task 2" - implement `docs/roadmap/phase_14/tasks/PHASE_14_TASK_2.md`: split the C `production` artifact into a header (include guard + types + public prototypes) and a source (`#include`s its own header + pragma + all bodies), plumb the resolved header name into the generator, and pin the pair in tests.
+- Found on arrival: a prior session had already done Actions 2.1-2.2 (the `Piece` routing + `generate_production` assembling both slots + `BackendOptions.fsm_header_name/fsm_source_name` + CLI/test stamping) but left dead scaffolding and had NOT done Action 2.3 (test pinning) - so the work was to clean up, then re-point every test that assumed a single self-contained `.c`.
+
+### Report
+
+- `src/codegen/backends/c/fsm.rs`: removed the dead `Piece::{Both,CodeOnly}` variants + unused `emit_header_only` (2 rustc dead-code warnings); the header/source split itself was already in place and verified correct (header = guard + type includes + defines + all typedefs + prototypes; source = own-header include + impl includes + pragma + bodies; both carry their own line-1 header).
+- Re-pointed the C production test legs at the correct slot: `codegen_test.rs` (3 legs) + added a new `c_production_emits_header_source_pair` test (both slots filled, include guard, dual line-1 headers, no static in header / no typedef in source, header compiles ALONE + source with `-I`, both `gcc -Wall -c` warning-free).
+- The split makes the source non-self-contained, so every consumer that `#include`s the whole `.c` broke: fixed `tests/common/prod_driver.rs` (writes the header into the per-tag dir - fixes all prod_driver suites), `toolchain_fuzz_test.rs`, `monitor_integration_test.rs`, `wide_ops_parity_test.rs` (each writes the header alongside), `info_format_test.rs` (C production = 2 slots + header line-1 stamp), and `utils_test.rs` (`--print-script` pins regenerated for the new three-heredoc script).
+- PLAN CORRECTIONS (recorded in PHASE_14_PLAN.md): (2a) the two C example Makefiles (`c_sync_handler`, `fuzz_c`) now generate the header pair + add `-I.` - a minimal piece of task 9's scope pulled forward because task 2's exit criterion requires `cargo test` green and the examples are in that suite; task 9 keeps the deeper `.o`-linking restructure. (4a) the `--print-script` shape change landed in task 2 via the fuzz groundwork, not task 4.
+- Verification: `cargo test` (root) all 32 suites green / 0 failed; `cargo fmt --check` clean; `cargo clippy --all-targets` at the pre-phase baseline (12 lib warnings, zero new - removed 2 dead-code + 1 `if_same_then_else`).
+- Bookkeeping: PHASE_14_TASK_2_STATUS.md written; Task corrections table added to the task file; CURRENT_STATE phase-14 row -> tasks 1-2 complete. NOTE: task 1 was completed earlier but never committed and has no TASKS.md entry - both tasks' work is still uncommitted in the working tree (commit pending user decision).

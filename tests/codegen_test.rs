@@ -103,7 +103,7 @@ fn all_rust_commands_generate_for_valid_examples() {
                 .run(backend, &ir, &options)
                 .unwrap_or_else(|e| panic!("{} {:?} failed: {:?}", path.display(), kind, e));
             assert!(
-                out.code.contains(marker),
+                out.primary_code().contains(marker),
                 "{} {:?} output missing marker '{}'",
                 path.display(),
                 kind,
@@ -141,40 +141,41 @@ fn rust_production_flag_toggles_property_monitors() {
         .run(backend, &ir, &on_opts)
         .expect("production codegen (flag on)");
     assert_ne!(
-        off.code, on.code,
+        off.primary_code(),
+        on.primary_code(),
         "the flag must change Rust production output"
     );
     // Flag on: StepError variant + violation struct + aggregate, all debug-gated.
     assert!(
-        on.code
+        on.primary_code()
             .contains("PropertyViolation { label: String, step: usize }"),
         "on: StepError::PropertyViolation variant must be emitted"
     );
     assert!(
-        on.code.contains(
+        on.primary_code().contains(
             "pub struct PropertyViolation { pub label: String, pub step: usize, pub trigger_step: Option<usize> }"
         ),
         "on: PropertyViolation struct must be emitted"
     );
     assert!(
-        on.code.contains("pub struct PropMonitors"),
+        on.primary_code().contains("pub struct PropMonitors"),
         "on: monitor aggregate"
     );
     assert!(
-        on.code.contains("#[cfg(debug_assertions)]"),
+        on.primary_code().contains("#[cfg(debug_assertions)]"),
         "on: monitor machinery must be debug-gated (zero release cost)"
     );
     // Flag off: zero-cost-when-disabled - no monitor machinery at all.
     assert!(
-        !off.code.contains("PropertyViolation"),
+        !off.primary_code().contains("PropertyViolation"),
         "off: no PropertyViolation"
     );
     assert!(
-        !off.code.contains("PropMonitors"),
+        !off.primary_code().contains("PropMonitors"),
         "off: no monitor aggregate"
     );
     assert!(
-        !off.code.contains("#[cfg(debug_assertions)]"),
+        !off.primary_code().contains("#[cfg(debug_assertions)]"),
         "off: no debug-gated monitor code"
     );
 }
@@ -204,7 +205,11 @@ fn steps_option_changes_test_generation() {
     let b = codegen::CodegenCommandKind::UnitTests
         .run(backend, &ir, &big)
         .unwrap();
-    assert_ne!(a.code, b.code, "steps option must affect generated tests");
+    assert_ne!(
+        a.primary_code(),
+        b.primary_code(),
+        "steps option must affect generated tests"
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -250,7 +255,7 @@ fn cli_parses_generate_with_options() {
             backend_name,
             command,
             input,
-            out,
+            base,
             assumptions,
             steps,
             with_property_monitors,
@@ -259,7 +264,8 @@ fn cli_parses_generate_with_options() {
             assert_eq!(backend_name, "rust");
             assert_eq!(command, codegen::CodegenCommandKind::UnitTests);
             assert_eq!(input, "spec.rfs");
-            assert_eq!(out.as_deref(), Some("/tmp/t.rs"));
+            // Phase 14 task 1: --out carries the BASE name (not a file path).
+            assert_eq!(base.as_deref(), Some("/tmp/t.rs"));
             assert_eq!(assumptions, codegen::AssumptionSelection::None);
             assert_eq!(steps, 7);
             assert!(!with_property_monitors);
@@ -275,14 +281,16 @@ fn cli_generate_defaults() {
         codegen::CodegenRequest::Generate {
             command,
             input,
-            out,
+            base,
             assumptions,
             steps,
             ..
         } => {
             assert_eq!(command, codegen::CodegenCommandKind::Production);
             assert_eq!(input, "spec.json");
-            assert!(out.is_none());
+            // Phase 14 task 1: no --out -> the spec-stem default naming applies
+            // at write time (base stays None through the parser).
+            assert!(base.is_none());
             assert_eq!(assumptions, codegen::AssumptionSelection::All);
             assert_eq!(steps, 4);
         }
@@ -327,6 +335,217 @@ fn cli_reports_errors() {
     assert!(codegen::parse_codegen_args(&argss("rust production")).is_err());
 }
 
+/// Phase 14 task 1: the output-flag family parses into the request fields,
+/// and the per-command / per-backend validation rules reject misplaced flags.
+#[test]
+fn cli_parses_output_flag_family() {
+    // production: fsm output flags accepted (c), header flag rejected on rust.
+    let req = codegen::parse_codegen_args(&argss(
+        "c production spec.rfs --out-fsm-code a.c --out-fsm-header a.h",
+    ))
+    .unwrap();
+    match req {
+        codegen::CodegenRequest::Generate {
+            out_fsm_code,
+            out_fsm_header,
+            ..
+        } => {
+            assert_eq!(out_fsm_code.as_deref(), Some("a.c"));
+            assert_eq!(out_fsm_header.as_deref(), Some("a.h"));
+        }
+        other => panic!("expected Generate, got {:?}", other),
+    }
+    let e = codegen::parse_codegen_args(&argss("rust production spec.rfs --out-fsm-header a.h"))
+        .unwrap_err();
+    assert!(e.iter().any(|x| x.contains("only valid for the c backend")));
+
+    // mc: mc output flags + fsm-reference forms; fsm output flags rejected.
+    let req = codegen::parse_codegen_args(&argss(
+        "c mc spec.rfs --out-mc-code m.c --out-mc-header m.h --fsm-file arq_fsm",
+    ))
+    .unwrap();
+    match req {
+        codegen::CodegenRequest::Generate {
+            out_mc_code,
+            out_mc_header,
+            fsm_file,
+            ..
+        } => {
+            assert_eq!(out_mc_code.as_deref(), Some("m.c"));
+            assert_eq!(out_mc_header.as_deref(), Some("m.h"));
+            assert_eq!(fsm_file.as_deref(), Some("arq_fsm"));
+        }
+        other => panic!("expected Generate, got {:?}", other),
+    }
+    let e = codegen::parse_codegen_args(&argss("c mc spec.rfs --out-fsm-code f.c")).unwrap_err();
+    assert!(e
+        .iter()
+        .any(|x| x.contains("only valid for the production command")));
+
+    // test: test output flags + fsm-reference forms; mc output flags rejected.
+    let req = codegen::parse_codegen_args(&argss(
+        "rust test spec.rfs --out-test-code t.rs --out-fuzz-target-code f.rs --fsm-file my_fsm",
+    ))
+    .unwrap();
+    match req {
+        codegen::CodegenRequest::Generate {
+            out_test_code,
+            out_fuzz_target,
+            fsm_file,
+            ..
+        } => {
+            assert_eq!(out_test_code.as_deref(), Some("t.rs"));
+            assert_eq!(out_fuzz_target.as_deref(), Some("f.rs"));
+            assert_eq!(fsm_file.as_deref(), Some("my_fsm"));
+        }
+        other => panic!("expected Generate, got {:?}", other),
+    }
+    let e =
+        codegen::parse_codegen_args(&argss("rust test spec.rfs --out-mc-code m.rs")).unwrap_err();
+    assert!(e
+        .iter()
+        .any(|x| x.contains("only valid for the mc command")));
+
+    // fsm-reference flags rejected on production.
+    let e =
+        codegen::parse_codegen_args(&argss("rust production spec.rfs --fsm-file x")).unwrap_err();
+    assert!(e
+        .iter()
+        .any(|x| x.contains("only valid for the mc and test commands")));
+
+    // C form 2: both-or-neither, and no mixing with form 1.
+    let e = codegen::parse_codegen_args(&argss("c mc spec.rfs --fsm-file-header h.h")).unwrap_err();
+    assert!(e.iter().any(|x| x.contains("must be given together")));
+    let e = codegen::parse_codegen_args(&argss("c mc spec.rfs --fsm-file-source s.c")).unwrap_err();
+    assert!(e.iter().any(|x| x.contains("must be given together")));
+    let e = codegen::parse_codegen_args(&argss(
+        "c mc spec.rfs --fsm-file a --fsm-file-header h.h --fsm-file-source s.c",
+    ))
+    .unwrap_err();
+    assert!(e.iter().any(|x| x.contains("cannot be combined")));
+    // form 2 pair accepted on c.
+    let req = codegen::parse_codegen_args(&argss(
+        "c mc spec.rfs --fsm-file-header include/a.h --fsm-file-source src/a.c",
+    ))
+    .unwrap();
+    match req {
+        codegen::CodegenRequest::Generate {
+            fsm_file_header,
+            fsm_file_source,
+            ..
+        } => {
+            assert_eq!(fsm_file_header.as_deref(), Some("include/a.h"));
+            assert_eq!(fsm_file_source.as_deref(), Some("src/a.c"));
+        }
+        other => panic!("expected Generate, got {:?}", other),
+    }
+    // header-reference forms rejected on rust.
+    let e =
+        codegen::parse_codegen_args(&argss("rust mc spec.rfs --fsm-file-header h.h")).unwrap_err();
+    assert!(e.iter().any(|x| x.contains("only valid for the c backend")));
+
+    // --out - parses as the base (stdout enforcement happens at write time).
+    let req = codegen::parse_codegen_args(&argss("rust production spec.rfs --out -")).unwrap();
+    match req {
+        codegen::CodegenRequest::Generate { base, .. } => {
+            assert_eq!(base.as_deref(), Some("-"));
+        }
+        other => panic!("expected Generate, got {:?}", other),
+    }
+}
+
+/// Phase 14 task 1 (contract rows 17 + 22): the take-or-emit write-level
+/// rules - a partial C fsm pair is a usage error (no silent overwrite), and a
+/// taken fsm artifact whose line-1 spec hash differs from the current spec's
+/// hash warns but is still used.
+#[test]
+fn cli_fsm_reference_take_or_emit_rules() {
+    let spec =
+        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("examples/valid/01_trivial_two_state.rfs");
+    let dir = std::env::temp_dir().join(format!("rfs_t1_fsmref_{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+
+    // Row 22: a partial pair (only the header) is a usage error, exit 1.
+    std::fs::write(dir.join("arq_fsm.h"), "// lone header\n").unwrap();
+    let out = std::process::Command::new(rfs_bin())
+        .args(["codegen", "c", "mc"])
+        .arg(&spec)
+        .arg("--out")
+        .arg("arq")
+        .arg("--fsm-file")
+        .arg("arq_fsm")
+        .current_dir(&dir)
+        .output()
+        .expect("spawn rfs");
+    assert_eq!(
+        out.status.code(),
+        Some(1),
+        "partial pair must be a usage error"
+    );
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(stderr.contains("partial"), "{stderr}");
+
+    // Row 17: a complete pair with a FOREIGN spec hash warns (stale reuse)
+    // but the command still succeeds and writes its own artifacts.
+    std::fs::write(
+        dir.join("arq_fsm.c"),
+        "// Generated by RFS v1.0.0 | spec sha256:deadbeefdeadbeef | module other\n",
+    )
+    .unwrap();
+    let out = std::process::Command::new(rfs_bin())
+        .args(["codegen", "c", "mc"])
+        .arg(&spec)
+        .arg("--out")
+        .arg("arq")
+        .arg("--fsm-file")
+        .arg("arq_fsm")
+        .current_dir(&dir)
+        .output()
+        .expect("spawn rfs");
+    assert!(
+        out.status.success(),
+        "stale reuse warns but does not fail; stderr: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(stderr.contains("warning"), "stale hash must warn: {stderr}");
+    // The taken pair is NOT overwritten.
+    assert!(dir.join("arq-mc.c").is_file(), "mc artifact written");
+    let taken = std::fs::read_to_string(dir.join("arq_fsm.c")).unwrap();
+    assert!(
+        taken.contains("deadbeefdeadbeef"),
+        "taken fsm file must be untouched"
+    );
+
+    // A matching-hash pair is taken silently (no warning).
+    let ir = rfs::parse_file(&spec).expect("spec parses");
+    let hash = rfs::utils::hash::spec_hash16(&ir.to_json().expect("canonical json").to_string());
+    std::fs::write(
+        dir.join("arq_fsm.c"),
+        format!("// Generated by RFS v1.0.0 | spec sha256:{hash} | module trivial\n"),
+    )
+    .unwrap();
+    let out = std::process::Command::new(rfs_bin())
+        .args(["codegen", "c", "mc"])
+        .arg(&spec)
+        .arg("--out")
+        .arg("arq")
+        .arg("--fsm-file")
+        .arg("arq_fsm")
+        .current_dir(&dir)
+        .output()
+        .expect("spawn rfs");
+    assert!(out.status.success());
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(
+        !stderr.contains("warning"),
+        "matching hash must not warn: {stderr}"
+    );
+
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
 // ---------------------------------------------------------------------------
 // Aggregate test-crate tooling (Rust backend)
 // ---------------------------------------------------------------------------
@@ -364,7 +583,7 @@ fn model_checker_codegen_contains_main() {
     let mc = codegen::CodegenCommandKind::ModelChecker
         .run(backend, &ir, &options)
         .expect("model checker codegen should succeed");
-    assert!(mc.code.contains("fn main()"));
+    assert!(mc.primary_code().contains("fn main()"));
 }
 
 // ---------------------------------------------------------------------------
@@ -389,11 +608,11 @@ fn priority_10_arm_precedes_priority_1_in_generated_step() {
     // The priority-10 arm (next Open via the exact-seq Data match) must be
     // emitted before the priority-1 fallback arm in state Connecting.
     let pos_hi = out
-        .code
+        .primary_code()
         .find("Output::Send_Ack { ack_seq: 1 }")
         .expect("priority-10 emit present");
     let pos_lo = out
-        .code
+        .primary_code()
         .find("Output::Alert_Code { reason: 7 }")
         .expect("priority-1 emit present");
     assert!(pos_hi < pos_lo, "higher priority arm must come first");
@@ -414,9 +633,11 @@ fn on_error_fallback_replaces_unexpected_event_error() {
     let out = codegen::CodegenCommandKind::Production
         .run(backend, &ir, &options)
         .expect("production codegen");
-    assert!(out.code.contains("on_error fallback"));
+    assert!(out.primary_code().contains("on_error fallback"));
     // With on_error the step function no longer returns UnexpectedEvent.
-    assert!(!out.code.contains("Err(StepError::UnexpectedEvent)"));
+    assert!(!out
+        .primary_code()
+        .contains("Err(StepError::UnexpectedEvent)"));
 }
 
 #[test]
@@ -435,7 +656,7 @@ fn version_header_becomes_spec_version_constant() {
         .run(backend, &ir, &options)
         .expect("production codegen");
     assert!(out
-        .code
+        .primary_code()
         .contains("pub const SPEC_VERSION: &str = \"1.0.0\";"));
 }
 
@@ -454,7 +675,7 @@ fn generated_negative_test_asserts_on_error_landing() {
     let out = codegen::CodegenCommandKind::UnitTests
         .run(backend, &ir, &options)
         .expect("unit-test codegen");
-    assert!(out.code.contains("on_error_found"));
+    assert!(out.primary_code().contains("on_error_found"));
 }
 
 // ---------------------------------------------------------------------------
@@ -510,18 +731,35 @@ fn all_c_commands_generate_for_valid_examples() {
                 continue;
             }
             let out = result.unwrap();
+            // Phase 14 task 2: C production is a header/source pair. The
+            // implementation (fsm_step) lives in the source; the type includes
+            // live in the header.
             assert!(
-                out.code.contains("fsm_step"),
+                out.fsm_code.is_some(),
+                "{} c production missing source slot",
+                path.display()
+            );
+            assert!(
+                out.fsm_header.is_some(),
+                "{} c production missing header slot",
+                path.display()
+            );
+            assert!(
+                out.fsm_code.as_deref().unwrap().contains("fsm_step"),
                 "{} c production missing fsm_step",
                 path.display()
             );
-            assert!(out.code.contains("#include <stdint.h>"));
+            assert!(out
+                .fsm_header
+                .as_deref()
+                .unwrap()
+                .contains("#include <stdint.h>"));
 
             let tests = rfs::codegen::CodegenCommandKind::UnitTests
                 .run_module(backend, module, &stamped)
                 .unwrap_or_else(|e| panic!("{} c test failed: {:?}", path.display(), e));
             assert!(
-                tests.code.contains("int main(void)"),
+                tests.primary_code().contains("int main(void)"),
                 "{} c test missing main",
                 path.display()
             );
@@ -530,7 +768,7 @@ fn all_c_commands_generate_for_valid_examples() {
                 .run_module(backend, module, &stamped)
                 .unwrap_or_else(|e| panic!("{} c mc failed: {:?}", path.display(), e));
             assert!(
-                mc.code.contains("model-check summary:"),
+                mc.primary_code().contains("model-check summary:"),
                 "{} c mc missing summary line",
                 path.display()
             );
@@ -566,41 +804,56 @@ fn c_production_flag_toggles_property_monitors() {
         .run(backend, &ir, &on_opts)
         .expect("production codegen (flag on)");
     assert_ne!(
-        off.code, on.code,
+        off.primary_code(),
+        on.primary_code(),
         "the flag must change C production output"
     );
-    // Flag on: define + ifdef-gated monitor code.
+    // Phase 14 task 2 split: the gating define and the violation TYPE land in
+    // the header; the monitor logic/state live in the source.
     assert!(
-        on.code.contains("#define RFS_PROPERTY_MONITORS 1"),
-        "on: gating define"
+        on.fsm_header
+            .as_deref()
+            .unwrap()
+            .contains("#define RFS_PROPERTY_MONITORS 1"),
+        "on: gating define (header)"
     );
     assert!(
-        on.code.contains("#ifdef RFS_PROPERTY_MONITORS"),
-        "on: ifdef gate"
+        on.fsm_header
+            .as_deref()
+            .unwrap()
+            .contains("rfs_property_violation_t"),
+        "on: violation type (header)"
     );
     assert!(
-        on.code.contains("rfs_property_violation_t"),
-        "on: violation type"
+        on.primary_code().contains("#ifdef RFS_PROPERTY_MONITORS"),
+        "on: ifdef gate (source logic)"
     );
     assert!(
-        on.code.contains("prop_monitors"),
+        on.primary_code().contains("prop_monitors"),
         "on: monitor state in the FSM"
     );
-    // Flag off: no define, no monitor type/state. (The rfs_status_t enum keeps
-    // RFS_PROPERTY_VIOLATION in both outputs - stable wire format.)
-    assert!(
-        !off.code.contains("RFS_PROPERTY_MONITORS"),
-        "off: no gating define"
-    );
-    assert!(
-        !off.code.contains("rfs_property_violation_t"),
-        "off: no violation type"
-    );
-    assert!(!off.code.contains("prop_monitors"), "off: no monitor state");
+    // Flag off: no define, no monitor type/state - in EITHER split file. (The
+    // rfs_status_t enum keeps RFS_PROPERTY_VIOLATION in both outputs - stable
+    // wire format.)
+    for (label, text) in [
+        ("off header", off.fsm_header.as_deref().unwrap()),
+        ("off source", off.primary_code()),
+    ] {
+        assert!(
+            !text.contains("RFS_PROPERTY_MONITORS"),
+            "{label}: no gating define"
+        );
+        assert!(
+            !text.contains("rfs_property_violation_t"),
+            "{label}: no violation type"
+        );
+        assert!(!text.contains("prop_monitors"), "{label}: no monitor state");
+    }
     let abi = "RFS_PROPERTY_VIOLATION } rfs_status_t";
     assert!(
-        off.code.contains(abi) && on.code.contains(abi),
-        "rfs_status_t wire format must be stable across the flag"
+        off.fsm_header.as_deref().unwrap().contains(abi)
+            && on.fsm_header.as_deref().unwrap().contains(abi),
+        "rfs_status_t wire format must be stable across the flag (header)"
     );
 }
 
@@ -621,19 +874,127 @@ fn c_production_matches_rust_semantics_on_endpoint_protocol() {
     let out = rfs::codegen::CodegenCommandKind::Production
         .run(backend, &ir, &options)
         .expect("c production codegen");
-    let pos_hi = out
-        .code
+    // Phase 14 task 2 split: the input enum variant and the version define are
+    // header content; the on_error fallback is in the source body.
+    let header = out
+        .fsm_header
+        .as_deref()
+        .expect("c production fills the header slot");
+    let pos_hi = header
         .find("INPUT_RECV_DATA")
         .expect("data pattern present");
     assert!(
-        out.code.contains("RFS_SPEC_VERSION"),
+        header.contains("RFS_SPEC_VERSION"),
         "version header must be emitted"
     );
     assert!(
-        out.code.contains("on_error fallback"),
+        out.primary_code().contains("on_error fallback"),
         "on_error block must be emitted"
     );
     assert!(pos_hi > 0);
+}
+
+#[test]
+fn c_production_emits_header_source_pair() {
+    // Phase 14 task 2: C production is an idiomatic header/source pair. The
+    // header carries the include guard + types + public prototypes; the source
+    // includes its own header and carries the pragma + all bodies. Both carry
+    // their own line-1 artifact header (D-P6-3).
+    let backend = codegen::get_backend("c").unwrap();
+    let options = codegen::BackendOptions {
+        assumptions: codegen::AssumptionSelection::All,
+        steps: 4,
+        with_property_monitors: false,
+
+        ..codegen::BackendOptions::default()
+    };
+    let ir = example_module("04_tcp_handshake_like.rfs");
+    let out = codegen::CodegenCommandKind::Production
+        .run(backend, &ir, &options)
+        .expect("c production codegen");
+
+    // Both slots filled.
+    let header = out.fsm_header.as_deref().expect("header slot filled");
+    let source = out.fsm_code.as_deref().expect("source slot filled");
+
+    // Include guard derived from the mangled module name, uppercased.
+    assert!(
+        header.contains("#ifndef TCP_HANDSHAKE_LIKE_FSM_H"),
+        "include guard ifndef"
+    );
+    assert!(
+        header.contains("#define TCP_HANDSHAKE_LIKE_FSM_H"),
+        "include guard define"
+    );
+    assert!(header.trim_end().ends_with("#endif"), "include guard endif");
+
+    // Both files carry their own line-1 artifact header (D-P6-3).
+    let line1 = "// Generated by RFS v";
+    assert!(header.starts_with(line1), "header line-1 artifact header");
+    assert!(source.starts_with(line1), "source line-1 artifact header");
+
+    // The source includes its own header by the resolved (standalone default)
+    // name.
+    assert!(
+        source.contains("#include \"rfs_fsm.h\""),
+        "source includes own header"
+    );
+
+    // Content split: no static symbol in the header, no type definition in the
+    // source.
+    assert!(
+        !header.lines().any(|l| l.trim_start().starts_with("static")),
+        "no static symbol may be declared in the header"
+    );
+    assert!(
+        !source
+            .lines()
+            .any(|l| l.trim_start().starts_with("typedef")),
+        "no type definition may live in the source"
+    );
+
+    // Compile bar: the header compiles ALONE (self-containedness); the source
+    // compiles with -I pointing at the header.
+    if !common::toolchain::available(rfs::cli::ext_tool::ExtTool::GCC) {
+        eprintln!("note: gcc not available - C pair compile check skipped");
+        return;
+    }
+    let dir = std::env::temp_dir().join(format!("rfs_t2_pair_{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    // A translation unit that only includes the header proves it is
+    // self-contained (no dependency on the .c to compile).
+    std::fs::write(dir.join("rfs_fsm.h"), header).unwrap();
+    std::fs::write(
+        dir.join("hdr_only.c"),
+        "#include \"rfs_fsm.h\"\nint main(void){return 0;}\n",
+    )
+    .unwrap();
+    std::fs::write(dir.join("impl.c"), source).unwrap();
+    for (src, need_include) in [
+        (&dir.join("hdr_only.c"), true),
+        (&dir.join("impl.c"), false),
+    ] {
+        let mut cmd = std::process::Command::new(common::toolchain::gcc());
+        cmd.args(["-Wall", "-c"]);
+        if need_include {
+            cmd.arg("-I").arg(&dir);
+        }
+        cmd.arg(src).arg("-o").arg(dir.join("out.o"));
+        let o = cmd.output().expect("run gcc");
+        let stderr = String::from_utf8_lossy(&o.stderr);
+        assert!(
+            o.status.success(),
+            "{} failed to compile:\n{stderr}",
+            src.display()
+        );
+        assert!(
+            !stderr.lines().any(|l| l.contains("warning:")),
+            "gcc -Wall emitted warnings on {}:\n{stderr}",
+            src.display()
+        );
+    }
+    let _ = std::fs::remove_dir_all(&dir);
 }
 
 // ---------------------------------------------------------------------------
@@ -663,12 +1024,12 @@ fn mc_and_test_always_include_property_monitors() {
             .run(rust, &ir, &options)
             .unwrap_or_else(|e| panic!("rust {:?} failed: {:?}", kind, e));
         assert!(
-            out.code.contains("pub struct PropMonitors"),
+            out.primary_code().contains("pub struct PropMonitors"),
             "rust {:?}: monitors must be unconditional",
             kind
         );
         assert!(
-            out.code
+            out.primary_code()
                 .contains("PropertyViolation { label: String, step: usize }"),
             "rust {:?}: StepError::PropertyViolation must be present",
             kind
@@ -684,12 +1045,12 @@ fn mc_and_test_always_include_property_monitors() {
             .run(c, &ir, &options)
             .unwrap_or_else(|e| panic!("c {:?} failed: {:?}", kind, e));
         assert!(
-            out.code.contains("rfs_property_violation_t"),
+            out.primary_code().contains("rfs_property_violation_t"),
             "c {:?}: monitors must be unconditional",
             kind
         );
         assert!(
-            out.code.contains("prop_monitors"),
+            out.primary_code().contains("prop_monitors"),
             "c {:?}: monitor state",
             kind
         );
@@ -864,7 +1225,8 @@ fn mc_exact_flags_embedded_as_runtime_defaults() {
         codegen::CodegenCommandKind::ModelChecker
             .run(backend, ir, opts)
             .unwrap()
-            .code
+            .primary_code()
+            .to_string()
     }
 
     let base = codegen::BackendOptions {
@@ -985,10 +1347,10 @@ fn mc_json_writer_embedded_and_dependency_free() {
 
     for backend_name in ["rust", "c"] {
         let backend = codegen::get_backend(backend_name).unwrap();
-        let out = codegen::CodegenCommandKind::ModelChecker
+        let out_out = codegen::CodegenCommandKind::ModelChecker
             .run(backend, &ir, &codegen::BackendOptions::default())
-            .unwrap()
-            .code;
+            .unwrap();
+        let out = out_out.primary_code();
         // The escaping primitive is named per backend (Rust: mc_json_escape,
         // C port: mjb_escape).
         let esc_marker = if backend_name == "rust" {
@@ -1036,20 +1398,20 @@ fn mc_enum_input_field_domain_qualified_both_backends() {
     assert_eq!(ir.modules.len(), 1);
 
     let rust_backend = codegen::get_backend("rust").unwrap();
-    let rust_code = codegen::CodegenCommandKind::ModelChecker
+    let rust_code_out = codegen::CodegenCommandKind::ModelChecker
         .run(rust_backend, &ir, &codegen::BackendOptions::default())
-        .unwrap()
-        .code;
+        .unwrap();
+    let rust_code = rust_code_out.primary_code();
     assert!(
         rust_code.contains("Mode::M1"),
         "Rust engine must enumerate qualified variant paths"
     );
 
     let c_backend = codegen::get_backend("c").unwrap();
-    let c_code = codegen::CodegenCommandKind::ModelChecker
+    let c_code_out = codegen::CodegenCommandKind::ModelChecker
         .run(c_backend, &ir, &codegen::BackendOptions::default())
-        .unwrap()
-        .code;
+        .unwrap();
+    let c_code = c_code_out.primary_code();
     assert!(
         c_code.contains("MODE_M1"),
         "C engine must enumerate qualified constants"
@@ -1166,11 +1528,15 @@ fn cli_no_std_flag_parsing() {
 fn cli_no_std_e2e_exit_codes_and_output() {
     let spec =
         PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("examples/valid/01_trivial_two_state.rfs");
-    // production --no-std: exit 0, no_std header on stdout.
+    // production --no-std: exit 0, no_std header on stdout. Phase 14 task 1:
+    // bare invocations now write spec-stem-named files; `--out -` is the
+    // explicit stdout marker.
     let out = std::process::Command::new(rfs_bin())
         .args(["codegen", "rust", "production"])
         .arg(&spec)
         .arg("--no-std")
+        .arg("--out")
+        .arg("-")
         .output()
         .expect("spawn rfs");
     assert!(
@@ -1262,18 +1628,18 @@ fn no_std_header_pins_and_std_unchanged() {
         ..Default::default()
     };
 
-    let std_code = rfs::codegen::backends::rust::fsm::generate_production(module, &std_opts)
-        .unwrap()
-        .code;
+    let std_code_out =
+        rfs::codegen::backends::rust::fsm::generate_production(module, &std_opts).unwrap();
+    let std_code = std_code_out.primary_code();
     let std_lines: Vec<&str> = std_code.lines().collect();
     // std mode is byte-stable (regression pin for the first two lines).
     assert_eq!(std_lines[0], header_line);
     assert!(std_lines[1].starts_with("#![allow(") && std_lines[1].ends_with(")]"));
     assert!(!std_code.contains("no_std"));
 
-    let nostd_code = rfs::codegen::backends::rust::fsm::generate_production(module, &nostd_opts)
-        .unwrap()
-        .code;
+    let nostd_code_out =
+        rfs::codegen::backends::rust::fsm::generate_production(module, &nostd_opts).unwrap();
+    let nostd_code = nostd_code_out.primary_code();
     let nl: Vec<&str> = nostd_code.lines().collect();
     let expected_header: Vec<&str> = vec![
         &header_line,
@@ -1298,9 +1664,9 @@ fn no_std_header_imports_vec_macro_when_outputs_exist() {
         no_std: true,
         ..Default::default()
     };
-    let code = rfs::codegen::backends::rust::fsm::generate_production(module, &nostd_opts)
-        .unwrap()
-        .code;
+    let code_out =
+        rfs::codegen::backends::rust::fsm::generate_production(module, &nostd_opts).unwrap();
+    let code = code_out.primary_code();
     let lines: Vec<&str> = code.lines().collect();
     assert_eq!(lines[7], "use alloc::vec;");
     assert!(code.contains("let outputs = vec!["));
@@ -1311,21 +1677,21 @@ fn c_production_no_std_is_documented_noop() {
     let ir = example_module("01_trivial_two_state.rfs");
     let module = &ir.modules[0];
     const NOTE: &str = "// --no-std accepted: the C backend is already dependency-free; the flag has no effect on this output.";
-    let std_code = rfs::codegen::backends::c::fsm::generate_production(
+    let std_code_out = rfs::codegen::backends::c::fsm::generate_production(
         module,
         &codegen::BackendOptions::default(),
     )
-    .unwrap()
-    .code;
-    let nostd_code = rfs::codegen::backends::c::fsm::generate_production(
+    .unwrap();
+    let std_code = std_code_out.primary_code();
+    let nostd_code_out = rfs::codegen::backends::c::fsm::generate_production(
         module,
         &codegen::BackendOptions {
             no_std: true,
             ..Default::default()
         },
     )
-    .unwrap()
-    .code;
+    .unwrap();
+    let nostd_code = nostd_code_out.primary_code();
     assert!(nostd_code.contains(NOTE));
     assert!(!std_code.contains(NOTE));
     // The note line is the ONLY difference between the two artifacts.
@@ -1379,28 +1745,28 @@ fn no_std_compile_sweep_and_body_parity_all_valid_examples() {
                 with_property_monitors: monitors,
                 ..Default::default()
             };
-            let std_code = (backend.generate_production)(module, &std_opts)
-                .unwrap_or_else(|e| {
+            let std_code_out =
+                (backend.generate_production)(module, &std_opts).unwrap_or_else(|e| {
                     panic!(
                         "{} ({}): std generation failed: {e:?}",
                         spec.display(),
                         mode
                     )
-                })
-                .code;
-            let nostd_code = (backend.generate_production)(module, &nostd_opts)
-                .unwrap_or_else(|e| {
+                });
+            let std_code = std_code_out.primary_code();
+            let nostd_code_out =
+                (backend.generate_production)(module, &nostd_opts).unwrap_or_else(|e| {
                     panic!(
                         "{} ({}): no_std generation failed: {e:?}",
                         spec.display(),
                         mode
                     )
-                })
-                .code;
+                });
+            let nostd_code = nostd_code_out.primary_code();
 
             // API-identity criterion: body byte-identical, header-only diff.
-            let std_body = strip_generated_rust_header(&std_code);
-            let nostd_body = strip_generated_rust_header(&nostd_code);
+            let std_body = strip_generated_rust_header(std_code);
+            let nostd_body = strip_generated_rust_header(nostd_code);
             assert!(!std_body.is_empty(), "{} ({})", spec.display(), mode);
             assert_eq!(
                 nostd_body,
@@ -1503,11 +1869,14 @@ fn cli_protocol_fsm_flag_parsing() {
 fn cli_protocol_fsm_e2e_exit_codes_and_output() {
     let spec =
         PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("examples/valid/01_trivial_two_state.rfs");
-    // production --with-protocol-fsm: exit 0, the impl block on stdout.
+    // production --with-protocol-fsm: exit 0, the impl block on stdout
+    // (`--out -` - Phase 14 task 1's explicit stdout marker).
     let out = std::process::Command::new(rfs_bin())
         .args(["codegen", "rust", "production"])
         .arg(&spec)
         .arg("--with-protocol-fsm")
+        .arg("--out")
+        .arg("-")
         .output()
         .expect("spawn rfs");
     assert!(
@@ -1537,25 +1906,25 @@ fn cli_protocol_fsm_e2e_exit_codes_and_output() {
 fn protocol_fsm_emission_pins_and_default_unchanged() {
     let ir = example_module("01_trivial_two_state.rfs");
     let module = &ir.modules[0];
-    let default_code = rfs::codegen::backends::rust::fsm::generate_production(
+    let default_code_out = rfs::codegen::backends::rust::fsm::generate_production(
         module,
         &codegen::BackendOptions::default(),
     )
-    .unwrap()
-    .code;
+    .unwrap();
+    let default_code = default_code_out.primary_code();
     // Default output is unchanged: no trace of the trait at all.
     assert!(!default_code.contains("ProtocolFsm"));
     assert!(!default_code.contains("rfs_adapters"));
 
-    let pf_code = rfs::codegen::backends::rust::fsm::generate_production(
+    let pf_code_out = rfs::codegen::backends::rust::fsm::generate_production(
         module,
         &codegen::BackendOptions {
             with_protocol_fsm: true,
             ..Default::default()
         },
     )
-    .unwrap()
-    .code;
+    .unwrap();
+    let pf_code = pf_code_out.primary_code();
     // The exact block, exactly once, after the inherent `impl Fsm`.
     assert_eq!(pf_code.matches(PF_IMPL_BLOCK).count(), 1);
     let pf_pos = pf_code.find(PF_IMPL_BLOCK).expect("block present");
@@ -1566,36 +1935,36 @@ fn protocol_fsm_emission_pins_and_default_unchanged() {
     assert_eq!(pf_code, format!("{default_code}\n{PF_IMPL_BLOCK}\n"));
 
     // The test artifact carries the same block (before the #[cfg(test)] module).
-    let test_code = rfs::codegen::backends::rust::test::generate_unit_tests(
+    let test_code_out = rfs::codegen::backends::rust::test::generate_unit_tests(
         module,
         &codegen::BackendOptions {
             with_protocol_fsm: true,
             ..Default::default()
         },
     )
-    .unwrap()
-    .code;
+    .unwrap();
+    let test_code = test_code_out.primary_code();
     assert_eq!(test_code.matches(PF_IMPL_BLOCK).count(), 1);
     let t_pf = test_code.find(PF_IMPL_BLOCK).unwrap();
     let t_tests = test_code.find("#[cfg(test)]").expect("test module present");
     assert!(t_pf < t_tests);
 
     // The C backend ignores the flag: byte-identical output.
-    let c_default = rfs::codegen::backends::c::fsm::generate_production(
+    let c_default_out = rfs::codegen::backends::c::fsm::generate_production(
         module,
         &codegen::BackendOptions::default(),
     )
-    .unwrap()
-    .code;
-    let c_pf = rfs::codegen::backends::c::fsm::generate_production(
+    .unwrap();
+    let c_default = c_default_out.primary_code();
+    let c_pf_out = rfs::codegen::backends::c::fsm::generate_production(
         module,
         &codegen::BackendOptions {
             with_protocol_fsm: true,
             ..Default::default()
         },
     )
-    .unwrap()
-    .code;
+    .unwrap();
+    let c_pf = c_pf_out.primary_code();
     assert_eq!(c_default, c_pf);
 }
 
@@ -1661,22 +2030,27 @@ fn rust_test_emits_all_four_extended_classes_for_property_examples() {
             .run(backend, &ir, &options)
             .unwrap_or_else(|e| panic!("{}: {e:?}", name));
         // Per-transition class (41 has transitions from every state).
-        assert!(out.code.contains("fn t0_"), "{}: per-transition test", name);
+        assert!(
+            out.primary_code().contains("fn t0_"),
+            "{}: per-transition test",
+            name
+        );
         // Invariant class (both examples carry safety always-properties).
         assert!(
-            out.code.contains("fn invariant_"),
+            out.primary_code().contains("fn invariant_"),
             "{}: invariant test",
             name
         );
         // Property-monitor debug class.
         assert!(
-            out.code.contains("_fires_on_violation() {"),
+            out.primary_code().contains("_fires_on_violation() {"),
             "{}: monitor-violating trace test",
             name
         );
         // Random-trace class with the pinned seed and K in the name.
         assert!(
-            out.code.contains("fn random_trace_seed12345_steps4() {"),
+            out.primary_code()
+                .contains("fn random_trace_seed12345_steps4() {"),
             "{}: random-trace test",
             name
         );
@@ -1704,7 +2078,7 @@ fn rust_test_names_follow_the_pinned_convention() {
         let out = codegen::CodegenCommandKind::UnitTests
             .run(backend, &ir, &options)
             .unwrap_or_else(|e| panic!("{}: {e:?}", name));
-        for t in extract_generated_test_names(&out.code) {
+        for t in extract_generated_test_names(out.primary_code()) {
             let ok = matches!(
                 t.as_str(),
                 "initial_state_is_correct"
@@ -1741,11 +2115,15 @@ fn rust_test_steps_option_changes_random_trace_class() {
     };
     let a = run(2);
     let b = run(6);
-    assert!(a.code.contains("fn random_trace_seed12345_steps2() {"));
-    assert!(b.code.contains("fn random_trace_seed12345_steps6() {"));
+    assert!(a
+        .primary_code()
+        .contains("fn random_trace_seed12345_steps2() {"));
+    assert!(b
+        .primary_code()
+        .contains("fn random_trace_seed12345_steps6() {"));
     // The precomputed index sequence length tracks K.
     let count = |code: &str| code.matches("usize").count();
-    assert_ne!(count(&a.code), count(&b.code));
+    assert_ne!(count(a.primary_code()), count(b.primary_code()));
 }
 
 /// The fuzz skeleton is emitted as a SEPARATE extra file; the main test
@@ -1765,9 +2143,12 @@ fn rust_test_emits_fuzz_skeleton_as_separate_file() {
     let out = codegen::CodegenCommandKind::UnitTests
         .run(backend, &ir, &options)
         .expect("unit-test codegen");
-    assert_eq!(out.extra_files.len(), 1);
-    assert_eq!(out.extra_files[0].name, "fuzz_target.rs");
-    let fz = &out.extra_files[0].content;
+    // Phase 14 task 1: the fuzz skeleton is a named slot (no name field).
+    assert!(
+        out.fuzz_target.is_some(),
+        "rust test fills the fuzz-target slot"
+    );
+    let fz = out.fuzz_target.as_deref().unwrap();
     assert!(fz.contains("#![no_main]"));
     assert!(fz.contains("use libfuzzer_sys::fuzz_target;"));
     assert!(fz.contains("fuzz_target!"));
@@ -1775,30 +2156,29 @@ fn rust_test_emits_fuzz_skeleton_as_separate_file() {
     assert!(fz.contains("% 2"));
     assert!(fz.contains("& 0xFu8"));
     // Main artifact stays dependency-free.
-    assert!(!out.code.contains("libfuzzer"));
+    assert!(!out.primary_code().contains("libfuzzer"));
 }
 
-/// CLI: `--out` writes the fuzz skeleton next to the test artifact; stdout
-/// mode is refused (strict - no silent file loss). Both backends.
+/// CLI (Phase 14 task 1): `--out BASE` writes the test artifact and the fuzz
+/// skeleton under their BASE-derived names; `--out -` is refused for this
+/// two-artifact command (strict - no silent file loss); a bare invocation
+/// writes spec-stem-named files. Both backends.
 #[test]
 fn cli_test_command_writes_fuzz_target_next_to_out() {
     let spec =
         PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("examples/valid/41_property_monitors.rfs");
-    for (backend, ext, fuzz_name) in [
-        ("rust", "rs", "fuzz_target.rs"),
-        ("c", "c", "fuzz_target.c"),
-    ] {
+    for (backend, ext) in [("rust", "rs"), ("c", "c")] {
         let dir = std::env::temp_dir().join(format!("rfs_t5_cli_{backend}_{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
-        let out_path = dir.join(format!("fsm_test.{ext}"));
 
-        // --out: exit 0, both files written next to each other.
+        // --out BASE: exit 0, both files written under their derived names.
         let out = std::process::Command::new(rfs_bin())
             .args(["codegen", backend, "test"])
             .arg(&spec)
             .arg("--out")
-            .arg(&out_path)
+            .arg("fsm_test")
+            .current_dir(&dir)
             .output()
             .expect("spawn rfs");
         assert!(
@@ -1809,24 +2189,54 @@ fn cli_test_command_writes_fuzz_target_next_to_out() {
         let stdout = String::from_utf8_lossy(&out.stdout);
         assert!(stdout.contains("wrote"), "{backend}: {}", stdout);
         assert!(
-            dir.join(fuzz_name).is_file(),
+            dir.join(format!("fsm_test-test.{ext}")).is_file(),
+            "{backend}: test artifact missing"
+        );
+        assert!(
+            dir.join(format!("fsm_test-fuzz-target.{ext}")).is_file(),
             "{backend}: fuzz skeleton missing"
         );
-        assert!(out_path.is_file());
 
-        // stdout mode: exit 1 + diagnostic naming the extra file.
+        // --out -: exit 1 + diagnostic naming both artifacts (strict refusal).
         let out2 = std::process::Command::new(rfs_bin())
             .args(["codegen", backend, "test"])
             .arg(&spec)
+            .arg("--out")
+            .arg("-")
+            .current_dir(&dir)
+            .output()
+            .expect("spawn rfs");
+        assert!(!out2.status.success(), "{backend}: --out - must be refused");
+        let stderr = String::from_utf8_lossy(&out2.stderr);
+        // The diagnostic names the spec-stem files a bare invocation would
+        // have written (no BASE was given with `--out -`).
+        let test_name = format!("41_property_monitors-test.{ext}");
+        let fuzz_name = format!("41_property_monitors-fuzz-target.{ext}");
+        assert!(stderr.contains(test_name.as_str()), "{backend}: {stderr}");
+        assert!(stderr.contains(fuzz_name.as_str()), "{backend}: {stderr}");
+
+        // Bare invocation (no --out): spec-stem default naming, files in CWD.
+        let out3 = std::process::Command::new(rfs_bin())
+            .args(["codegen", backend, "test"])
+            .arg(&spec)
+            .current_dir(&dir)
             .output()
             .expect("spawn rfs");
         assert!(
-            !out2.status.success(),
-            "{backend}: stdout mode must be refused"
+            out3.status.success(),
+            "{backend}: stderr: {}",
+            String::from_utf8_lossy(&out3.stderr)
         );
-        let stderr = String::from_utf8_lossy(&out2.stderr);
-        assert!(stderr.contains(fuzz_name), "{backend}: {}", stderr);
-        assert!(stderr.contains("--out"), "{backend}: {}", stderr);
+        assert!(
+            dir.join(format!("41_property_monitors-test.{ext}"))
+                .is_file(),
+            "{backend}: spec-stem test artifact missing"
+        );
+        assert!(
+            dir.join(format!("41_property_monitors-fuzz-target.{ext}"))
+                .is_file(),
+            "{backend}: spec-stem fuzz skeleton missing"
+        );
 
         let _ = std::fs::remove_dir_all(&dir);
     }
@@ -1893,25 +2303,25 @@ fn c_test_emits_all_four_extended_classes_for_property_examples() {
             .unwrap_or_else(|e| panic!("{}: {e:?}", name));
         // Per-transition class.
         assert!(
-            out.code.contains("static void t0_"),
+            out.primary_code().contains("static void t0_"),
             "{}: per-transition test",
             name
         );
         // Invariant class (both examples carry safety always-properties).
         assert!(
-            out.code.contains("static void invariant_"),
+            out.primary_code().contains("static void invariant_"),
             "{}: invariant test",
             name
         );
         // Property-monitor debug class.
         assert!(
-            out.code.contains("_fires_on_violation(void) {"),
+            out.primary_code().contains("_fires_on_violation(void) {"),
             "{}: monitor-violating trace test",
             name
         );
         // Random-trace class with the pinned seed and K in the name.
         assert!(
-            out.code
+            out.primary_code()
                 .contains("static void random_trace_seed12345_steps4(void) {"),
             "{}: random-trace test",
             name
@@ -1940,7 +2350,7 @@ fn c_test_names_follow_the_pinned_convention() {
         let out = codegen::CodegenCommandKind::UnitTests
             .run(backend, &ir, &options)
             .unwrap_or_else(|e| panic!("{}: {e:?}", name));
-        let names = extract_c_test_names(&out.code);
+        let names = extract_c_test_names(out.primary_code());
         assert!(names.len() >= 4, "{}: harness table too small", name);
         for t in names {
             let ok = matches!(
@@ -1980,10 +2390,10 @@ fn c_test_steps_option_changes_random_trace_class() {
     let a = run(2);
     let b = run(6);
     assert!(a
-        .code
+        .primary_code()
         .contains("static void random_trace_seed12345_steps2(void) {"));
     assert!(b
-        .code
+        .primary_code()
         .contains("static void random_trace_seed12345_steps6(void) {"));
     // The precomputed index table content tracks K.
     let table = |code: &str| {
@@ -1993,7 +2403,7 @@ fn c_test_steps_option_changes_random_trace_class() {
         let end = code[start..].find("};").unwrap() + start;
         code[start..end].to_string()
     };
-    assert_ne!(table(&a.code), table(&b.code));
+    assert_ne!(table(a.primary_code()), table(b.primary_code()));
 }
 
 /// The fuzz skeleton is emitted as a SEPARATE extra file; the main test
@@ -2015,17 +2425,20 @@ fn c_test_emits_fuzz_skeleton_as_extra_file() {
     let out = codegen::CodegenCommandKind::UnitTests
         .run(backend, &ir, &options)
         .expect("unit-test codegen");
-    assert_eq!(out.extra_files.len(), 1);
-    assert_eq!(out.extra_files[0].name, "fuzz_target.c");
-    let fz = &out.extra_files[0].content;
+    // Phase 14 task 1: the fuzz skeleton is a named slot (no name field).
+    assert!(
+        out.fuzz_target.is_some(),
+        "c test fills the fuzz-target slot"
+    );
+    let fz = out.fuzz_target.as_deref().unwrap();
     assert!(fz.contains("int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size)"));
     assert!(fz.contains("clang -O1 -fsanitize=fuzzer,address"));
     // The decode plan is rendered: variant selector + payload masking.
     assert!(fz.contains("% 2"));
     assert!(fz.contains("& 0xF"));
     // Main artifact stays dependency-free.
-    assert!(!out.code.contains("LLVMFuzzer"));
-    assert!(!out.code.contains("libFuzzer"));
+    assert!(!out.primary_code().contains("LLVMFuzzer"));
+    assert!(!out.primary_code().contains("libFuzzer"));
 
     // gcc -Wall: the main test artifact and the fuzz skeleton (against the
     // generated production source it includes) must compile warning-free.
@@ -2036,14 +2449,20 @@ fn c_test_emits_fuzz_skeleton_as_extra_file() {
         .run(backend, &ir, &options)
         .expect("production codegen");
     let main_c = dir.join("fsm_test.c");
+    // Phase 14 task 2: production is a header/source pair. The fuzz target
+    // includes the source, which in turn includes its own header by the
+    // standalone default name - write both and compile with -I so it resolves.
+    let prod_h = dir.join("rfs_fsm.h");
     let prod_c = dir.join("rfs_generated_fsm.c");
     let fuzz_c = dir.join("fuzz_target.c");
-    std::fs::write(&main_c, &out.code).unwrap();
-    std::fs::write(&prod_c, &prod.code).unwrap();
+    std::fs::write(&main_c, out.primary_code()).unwrap();
+    std::fs::write(&prod_h, prod.fsm_header.as_deref().unwrap()).unwrap();
+    std::fs::write(&prod_c, prod.fsm_code.as_deref().unwrap()).unwrap();
     std::fs::write(&fuzz_c, fz).unwrap();
     for src_path in [&main_c, &fuzz_c] {
         let out = std::process::Command::new(common::toolchain::gcc())
-            .args(["-Wall", "-c"])
+            .args(["-Wall", "-c", "-I"])
+            .arg(&dir)
             .arg(src_path)
             .arg("-o")
             .arg(dir.join("out.o"))
@@ -2081,7 +2500,7 @@ fn c_fuzz_target_frees_per_input_and_bounded_run_stays_green() {
         .run(backend, &ir, &options)
         .expect("production codegen");
     assert!(
-        prod.code.contains("void fsm_free(fsm_t* f)"),
+        prod.primary_code().contains("void fsm_free(fsm_t* f)"),
         "generated C core must define fsm_free"
     );
 
@@ -2089,7 +2508,7 @@ fn c_fuzz_target_frees_per_input_and_bounded_run_stays_green() {
     let out = codegen::CodegenCommandKind::UnitTests
         .run(backend, &ir, &options)
         .expect("unit-test codegen");
-    let fz = &out.extra_files[0].content;
+    let fz = out.fuzz_target.as_deref().unwrap();
     assert!(
         fz.contains("int done = 0;"),
         "skeleton must use single-exit decode"
@@ -2118,10 +2537,19 @@ fn c_fuzz_target_frees_per_input_and_bounded_run_stays_green() {
     let dir = std::env::temp_dir().join(format!("rfs_t16_fuzz_{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&dir);
     std::fs::create_dir_all(&dir).unwrap();
-    std::fs::write(dir.join("rfs_generated_fsm.c"), &prod.code).unwrap();
+    // Phase 14 task 2: production is a header/source pair; the fuzz target
+    // includes the source, which includes its own header - write both and build
+    // with -I so the include resolves.
+    std::fs::write(dir.join("rfs_fsm.h"), prod.fsm_header.as_deref().unwrap()).unwrap();
+    std::fs::write(
+        dir.join("rfs_generated_fsm.c"),
+        prod.fsm_code.as_deref().unwrap(),
+    )
+    .unwrap();
     std::fs::write(dir.join("fuzz_target.c"), fz).unwrap();
     let build = std::process::Command::new(common::toolchain::clang())
-        .args(["-O1", "-fsanitize=fuzzer,address"])
+        .args(["-O1", "-fsanitize=fuzzer,address", "-I"])
+        .arg(&dir)
         .arg(dir.join("fuzz_target.c"))
         .arg("-o")
         .arg(dir.join("fuzz_bin"))

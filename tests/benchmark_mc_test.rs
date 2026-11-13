@@ -154,7 +154,8 @@ fn generate_from_source(backend_name: &str, src: &str, what: &str) -> String {
     rfs::codegen::CodegenCommandKind::ModelChecker
         .run(backend, &ir, &options)
         .unwrap_or_else(|e| panic!("codegen {backend_name} for {what} must succeed: {e:?}"))
-        .code
+        .primary_code()
+        .to_string()
 }
 
 /// The benchmark suite is a performance artifact as well as a correctness

@@ -143,29 +143,6 @@ fn compile_rust(src: &Path, bin: &Path, as_test: bool) {
     );
 }
 
-fn compile_c(src: &Path, bin: &Path) {
-    let out = Command::new(common::toolchain::gcc())
-        .arg("-Wall")
-        .arg(src)
-        .arg("-o")
-        .arg(bin)
-        .output()
-        .expect("run gcc on generated code");
-    let stderr = String::from_utf8_lossy(&out.stderr);
-    assert!(
-        out.status.success(),
-        "gcc failed on {}:\n{stderr}",
-        src.display()
-    );
-    // Hard bar (task 7 exit criterion): generated C compiles with `gcc -Wall`
-    // without warnings.
-    assert!(
-        !stderr.lines().any(|l| l.contains("warning:")),
-        "gcc -Wall emitted warnings on {} (generated C must be warning-free):\n{stderr}",
-        src.display()
-    );
-}
-
 fn mc_binary(spec: &Path, backend_name: &str) -> PathBuf {
     let stem = spec.file_stem().unwrap().to_string_lossy().into_owned();
     cached_binary(&format!("mc|{stem}|{backend_name}"), |dir| {
@@ -199,21 +176,56 @@ fn mc_binary(spec: &Path, backend_name: &str) -> PathBuf {
 fn test_binary(spec: &Path, backend_name: &str) -> PathBuf {
     let stem = spec.file_stem().unwrap().to_string_lossy().into_owned();
     cached_binary(&format!("test|{stem}|{backend_name}"), |dir| {
-        let ext = if backend_name == "c" { "c" } else { "rs" };
-        let src = dir.join(format!("{stem}_test.{ext}"));
-        std::fs::write(
-            &src,
-            generate(
-                backend_name,
-                rfs::codegen::CodegenCommandKind::UnitTests,
-                spec,
-            ),
-        )
-        .expect("write test source");
         let bin = dir.join(format!("{stem}_test_{backend_name}"));
+        let out = generate_full(
+            backend_name,
+            rfs::codegen::CodegenCommandKind::UnitTests,
+            spec,
+        );
         if backend_name == "c" {
-            compile_c(&src, &bin);
+            // Phase 14 task 4: the test source references the fsm header - build
+            // via object+link (write the fsm pair + test source, compile both,
+            // link). The standalone default header name is used (`rfs test` /
+            // this helper stamp no custom reference names).
+            let fsm_h = dir.join("rfs_fsm.h");
+            let fsm_c = dir.join("rfs_fsm.c");
+            let test_c = dir.join(format!("{stem}_test.c"));
+            std::fs::write(
+                &fsm_h,
+                out.fsm_header
+                    .as_deref()
+                    .expect("c test fills the fsm-header slot"),
+            )
+            .expect("write fsm header");
+            std::fs::write(
+                &fsm_c,
+                out.fsm_code
+                    .as_deref()
+                    .expect("c test fills the fsm-code slot"),
+            )
+            .expect("write fsm source");
+            std::fs::write(&test_c, out.primary_code()).expect("write test source");
+            common::prod_driver::compile_c_object(&fsm_c, &dir.join("rfs_fsm.o"), dir);
+            common::prod_driver::compile_c_object(
+                &test_c,
+                &dir.join(format!("{stem}_test.o")),
+                dir,
+            );
+            let linked = std::process::Command::new(common::toolchain::gcc())
+                .arg(dir.join("rfs_fsm.o"))
+                .arg(dir.join(format!("{stem}_test.o")))
+                .arg("-o")
+                .arg(&bin)
+                .output()
+                .expect("link test objects");
+            assert!(
+                linked.status.success(),
+                "link of c test objects failed:\n{}",
+                String::from_utf8_lossy(&linked.stderr)
+            );
         } else {
+            let src = dir.join(format!("{stem}_test.rs"));
+            std::fs::write(&src, out.primary_code()).expect("write test source");
             compile_rust(&src, &bin, true);
         }
         bin

@@ -355,7 +355,15 @@ pub fn run_cli(args: &[String]) -> ExitCode {
             // Everything else stays None (standalone default).
             let is_c = backend_name == "c";
             let is_c_prod = is_c && command == codegen::CodegenCommandKind::Production;
-            let is_c_mc = is_c && command == codegen::CodegenCommandKind::ModelChecker;
+            // C mc and C test both REFERENCE the fsm pair (take-or-emit), so
+            // both need the resolved reference names stamped - the generated
+            // sources #include the fsm header by that name.
+            let is_c_ref = is_c
+                && matches!(
+                    command,
+                    codegen::CodegenCommandKind::ModelChecker
+                        | codegen::CodegenCommandKind::UnitTests
+                );
             let base_name = base.clone().unwrap_or_else(|| {
                 Path::new(&input)
                     .file_stem()
@@ -369,7 +377,7 @@ pub fn run_cli(args: &[String]) -> ExitCode {
                         .or(Some(format!("{base_name}-fsm.h"))),
                     out_fsm_code.clone().or(Some(format!("{base_name}-fsm.c"))),
                 )
-            } else if is_c_mc {
+            } else if is_c_ref {
                 let (h, s) = resolve_fsm_reference(
                     fsm_file_header.as_deref(),
                     fsm_file_source.as_deref(),
@@ -381,7 +389,7 @@ pub fn run_cli(args: &[String]) -> ExitCode {
             } else {
                 (None, None)
             };
-            let mc_header_name = if is_c_mc {
+            let mc_header_name = if is_c && command == codegen::CodegenCommandKind::ModelChecker {
                 out_mc_header.clone().or(Some(format!("{base_name}-mc.h")))
             } else {
                 None

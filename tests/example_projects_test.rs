@@ -179,7 +179,10 @@ fn fuzz_c_generates_without_clang_and_builds_when_available() {
     let skel =
         std::fs::read_to_string(dir.join("build/fuzz_target.c")).expect("skeleton generated");
     assert!(skel.contains("LLVMFuzzerTestOneInput"));
-    assert!(skel.contains("#include \"rfs_generated_fsm.c\""));
+    // Phase 14 task 4: the skeleton references the fsm through its header (the
+    // Makefile stamps --fsm-file-header build/rfs_generated_fsm.h), not by
+    // source-including the .c.
+    assert!(skel.contains("#include \"build/rfs_generated_fsm.h\""));
     let fsm =
         std::fs::read_to_string(dir.join("build/rfs_generated_fsm.c")).expect("fsm generated");
     // v1.0 unified line-1 header (Phase 6, D-P6-3): identical text to the

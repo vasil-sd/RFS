@@ -223,6 +223,43 @@ fn run_one(tag: &str, ir: &rfs::Ir) {
                     &dir.join(format!("{tag}_c_mc_pair")),
                     &out_path,
                 );
+            } else if kind == "test" {
+                // Phase 14 task 4: the C test source references the fsm header -
+                // object+link (own subdir to avoid fixed-name collisions).
+                let sub = dir.join(format!("{tag}_c_test_pair"));
+                std::fs::create_dir_all(&sub).expect("create test pair dir");
+                let fsm_h = sub.join("rfs_fsm.h");
+                let fsm_c = sub.join("rfs_fsm.c");
+                let test_c = sub.join("spec_test.c");
+                std::fs::write(
+                    &fsm_h,
+                    code.fsm_header
+                        .as_deref()
+                        .expect("c test fills the fsm-header slot"),
+                )
+                .expect("write fsm header");
+                std::fs::write(
+                    &fsm_c,
+                    code.fsm_code
+                        .as_deref()
+                        .expect("c test fills the fsm-code slot"),
+                )
+                .expect("write fsm source");
+                std::fs::write(&test_c, code.primary_code()).expect("write test source");
+                common::prod_driver::compile_c_object(&fsm_c, &sub.join("rfs_fsm.o"), &sub);
+                common::prod_driver::compile_c_object(&test_c, &sub.join("spec_test.o"), &sub);
+                let linked = Command::new(common::toolchain::gcc())
+                    .arg(sub.join("rfs_fsm.o"))
+                    .arg(sub.join("spec_test.o"))
+                    .arg("-o")
+                    .arg(&out_path)
+                    .output()
+                    .expect("link test objects");
+                assert!(
+                    linked.status.success(),
+                    "[{tag}/c] link of c test objects failed:\n{}",
+                    String::from_utf8_lossy(&linked.stderr)
+                );
             } else {
                 compile_c(tag, backend_name, &src_path, &out_path, compile_only);
             }

@@ -206,7 +206,7 @@ pub fn run_test(spec: &Path, opts: &TestOptions, log: &Logger) -> Result<TestOut
                 spec,
                 opts,
                 &resolved,
-                out.primary(CodegenCommandKind::UnitTests),
+                &out,
                 fuzz_ctx.as_ref(),
             )),
             note: "printed script (no execution)".into(),
@@ -228,13 +228,7 @@ pub fn run_test(spec: &Path, opts: &TestOptions, log: &Logger) -> Result<TestOut
     // surfaces all problems.
     let mut failures: Vec<String> = Vec::new();
     if run_unit {
-        if let Err(e) = run_unit_suite(
-            opts,
-            &resolved,
-            out.primary(CodegenCommandKind::UnitTests),
-            &dir,
-            log,
-        ) {
+        if let Err(e) = run_unit_suite(opts, &resolved, &out, &dir, log) {
             failures.push(e);
         }
     }
@@ -269,39 +263,113 @@ pub fn run_test(spec: &Path, opts: &TestOptions, log: &Logger) -> Result<TestOut
     })
 }
 
-/// Unit suite (task 7 pipeline, extracted verbatim): write the test artifact,
-/// compile with the resolved tool, run the executable.
+/// Unit suite (task 7 pipeline): write the test artifact and, for C, the fsm
+/// pair it references; compile with the resolved tool (C: object+link - the
+/// test source #includes the fsm header, so both sources are compiled to
+/// objects and linked); run the executable.
 fn run_unit_suite(
     opts: &TestOptions,
     resolved: &ResolvedTool,
-    source: &str,
+    out: &crate::codegen::CodegenOutput,
     dir: &Path,
     log: &Logger,
 ) -> Result<(), String> {
     let (src_name, bin_name, compile_args) = artifact_names(opts);
     let src_path = dir.join(src_name);
     let bin_path = dir.join(bin_name);
-    std::fs::write(&src_path, source)
+    std::fs::write(&src_path, out.primary(CodegenCommandKind::UnitTests))
         .map_err(|e| format!("failed to write {}: {e}", src_path.display()))?;
 
-    log.info(&format!(
-        "compiling {} with {}",
-        src_path.display(),
-        resolved.path
-    ));
-    let mut args = compile_args;
-    args.push(src_path.to_string_lossy().into_owned());
-    args.push("-o".into());
-    args.push(bin_path.to_string_lossy().into_owned());
-    let compile = resolved
-        .run(&args)
-        .map_err(|e| format!("failed to run {}: {e}", resolved.name))?;
-    if !compile.success() {
-        eprintln!("{}", compile.stderr);
-        return Err(format!("{} compilation failed", resolved.name));
-    }
-    for line in compile.stderr.lines() {
-        log.warn(line);
+    if opts.backend == "c" {
+        // Phase 14 task 4: the test source references the fsm header - write the
+        // fsm pair alongside (under the standalone default names, since `rfs
+        // test` does not stamp custom reference names) and build via object+link.
+        let fsm_header_name = "rfs_fsm.h";
+        let fsm_source_name = "rfs_fsm.c";
+        let header_path = dir.join(fsm_header_name);
+        let source_path = dir.join(fsm_source_name);
+        std::fs::write(
+            &header_path,
+            out.fsm_header
+                .as_deref()
+                .expect("c test fills the fsm-header slot"),
+        )
+        .map_err(|e| format!("failed to write {}: {e}", header_path.display()))?;
+        std::fs::write(
+            &source_path,
+            out.fsm_code
+                .as_deref()
+                .expect("c test fills the fsm-code slot"),
+        )
+        .map_err(|e| format!("failed to write {}: {e}", source_path.display()))?;
+
+        let fsm_obj = dir.join("rfs_fsm.o");
+        let test_obj = dir.join("spec_test.o");
+        for (c_src, c_obj) in [(&source_path, &fsm_obj), (&src_path, &test_obj)] {
+            log.info(&format!(
+                "compiling {} with {}",
+                c_src.display(),
+                resolved.path
+            ));
+            let mut args = compile_args.clone();
+            args.push("-c".into());
+            args.push(c_src.to_string_lossy().into_owned());
+            args.push("-I".into());
+            args.push(dir.to_string_lossy().into_owned());
+            args.push("-o".into());
+            args.push(c_obj.to_string_lossy().into_owned());
+            let compile = resolved
+                .run(&args)
+                .map_err(|e| format!("failed to run {}: {e}", resolved.name))?;
+            if !compile.success() {
+                eprintln!("{}", compile.stderr);
+                return Err(format!("{} compilation failed", resolved.name));
+            }
+            for line in compile.stderr.lines() {
+                if line.contains("warning:") {
+                    return Err(format!(
+                        "{} emitted a warning on {} (generated C must be warning-free): {}",
+                        resolved.name,
+                        c_src.display(),
+                        line
+                    ));
+                }
+                log.warn(line);
+            }
+        }
+        log.info(&format!("linking {}", bin_path.display()));
+        let link = resolved
+            .run(&[
+                fsm_obj.to_string_lossy().into_owned(),
+                test_obj.to_string_lossy().into_owned(),
+                "-o".into(),
+                bin_path.to_string_lossy().into_owned(),
+            ])
+            .map_err(|e| format!("failed to run {}: {e}", resolved.name))?;
+        if !link.success() {
+            eprintln!("{}", link.stderr);
+            return Err(format!("{} link failed", resolved.name));
+        }
+    } else {
+        log.info(&format!(
+            "compiling {} with {}",
+            src_path.display(),
+            resolved.path
+        ));
+        let mut args = compile_args;
+        args.push(src_path.to_string_lossy().into_owned());
+        args.push("-o".into());
+        args.push(bin_path.to_string_lossy().into_owned());
+        let compile = resolved
+            .run(&args)
+            .map_err(|e| format!("failed to run {}: {e}", resolved.name))?;
+        if !compile.success() {
+            eprintln!("{}", compile.stderr);
+            return Err(format!("{} compilation failed", resolved.name));
+        }
+        for line in compile.stderr.lines() {
+            log.warn(line);
+        }
     }
 
     log.info(&format!("running {}", bin_path.display()));
@@ -322,15 +390,19 @@ fn run_unit_suite(
 struct FuzzContext {
     /// clang (C backend) or cargo-fuzz (rust backend).
     tool: ResolvedTool,
-    /// Generated PRODUCTION source (the lib root / the #include target).
+    /// The FSM source the fuzz target links against. C: the fsm pair's source
+    /// (Phase 14 task 4 - taken from the test codegen output, so the fuzz
+    /// target drives the IDENTICAL fsm the unit tests do). Rust: the generated
+    /// production source used as the cargo-fuzz lib root.
     prod_source: String,
-    /// C production header (Phase 14 task 2): the source now #includes its
-    /// own header, so the C pipeline writes it next to the source. None for
-    /// the Rust backend (single self-contained lib.rs).
+    /// C fsm header (the source #includes it; both sources are compiled and
+    /// linked). None for the Rust backend (single self-contained lib.rs).
     prod_header: Option<String>,
-    /// The header file name the C source #includes (matches the stamped
-    /// `fsm_header_name`, or the standalone default `rfs_fsm.h`).
+    /// The header file name the C source #includes (standalone default
+    /// `rfs_fsm.h` - `rfs test` does not stamp custom reference names).
     header_name: String,
+    /// The C fsm source file name (standalone default `rfs_fsm.c`).
+    source_name: String,
     /// The emitted fuzz skeleton content (named slot of the test codegen).
     skeleton: String,
 }
@@ -346,9 +418,6 @@ fn build_fuzz_context(
         .fuzz_target
         .clone()
         .ok_or_else(|| "the test codegen emitted no fuzz skeleton (backend bug?)".to_string())?;
-    let prod = CodegenCommandKind::Production
-        .run(backend, ir, options)
-        .map_err(|e| e.join("; "))?;
     // Task 3's resolver for the fuzz tool: CLI flag > env var > bare name.
     let tool = if backend.name == "rust" {
         ExtTool::CARGO_FUZZ.resolve(
@@ -358,19 +427,46 @@ fn build_fuzz_context(
     } else {
         ExtTool::CLANG.resolve(opts.clang_path.as_deref(), opts.clang_args.as_deref())
     };
-    Ok(FuzzContext {
-        tool,
-        prod_source: prod
-            .fsm_code
-            .clone()
-            .expect("production fills the fsm-code slot"),
-        prod_header: prod.fsm_header.clone(),
-        header_name: options
-            .fsm_header_name
-            .clone()
-            .unwrap_or_else(|| "rfs_fsm.h".into()),
-        skeleton,
-    })
+    if backend.name == "c" {
+        // Phase 14 task 4: the C fuzz target references the SAME fsm pair the
+        // test artifact uses (from the test codegen output) - no separate
+        // production dispatch. The skeleton includes the header; both sources
+        // are compiled together and linked.
+        Ok(FuzzContext {
+            tool,
+            prod_source: test_out
+                .fsm_code
+                .clone()
+                .expect("c test fills the fsm-code slot"),
+            prod_header: test_out.fsm_header.clone(),
+            header_name: options
+                .fsm_header_name
+                .clone()
+                .unwrap_or_else(|| "rfs_fsm.h".into()),
+            source_name: options
+                .fsm_source_name
+                .clone()
+                .unwrap_or_else(|| "rfs_fsm.c".into()),
+            skeleton,
+        })
+    } else {
+        // Rust: the fuzz target is a separate bin crate whose lib root is the
+        // generated production source (a second registry dispatch).
+        let prod = CodegenCommandKind::Production
+            .run(backend, ir, options)
+            .map_err(|e| e.join("; "))?;
+        Ok(FuzzContext {
+            tool,
+            prod_source: prod
+                .fsm_code
+                .clone()
+                .expect("production fills the fsm-code slot"),
+            prod_header: None,
+            header_name: "rfs_fsm.h".into(), // unused for Rust
+            source_name: "rfs_fsm.c".into(), // unused for Rust
+            skeleton,
+        })
+    }
 }
 
 /// Fuzz suite (task 17): build the libFuzzer target from the emitted
@@ -388,8 +484,10 @@ fn run_fuzz_suite(
     }
 }
 
-/// C pipeline: the skeleton hardcodes `#include "rfs_generated_fsm.c"`, so
-/// the production source is written under EXACTLY that name next to it.
+/// C pipeline (Phase 14 task 4): the skeleton references the fsm through its
+/// header, so the fsm source + header + skeleton are all written and BOTH
+/// sources are compiled together (no more source-include, no multiple-
+/// definition constraint).
 fn run_fuzz_c(
     opts: &TestOptions,
     ctx: &FuzzContext,
@@ -397,13 +495,13 @@ fn run_fuzz_c(
     log: &Logger,
 ) -> Result<(), String> {
     let skel_path = dir.join("fuzz_target.c");
-    let fsm_path = dir.join("rfs_generated_fsm.c");
+    let fsm_path = dir.join(&ctx.source_name);
     std::fs::write(&skel_path, &ctx.skeleton)
         .map_err(|e| format!("failed to write {}: {e}", skel_path.display()))?;
     std::fs::write(&fsm_path, &ctx.prod_source)
         .map_err(|e| format!("failed to write {}: {e}", fsm_path.display()))?;
-    // Phase 14 task 2: the C source #includes its own header - write it next
-    // to the source so the include resolves (Rust has no header; skip).
+    // The C source #includes its own header - write it next to the source so
+    // the include resolves (Rust has no header; skip).
     if let Some(header) = &ctx.prod_header {
         let header_path = dir.join(&ctx.header_name);
         std::fs::write(&header_path, header)
@@ -414,12 +512,12 @@ fn run_fuzz_c(
     log.info(&format!("building fuzz target with {}", ctx.tool.path));
     // Extra args (RFS_CLANG_ARGS / --clang-args) sit right after the tool,
     // before its real arguments - the ext_tool contract shared by every
-    // preset (task 3 invariant). Only the skeleton is COMPILED: it #includes
-    // the production source, so passing both would define every symbol twice
-    // (multiple-definition link error).
+    // preset (task 3 invariant). BOTH sources are compiled: the skeleton no
+    // longer source-includes the fsm, so there is no multiple-definition risk.
     let mut build_args = vec!["-O1".to_string(), "-fsanitize=fuzzer,address".to_string()];
     build_args.push("-o".into());
     build_args.push(bin_path.to_string_lossy().into_owned());
+    build_args.push(fsm_path.to_string_lossy().into_owned());
     build_args.push(skel_path.to_string_lossy().into_owned());
     let build = ctx.tool.run(&build_args).map_err(|e| {
         if e.kind() == std::io::ErrorKind::NotFound {
@@ -685,7 +783,7 @@ fn render_script(
     spec: &Path,
     opts: &TestOptions,
     resolved: &ResolvedTool,
-    source: &str,
+    out: &crate::codegen::CodegenOutput,
     fuzz_ctx: Option<&FuzzContext>,
 ) -> String {
     // Deterministic command description (non-default options only).
@@ -738,36 +836,110 @@ fn render_script(
     if run_unit {
         let (src_name, bin_name, compile_args) = artifact_names(opts);
         // Heredoc with a quoted delimiter: no shell expansion of the content.
-        let src_text = if source.ends_with('\n') {
-            source.to_string()
+        let src_text = if out.primary(CodegenCommandKind::UnitTests).ends_with('\n') {
+            out.primary(CodegenCommandKind::UnitTests).to_string()
         } else {
-            format!("{source}\n")
+            format!("{}\n", out.primary(CodegenCommandKind::UnitTests))
         };
-        let heredoc = format!(
+        let test_heredoc = format!(
             "cat > {} <<'__RFS_TEST_SOURCE__'\n{}__RFS_TEST_SOURCE__",
             sh_quote(src_name),
             src_text
         );
 
-        let mut args = compile_args;
-        args.push(src_name.to_string());
-        args.push("-o".into());
-        args.push(bin_name.to_string());
-
-        script = script
-            .step(
-                "write generated test artifact (from `rfs codegen <backend> test`)",
-                &heredoc,
-            )
-            .step(
-                "compile the generated test artifact",
-                &resolved.render(&args),
-            )
-            .step("run the generated tests", &format!("./{bin_name}"))
-            .step(
-                "clean up generated artifacts",
-                &format!("rm -f {src_name} {bin_name}"),
+        if opts.backend == "c" {
+            // Phase 14 task 4: the test source references the fsm header - the
+            // script writes the fsm pair alongside and builds via object+link.
+            let fsm_header_name = "rfs_fsm.h";
+            let fsm_source_name = "rfs_fsm.c";
+            let header_heredoc = heredoc(
+                fsm_header_name,
+                "__RFS_TEST_FSM_H__",
+                out.fsm_header
+                    .as_deref()
+                    .expect("c test fills the fsm-header slot"),
             );
+            let source_heredoc = heredoc(
+                fsm_source_name,
+                "__RFS_TEST_FSM_C__",
+                out.fsm_code
+                    .as_deref()
+                    .expect("c test fills the fsm-code slot"),
+            );
+            script = script
+                .step(
+                    "write generated test artifact (from `rfs codegen c test`)",
+                    &test_heredoc,
+                )
+                .step(
+                    "write the referenced fsm header (co-emitted by the same command)",
+                    &header_heredoc,
+                )
+                .step(
+                    "write the referenced fsm source (co-emitted by the same command)",
+                    &source_heredoc,
+                )
+                .step(
+                    "compile the fsm source to an object",
+                    &resolved.render(&[
+                        "-Wall".into(),
+                        "-c".into(),
+                        fsm_source_name.to_string(),
+                        "-I".into(),
+                        ".".into(),
+                        "-o".into(),
+                        "rfs_fsm.o".into(),
+                    ]),
+                )
+                .step(
+                    "compile the test source to an object",
+                    &resolved.render(&[
+                        "-Wall".into(),
+                        "-c".into(),
+                        src_name.to_string(),
+                        "-I".into(),
+                        ".".into(),
+                        "-o".into(),
+                        "spec_test.o".into(),
+                    ]),
+                )
+                .step(
+                    "link the test binary",
+                    &resolved.render(&[
+                        "rfs_fsm.o".into(),
+                        "spec_test.o".into(),
+                        "-o".into(),
+                        bin_name.to_string(),
+                    ]),
+                )
+                .step("run the generated tests", &format!("./{bin_name}"))
+                .step(
+                    "clean up generated artifacts",
+                    &format!(
+                        "rm -f {src_name} {bin_name} rfs_fsm.h rfs_fsm.c rfs_fsm.o spec_test.o"
+                    ),
+                );
+        } else {
+            let mut args = compile_args;
+            args.push(src_name.to_string());
+            args.push("-o".into());
+            args.push(bin_name.to_string());
+
+            script = script
+                .step(
+                    "write generated test artifact (from `rfs codegen <backend> test`)",
+                    &test_heredoc,
+                )
+                .step(
+                    "compile the generated test artifact",
+                    &resolved.render(&args),
+                )
+                .step("run the generated tests", &format!("./{bin_name}"))
+                .step(
+                    "clean up generated artifacts",
+                    &format!("rm -f {src_name} {bin_name}"),
+                );
+        }
     }
 
     if let Some(ctx) = fuzz_ctx {
@@ -850,29 +1022,30 @@ fn render_fuzz_steps(script: Script, opts: &TestOptions, ctx: &FuzzContext) -> S
             .step("leave the scaffolded project", "cd ..")
             .step("clean up generated artifacts", "rm -rf fuzz_proj")
     } else {
-        // Only the skeleton is compiled (it #includes the production source;
-        // compiling both would be a multiple-definition link error).
+        // Phase 14 task 4: BOTH sources are compiled (the skeleton references
+        // the fsm through its header, so there is no multiple-definition risk).
         let mut build_args = vec!["-O1".to_string(), "-fsanitize=fuzzer,address".to_string()];
         build_args.push("-o".into());
         build_args.push("fuzz_bin".into());
+        build_args.push(ctx.source_name.clone());
         build_args.push("fuzz_target.c".into());
         script
             .step(
-                "write the emitted fuzz skeleton (from `rfs codegen c test` extra file)",
+                "write the emitted fuzz skeleton (from `rfs codegen c test`)",
                 &heredoc("fuzz_target.c", "__RFS_FUZZ_TARGET_C__", &ctx.skeleton),
             )
             .step(
-                "write the generated production source (the skeleton's hardcoded #include target)",
-                &heredoc("rfs_generated_fsm.c", "__RFS_GENERATED_FSM_C__", &ctx.prod_source),
+                "write the referenced fsm source (co-emitted by the same command)",
+                &heredoc(&ctx.source_name, "__RFS_FUZZ_FSM_C__", &ctx.prod_source),
             )
-            // Phase 14 task 2: the C source #includes its own header - write it
-            // so the include resolves (the Rust path has no header).
+            // The C source #includes its own header - write it so the include
+            // resolves (the Rust path has no header).
             .step(
-                "write the generated production header (the source's #include target)",
-                &heredoc(&ctx.header_name, "__RFS_GENERATED_FSM_H__", ctx.prod_header.as_deref().unwrap_or("")),
+                "write the referenced fsm header (the source's #include target)",
+                &heredoc(&ctx.header_name, "__RFS_FUZZ_FSM_H__", ctx.prod_header.as_deref().unwrap_or("")),
             )
             .step(
-                "build the C fuzz target",
+                "build the C fuzz target (both sources)",
                 &ctx.tool.render(&build_args),
             )
             .step(
@@ -884,7 +1057,7 @@ fn render_fuzz_steps(script: Script, opts: &TestOptions, ctx: &FuzzContext) -> S
             )
             .step(
                 "clean up generated artifacts",
-                &format!("rm -f fuzz_target.c rfs_generated_fsm.c {} fuzz_bin", ctx.header_name),
+                &format!("rm -f fuzz_target.c {} {} fuzz_bin", ctx.source_name, ctx.header_name),
             )
     }
 }

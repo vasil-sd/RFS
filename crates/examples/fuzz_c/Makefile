@@ -39,8 +39,10 @@ $(BUILD_DIR)/fuzz_target.c: $(SPEC)
 # The skeleton #includes "rfs_generated_fsm.c" relative to its own directory,
 # so both files live in build/; -I. lets the source's self-include of
 # "build/rfs_generated_fsm.h" resolve from the example dir.
+# Phase 14 task 4: the skeleton references the fsm through its header, so BOTH
+# the fsm source and the skeleton are compiled together (no more source-include).
 fuzz_target: $(BUILD_DIR)/fuzz_target.c $(GEN_FSM_C) $(GEN_FSM_H)
-	$(CLANG) -O1 -fsanitize=fuzzer,address -I. -o $@ $(BUILD_DIR)/fuzz_target.c
+	$(CLANG) -O1 -fsanitize=fuzzer,address -I. -o $@ $(GEN_FSM_C) $(BUILD_DIR)/fuzz_target.c
 
 # Bounded smoke run (a real campaign is user work, not a build target).
 run: fuzz_target

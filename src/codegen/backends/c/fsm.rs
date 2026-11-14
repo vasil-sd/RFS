@@ -64,8 +64,12 @@ pub(crate) fn generate_fsm_pair(
     })
 }
 
-/// Core generator shared by all three commands (D-P3-6): `production` maps
-/// the CLI flag to Off/Gated; `test` and `mc` always pass Always.
+/// Legacy single self-contained .c generator. Phase 14 tasks 2-4 moved
+/// `production`, `mc` and `test` onto [`generate_fsm_pair`] (the header/source
+/// split), so no root-workspace caller remains - but the external
+/// `cargo test-generated-code` suite (Phase 14 plan, task 11) still consumes it
+/// directly, so it is retained. The allow keeps clippy at baseline.
+#[allow(dead_code)]
 pub(crate) fn generate_core(
     module: &Module,
     options: &BackendOptions,

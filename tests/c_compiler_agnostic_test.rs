@@ -198,31 +198,6 @@ fn build_mc_pair(cc: &str, out: &rfs::codegen::CodegenOutput, subdir: &Path, bin
     );
 }
 
-/// Compile `src` with `cc` at -O2 -Wall into `obj`; assert success and zero
-/// warnings. A real `-c` compile (not -fsyntax-only) is required: gcc's
-/// -Wmaybe-uninitialized only fires in the optimization passes.
-fn compile_warning_free(cc: &str, src: &Path, obj: &Path) {
-    let out = Command::new(cc)
-        .args(["-Wall", "-O2"])
-        .arg(src)
-        .arg("-c")
-        .arg("-o")
-        .arg(obj)
-        .output()
-        .unwrap_or_else(|e| panic!("run {cc} on {:?}: {e}", src));
-    let stderr = String::from_utf8_lossy(&out.stderr);
-    assert!(
-        out.status.success(),
-        "{cc} -O2 failed on {}:\n{stderr}",
-        src.display()
-    );
-    assert!(
-        !stderr.lines().any(|l| l.contains("warning:")),
-        "{cc} -O2 -Wall emitted warnings on {} (generated C must be warning-free under every compiler):\n{stderr}",
-        src.display()
-    );
-}
-
 // ---------------------------------------------------------------------------
 // Leg 1: warning-free compile under every available compiler, all variants
 // ---------------------------------------------------------------------------
@@ -288,13 +263,47 @@ fn generated_c_compiles_warning_free_under_every_compiler() {
                     );
                 }
             } else {
-                std::fs::write(&src, generate("c", command, &spec)).expect("write generated C");
-                compile_warning_free(&gcc, &src, &dir.join(format!("{stem}_{variant}_gcc.o")));
-                if have_clang {
-                    compile_warning_free(
-                        &common::toolchain::clang(),
-                        &src,
-                        &dir.join(format!("{stem}_{variant}_clang.o")),
+                // Phase 14 task 4: the C test source references the fsm header -
+                // compile BOTH sources under each compiler (object+link shape).
+                let out = generate_full("c", command, &spec);
+                for (cc, tag) in [(&gcc, "gcc"), (&common::toolchain::clang(), "clang")] {
+                    if tag == "clang" && !have_clang {
+                        continue;
+                    }
+                    let sub = dir.join(format!("{stem}_test_{tag}"));
+                    std::fs::create_dir_all(&sub).expect("create test pair dir");
+                    let fsm_h = sub.join("rfs_fsm.h");
+                    let fsm_c = sub.join("rfs_fsm.c");
+                    let test_c = sub.join("spec_test.c");
+                    std::fs::write(
+                        &fsm_h,
+                        out.fsm_header
+                            .as_deref()
+                            .expect("c test fills the fsm-header slot"),
+                    )
+                    .expect("write fsm header");
+                    std::fs::write(
+                        &fsm_c,
+                        out.fsm_code
+                            .as_deref()
+                            .expect("c test fills the fsm-code slot"),
+                    )
+                    .expect("write fsm source");
+                    std::fs::write(&test_c, out.primary_code()).expect("write test source");
+                    compile_warning_free_i(cc, &fsm_c, &sub, &sub.join("rfs_fsm.o"));
+                    compile_warning_free_i(cc, &test_c, &sub, &sub.join("spec_test.o"));
+                    let linked = Command::new(cc)
+                        .args(["-O2"])
+                        .arg(sub.join("rfs_fsm.o"))
+                        .arg(sub.join("spec_test.o"))
+                        .arg("-o")
+                        .arg(dir.join(format!("{stem}_{variant}_{tag}.bin")))
+                        .output()
+                        .expect("link test objects");
+                    assert!(
+                        linked.status.success(),
+                        "{cc} link of c test objects failed:\n{}",
+                        String::from_utf8_lossy(&linked.stderr)
                     );
                 }
             }

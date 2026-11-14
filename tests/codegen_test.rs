@@ -1035,7 +1035,10 @@ fn mc_and_test_always_include_property_monitors() {
             kind
         );
     }
-    // C: violation type + monitor state present despite flag off.
+    // C: violation type + monitor state present despite flag off. Phase 14
+    // task 3/4: the mc/test sources reference the fsm through its header, so
+    // the monitor types live in the fsm-header slot (monitors Always), not in
+    // the primary source.
     let c = codegen::get_backend("c").unwrap();
     for kind in [
         codegen::CodegenCommandKind::ModelChecker,
@@ -1044,16 +1047,16 @@ fn mc_and_test_always_include_property_monitors() {
         let out = kind
             .run(c, &ir, &options)
             .unwrap_or_else(|e| panic!("c {:?} failed: {:?}", kind, e));
+        let hdr = out
+            .fsm_header
+            .as_deref()
+            .unwrap_or_else(|| panic!("c {:?} fills the fsm-header slot", kind));
         assert!(
-            out.primary_code().contains("rfs_property_violation_t"),
+            hdr.contains("rfs_property_violation_t"),
             "c {:?}: monitors must be unconditional",
             kind
         );
-        assert!(
-            out.primary_code().contains("prop_monitors"),
-            "c {:?}: monitor state",
-            kind
-        );
+        assert!(hdr.contains("prop_monitors"), "c {:?}: monitor state", kind);
     }
     // CLI: passing the flag to mc/test is rejected (D-P3-6: not accepted/needed).
     for cmd in ["mc", "test"] {
@@ -2230,6 +2233,106 @@ fn cli_test_command_writes_fuzz_target_next_to_out() {
     }
 }
 
+/// Phase 14 task 4 (exit criterion 1): `rfs codegen c test <spec> --out arq`
+/// writes the FOUR artifacts - the referenced fsm pair plus the test source and
+/// the fuzz skeleton - and BOTH .c artifacts reference the fsm through its
+/// header (`arq-fsm.h`), never by source-including the fsm .c.
+#[test]
+fn cli_c_test_writes_fsm_pair_and_references_header() {
+    let spec =
+        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("examples/valid/41_property_monitors.rfs");
+    let dir = std::env::temp_dir().join(format!("rfs_t4_cli_{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+
+    let out = std::process::Command::new(rfs_bin())
+        .args(["codegen", "c", "test"])
+        .arg(&spec)
+        .arg("--out")
+        .arg("arq")
+        .current_dir(&dir)
+        .output()
+        .expect("spawn rfs");
+    assert!(
+        out.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+
+    // All four artifacts are written under their BASE-derived names.
+    for name in ["arq-fsm.h", "arq-fsm.c", "arq-test.c", "arq-fuzz-target.c"] {
+        assert!(dir.join(name).is_file(), "missing artifact {name}");
+    }
+
+    // Both .c artifacts reference the fsm through its header - never by
+    // source-including the fsm .c.
+    for name in ["arq-test.c", "arq-fuzz-target.c"] {
+        let text = std::fs::read_to_string(dir.join(name)).unwrap();
+        assert!(
+            text.contains("#include \"arq-fsm.h\""),
+            "{name} must #include the fsm header"
+        );
+        assert!(
+            !text
+                .lines()
+                .any(|l| l.trim_start().starts_with("#include") && l.contains(".c\"")),
+            "{name} must not source-include any .c file"
+        );
+    }
+
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// Phase 14 task 4 (exit criterion 1, the grep bar): across EVERY C codegen
+/// command (production / mc / test) and every valid example, NO generated C
+/// artifact source-includes another .c file - the FSM is always referenced
+/// through its header. This is the standing regression for the whole-source-
+/// inclusion pattern the phase removes.
+#[test]
+fn no_generated_c_source_includes_a_c_file() {
+    let files = files();
+    assert!(!files.is_empty());
+    let backend = codegen::get_backend("c").expect("c backend registered");
+    let options = codegen::BackendOptions {
+        assumptions: codegen::AssumptionSelection::All,
+        steps: 4,
+        with_property_monitors: false,
+
+        ..codegen::BackendOptions::default()
+    };
+    for path in &files {
+        let ir = parse_module(path);
+        for kind in [
+            codegen::CodegenCommandKind::Production,
+            codegen::CodegenCommandKind::ModelChecker,
+            codegen::CodegenCommandKind::UnitTests,
+        ] {
+            let out = kind
+                .run(backend, &ir, &options)
+                .unwrap_or_else(|e| panic!("{} {:?} failed: {:?}", path.display(), kind, e));
+            for (slot_name, slot) in [
+                ("fsm_header", out.fsm_header.as_deref()),
+                ("fsm_code", out.fsm_code.as_deref()),
+                ("mc_header", out.mc_header.as_deref()),
+                ("mc_code", out.mc_code.as_deref()),
+                ("test_code", out.test_code.as_deref()),
+                ("fuzz_target", out.fuzz_target.as_deref()),
+            ] {
+                if let Some(text) = slot {
+                    assert!(
+                        !text.lines().any(|l| {
+                            l.trim_start().starts_with("#include") && l.contains(".c\"")
+                        }),
+                        "{} {:?} {slot_name}: generated C must not source-include a .c file",
+                        path.display(),
+                        kind
+                    );
+                }
+            }
+        }
+    }
+}
+
 /// The aggregate generated-code crate: the new classes are present (per
 /// module) and the crate stays dependency-free (no fuzz skeleton inlined).
 #[test]
@@ -2429,23 +2532,25 @@ fn c_test_emits_fuzz_skeleton_as_extra_file() {
     assert!(!out.primary_code().contains("libFuzzer"));
 
     // gcc -Wall: the main test artifact and the fuzz skeleton (against the
-    // generated production source it includes) must compile warning-free.
+    // fsm header they reference) must compile warning-free.
     let dir = std::env::temp_dir().join(format!("rfs_t6_fuzz_{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&dir);
     std::fs::create_dir_all(&dir).unwrap();
-    let prod = codegen::CodegenCommandKind::Production
-        .run(backend, &ir, &options)
-        .expect("production codegen");
     let main_c = dir.join("fsm_test.c");
-    // Phase 14 task 2: production is a header/source pair. The fuzz target
-    // includes the source, which in turn includes its own header by the
-    // standalone default name - write both and compile with -I so it resolves.
-    let prod_h = dir.join("rfs_fsm.h");
-    let prod_c = dir.join("rfs_generated_fsm.c");
+    // Phase 14 task 4: the test artifact and fuzz skeleton reference the fsm
+    // through its header. Write the TEST codegen's OWN fsm pair (monitors Always,
+    // standalone default name rfs_fsm.h) so the includes resolve - a separate
+    // monitors-Off production header would lack the prop fields the tests use.
+    let fsm_h = dir.join("rfs_fsm.h");
     let fuzz_c = dir.join("fuzz_target.c");
     std::fs::write(&main_c, out.primary_code()).unwrap();
-    std::fs::write(&prod_h, prod.fsm_header.as_deref().unwrap()).unwrap();
-    std::fs::write(&prod_c, prod.fsm_code.as_deref().unwrap()).unwrap();
+    std::fs::write(
+        &fsm_h,
+        out.fsm_header
+            .as_deref()
+            .expect("c test fills the fsm-header slot"),
+    )
+    .unwrap();
     std::fs::write(&fuzz_c, fz).unwrap();
     for src_path in [&main_c, &fuzz_c] {
         let out = std::process::Command::new(common::toolchain::gcc())
@@ -2525,19 +2630,16 @@ fn c_fuzz_target_frees_per_input_and_bounded_run_stays_green() {
     let dir = std::env::temp_dir().join(format!("rfs_t16_fuzz_{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&dir);
     std::fs::create_dir_all(&dir).unwrap();
-    // Phase 14 task 2: production is a header/source pair; the fuzz target
-    // includes the source, which includes its own header - write both and build
-    // with -I so the include resolves.
+    // Phase 14 task 4: the fuzz target references the fsm through its header,
+    // so BOTH the fsm source and the skeleton are compiled together (no more
+    // source-include; the standalone default header name is used).
     std::fs::write(dir.join("rfs_fsm.h"), prod.fsm_header.as_deref().unwrap()).unwrap();
-    std::fs::write(
-        dir.join("rfs_generated_fsm.c"),
-        prod.fsm_code.as_deref().unwrap(),
-    )
-    .unwrap();
+    std::fs::write(dir.join("rfs_fsm.c"), prod.fsm_code.as_deref().unwrap()).unwrap();
     std::fs::write(dir.join("fuzz_target.c"), fz).unwrap();
     let build = std::process::Command::new(common::toolchain::clang())
         .args(["-O1", "-fsanitize=fuzzer,address", "-I"])
         .arg(&dir)
+        .arg(dir.join("rfs_fsm.c"))
         .arg(dir.join("fuzz_target.c"))
         .arg("-o")
         .arg(dir.join("fuzz_bin"))

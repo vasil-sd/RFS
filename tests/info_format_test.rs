@@ -2720,9 +2720,16 @@ fn artifact_header_generated_output_matches_documented_format() {
                 let is_test = matches!(command, rfs::codegen::CodegenCommandKind::UnitTests);
                 let is_c_prod = backend_name == "c"
                     && matches!(command, rfs::codegen::CodegenCommandKind::Production);
-                let is_c_mc = backend_name == "c"
-                    && matches!(command, rfs::codegen::CodegenCommandKind::ModelChecker);
-                let expected_n = if is_c_mc {
+                // C mc (task 3) and C test (task 4) each fill their own pair
+                // PLUS the referenced fsm pair: 4 slots. Rust test fills 2
+                // (test + fuzz-target; the include! reference is task 5).
+                let is_c_ref = backend_name == "c"
+                    && matches!(
+                        command,
+                        rfs::codegen::CodegenCommandKind::ModelChecker
+                            | rfs::codegen::CodegenCommandKind::UnitTests
+                    );
+                let expected_n = if is_c_ref {
                     4
                 } else if is_test || is_c_prod {
                     2

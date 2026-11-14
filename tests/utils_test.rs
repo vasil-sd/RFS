@@ -2941,15 +2941,23 @@ fn e2e_test_tool_precedence_stub_tools() {
         "argv: {argv}"
     );
 
-    // (e) the C pair is wired the same way (RFS_GCC env var).
+    // (e) the C pair is wired the same way (RFS_GCC env var). Phase 14 task 4:
+    // the C unit pipeline is object+link, so the stub's LAST recorded
+    // invocation is the link of the two objects into the test binary.
     let argv = case(
         "gcc",
         &[("RFS_GCC", Some(root.join("stub_gcc").to_str().unwrap()))],
         &["--backend", "c"],
         None,
     );
-    assert!(argv.starts_with("-Wall "), "argv: {argv}");
-    assert!(argv.contains("/spec_test.c -o /"), "argv: {argv}");
+    assert!(
+        argv.contains("rfs_fsm.o"),
+        "link argv missing fsm object: {argv}"
+    );
+    assert!(
+        argv.contains("spec_test.o"),
+        "link argv missing test object: {argv}"
+    );
     assert!(argv.ends_with("spec_test_bin"), "argv: {argv}");
 
     clear_test_env();
@@ -3442,48 +3450,20 @@ fn e2e_fuzz_print_script_pinned_and_no_execution() {
     );
     let script = String::from_utf8_lossy(&out.stdout).to_string();
 
-    // Cross-check the heredoc bodies against actual codegen output.
-    // Phase 14 task 1: --out carries the BASE name; the artifacts land at
-    // gen_test-fuzz-target.c / gen_prod-fsm.c.
-    let gen = std::process::Command::new(rfs_bin())
-        .args(["codegen", "c", "test", "ok.rfs", "--out", "gen_test"])
-        .current_dir(&root)
-        .output()
-        .expect("spawn rfs codegen");
-    assert!(
-        gen.status.success(),
-        "{}",
-        String::from_utf8_lossy(&gen.stderr)
-    );
-    let expected_skeleton = std::fs::read_to_string(root.join("gen_test-fuzz-target.c")).unwrap();
-    // Phase 14 task 2: the script's embedded fsm source includes its own header
-    // by the standalone default name (rfs_fsm.h) - the `test` command stamps no
-    // custom header name. Generate the cross-check with that SAME header name so
-    // the include line matches byte-for-byte (a `--out gen_prod` base would stamp
-    // gen_prod-fsm.h and drift on exactly that line).
-    let gen = std::process::Command::new(rfs_bin())
-        .args([
-            "codegen",
-            "c",
-            "production",
-            "ok.rfs",
-            "--out-fsm-header",
-            "rfs_fsm.h",
-            "--out-fsm-code",
-            "gen_prod-fsm.c",
-        ])
-        .current_dir(&root)
-        .output()
-        .expect("spawn rfs codegen");
-    assert!(
-        gen.status.success(),
-        "{}",
-        String::from_utf8_lossy(&gen.stderr)
-    );
-    let expected_fsm = std::fs::read_to_string(root.join("gen_prod-fsm.c")).unwrap();
-    // The same invocation wrote the header to rfs_fsm.h (the standalone default
-    // name the script's source includes) - cross-check that heredoc too.
-    let expected_header = std::fs::read_to_string(root.join("rfs_fsm.h")).unwrap();
+    // Cross-check the heredoc bodies against actual codegen output. Phase 14
+    // task 4: the fuzz pipeline uses the TEST codegen's own fsm pair (monitors
+    // Always, standalone default header name rfs_fsm.h - `rfs test` stamps no
+    // custom reference names), so generate it via the library with the SAME
+    // default options run_test uses (no separate production dispatch).
+    let src = std::fs::read_to_string(root.join("ok.rfs")).unwrap();
+    let ir = rfs::parse_source(&src).expect("ok.rfs parses");
+    let backend = rfs::codegen::get_backend("c").expect("c backend registered");
+    let out = rfs::codegen::CodegenCommandKind::UnitTests
+        .run(backend, &ir, &rfs::codegen::BackendOptions::default())
+        .expect("test codegen succeeds");
+    let expected_skeleton = out.fuzz_target.clone().expect("skeleton slot filled");
+    let expected_fsm = out.fsm_code.clone().expect("fsm-code slot filled");
+    let expected_header = out.fsm_header.clone().expect("fsm-header slot filled");
 
     // Extract the three heredoc bodies.
     let extract = |script: &str, start_marker: &str, end_marker: &str| -> String {
@@ -3501,20 +3481,17 @@ fn e2e_fuzz_print_script_pinned_and_no_execution() {
     );
     let fsm_body = extract(
         &script,
-        "cat > rfs_generated_fsm.c <<'__RFS_GENERATED_FSM_C__'\n",
-        "\n__RFS_GENERATED_FSM_C__\n",
+        "cat > rfs_fsm.c <<'__RFS_FUZZ_FSM_C__'\n",
+        "\n__RFS_FUZZ_FSM_C__\n",
     );
     let header_body = extract(
         &script,
-        "cat > rfs_fsm.h <<'__RFS_GENERATED_FSM_H__'\n",
-        "\n__RFS_GENERATED_FSM_H__\n",
+        "cat > rfs_fsm.h <<'__RFS_FUZZ_FSM_H__'\n",
+        "\n__RFS_FUZZ_FSM_H__\n",
     );
     assert_eq!(skel_body, expected_skeleton, "skeleton heredoc drifted");
-    assert_eq!(fsm_body, expected_fsm, "production source heredoc drifted");
-    assert_eq!(
-        header_body, expected_header,
-        "production header heredoc drifted"
-    );
+    assert_eq!(fsm_body, expected_fsm, "fsm source heredoc drifted");
+    assert_eq!(header_body, expected_header, "fsm header heredoc drifted");
 
     // The wrapper is byte-pinned around the bodies.
     let pinned_prefix = format!(
@@ -3523,26 +3500,26 @@ fn e2e_fuzz_print_script_pinned_and_no_execution() {
          # tools: clang=/nonexistent/clang-stub\n\
          # note: requires clang + libFuzzer runtime (RFS_CLANG / RFS_CLANG_ARGS)\n\
          set -e\n\
-         # step 1: write the emitted fuzz skeleton (from `rfs codegen c test` extra file)\n\
+         # step 1: write the emitted fuzz skeleton (from `rfs codegen c test`)\n\
          cat > fuzz_target.c <<'__RFS_FUZZ_TARGET_C__'\n",
         env!("CARGO_PKG_VERSION")
     );
     let pinned_middle = "\
 __RFS_FUZZ_TARGET_C__\n\
-# step 2: write the generated production source (the skeleton's hardcoded #include target)\n\
-cat > rfs_generated_fsm.c <<'__RFS_GENERATED_FSM_C__'\n";
+# step 2: write the referenced fsm source (co-emitted by the same command)\n\
+cat > rfs_fsm.c <<'__RFS_FUZZ_FSM_C__'\n";
     let pinned_middle2 = "\
-__RFS_GENERATED_FSM_C__\n\
-# step 3: write the generated production header (the source's #include target)\n\
-cat > rfs_fsm.h <<'__RFS_GENERATED_FSM_H__'\n";
+__RFS_FUZZ_FSM_C__\n\
+# step 3: write the referenced fsm header (the source's #include target)\n\
+cat > rfs_fsm.h <<'__RFS_FUZZ_FSM_H__'\n";
     let pinned_suffix = "\
-__RFS_GENERATED_FSM_H__\n\
-# step 4: build the C fuzz target\n\
-/nonexistent/clang-stub -O1 -fsanitize=fuzzer,address -o fuzz_bin fuzz_target.c\n\
+__RFS_FUZZ_FSM_H__\n\
+# step 4: build the C fuzz target (both sources)\n\
+/nonexistent/clang-stub -O1 -fsanitize=fuzzer,address -o fuzz_bin rfs_fsm.c fuzz_target.c\n\
 # step 5: run the C fuzz target bounded (leak detection off - no free API in the generated FSM)\n\
 ASAN_OPTIONS=\"detect_leaks=0${ASAN_OPTIONS:+:$ASAN_OPTIONS}\" ./fuzz_bin -max_total_time=30\n\
 # step 6: clean up generated artifacts\n\
-rm -f fuzz_target.c rfs_generated_fsm.c rfs_fsm.h fuzz_bin\n";
+rm -f fuzz_target.c rfs_fsm.c rfs_fsm.h fuzz_bin\n";
     assert_eq!(
         script,
         format!(

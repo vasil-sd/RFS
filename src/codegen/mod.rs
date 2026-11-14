@@ -414,7 +414,7 @@ pub fn common_help() -> String {
     let _ = writeln!(s, "  rfs codegen <backend> --help");
     let _ = writeln!(
         s,
-        "  rfs codegen <backend> <command> <spec.rfs|spec.json> [--out FILE] [options]"
+        "  rfs codegen <backend> <command> <spec.rfs|spec.json> [output options] [options]"
     );
     let _ = writeln!(s);
     let _ = writeln!(s, "backends:");
@@ -457,9 +457,64 @@ pub fn common_help() -> String {
         s,
         "  --timeout-sec N                  mc only: wall-clock limit, 0 = off (default: 0).\n                               Wall-clock ONLY - NOT parity-guaranteed (the same spec can\n                               time out on one machine and not another); never used by\n                               parity or benchmark assertions."
     );
+    let _ = writeln!(s);
     let _ = writeln!(
         s,
-        "  --out FILE                         write generated source to FILE (default: stdout)"
+        "output options (each command accepts its own subset - see the backend help):"
+    );
+    let _ = writeln!(
+        s,
+        "  --out BASE                       base name for all default artifact names; artifacts are\n                               written to the CWD (--out DIR/BASE places them under DIR/).\n                               Without --out, BASE defaults to the spec file's stem."
+    );
+    let _ = writeln!(
+        s,
+        "  --out -                          print the single artifact to stdout (rust production\n                               only; multi-artifact commands refuse it)"
+    );
+    let _ = writeln!(
+        s,
+        "  --out-fsm-code FILE              production: name of the fsm source file"
+    );
+    let _ = writeln!(
+        s,
+        "  --out-fsm-header FILE            c production: name of the fsm header file"
+    );
+    let _ = writeln!(
+        s,
+        "  --out-mc-code FILE               mc: name of the mc source file"
+    );
+    let _ = writeln!(
+        s,
+        "  --out-mc-header FILE             c mc: name of the mc header file"
+    );
+    let _ = writeln!(
+        s,
+        "  --out-test-code FILE             test: name of the test source file"
+    );
+    let _ = writeln!(
+        s,
+        "  --out-fuzz-target-code FILE      test: name of the fuzz-target skeleton file"
+    );
+    let _ = writeln!(s);
+    let _ = writeln!(
+        s,
+        "fsm-reference flags (mc and test only) - name the fsm artifact the generated code\nreferences; an existing artifact is taken as-is, a missing one is emitted new:"
+    );
+    let _ = writeln!(
+        s,
+        "  --fsm-file NAME                  rust: the fsm .rs file (.rs appended when omitted);\n                               c: a STEM expanding to the pair STEM.h + STEM.c (no -fsm suffix)"
+    );
+    let _ = writeln!(
+        s,
+        "  --fsm-file-header FILE.h         c only, with --fsm-file-source: explicit header name"
+    );
+    let _ = writeln!(
+        s,
+        "  --fsm-file-source FILE.c         c only, with --fsm-file-header: explicit source name"
+    );
+    let _ = writeln!(s);
+    let _ = writeln!(
+        s,
+        "Default artifact names derived from BASE: production -> BASE-fsm.h + BASE-fsm.c (c) or\nBASE-fsm.rs (rust); mc -> BASE-mc.h + BASE-mc.c + the fsm pair (c) or BASE-mc.rs +\nBASE-fsm.rs (rust); test -> BASE-test.c + BASE-fuzz-target.c + the fsm pair (c)\nor BASE-test.rs + BASE-fuzz-target.rs + BASE-fsm.rs (rust). A taken fsm artifact\nwhose line-1 spec hash differs from the current spec's hash warns on stderr but\nis still referenced."
     );
     let _ = writeln!(s);
     let _ = writeln!(

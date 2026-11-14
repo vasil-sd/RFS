@@ -244,6 +244,60 @@ fn cli_parses_backend_help() {
     ));
 }
 
+/// Goal-1 invariant (Phase 14): every help surface references ONLY the `rfs`
+/// binary - no cargo/rustc invocation examples anywhere. The tool must be
+/// self-describing on machines with no Rust toolchain at all, so this pins the
+/// rule across the global usage, all eight command helps and the codegen help
+/// surfaces by spawning the real binary for each.
+#[test]
+fn no_help_output_mentions_cargo_run() {
+    let bin = rfs_bin();
+    // (args, expect_exit_zero). Bare `rfs` and `rfs --help` are NOT command-help
+    // invocations: main.rs treats a non-command first arg as an unknown
+    // subcommand (usage on stderr, exit 1) and no args prints usage with exit
+    // 1 - both pre-existing behaviours this task does not change. The usage
+    // text they print is still a help surface and must stay cargo-free.
+    let surfaces: &[(&[&str], bool)] = &[
+        (&[], false),
+        (&["--help"], false),
+        (&["parse", "--help"], true),
+        (&["validate", "--help"], true),
+        (&["info", "--help"], true),
+        (&["test", "--help"], true),
+        (&["diagram", "--help"], true),
+        (&["mc-ref", "--help"], true),
+        (&["gen-spec", "--help"], true),
+        (&["codegen", "--list"], true),
+        (&["codegen", "--help"], true),
+        (&["codegen", "rust", "--help"], true),
+        (&["codegen", "c", "--help"], true),
+    ];
+    for (args, expect_zero) in surfaces {
+        let out = std::process::Command::new(bin)
+            .args(*args)
+            .output()
+            .expect("spawn the rfs binary");
+        if *expect_zero {
+            assert!(
+                out.status.success(),
+                "`rfs {}` should exit 0",
+                args.join(" ")
+            );
+        }
+        let stdout = String::from_utf8_lossy(&out.stdout);
+        let stderr = String::from_utf8_lossy(&out.stderr);
+        for (stream, text) in [("stdout", stdout.as_ref()), ("stderr", stderr.as_ref())] {
+            assert!(
+                !text.contains("cargo run"),
+                "`rfs {}` {} mentions `cargo run`:\n{}",
+                args.join(" "),
+                stream,
+                text
+            );
+        }
+    }
+}
+
 #[test]
 fn cli_parses_generate_with_options() {
     let req = codegen::parse_codegen_args(&argss(

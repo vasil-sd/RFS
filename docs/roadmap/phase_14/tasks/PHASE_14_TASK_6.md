@@ -159,6 +159,12 @@ binary, documenting the final CLI surface.
 - No training-set changes (task 10).
 - No CLI behaviour changes - this task rewrites TEXT, not parsing.
 
+## Task corrections
+
+| Correction | Description + rationale |
+|------------|-------------------------|
+| Action 6.3 regression-test mechanism: binary spawn instead of parser-level invocation, with a two-tier exit-code assertion | The action planned invoking the help surfaces "through the parsers (`parse_codegen_args` Help/BackendHelp requests + each command's run_cli with `--help`)". Implemented by spawning the REAL binary for 13 surfaces instead - a strict superset: it also covers main.rs's dispatch paths (bare `rfs` and `rfs --help`, which are NOT command-help invocations - a non-command first arg is an unknown subcommand printing usage to stderr with exit 1, no args prints usage with exit 1). Those two pre-existing exit-1 behaviours are outside this task's text-only scope, so the test asserts exit 0 only for the true help invocations and checks BOTH stdout and stderr for `cargo run` on every surface. Rationale: the exit criterion names `rfs --help` as a surface; only the binary spawn reaches the text it actually prints (stderr), and parser-level invocation would have missed main.rs entirely. |
+
 ## Other information
 
 - When rewriting the BackendCommandInfo options strings, keep the existing

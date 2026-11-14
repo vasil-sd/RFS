@@ -37,8 +37,8 @@ flowchart TB
     end
     subgraph Compilation
         V --> IR[(versioned IR - single source of truth)]
-        IR --> CR[cargo run -- codegen rust production/test/mc]
-        IR --> CC[cargo run -- codegen c production/test/mc]
+        IR --> CR[rfs codegen rust production/test/mc]
+        IR --> CC[rfs codegen c production/test/mc]
     end
     subgraph Verification
         CR --> RT[rfs test - compile + run generated suites, unit and fuzz]

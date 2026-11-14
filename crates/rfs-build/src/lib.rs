@@ -42,14 +42,16 @@
 //! - `cargo:rerun-if-changed=<spec>` - the spec file (absolute path);
 //! - `cargo:rerun-if-env-changed=RFS_BIN`;
 //! - `cargo:rerun-if-changed=<RFS_BIN>` when `RFS_BIN` names an existing file;
-//! - `cargo:include=<artifact>` - the generated file under `OUT_DIR`.
+//! - one `cargo:include=<file>` per generated file under `OUT_DIR`.
 //!
 //! ## Scope
 //!
 //! The `production` codegen command is the default (that is what most build.rs
-//! consumers want); `.test_command()` selects the `test` command, whose extra
-//! file is the libfuzzer fuzz skeleton written next to the main artifact
-//! (`fuzz_target.rs` / `fuzz_target.c`) - used by the Phase 5 task 12 fuzz
+//! consumers want); `.test_command()` selects the `test` command, whose
+//! fuzz-target slot is the libfuzzer fuzz skeleton written to
+//! `OUT_DIR/fuzz_target.rs` / `OUT_DIR/fuzz_target.c` (the referenced fsm file
+//! also lands in OUT_DIR; an existing one from a prior production run is taken
+//! as-is) - used by the Phase 5 task 12 fuzz
 //! examples. The crate adds no dependencies and never modifies the spec;
 //! parse/validation/codegen failures from `rfs` become build failures with
 //! the rfs diagnostics in the message.
@@ -108,8 +110,9 @@ pub struct RfsBuild {
     spec: PathBuf,
     backend: String,
     /// The codegen command: "production" (default) or "test" (Phase 5 task
-    /// 12 - the libfuzzer fuzz skeleton is written next to the main artifact
-    /// as `fuzz_target.rs` / `fuzz_target.c`).
+    /// 12 - the libfuzzer fuzz skeleton is written to OUT_DIR/fuzz_target.rs /
+    /// OUT_DIR/fuzz_target.c, and the referenced fsm file(s) land in OUT_DIR
+    /// as well).
     command: &'static str,
     with_property_monitors: bool,
     no_std: bool,
@@ -144,9 +147,10 @@ impl RfsBuild {
     }
 
     /// Select the `test` codegen command (Phase 5 task 12): the main artifact
-    /// is the test source and the libfuzzer fuzz skeleton is written NEXT TO
-    /// it as `fuzz_target.rs` (rust) / `fuzz_target.c` (c). Build scripts use
-    /// this to obtain the emitted skeleton for a cargo-fuzz / clang harness.
+    /// is the test source and the libfuzzer fuzz skeleton is written to
+    /// `OUT_DIR/fuzz_target.rs` (rust) / `OUT_DIR/fuzz_target.c` (c). Build
+    /// scripts use this to obtain the emitted skeleton for a cargo-fuzz /
+    /// clang harness.
     pub fn test_command(mut self) -> Self {
         self.command = "test";
         self
@@ -183,10 +187,12 @@ impl RfsBuild {
     }
 
     /// Run the code generation. Prints the cargo directives, invokes
-    /// `rfs codegen <backend> production <spec> --out OUT_DIR/<stem>.<ext>`
-    /// (plus `--with-property-monitors` and `--no-std` when enabled), and
-    /// returns the path of the generated artifact. Errors carry the rfs
-    /// diagnostics.
+    /// `rfs codegen <backend> <command> <spec>` with per-slot output flags -
+    /// production: `--out-fsm-code OUT_DIR/<stem>.<ext>` (C adds
+    /// `--out-fsm-header`); test: `--out-test-code`, `--out-fuzz-target-code`
+    /// and the fsm-reference flag (plus `--with-property-monitors` and
+    /// `--no-std` when enabled) - and returns the path of the main generated
+    /// artifact. Errors carry the rfs diagnostics.
     pub fn compile(&self) -> Result<PathBuf, RfsBuildError> {
         // --- validation (before touching the environment) -----------------
         if !matches!(self.backend.as_str(), "rust" | "c") {
@@ -220,10 +226,63 @@ impl RfsBuild {
             .and_then(|s| s.to_str())
             .unwrap_or("rfs");
         let artifact_ext = if self.backend == "rust" { "rs" } else { "c" };
-        let artifact = Path::new(&out_dir).join(format!("{stem}.{artifact_ext}"));
+        let out_path = Path::new(&out_dir);
+        let artifact = out_path.join(format!("{stem}.{artifact_ext}"));
+
+        // (flag, path) pairs in invocation order. The Phase 14 CLI names each
+        // artifact slot explicitly (`--out FILE` no longer means "write exactly
+        // this file"). Every file lands under OUT_DIR; a referenced fsm file
+        // already present there is taken as-is (take-or-emit).
+        let output: Vec<(&'static str, PathBuf)> = match (self.command, self.backend.as_str()) {
+            ("production", "rust") => vec![("--out-fsm-code", artifact.clone())],
+            ("production", "c") => {
+                let header = out_path.join(format!("{stem}.h"));
+                vec![
+                    ("--out-fsm-header", header),
+                    ("--out-fsm-code", artifact.clone()),
+                ]
+            }
+            ("test", "rust") => {
+                // --fsm-file without an extension: the CLI appends .rs; a prior
+                // production run's OUT_DIR/<stem>.rs is taken as-is, otherwise
+                // emitted new.
+                vec![
+                    ("--out-test-code", artifact.clone()),
+                    ("--out-fuzz-target-code", out_path.join("fuzz_target.rs")),
+                    ("--fsm-file", out_path.join(stem)),
+                ]
+            }
+            ("test", "c") => {
+                // form-1 stem -> the pair OUT_DIR/<stem>_fsm.{h,c}, distinct
+                // from the test source's own name.
+                vec![
+                    ("--out-test-code", artifact.clone()),
+                    ("--out-fuzz-target-code", out_path.join("fuzz_target.c")),
+                    ("--fsm-file", out_path.join(format!("{stem}_fsm"))),
+                ]
+            }
+            // command is "production"|"test" and backend was validated above.
+            other => unreachable!("unreachable command/backend pair: {:?}", other),
+        };
+        // The files the invocation leaves under OUT_DIR (resolved names - the
+        // CLI appends .rs to a bare --fsm-file and expands a C form-1 stem to
+        // its .h/.c pair).
+        let mut written = Vec::new();
+        for (flag, path) in &output {
+            match *flag {
+                "--fsm-file" if self.backend == "rust" => {
+                    written.push(path.with_extension("rs"));
+                }
+                "--fsm-file" => {
+                    written.push(path.with_extension("h"));
+                    written.push(path.with_extension("c"));
+                }
+                _ => written.push(path.clone()),
+            }
+        }
 
         // --- cargo directives ----------------------------------------------
-        println!("{}", self.cargo_directives(&rfs_bin, &artifact));
+        println!("{}", self.cargo_directives(&rfs_bin, &written));
         if rfs_bin == Path::new("rfs") {
             println!("note: rfs-build resolved `rfs` from PATH; set RFS_BIN to pin the toolchain");
         }
@@ -233,9 +292,10 @@ impl RfsBuild {
         cmd.arg("codegen")
             .arg(&self.backend)
             .arg(self.command)
-            .arg(&self.spec)
-            .arg("--out")
-            .arg(&artifact);
+            .arg(&self.spec);
+        for (flag, path) in &output {
+            cmd.arg(flag).arg(path);
+        }
         if self.with_property_monitors {
             cmd.arg("--with-property-monitors");
         }
@@ -265,17 +325,19 @@ impl RfsBuild {
             }
             return Err(err(msg));
         }
-        if !artifact.is_file() {
-            return Err(err(format!(
-                "rfs exited successfully but the artifact '{}' was not written",
-                artifact.display()
-            )));
+        for f in &written {
+            if !f.is_file() {
+                return Err(err(format!(
+                    "rfs exited successfully but the artifact '{}' was not written",
+                    f.display()
+                )));
+            }
         }
         Ok(artifact)
     }
 
     /// The `cargo:` directive lines for this build (pure - unit-testable).
-    fn cargo_directives(&self, rfs_bin: &Path, artifact: &Path) -> String {
+    fn cargo_directives(&self, rfs_bin: &Path, files: &[PathBuf]) -> String {
         let spec = self
             .spec
             .canonicalize()
@@ -287,7 +349,9 @@ impl RfsBuild {
         if rfs_bin != Path::new("rfs") {
             lines.push(format!("cargo:rerun-if-changed={}", rfs_bin.display()));
         }
-        lines.push(format!("cargo:include={}", artifact.display()));
+        for f in files {
+            lines.push(format!("cargo:include={}", f.display()));
+        }
         lines.join("\n")
     }
 }
@@ -315,14 +379,15 @@ mod tests {
         p
     }
 
-    /// A stub `rfs` shell script: records its argv, honors --out by writing a
-    /// marker file, and fails (exit 3 + stderr) when RFS_STUB_FAIL is set.
+    /// A stub `rfs` shell script: records its argv, honors the per-slot output
+    /// flags by writing a marker file for each, and fails (exit 3 + stderr)
+    /// when RFS_STUB_FAIL is set.
     fn write_stub(dir: &Path) -> PathBuf {
         let p = dir.join("stub_rfs");
         let mut f = std::fs::File::create(&p).unwrap();
         writeln!(
             f,
-            "#!/bin/sh\necho \"$@\" > \"$(dirname \"$0\")/stub_args.txt\"\nif [ -n \"$RFS_STUB_FAIL\" ]; then echo \"stub: deliberate failure\" >&2; exit 3; fi\nout=\"\"\nprev=\"\"\nfor a in \"$@\"; do if [ \"$prev\" = \"--out\" ]; then out=\"$a\"; fi; prev=\"$a\"; done\nif [ -n \"$out\" ]; then echo 'pub struct Stub;' > \"$out\"; fi\nexit 0"
+            "#!/bin/sh\necho \"$@\" > \"$(dirname \"$0\")/stub_args.txt\"\nif [ -n \"$RFS_STUB_FAIL\" ]; then echo \"stub: deliberate failure\" >&2; exit 3; fi\nprev=\"\"\nfor a in \"$@\"; do case \"$prev\" in --out-fsm-code|--out-fsm-header|--out-test-code|--out-fuzz-target-code) echo 'pub struct Stub;' > \"$a\" ;; --fsm-file) [ -f \"$a.rs\" ] || echo 'pub struct Stub;' > \"$a.rs\" ;; esac; prev=\"$a\"; done\nexit 0"
         )
         .unwrap();
         #[cfg(unix)]
@@ -427,7 +492,7 @@ mod tests {
         assert_eq!(
             args.trim(),
             format!(
-                "codegen rust production {} --out {} --with-property-monitors",
+                "codegen rust production {} --out-fsm-code {} --with-property-monitors",
                 spec.display(),
                 artifact.display()
             )
@@ -477,7 +542,7 @@ mod tests {
         assert_eq!(
             args.trim(),
             format!(
-                "codegen rust production {} --out {}",
+                "codegen rust production {} --out-fsm-code {}",
                 spec.display(),
                 out.join("handshake.rs").display()
             )
@@ -493,7 +558,7 @@ mod tests {
         assert_eq!(
             args.trim(),
             format!(
-                "codegen rust production {} --out {} --with-property-monitors --no-std",
+                "codegen rust production {} --out-fsm-code {} --with-property-monitors --no-std",
                 spec.display(),
                 artifact.display()
             )
@@ -534,7 +599,7 @@ mod tests {
         assert_eq!(
             args.trim(),
             format!(
-                "codegen rust production {} --out {} --no-std --with-protocol-fsm",
+                "codegen rust production {} --out-fsm-code {} --no-std --with-protocol-fsm",
                 spec.display(),
                 artifact.display()
             )
@@ -558,7 +623,8 @@ mod tests {
             ("OUT_DIR", Some(out.to_str().unwrap())),
         ]);
 
-        // .test_command() switches the argv command from production to test.
+        // .test_command() switches the argv command from production to test
+        // and names all three slots (test source, fuzz skeleton, fsm file).
         let artifact = RfsBuild::new(&spec)
             .test_command()
             .compile()
@@ -567,9 +633,11 @@ mod tests {
         assert_eq!(
             args.trim(),
             format!(
-                "codegen rust test {} --out {}",
+                "codegen rust test {} --out-test-code {} --out-fuzz-target-code {} --fsm-file {}",
                 spec.display(),
-                artifact.display()
+                artifact.display(),
+                out.join("fuzz_target.rs").display(),
+                out.join("handshake").display()
             )
         );
 
@@ -596,7 +664,7 @@ mod tests {
         let artifact = PathBuf::from("/out/handshake.rs");
 
         // RFS_BIN case: watches the binary too.
-        let d = RfsBuild::new(&spec).cargo_directives(&rfs_bin, &artifact);
+        let d = RfsBuild::new(&spec).cargo_directives(&rfs_bin, std::slice::from_ref(&artifact));
         let lines: Vec<&str> = d.lines().collect();
         assert_eq!(lines.len(), 4);
         assert!(
@@ -613,7 +681,8 @@ mod tests {
         assert_eq!(lines[3], "cargo:include=/out/handshake.rs");
 
         // PATH case: no binary watch line.
-        let d = RfsBuild::new(&spec).cargo_directives(Path::new("rfs"), &artifact);
+        let d = RfsBuild::new(&spec)
+            .cargo_directives(Path::new("rfs"), std::slice::from_ref(&artifact));
         assert_eq!(d.lines().count(), 3);
 
         let _ = std::fs::remove_dir_all(&dir);

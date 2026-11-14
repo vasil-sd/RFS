@@ -26,7 +26,7 @@ always compiles against freshly generated code:
 flowchart LR
     S[spec.rfs in your repo] --> B[build.rs calls rfs_build::RfsBuild]
     B --> T[rfs binary: RFS_BIN env var or PATH]
-    T --> G[rfs codegen rust production --out OUT_DIR/artifact.rs]
+    T --> G[rfs codegen rust production --out-fsm-code OUT_DIR/artifact.rs]
     G --> I[your crate pulls the artifact in via include! or a #[path] module]
     I --> A[application drives Fsm::step...]
 ```
@@ -50,7 +50,7 @@ Builder options:
 |---|---|---|
 | `.backend("rust" \| "c")` | codegen backend | target language (default rust) |
 | `.production()` | `production` command | production FSM (default) |
-| `.test_command()` | `test` command | test artifact; the libFuzzer skeleton is written next to it as `fuzz_target.rs` / `fuzz_target.c` |
+| `.test_command()` | `test` command | test artifact at `OUT_DIR/<stem>.rs`; the libFuzzer skeleton is written to `OUT_DIR/fuzz_target.rs` (the referenced fsm file also lands in OUT_DIR - an existing one from a prior production run is taken as-is) |
 | `.with_property_monitors(bool)` | `--with-property-monitors` | property monitors in PRODUCTION builds (debug-gated; zero release cost) |
 | `.no_std(bool)` | `--no-std` | no_std production codegen (core+alloc, identical public API) |
 | `.with_protocol_fsm(bool)` | `--with-protocol-fsm` | generated `Fsm` implements `rfs_adapters::ProtocolFsm` (the one opt-in that links a generated artifact to an external crate) |
@@ -132,7 +132,7 @@ The flag is accepted on the `production` command ONLY - `test`/`mc` reject it
 with a pinned error. Verified in this repository:
 
 ```sh
-cargo run -- codegen rust production examples/valid/46_version_header.rfs --no-std --out /tmp/nostd.rs
+rfs codegen rust production examples/valid/46_version_header.rfs --no-std --out /tmp/nostd   # writes /tmp/nostd-fsm.rs
 ```
 
 ## 4. C projects (Makefile pattern)
@@ -144,23 +144,30 @@ The pattern from crates/examples/c_sync_handler/Makefile:
 RFS ?= $(if $(RFS_BIN),$(RFS_BIN),rfs)        # same resolution as rfs-build
 SPEC := ../../../examples/valid/43_sliding_window.rfs
 BUILD_DIR := build
-GEN_FSM := $(BUILD_DIR)/arq_fsm.c
+GEN_FSM_H := $(BUILD_DIR)/arq_fsm.h
+GEN_FSM_C := $(BUILD_DIR)/arq_fsm.c
 
-$(GEN_FSM): $(SPEC)
+$(GEN_FSM_H) $(GEN_FSM_C): $(SPEC)
 	mkdir -p $(BUILD_DIR)
-	$(RFS) codegen c production $(SPEC) --out $@
+	$(RFS) codegen c production $(SPEC) --out-fsm-header $(GEN_FSM_H) --out-fsm-code $(GEN_FSM_C)
 
-c_sync_handler: src/handler.c $(GEN_FSM)
-	gcc -Wall -I$(BUILD_DIR) -o $@ src/handler.c
+c_sync_handler: src/handler.c $(GEN_FSM_H) $(GEN_FSM_C)
+	gcc -Wall -I$(BUILD_DIR) -c $(GEN_FSM_C) -o $(BUILD_DIR)/arq_fsm.o
+	gcc -Wall -I$(BUILD_DIR) -c src/handler.c -o $(BUILD_DIR)/handler.o
+	gcc -Wall -o $@ $(BUILD_DIR)/arq_fsm.o $(BUILD_DIR)/handler.o
 ```
 
-Generated C is rendered to be warning-free under `gcc -Wall` - that is part of
-the v1.0 contract. The C public surface: per-module typedefs (`state_t`,
-`input_kind_t`, the vars struct, `step_result_t`, ...) and the functions
-`fsm_new` / `fsm_step` / `fsm_free` plus the assumption-hook types
-(`rfs_policy_t`, `rfs_assumption_handler`). Note: the C fuzz pipeline compiles
-ONLY the emitted `fuzz_target.c` (it `#include`s the production source -
-passing both files to clang is a multiple-definition link error).
+`--out BASE` writes the header/source pair `BASE-fsm.h` + `BASE-fsm.c`; the
+per-artifact flags `--out-fsm-header` / `--out-fsm-code` name the two files
+independently (as above, or into an `include/` directory). Generated C is
+rendered to be warning-free
+under `gcc -Wall` - that is part of the v1.0 contract. The header carries the
+typedefs (`state_t`, `input_kind_t`, the vars struct, `step_result_t`, ...) and
+the public API declarations; the source includes its own header and carries the
+bodies. Your code includes ONLY the header; every `.c` is compiled to an object
+and linked - no generated C ever `#include`s another `.c`. The same shape holds
+for the fuzz pipeline: clang compiles the fsm source and the emitted
+`fuzz_target.c` together (the skeleton references the fsm through its header).
 
 ## 5. Running generated tests in CI (rfs test)
 
@@ -168,16 +175,16 @@ passing both files to clang is a multiple-definition link error).
 the CI entry point for generated tests:
 
 ```sh
-# unit suite (default): codegen the extended test artifact, compile it
-# (rustc --edition 2021 --test / gcc -Wall), run it
- cargo run -- test examples/valid/46_version_header.rfs
+# unit suite (default): codegen the fsm + test artifacts, compile them
+# (rustc --edition 2021 --test on the test file / gcc -Wall -c on both sources + link), run it
+rfs test examples/valid/46_version_header.rfs
 
 # C backend
-cargo run -- test --backend c examples/valid/46_version_header.rfs
+rfs test --backend c examples/valid/46_version_header.rfs
 
 # fuzz suite: build + bounded-run the libFuzzer target from the emitted skeleton
-# (C: clang -O1 -fsanitize=fuzzer,address; Rust: temp cargo-fuzz project, nightly pinned)
-cargo run -- test --suite fuzz --fuzz-max-total-time 30 examples/valid/46_version_header.rfs
+# (C: clang -O1 -fsanitize=fuzzer,address over the fsm source + skeleton; Rust: temp cargo-fuzz project, nightly pinned)
+rfs test --suite fuzz --fuzz-max-total-time 30 examples/valid/46_version_header.rfs
 ```
 
 ```mermaid
@@ -222,7 +229,7 @@ executing it - deterministic, with the toolchain version embedded in the header
 - so CI can audit or cache the exact invocations:
 
 ```sh
-cargo run -- test --backend rust --print-script examples/valid/16_next_property.rfs | head -4
+rfs test --backend rust --print-script examples/valid/16_next_property.rfs | head -4
 # #!/bin/sh
 # rfs 1.0.0 - generated by `rfs test --backend rust ...`
 # tools: rustc=rustc
@@ -256,8 +263,8 @@ is that these three FIELDS are present and correct - pin the fields, not the
 line's wording. To check drift:
 
 ```sh
-cargo run -- codegen rust production my_spec.rfs --out /tmp/new.rs
-diff /tmp/new.rs checked_in_artifact.rs   # line 1 may differ (version/hash); any body difference on unchanged spec+toolchain is a bug to report
+rfs codegen rust production my_spec.rfs --out /tmp/new    # writes /tmp/new-fsm.rs
+diff /tmp/new-fsm.rs checked_in_artifact.rs   # line 1 may differ (version/hash); any body difference on unchanged spec+toolchain is a bug to report
 ```
 
 ## 8. Rapid prototyping: rfs gen-spec and rfs mc-ref
@@ -269,10 +276,10 @@ writing; exit 1 with a diagnostic otherwise) in two modes:
 
 ```sh
 # fully random from a seed (deterministic: same args => byte-identical file)
-cargo run -- gen-spec --out /tmp/rand.rfs --seed 42 --size small
+rfs gen-spec --out /tmp/rand.rfs --seed 42 --size small
 
 # incremental mutation of a known base shape - much better corner-case coverage
-cargo run -- gen-spec --base examples/valid/03_timeout_retry.rfs --mutations 3 --seed 7 --out /tmp/mut.rfs
+rfs gen-spec --base examples/valid/03_timeout_retry.rfs --mutations 3 --seed 7 --out /tmp/mut.rfs
 diff examples/valid/03_timeout_retry.rfs /tmp/mut.rfs   # added state, transition, property
 ```
 
@@ -285,7 +292,7 @@ drawn again).
 with unified reports - see [MODEL_CHECKING.md section 2](MODEL_CHECKING.md#2-rfs-mc-ref---in-process-reference-model-checker):
 
 ```sh
-cargo run -- mc-ref /tmp/mut.rfs            # instant proof/counterexample on the mutated spec
+rfs mc-ref /tmp/mut.rfs                     # instant proof/counterexample on the mutated spec
 ```
 
 Typical loop: mutate a known-good base with `gen-spec` until it misbehaves,

@@ -49,7 +49,7 @@ force implementation of the same semantics) WITHOUT compiling any generated
 code - rapid prototyping in a shell or REPL.
 
 ```sh
-cargo run -- mc-ref examples/valid/46_version_header.rfs
+rfs mc-ref examples/valid/46_version_header.rfs
 # -> PASS (complete)
 #    model-check summary: status=pass-complete states=17 transitions=33 max_depth=16
 ```
@@ -84,11 +84,24 @@ need the production-identical engine, parallelism (`--threads`), or fuzz mode.
 
 ## 3. Generated MC binary: exact-mode flags
 
-Generate and run (Rust backend shown; C is identical):
+Generate and run. `--out BASE` writes the fsm artifact + the mc artifact under
+BASE-derived names (without `--out`, the spec file's stem is used and files
+land in the CWD); an existing fsm artifact is taken as-is, a missing one is
+emitted new (`--fsm-file NAME` names it):
 
 ```sh
-cargo run -- codegen rust mc examples/valid/46_version_header.rfs --out /tmp/mc.rs
-rustc --edition 2021 -O /tmp/mc.rs -o /tmp/mc && /tmp/mc
+# Rust backend: writes /tmp/mc-fsm.rs + /tmp/mc-mc.rs (the mc references the
+# fsm via include! - compile the mc file; the include resolves relative to it)
+rfs codegen rust mc examples/valid/46_version_header.rfs --out /tmp/mc
+rustc --edition 2021 -O /tmp/mc-mc.rs -o /tmp/mc && /tmp/mc
+
+# C backend: writes /tmp/mc-fsm.h + /tmp/mc-fsm.c + /tmp/mc-mc.h + /tmp/mc-mc.c;
+# compile each source to an object and link (the mc source includes its own
+# header and the fsm header - never a .c)
+rfs codegen c mc examples/valid/46_version_header.rfs --out /tmp/mc
+gcc -Wall -c /tmp/mc-fsm.c -o /tmp/mc-fsm.o
+gcc -Wall -c /tmp/mc-mc.c -o /tmp/mc-mc.o
+gcc -Wall -o /tmp/mc /tmp/mc-fsm.o /tmp/mc-mc.o && /tmp/mc
 ```
 
 | Flag | Default | Meaning |

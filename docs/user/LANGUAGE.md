@@ -41,10 +41,10 @@ checker can prove things about your protocol instead of guessing.
 flowchart LR
     S[spec.rfs] --> P[rfs parse / validate]
     P --> IR[(versioned IR)]
-    IR --> CR[cargo run -- codegen rust production]
-    IR --> CC[cargo run -- codegen c production]
-    IR --> MR[cargo run -- codegen rust mc]
-    IR --> MC2[cargo run -- codegen c mc]
+    IR --> CR[rfs codegen rust production]
+    IR --> CC[rfs codegen c production]
+    IR --> MR[rfs codegen rust mc]
+    IR --> MC2[rfs codegen c mc]
     CR --> R1[production Rust FSM]
     CC --> C1[production C FSM]
     MR --> R2[Rust model-checker binary]
@@ -54,19 +54,19 @@ flowchart LR
 
 ## 2. Quick start
 
-All commands below are copy-paste runnable from the repository root (they use
-`cargo run --`, which invokes the `rfs` binary built by cargo; an installed
-binary is just `rfs`).
+All commands below are copy-paste runnable as the installed `rfs` binary
+(building it from source is a maintainer concern - see BUILD.md).
 
 ```sh
 # 1. Validate a spec (parse + semantic checks):
-cargo run -- validate examples/valid/01_trivial_two_state.rfs
+rfs validate examples/valid/01_trivial_two_state.rfs
 
-# 2. Generate production Rust code for it:
-cargo run -- codegen rust production examples/valid/01_trivial_two_state.rfs --out /tmp/trivial_fsm.rs
+# 2. Generate production Rust code for it (--out BASE names the artifact set;
+#    without it, the spec file's stem is used and files land in the CWD):
+rfs codegen rust production examples/valid/01_trivial_two_state.rfs --out /tmp/trivial   # writes /tmp/trivial-fsm.rs
 
 # 3. Model-check it without compiling anything (in-process reference MC):
-cargo run -- mc-ref examples/valid/01_trivial_two_state.rfs
+rfs mc-ref examples/valid/01_trivial_two_state.rfs
 ```
 
 Expected output of step 3:
@@ -467,8 +467,8 @@ module beacon version "1.0" {
   }
 }
 EOF
-cargo run -- validate /tmp/beacon.rfs   # -> valid /tmp/beacon.rfs
-cargo run -- mc-ref /tmp/beacon.rfs     # -> PASS (complete), states=7 transitions=28 max_depth=5
+rfs validate /tmp/beacon.rfs            # -> valid /tmp/beacon.rfs
+rfs mc-ref /tmp/beacon.rfs              # -> PASS (complete), states=7 transitions=28 max_depth=5
 ```
 
 Add `prop`/`assume` lines to this module and re-run `mc-ref` to see model

@@ -22,9 +22,9 @@ primer: [LANGUAGE.md](LANGUAGE.md); properties: [PROPERTIES.md](PROPERTIES.md).
 ## 1. How to use the examples
 
 ```sh
-cargo run -- validate --input rfs examples/valid     # all 50 valid specs parse + validate, exit 0
-cargo run -- mc-ref examples/valid/43_sliding_window.rfs   # model-check one in-process
-cargo run -- diagram --format table examples/valid/03_timeout_retry.rfs   # text transition matrix
+rfs validate --input rfs examples/valid     # all 50 valid specs parse + validate, exit 0
+rfs mc-ref examples/valid/43_sliding_window.rfs   # model-check one in-process
+rfs diagram --format table examples/valid/03_timeout_retry.rfs   # text transition matrix
 ```
 
 Dropping a new `.rfs` file into `examples/valid/` (or `examples/invalid/`) is

@@ -162,6 +162,13 @@ half is complete.
 - No CODEGEN.md / backend architecture docs (task 8).
 - No source changes.
 
+## Task corrections
+
+| Correction | Description + rationale |
+|------------|-------------------------|
+| Pulled-forward source fix: `crates/rfs-build/src/lib.rs` migrated to the per-slot output flags (the "no source changes" non-goal is waived for this one file) | While syncing INTEGRATION.md's rfs-build walkthrough it became clear the helper was FUNCTIONALLY BROKEN by task 1's CLI change: `compile()` invoked `rfs codegen ... --out OUT_DIR/<stem>.<ext>`, which under BASE semantics writes `<path>-fsm.<ext>` - the post-invoke existence check failed, and both real-binary e2e tests (`cargo test -p rfs-build`) were red. Root `cargo test` never builds the example crates, so tasks 1-5 stayed green while the workspace suite rotted. The fix passes per-slot flags (production: `--out-fsm-code` [+ `--out-fsm-header` for C]; test: `--out-test-code` + `--out-fuzz-target-code` + the fsm-reference flag with take-or-emit), emits one `cargo:include` per generated file, and checks every written file - consumer-visible paths (`OUT_DIR/<stem>.<ext>`, `OUT_DIR/fuzz_target.{rs,c}`) are unchanged, so no build.rs in the workspace needed editing. Rationale: phase precedent (plan corrections 2a/4b pulled forward minimal fixes to keep the suite green); INTEGRATION.md documents this workflow as working, and a docs task that leaves its subject broken cannot claim "docs describe the CLI as it now behaves". |
+| The documented C Makefile pattern uses explicit `--out-fsm-header/--out-fsm-code` instead of `--out BASE` | The first draft used `--out $(BUILD_DIR)/arq_fsm` expecting `arq_fsm.h/.c`; running it showed `--out BASE` writes `BASE-fsm.h/.c` (`arq_fsm-fsm.*`). The explicit per-artifact flags produce the clean names the pattern's variables promise and mirror the real c_sync_handler Makefile. Rationale: docs were verified by execution, not by assumption. |
+
 ## Other information
 
 - When rewriting BUILD.md's command tables, keep the table column widths sane -

@@ -264,7 +264,7 @@ through the ASSUMPTION HANDLER, which returns a policy:
 ## 10. Worked examples: specs 13, 15, 16, 42
 
 All four are in `examples/valid/`; every result below is the ACTUAL output of
-`cargo run -- mc-ref <spec>` (exact mode) in this repository.
+`rfs mc-ref <spec>` (exact mode) in this repository.
 
 ### 13 - safety + next
 [13_properties_safety.rfs](../../examples/valid/13_properties_safety.rfs):

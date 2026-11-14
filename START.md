@@ -353,7 +353,7 @@ dev_tools/SKILL.md. The grep/sed forms are the fallback when `rfs-dev` is absent
 ```sh
 cargo build && cargo test && cargo clippy --all-targets && cargo fmt --check   # after any change
 cargo test-generated-code        # 1683 generated unit tests (after codegen changes)
-cargo run -- validate --input rfs examples/valid    # quick sanity, exit 0 expected
+rfs validate --input rfs examples/valid             # quick sanity, exit 0 expected
 ```
 
 Expected results and every command/alias: `BUILD.md` sections 3-4.

@@ -313,6 +313,15 @@ fn wide_ops_exact_mc_status_parity() {
             // Phase 14 task 3: object+link build of the mc/fsm pair.
             common::prod_driver::build_c_mc_binary(&out, &dir, bin);
         } else {
+            // Phase 14 task 5: the Rust mc references the fsm via include! -
+            // write the referenced fsm file alongside so it resolves.
+            std::fs::write(
+                dir.join("rfs_fsm.rs"),
+                out.fsm_code
+                    .as_deref()
+                    .expect("rust mc fills the fsm-code slot"),
+            )
+            .unwrap();
             let src_path = dir.join("wide_ops_mc_rust.rs");
             std::fs::write(&src_path, out.primary_code()).unwrap();
             let cc = common::toolchain::rustc();

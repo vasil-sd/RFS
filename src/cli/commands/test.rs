@@ -351,6 +351,19 @@ fn run_unit_suite(
             return Err(format!("{} link failed", resolved.name));
         }
     } else {
+        // Phase 14 task 5: the Rust test artifact references the fsm file via
+        // include! - write the fsm .rs alongside (under the standalone default
+        // name, since `rfs test` does not stamp custom reference names) and
+        // compile the TEST file; include! resolves relative to it.
+        let fsm_path = dir.join("rfs_fsm.rs");
+        std::fs::write(
+            &fsm_path,
+            out.fsm_code
+                .as_deref()
+                .expect("rust test fills the fsm-code slot"),
+        )
+        .map_err(|e| format!("failed to write {}: {e}", fsm_path.display()))?;
+
         log.info(&format!(
             "compiling {} with {}",
             src_path.display(),
@@ -925,10 +938,27 @@ fn render_script(
             args.push("-o".into());
             args.push(bin_name.to_string());
 
+            // Phase 14 task 5: the Rust test artifact references the fsm via
+            // include! - the script writes the referenced fsm file alongside
+            // (standalone default name, since `rfs test` does not stamp custom
+            // reference names) so the include! resolves at compile time.
+            let fsm_source_name = "rfs_fsm.rs";
+            let fsm_heredoc = heredoc(
+                fsm_source_name,
+                "__RFS_TEST_FSM_RS__",
+                out.fsm_code
+                    .as_deref()
+                    .expect("rust test fills the fsm-code slot"),
+            );
+
             script = script
                 .step(
                     "write generated test artifact (from `rfs codegen <backend> test`)",
                     &test_heredoc,
+                )
+                .step(
+                    "write the referenced fsm file (co-emitted by the same command)",
+                    &fsm_heredoc,
                 )
                 .step(
                     "compile the generated test artifact",
@@ -937,7 +967,7 @@ fn render_script(
                 .step("run the generated tests", &format!("./{bin_name}"))
                 .step(
                     "clean up generated artifacts",
-                    &format!("rm -f {src_name} {bin_name}"),
+                    &format!("rm -f {src_name} {bin_name} rfs_fsm.rs"),
                 );
         }
     }

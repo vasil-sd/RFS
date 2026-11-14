@@ -183,8 +183,20 @@ fn bench_binary(stem: &str, backend_name: &str, source: &str) -> PathBuf {
             // Phase 14 task 3: object+link build of the mc/fsm pair.
             common::prod_driver::build_c_mc_binary(&out, dir, &bin);
         } else {
+            // Phase 14 task 5: the Rust mc references the fsm via include!.
+            // Many stems share this dir, so the default `rfs_fsm.rs` would
+            // collide - give each a per-stem fsm file and rewrite the include!.
+            let mut src_code = out.primary_code().to_string();
+            if let Some(fsm) = out.fsm_code.as_deref() {
+                let fsm_name = format!("{stem}_mc_fsm.rs");
+                std::fs::write(dir.join(&fsm_name), fsm).expect("write fsm file");
+                src_code = src_code.replace(
+                    "include!(\"rfs_fsm.rs\")",
+                    &format!("include!(\"{fsm_name}\")"),
+                );
+            }
             let src = dir.join(format!("{stem}_mc.rs"));
-            std::fs::write(&src, out.primary_code()).expect("write MC source");
+            std::fs::write(&src, src_code).expect("write MC source");
             compile_rust(&src, &bin);
         }
         bin

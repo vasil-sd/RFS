@@ -59,22 +59,19 @@ pub fn generate_unit_tests(
             crate::codegen::NO_STD_PRODUCTION_ONLY_ERROR.to_string()
         ]);
     }
-    let core = crate::codegen::backends::rust::fsm::generate_core(
-        module,
-        options,
-        true,
-        crate::codegen::PropertyMonitorMode::Always,
-    )?;
-    // Phase 14 task 1: the fused FSM + tests artifact goes into the test-code
-    // slot (task 5 re-renders it as include! + test section). The fuzz skeleton
-    // is a SEPARATE file - it depends on libfuzzer_sys, which the dependency-
-    // free test artifact (and the aggregate generated crate) must not pull in
-    // - and goes into the named fuzz-target slot.
+    // Phase 14 task 5 (D14-5): the CLI test artifact is `include!("<fsm file>")`
+    // + the test section only - the FSM implementation lives in the separately
+    // generated fsm file (referenced slot, co-emitted / taken by the write
+    // loop). The fuzz skeleton is a SEPARATE file - it depends on libfuzzer_sys,
+    // which the dependency-free test artifact (and the aggregate generated crate)
+    // must not pull in - and goes into the named fuzz-target slot.
+    let ref_out = crate::codegen::backends::rust::fsm::generate_test_reference(module, options)?;
     let variants = fsm::build_variants(module);
     Ok(CodegenOutput {
-        test_code: core.fsm_code,
+        test_code: ref_out.test_code,
         fuzz_target: Some(emit_fuzz_target(module, &variants, &options.spec_hash)?),
-        warnings: core.warnings,
+        fsm_code: ref_out.fsm_code,
+        warnings: ref_out.warnings,
         ..Default::default()
     })
 }
@@ -710,13 +707,17 @@ pub fn emit_fuzz_target(
     let _ = writeln!(out, "//");
     let _ = writeln!(
         out,
-        "// Wiring (see the Phase 5 task 12 example): put the RFS-generated"
+        "// Wiring (Phase 14 task 5): put the RFS-generated fsm file at your lib"
     );
     let _ = writeln!(
         out,
-        "// source at your lib crate root (or re-export the items imported"
+        "// crate root - `rfs codegen rust test <spec> --out BASE` co-emits"
     );
-    let _ = writeln!(out, "// below from it), `cargo fuzz init`, replace");
+    let _ = writeln!(
+        out,
+        "// BASE-fsm.rs next to this skeleton (or re-export the items imported"
+    );
+    let _ = writeln!(out, "// below from it) - then `cargo fuzz init`, replace");
     let _ = writeln!(
         out,
         "// fuzz/fuzz_targets/fuzz_target.rs with this file and adjust the"

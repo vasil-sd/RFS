@@ -76,6 +76,8 @@ struct Prep {
     json: String,
     exit: i32,
     src: String,
+    /// Phase 14 task 5: the referenced fsm file (the Rust mc includes it).
+    fsm_src: String,
 }
 
 enum SampleErr {
@@ -112,6 +114,7 @@ fn prep(path: PathBuf) -> Result<Prep, String> {
         json,
         exit,
         src: out.primary_code().to_string(),
+        fsm_src: out.fsm_code.clone().unwrap_or_default(),
     })
 }
 
@@ -225,9 +228,22 @@ fn run_sample(
         return Err(SampleErr::Stopped);
     }
 
-    // 2) write generated source.
+    // 2) write generated source. Phase 14 task 5: the Rust mc references the
+    // fsm via include!. All samples share this one dir, so the default
+    // `rfs_fsm.rs` would collide across samples - give each a per-sample fsm
+    // file and rewrite the include! to point at it.
     let src = dir.join(format!("{}.rs", job.name));
-    std::fs::write(&src, &prep.src).map_err(|e| SampleErr::Fail(format!("write source: {e}")))?;
+    let mut mc_src = prep.src.clone();
+    if !prep.fsm_src.is_empty() {
+        let fsm_name = format!("{}.fsm.rs", job.name);
+        std::fs::write(dir.join(&fsm_name), &prep.fsm_src)
+            .map_err(|e| SampleErr::Fail(format!("write fsm source: {e}")))?;
+        mc_src = mc_src.replace(
+            "include!(\"rfs_fsm.rs\")",
+            &format!("include!(\"{fsm_name}\")"),
+        );
+    }
+    std::fs::write(&src, &mc_src).map_err(|e| SampleErr::Fail(format!("write source: {e}")))?;
 
     // 3) compile (crate name must be rustc-legal: dots in .rfs names are not).
     let crate_name: String = job

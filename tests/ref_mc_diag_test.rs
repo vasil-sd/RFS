@@ -20,6 +20,8 @@ struct Prep {
     json: String,
     exit: i32,
     src: String,
+    /// Phase 14 task 5: the referenced fsm file (the Rust mc includes it).
+    fsm_src: String,
 }
 
 fn prep(path: PathBuf) -> Result<Prep, String> {
@@ -45,6 +47,7 @@ fn prep(path: PathBuf) -> Result<Prep, String> {
         json,
         exit,
         src: out.primary_code().to_string(),
+        fsm_src: out.fsm_code.clone().unwrap_or_default(),
     })
 }
 
@@ -131,8 +134,22 @@ fn check_sample(job_name: &str, job_path: &Path, dir: &Path, rustc: &str) -> (St
         Ok(Err(e)) => return (job_name.into(), format!("ERROR: {e}")),
         Err(_) => return (job_name.into(), "HANG (in-process phase > 15s)".into()),
     };
+    // Phase 14 task 5: the Rust mc references the fsm via include!. Eight
+    // workers share this dir, so give each job its own fsm file and rewrite
+    // the include! to point at it.
+    let mut src_code = prep.src.clone();
+    if !prep.fsm_src.is_empty() {
+        let fsm_name = format!("{job_name}.fsm.rs");
+        if std::fs::write(dir.join(&fsm_name), &prep.fsm_src).is_err() {
+            return (job_name.into(), "ERROR: write fsm".into());
+        }
+        src_code = src_code.replace(
+            "include!(\"rfs_fsm.rs\")",
+            &format!("include!(\"{fsm_name}\")"),
+        );
+    }
     let src = dir.join(format!("{job_name}.rs"));
-    if std::fs::write(&src, &prep.src).is_err() {
+    if std::fs::write(&src, &src_code).is_err() {
         return (job_name.into(), "ERROR: write".into());
     }
     let crate_name: String = job_name

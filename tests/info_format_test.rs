@@ -840,6 +840,16 @@ fn ce_mc_binary(key: &str, backend: &str, src: &str) -> PathBuf {
         // Phase 14 task 3: object+link build of the mc/fsm pair.
         common::prod_driver::build_c_mc_binary(&mc_out, &dir, &bin);
     } else {
+        // Phase 14 task 5: the Rust mc references the fsm via include! - write
+        // the referenced fsm file alongside so it resolves.
+        std::fs::write(
+            dir.join("rfs_fsm.rs"),
+            mc_out
+                .fsm_code
+                .as_deref()
+                .expect("rust mc fills the fsm-code slot"),
+        )
+        .expect("write fsm file");
         let src_path = dir.join(format!("{stem}_mc.rs"));
         std::fs::write(&src_path, code).expect("write MC source");
         let out = Command::new(rustc_path())
@@ -2721,17 +2731,24 @@ fn artifact_header_generated_output_matches_documented_format() {
                 let is_c_prod = backend_name == "c"
                     && matches!(command, rfs::codegen::CodegenCommandKind::Production);
                 // C mc (task 3) and C test (task 4) each fill their own pair
-                // PLUS the referenced fsm pair: 4 slots. Rust test fills 2
-                // (test + fuzz-target; the include! reference is task 5).
+                // PLUS the referenced fsm pair: 4 slots. Rust mc/test (task 5)
+                // reference the fsm via include!: rust test fills 3 (test +
+                // fuzz-target + referenced fsm), rust mc fills 2 (mc + referenced
+                // fsm). C production is a header/source pair (2); Rust production
+                // is a single self-contained file (1).
                 let is_c_ref = backend_name == "c"
                     && matches!(
                         command,
                         rfs::codegen::CodegenCommandKind::ModelChecker
                             | rfs::codegen::CodegenCommandKind::UnitTests
                     );
+                let is_rust_mc = backend_name == "rust"
+                    && matches!(command, rfs::codegen::CodegenCommandKind::ModelChecker);
                 let expected_n = if is_c_ref {
                     4
-                } else if is_test || is_c_prod {
+                } else if backend_name == "rust" && is_test {
+                    3
+                } else if is_rust_mc || is_c_prod {
                     2
                 } else {
                     1

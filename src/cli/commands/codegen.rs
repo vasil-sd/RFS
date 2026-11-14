@@ -364,6 +364,16 @@ pub fn run_cli(args: &[String]) -> ExitCode {
                     codegen::CodegenCommandKind::ModelChecker
                         | codegen::CodegenCommandKind::UnitTests
                 );
+            // Rust mc and test REFERENCE the fsm .rs file (take-or-emit) via
+            // include! - they need the resolved reference name stamped so the
+            // include! matches where the write loop co-emits / takes the file.
+            // (Header flags are rejected on Rust, so only --fsm-file applies.)
+            let is_rust_ref = !is_c
+                && matches!(
+                    command,
+                    codegen::CodegenCommandKind::ModelChecker
+                        | codegen::CodegenCommandKind::UnitTests
+                );
             let base_name = base.clone().unwrap_or_else(|| {
                 Path::new(&input)
                     .file_stem()
@@ -386,6 +396,10 @@ pub fn run_cli(args: &[String]) -> ExitCode {
                     true,
                 );
                 (h, Some(s))
+            } else if is_rust_ref {
+                let (_, s) =
+                    resolve_fsm_reference(None, None, fsm_file.as_deref(), &base_name, false);
+                (None, Some(s))
             } else {
                 (None, None)
             };

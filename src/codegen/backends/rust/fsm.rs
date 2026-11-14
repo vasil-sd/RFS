@@ -40,24 +40,93 @@ pub fn generate_production(
 /// is appended (see `crate::codegen::backends::rust_test`). `prop_mode` selects the
 /// property-monitor activation (D-P3-6): production maps the CLI flag to
 /// Off/Gated; test and mc always pass Always.
-pub(crate) fn generate_core(
+/// Phase 14 task 5 (D14-5): the rendered fsm parts, kept separate so each
+/// consumer assembles what it needs. `generate_core` fuses them in emission
+/// order (byte-identical to the pre-task output - the aggregate-crate and
+/// standalone-production contract); the CLI test/mc commands use the bare
+/// reference (header + core, NO inner attrs) via include!, supplying their own
+/// prelude (include! cannot bring `#![...]` into an including crate).
+pub(crate) struct FsmParts {
+    /// The v1.0 line-1 artifact header comment.
+    pub header_line: String,
+    /// The inner-attribute prelude (`#![no_std]`/`#![allow(...)]`/alloc imports).
+    pub inner_prelude: String,
+    /// The fsm-core items (NO line-1, NO inner attributes).
+    pub code: String,
+    /// The `#[cfg(test)] mod tests { ... }` section (empty unless with_tests).
+    pub test_section: String,
+}
+
+pub(crate) fn render_fsm_parts(
     module: &Module,
     options: &BackendOptions,
     with_tests: bool,
     prop_mode: PropertyMonitorMode,
-) -> Result<CodegenOutput, Vec<String>> {
+) -> Result<(FsmParts, Vec<String>), Vec<String>> {
     let errors = validator::validate_module(module);
     if !errors.is_empty() {
         return Err(errors.into_iter().map(|e| e.message).collect());
     }
     let mut warnings = Vec::new();
     let gen = Gen::new(module, options, &mut warnings, with_tests, prop_mode)?;
-    // Phase 14 task 1: the generated text (pure FSM, or fused FSM + tests when
-    // `with_tests`) goes into the fsm-code slot; the test command re-slots the
-    // fused content into test_code, and task 5 splits the rendering so the
-    // fused contract here stays byte-identical for the aggregate crate.
+    Ok((
+        FsmParts {
+            header_line: gen.header_line,
+            inner_prelude: gen.inner_prelude,
+            code: gen.code,
+            test_section: gen.test_section,
+        },
+        warnings,
+    ))
+}
+
+pub(crate) fn generate_core(
+    module: &Module,
+    options: &BackendOptions,
+    with_tests: bool,
+    prop_mode: PropertyMonitorMode,
+) -> Result<CodegenOutput, Vec<String>> {
+    let (p, warnings) = render_fsm_parts(module, options, with_tests, prop_mode)?;
+    // Fused in emission order - byte-identical to the pre-task output.
     Ok(CodegenOutput {
-        fsm_code: Some(gen.code),
+        fsm_code: Some(format!(
+            "{}{}{}{}",
+            p.header_line, p.inner_prelude, p.code, p.test_section
+        )),
+        warnings,
+        ..Default::default()
+    })
+}
+
+/// Phase 14 task 5 (D14-5): the CLI `test` artifact. Returns the referenced
+/// fsm file in the fsm-code slot (co-emitted / taken by the write loop) and the
+/// test section prefixed with its own prelude + `include!("<fsm file>");` in the
+/// test-code slot. The include! inlines the bare fsm items at the crate root
+/// exactly as if they were written there, so the test section needs zero body
+/// changes (its `#[cfg(test)] mod tests { use super::*; ... }` resolves to the
+/// inlined items).
+pub(crate) fn generate_test_reference(
+    module: &Module,
+    options: &BackendOptions,
+) -> Result<CodegenOutput, Vec<String>> {
+    // with_tests=true so the test section is rendered; property monitors are
+    // always on for the test artifact (D-P3-6).
+    let (p, warnings) = render_fsm_parts(module, options, true, PropertyMonitorMode::Always)?;
+    let fsm_file_name = options
+        .fsm_source_name
+        .clone()
+        .unwrap_or_else(|| "rfs_fsm.rs".into());
+    // The referenced fsm file is BARE (line-1 header + core items, NO inner
+    // attributes) - include! cannot bring `#![...]` into the including crate.
+    // The test artifact supplies its own prelude, then includes the bare file.
+    let bare_fsm = format!("{}{}", p.header_line, p.code);
+    let test_code = format!(
+        "{}{}include!(\"{}\");\n{}",
+        p.header_line, p.inner_prelude, fsm_file_name, p.test_section
+    );
+    Ok(CodegenOutput {
+        fsm_code: Some(bare_fsm),
+        test_code: Some(test_code),
         warnings,
         ..Default::default()
     })
@@ -66,7 +135,21 @@ pub(crate) fn generate_core(
 struct Gen<'a> {
     module: &'a Module,
     options: &'a BackendOptions,
+    /// The v1.0 line-1 artifact header comment (D-P6-3).
+    header_line: String,
+    /// The inner-attribute prelude (`#![no_std]` when no_std, the
+    /// `#![allow(...)]`, and the alloc imports when no_std). Phase 14 task 5:
+    /// kept SEPARATE from the core items because `include!` cannot bring inner
+    /// attributes into an including crate - the bare reference file omits them
+    /// and the includer (mc/test) supplies its own copy.
+    inner_prelude: String,
+    /// The fsm-core items (enums, vars, input/output, renderers, trace/handlers,
+    /// monitors, the Fsm impl) - NO line-1, NO inner attributes. Phase 14 task
+    /// 5: kept separate from the test section so the CLI `test` artifact can
+    /// reference it via include! while `generate_core` still returns them fused.
     code: String,
+    /// The `#[cfg(test)] mod tests { ... }` section (empty unless with_tests).
+    test_section: String,
     variants: FsmVariants,
     prop_mode: PropertyMonitorMode,
     /// Compiled assumption monitors (selected via `--assumes`), in declaration order.
@@ -93,7 +176,10 @@ impl<'a> Gen<'a> {
         let mut g = Self {
             module,
             options,
+            header_line: String::new(),
+            inner_prelude: String::new(),
             code: String::new(),
+            test_section: String::new(),
             variants: fsm::build_variants(module),
             prop_mode,
             assume_plans: vec![],
@@ -119,12 +205,15 @@ impl<'a> Gen<'a> {
             g.emit_protocol_fsm_impl();
         }
         if with_tests {
+            // Phase 14 task 5: the test section is rendered into its OWN string
+            // (not appended to `code`) so `generate_core` can fuse them and the
+            // CLI `test` path can reference the fsm core via include!.
             let tests = crate::codegen::backends::rust::test::emit_test_module(
                 g.module,
                 &g.variants,
                 g.options.steps,
             )?;
-            g.code.push_str(&tests);
+            g.test_section = tests;
         }
         Ok(g)
     }
@@ -182,14 +271,18 @@ impl ProtocolFsm for Fsm {
         // toolchain version + spec hash (SHA-256 of the canonical IR JSON of
         // the whole input file, first 16 hex chars) + module name - identical
         // text in both backends so artifacts are recognizable and drift is
-        // detectable. Line 2 onward is unchanged.
+        // detectable. Phase 14 task 5: written to its OWN field (not `code`) so
+        // the bare reference file can carry the header without the inner attrs.
         let _ = writeln!(
-            self.code,
+            self.header_line,
             "// Generated by RFS v{} | spec sha256:{} | module {}",
             env!("CARGO_PKG_VERSION"),
             self.options.spec_hash,
             self.module.name
         );
+        // The inner-attribute prelude goes to its OWN field: `include!` cannot
+        // bring `#![...]` into an including crate, so the bare reference file
+        // omits it and the includer (mc/test) supplies its own copy.
         if self.options.no_std {
             // no_std production codegen (Phase 5 task 9): core + alloc only.
             // The body below is BYTE-IDENTICAL to the std variant - only this
@@ -197,17 +290,20 @@ impl ProtocolFsm for Fsm {
             // from core, so the error paths need no modification. `use
             // alloc::vec;` (the vec! macro, exported at the alloc crate root)
             // is emitted only when some transition emits outputs.
-            let _ = writeln!(self.code, "#![no_std]");
+            let _ = writeln!(self.inner_prelude, "#![no_std]");
         }
-        let _ = writeln!(self.code, "#![allow(dead_code, unused_variables, unused_mut, unused_parens, irrefutable_let_patterns, non_camel_case_types, clippy::all)]");
+        let _ = writeln!(self.inner_prelude, "#![allow(dead_code, unused_variables, unused_mut, unused_parens, irrefutable_let_patterns, non_camel_case_types, clippy::all)]");
         if self.options.no_std {
-            let _ = writeln!(self.code, "extern crate alloc;");
-            let _ = writeln!(self.code, "use alloc::string::{{String, ToString}};");
-            let _ = writeln!(self.code, "use alloc::vec::Vec;");
+            let _ = writeln!(self.inner_prelude, "extern crate alloc;");
+            let _ = writeln!(
+                self.inner_prelude,
+                "use alloc::string::{{String, ToString}};"
+            );
+            let _ = writeln!(self.inner_prelude, "use alloc::vec::Vec;");
             // The report renderers (rfs_render_*) always use format!.
-            let _ = writeln!(self.code, "use alloc::format;");
+            let _ = writeln!(self.inner_prelude, "use alloc::format;");
             if self.uses_vec_macro {
-                let _ = writeln!(self.code, "use alloc::vec;");
+                let _ = writeln!(self.inner_prelude, "use alloc::vec;");
             }
         }
     }
@@ -1656,7 +1752,10 @@ pub(crate) fn render_mc_step_all(module: &Module) -> Result<String, String> {
     let gen = Gen {
         module,
         options: &options,
+        header_line: String::new(),
+        inner_prelude: String::new(),
         code: String::new(),
+        test_section: String::new(),
         variants,
         prop_mode: PropertyMonitorMode::Off,
         assume_plans: vec![],
@@ -1848,7 +1947,10 @@ pub(crate) fn render_sample_formula_evaluator(
     let gen = Gen {
         module,
         options: &options,
+        header_line: String::new(),
+        inner_prelude: String::new(),
         code: String::new(),
+        test_section: String::new(),
         variants,
         prop_mode: PropertyMonitorMode::Off,
         assume_plans: vec![],

@@ -185,8 +185,28 @@ fn run_one(tag: &str, ir: &rfs::Ir) {
             let code = command
                 .run(backend, &parsed, &options)
                 .unwrap_or_else(|e| panic!("[{tag}/{backend_name}] {kind} codegen: {e:?}"));
+            let mut src_bytes = code.primary_code().as_bytes().to_vec();
+            // Phase 14 task 5: Rust mc/test reference the fsm via include!.
+            // All test functions share this scratch dir (same process id) and
+            // run on parallel threads, so a fixed `rfs_fsm.rs` would collide -
+            // give each tag/kind its own fsm file and rewrite the include!
+            // (mirrors the C per-tag subdirs above).
+            if backend_name == "rust" && kind != "production" {
+                let fsm = code
+                    .fsm_code
+                    .as_deref()
+                    .expect("rust mc/test fills the fsm-code slot");
+                let fsm_name = format!("{tag}_{backend_name}_{kind}_fsm.rs");
+                std::fs::write(dir.join(&fsm_name), fsm)
+                    .unwrap_or_else(|e| panic!("[{tag}/rust] write referenced fsm: {e}"));
+                let old = "include!(\"rfs_fsm.rs\")".to_string();
+                let new = format!("include!(\"{fsm_name}\")");
+                src_bytes = String::from_utf8_lossy(&src_bytes)
+                    .replace(&old, &new)
+                    .into_bytes();
+            }
             let src_path = dir.join(format!("{tag}_{backend_name}_{kind}.{ext}"));
-            std::fs::write(&src_path, code.primary_code().as_bytes())
+            std::fs::write(&src_path, &src_bytes)
                 .unwrap_or_else(|e| panic!("[{tag}/{backend_name}] write {kind} source: {e}"));
             // Phase 14 task 2: C production is a header/source pair - write the
             // header alongside so the source's self-include resolves (same dir).
@@ -429,6 +449,15 @@ fn c_mc_trigger_step_zero_report_no_crash() {
             // Phase 14 task 3: object+link build of the mc/fsm pair.
             common::prod_driver::build_c_mc_binary(&code, &dir.join("trigger0_c_mc_pair"), &bin);
         } else {
+            // Phase 14 task 5: the Rust mc references the fsm via include! -
+            // write the referenced fsm file alongside so it resolves.
+            std::fs::write(
+                dir.join("rfs_fsm.rs"),
+                code.fsm_code
+                    .as_deref()
+                    .expect("rust mc fills the fsm-code slot"),
+            )
+            .expect("write fsm file");
             let src_path = dir.join("trigger0_rust_mc.rs");
             std::fs::write(&src_path, code.primary_code().as_bytes()).expect("write source");
             let status = Command::new(rustc())

@@ -116,11 +116,6 @@ fn generate_full(
         .unwrap_or_else(|e| panic!("codegen {backend_name} {:?} must succeed: {e:?}", spec))
 }
 
-fn generate(backend_name: &str, command: rfs::codegen::CodegenCommandKind, spec: &Path) -> String {
-    let out = generate_full(backend_name, command, spec);
-    out.primary_code().to_string()
-}
-
 fn compile_rust(src: &Path, bin: &Path, as_test: bool) {
     let mut cmd = Command::new(rustc());
     cmd.args(["--edition", "2021"]);
@@ -157,16 +152,25 @@ fn mc_binary(spec: &Path, backend_name: &str) -> PathBuf {
             );
             common::prod_driver::build_c_mc_binary(&out, dir, &bin);
         } else {
+            // Phase 14 task 5: the Rust mc references the fsm via include!.
+            // Many stems share this dir, so the default `rfs_fsm.rs` would
+            // collide - give each a per-stem fsm file and rewrite the include!.
+            let out = generate_full(
+                backend_name,
+                rfs::codegen::CodegenCommandKind::ModelChecker,
+                spec,
+            );
+            let mut src_code = out.primary_code().to_string();
+            if let Some(fsm) = out.fsm_code.as_deref() {
+                let fsm_name = format!("{stem}_mc_fsm.rs");
+                std::fs::write(dir.join(&fsm_name), fsm).expect("write fsm file");
+                src_code = src_code.replace(
+                    "include!(\"rfs_fsm.rs\")",
+                    &format!("include!(\"{fsm_name}\")"),
+                );
+            }
             let src = dir.join(format!("{stem}_mc.rs"));
-            std::fs::write(
-                &src,
-                generate(
-                    backend_name,
-                    rfs::codegen::CodegenCommandKind::ModelChecker,
-                    spec,
-                ),
-            )
-            .expect("write MC source");
+            std::fs::write(&src, src_code).expect("write MC source");
             compile_rust(&src, &bin, false);
         }
         bin
@@ -224,8 +228,20 @@ fn test_binary(spec: &Path, backend_name: &str) -> PathBuf {
                 String::from_utf8_lossy(&linked.stderr)
             );
         } else {
+            // Phase 14 task 5: the Rust test artifact references the fsm via
+            // include!. Many stems share this dir, so the default `rfs_fsm.rs`
+            // would collide - give each a per-stem fsm file and rewrite it.
+            let mut src_code = out.primary_code().to_string();
+            if let Some(fsm) = out.fsm_code.as_deref() {
+                let fsm_name = format!("{stem}_test_fsm.rs");
+                std::fs::write(dir.join(&fsm_name), fsm).expect("write fsm file");
+                src_code = src_code.replace(
+                    "include!(\"rfs_fsm.rs\")",
+                    &format!("include!(\"{fsm_name}\")"),
+                );
+            }
             let src = dir.join(format!("{stem}_test.rs"));
-            std::fs::write(&src, out.primary_code()).expect("write test source");
+            std::fs::write(&src, src_code).expect("write test source");
             compile_rust(&src, &bin, true);
         }
         bin
@@ -1000,8 +1016,20 @@ fn liv_mc_binary(tag: &str, backend_name: &str, src: &str) -> PathBuf {
         if backend_name == "c" {
             common::prod_driver::build_c_mc_binary(&out, dir, &b);
         } else {
+            // Phase 14 task 5: the Rust mc references the fsm via include!.
+            // Many tags share this dir, so the default `rfs_fsm.rs` would
+            // collide - give each a per-tag fsm file and rewrite the include!.
+            let mut src_code = out.primary_code().to_string();
+            if let Some(fsm) = out.fsm_code.as_deref() {
+                let fsm_name = format!("liv_{tag}_mc_fsm.rs");
+                std::fs::write(dir.join(&fsm_name), fsm).expect("write fsm file");
+                src_code = src_code.replace(
+                    "include!(\"rfs_fsm.rs\")",
+                    &format!("include!(\"{fsm_name}\")"),
+                );
+            }
             let s = dir.join(format!("liv_{tag}_mc.rs"));
-            std::fs::write(&s, out.primary_code()).expect("write MC source");
+            std::fs::write(&s, src_code).expect("write MC source");
             compile_rust(&s, &b, false);
         }
         b
@@ -1172,8 +1200,20 @@ fn mc_json_binary(spec: &Path, backend_name: &str) -> PathBuf {
         if backend_name == "c" {
             common::prod_driver::build_c_mc_binary(&out, dir, &bin);
         } else {
+            // Phase 14 task 5: the Rust mc references the fsm via include!.
+            // Many stems share this dir, so the default `rfs_fsm.rs` would
+            // collide - give each a per-stem fsm file and rewrite the include!.
+            let mut src_code = out.primary_code().to_string();
+            if let Some(fsm) = out.fsm_code.as_deref() {
+                let fsm_name = format!("{stem}_mc_json_fsm.rs");
+                std::fs::write(dir.join(&fsm_name), fsm).expect("write fsm file");
+                src_code = src_code.replace(
+                    "include!(\"rfs_fsm.rs\")",
+                    &format!("include!(\"{fsm_name}\")"),
+                );
+            }
             let src = dir.join(format!("{stem}_mc_json.rs"));
-            std::fs::write(&src, out.primary_code()).expect("write MC source");
+            std::fs::write(&src, src_code).expect("write MC source");
             compile_rust(&src, &bin, false);
         }
         bin
@@ -1198,8 +1238,20 @@ fn mc_json_binary_for(tag: &str, backend_name: &str, src: &str) -> PathBuf {
         if backend_name == "c" {
             common::prod_driver::build_c_mc_binary(&out, dir, &b);
         } else {
+            // Phase 14 task 5: the Rust mc references the fsm via include!.
+            // Many tags share this dir, so the default `rfs_fsm.rs` would
+            // collide - give each a per-tag fsm file and rewrite the include!.
+            let mut src_code = out.primary_code().to_string();
+            if let Some(fsm) = out.fsm_code.as_deref() {
+                let fsm_name = format!("{tag}_mc_json_fsm.rs");
+                std::fs::write(dir.join(&fsm_name), fsm).expect("write fsm file");
+                src_code = src_code.replace(
+                    "include!(\"rfs_fsm.rs\")",
+                    &format!("include!(\"{fsm_name}\")"),
+                );
+            }
             let s = dir.join(format!("{tag}_mc_json.rs"));
-            std::fs::write(&s, out.primary_code()).expect("write MC source");
+            std::fs::write(&s, src_code).expect("write MC source");
             compile_rust(&s, &b, false);
         }
         b

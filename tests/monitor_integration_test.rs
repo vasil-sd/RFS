@@ -173,12 +173,18 @@ fn mc_buggy_run(backend_name: &str, dir: &Path) -> McViolation {
         let out = generate_full(backend_name, kind, &buggy_spec_source(), false);
         common::prod_driver::build_c_mc_binary(&out, dir, &dir.join("mc"));
     } else {
-        let p = dir.join("mc.rs");
+        // Phase 14 task 5: the Rust mc references the fsm via include! - write
+        // the referenced fsm file alongside so it resolves.
+        let out = generate_full(backend_name, kind, &buggy_spec_source(), false);
         std::fs::write(
-            &p,
-            generate(backend_name, kind, &buggy_spec_source(), false),
+            dir.join("rfs_fsm.rs"),
+            out.fsm_code
+                .as_deref()
+                .expect("rust mc fills the fsm-code slot"),
         )
-        .expect("write Rust MC source");
+        .expect("write fsm file");
+        let p = dir.join("mc.rs");
+        std::fs::write(&p, out.primary_code()).expect("write Rust MC source");
         compile_rust(&p, &dir.join("mc"));
     }
     // Seedless exact mode (D-P4-14): the deterministic BFS traversal finds
@@ -265,9 +271,18 @@ fn mc_good_run(backend_name: &str, dir: &Path) -> Vec<(String, String)> {
         let out = generate_full(backend_name, kind, &example41_source(), false);
         common::prod_driver::build_c_mc_binary(&out, dir, &dir.join("mc"));
     } else {
+        // Phase 14 task 5: the Rust mc references the fsm via include! - write
+        // the referenced fsm file alongside so it resolves.
+        let out = generate_full(backend_name, kind, &example41_source(), false);
+        std::fs::write(
+            dir.join("rfs_fsm.rs"),
+            out.fsm_code
+                .as_deref()
+                .expect("rust mc fills the fsm-code slot"),
+        )
+        .expect("write fsm file");
         let p = dir.join("mc.rs");
-        std::fs::write(&p, generate(backend_name, kind, &example41_source(), false))
-            .expect("write Rust MC source");
+        std::fs::write(&p, out.primary_code()).expect("write Rust MC source");
         compile_rust(&p, &dir.join("mc"));
     }
     // Seedless exact mode (D-P4-14): the full reachable graph is explored.

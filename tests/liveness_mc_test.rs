@@ -31,8 +31,9 @@ fn rustc() -> String {
     std::env::var("RUSTC").unwrap_or_else(|_| "rustc".to_string())
 }
 
-/// MC codegen for an inline spec; returns (code, warnings).
-fn codegen_mc(src: &str) -> (String, Vec<String>) {
+/// MC codegen for an inline spec; returns the full output (primary + the
+/// referenced fsm file).
+fn codegen_mc(src: &str) -> rfs::codegen::CodegenOutput {
     let ir = rfs::parse_source(src).expect("inline spec must parse");
     assert_eq!(ir.modules.len(), 1);
     let backend =
@@ -43,16 +44,24 @@ fn codegen_mc(src: &str) -> (String, Vec<String>) {
         with_property_monitors: false,
         ..rfs::codegen::BackendOptions::default()
     };
-    let out = rfs::codegen::CodegenCommandKind::ModelChecker
+    rfs::codegen::CodegenCommandKind::ModelChecker
         .run(backend, &ir, &options)
-        .expect("MC codegen must succeed");
-    (out.primary_code().to_string(), out.warnings)
+        .expect("MC codegen must succeed")
 }
 
 fn build(src: &str, dir: &Path, name: &str) -> PathBuf {
-    let (code, _warnings) = codegen_mc(src);
+    let out = codegen_mc(src);
+    // Phase 14 task 5: the Rust mc references the fsm via include! - write the
+    // referenced fsm file alongside so it resolves.
+    std::fs::write(
+        dir.join("rfs_fsm.rs"),
+        out.fsm_code
+            .as_deref()
+            .expect("rust mc fills the fsm-code slot"),
+    )
+    .expect("write fsm file");
     let s = dir.join(format!("{name}.rs"));
-    std::fs::write(&s, code).expect("write generated MC source");
+    std::fs::write(&s, out.primary_code()).expect("write generated MC source");
     let b = dir.join(name);
     let out = Command::new(rustc())
         .args(["--edition", "2021"])
@@ -449,16 +458,25 @@ fn truncated_analysis_sound_fail_and_unknown() {
 
 #[test]
 fn deeper_nesting_codegen_diagnostic() {
-    let (code, warnings) = codegen_mc(NEST_DIAG_SPEC);
+    let out = codegen_mc(NEST_DIAG_SPEC);
     assert!(
-        warnings.iter().any(|w| w.contains("deeper nesting")),
-        "expected a deeper-nesting diagnostic, got {warnings:?}"
+        out.warnings.iter().any(|w| w.contains("deeper nesting")),
+        "expected a deeper-nesting diagnostic, got {:?}",
+        out.warnings
     );
     // The property is skipped (not a parse error): the binary compiles and
-    // runs to pass-complete.
+    // runs to pass-complete. Phase 14 task 5: write the referenced fsm file
+    // alongside so the include! resolves.
     let dir = scratch("nest_diag");
+    std::fs::write(
+        dir.join("rfs_fsm.rs"),
+        out.fsm_code
+            .as_deref()
+            .expect("rust mc fills the fsm-code slot"),
+    )
+    .expect("write fsm file");
     let s = dir.join("mc.rs");
-    std::fs::write(&s, code).expect("write generated MC source");
+    std::fs::write(&s, out.primary_code()).expect("write generated MC source");
     let b = dir.join("mc");
     let out = Command::new(rustc())
         .args(["--edition", "2021"])

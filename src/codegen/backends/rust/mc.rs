@@ -67,18 +67,29 @@ pub fn generate_model_checker(
         ..options.clone()
     };
     let plan = McPlan::compute(module, &options.assumptions);
-    let fsm = crate::codegen::backends::rust::fsm::generate_core(
+    // The referenced fsm file (fsm core only, no tests) - co-emitted / taken by
+    // the write loop via take-or-emit. Property monitors are always included
+    // (D-P3-6). `..options.clone()` carries the stamped spec_hash (D-P6-3).
+    let (p, core_warnings) = crate::codegen::backends::rust::fsm::render_fsm_parts(
         module,
         &fsm_options,
         false,
         crate::codegen::PropertyMonitorMode::Always,
     )?;
-    // Phase 14 task 1: the self-contained executable (FSM inlined) goes into
-    // the mc-code slot; the include! reference lands in task 5.
-    let mut out = fsm
-        .fsm_code
+    // Phase 14 task 5 (D14-5): the mc executable no longer inlines the FSM. It
+    // carries its own line-1 artifact header + inner-attribute prelude, then
+    // `include!("<fsm file>")` (the resolved reference name), then the engine +
+    // main. The include! target is BARE (no inner attrs - include! cannot bring
+    // `#![...]` into this crate), so the mc supplies its own prelude; the engine
+    // sees exactly the same scope as before.
+    let fsm_file_name = options
+        .fsm_source_name
         .clone()
-        .expect("production core fills the fsm-code slot");
+        .unwrap_or_else(|| "rfs_fsm.rs".into());
+    let mut out = format!(
+        "{}{}include!(\"{}\");\n",
+        p.header_line, p.inner_prelude, fsm_file_name
+    );
     let (exact, liv_warnings) = exact_codegen(module, &plan, options).map_err(|e| vec![e])?;
     out.push_str(&exact);
     // The __LCG_*__ placeholders are filled from the shared pub consts so the
@@ -89,9 +100,13 @@ pub fn generate_model_checker(
             .replace("__LCG_ADD__", &crate::utils::rng::LCG_ADD.to_string()),
     );
     out.push_str(MAIN_DISPATCH);
+    // The referenced fsm file is BARE (line-1 header + core items, NO inner
+    // attributes) so the include! above resolves.
+    let bare_fsm = format!("{}{}", p.header_line, p.code);
     Ok(CodegenOutput {
         mc_code: Some(out),
-        warnings: fsm.warnings.into_iter().chain(liv_warnings).collect(),
+        fsm_code: Some(bare_fsm),
+        warnings: core_warnings.into_iter().chain(liv_warnings).collect(),
         ..Default::default()
     })
 }

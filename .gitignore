@@ -1,5 +1,10 @@
 # Build artifacts
 /target
+# Nix build output symlink (Phase 15 task 2): `nix build` recreates it in the
+# repo root on every run; without this ignore line cleanSourceWith bakes the
+# previous build's store path into the source and the package hash changes on
+# every rebuild.
+result
 # Fuzz workspace (Phase 6 task 5): build outputs + libFuzzer runtime state.
 # corpus/ and artifacts/ are regenerable - the intentional regression inputs
 # are tracked under fuzz/regression_seeds/ instead.

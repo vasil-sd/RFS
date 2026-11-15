@@ -174,6 +174,7 @@ byte-unchanged.
 
 | # | Task | Correction type | Description + rationale |
 |---|------|-----------------|--------------------------|
+| 2a. | Make generated C warning-free under the nixpkgs toolchain (checkPhase blocker) | new | Task 2's doCheck criterion exposed that the CURRENT source fails the package checkPhase under BOTH nix compilers - pre-existing, not caused by task 2 (the original pre-task-2 package.nix fails the same checkPhase). Two distinct zero-warning-gate violations: (1) gcc 16.2.0 `-Wmaybe-uninitialized` on `uint64_t fields[64]` in the test driver template at tests/common/prod_driver.rs:615 (fails prod_parity_test); (2) clang 21.1.8 `-Wtautological-overlap-compare` on an always-true disjunction `(s != B) || (s == B)` in generated FSM C (fails ref_mc_diff_test - the artifact recorded in TASKS.md, whose mechanism task 2 additionally pinned down: stdenv sets CC=clang when clang is a nativeBuildInput, and RFS's resolver honors CC over bare gcc; moving the tools to buildInputs left CC empty so real gcc answers). Fixing both requires source changes (a test helper + the C codegen emitter), which the phase non-goals route through plan corrections. Task 2's doCheck criterion is PENDING on 2a; all other task-2 criteria are met and committed. |
 
 ## Other information
 

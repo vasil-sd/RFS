@@ -1,4 +1,24 @@
-{ pkgs ? import <nixpkgs> { } }:
+# Every external tool is an overridable argument (Phase 15 task 2): a user of
+# the package passes their own versions, e.g.
+#   import ./nix/package.nix { gcc = pkgs.gcc14; mermaid-cli = pkgs.mermaid-cli; }
+# The defaults are the plain nixpkgs packages, so every existing no-arg call
+# site (`import ./nix/package.nix { }`, `pkgs.callPackage ./nix/package.nix { }`)
+# keeps working unchanged. mermaid-cli / plantuml / graphviz are OPTIONAL -
+# null by default; when passed they join the runtime closure (and task 3's
+# wrapper sets RFS_MERMAID / RFS_PLANTUML / RFS_DOT for them).
+{ pkgs ? import <nixpkgs> { }
+, rustc ? pkgs.rustc
+, cargo ? pkgs.cargo
+, gcc ? pkgs.gcc
+, clang ? pkgs.clang
+, make ? pkgs.gnumake
+, z3 ? pkgs.z3
+, pkg-config ? pkgs.pkg-config
+, cargo-fuzz ? pkgs.cargo-fuzz
+, mermaid-cli ? null
+, plantuml ? null
+, graphviz ? null
+}:
 let
   manifest = (pkgs.lib.importTOML ./../Cargo.toml).package;
   # nixpkgs splits z3 into three outputs: `out` (bin/z3 CLI only), `lib`
@@ -22,15 +42,15 @@ let
   # symlinks (it must be real because it merges the z3 CLI from `out` with
   # libz3.so* from `lib`). The z3.pc is generated in the same derivation, so its
   # prefix=$out needs no self-reference cycle.
-  unifiedZ3 = pkgs.runCommand "z3-unified-${pkgs.z3.version}" { } ''
+  unifiedZ3 = pkgs.runCommand "z3-unified-${z3.version}" { } ''
     mkdir -p $out/bin $out/pkgconfig
     # include/ and lib/: whole-directory symlinks to the store outputs (zero copy).
-    ln -s ${pkgs.z3.dev}/include $out/include
-    ln -s ${pkgs.z3.lib}/lib $out/lib
+    ln -s ${z3.dev}/include $out/include
+    ln -s ${z3.lib}/lib $out/lib
     # bin/: the z3 CLI from `out`, plus libz3.so* from `lib` (the project-local
     # Z3_LIBRARY_PATH_OVERRIDE convention) - every entry a symlink, nothing copied.
-    for f in ${pkgs.z3.out}/bin/*; do ln -s "$f" "$out/bin/$(basename "$f")"; done
-    for f in ${pkgs.z3.lib}/lib/libz3*; do ln -s "$f" "$out/bin/$(basename "$f")"; done
+    for f in ${z3.out}/bin/*; do ln -s "$f" "$out/bin/$(basename "$f")"; done
+    for f in ${z3.lib}/lib/libz3*; do ln -s "$f" "$out/bin/$(basename "$f")"; done
     # The one generated file: a pkg-config module whose prefix= names this unified
     # dir. Concrete $out-based paths are expanded by the shell at build time; the
     # heredoc keeps the .pc free of any dollar-brace tokens Nix would interpolate.
@@ -41,7 +61,7 @@ libdir=$out/lib
 includedir=$out/include
 Name: z3
 Description: Z3 Theorem Prover (unified prefix)
-Version: ${pkgs.z3.version}
+Version: ${z3.version}
 Libs: -L$out/lib -lz3
 Cflags: -I$out/include
 PC
@@ -65,7 +85,13 @@ pkgs.rustPlatform.buildRustPackage rec {
       in
         !(builtins.elem "target" parts)
         && builtins.baseNameOf path != "commands.md"
-        && builtins.baseNameOf path != "all_rfs_training.jsonl";
+        && builtins.baseNameOf path != "all_rfs_training.jsonl"
+        # `result` is the nix build output symlink, recreated in the repo root
+        # on every `nix build`. cleanSourceWith does NOT honor .gitignore when
+        # a custom filter is given, so it must be excluded here explicitly -
+        # otherwise the previous build's store path leaks into the source and
+        # the package hash changes on every rebuild.
+        && builtins.baseNameOf path != "result";
   };
 
   # plantuml-core (and its 8 sibling crates) come from a pinned git rev, not
@@ -92,7 +118,29 @@ pkgs.rustPlatform.buildRustPackage rec {
   # tools via RFS_GCC / RFS_CLANG / RFS_RUSTC / RFS_MAKE (non-forcing) with a PATH
   # fallback, so putting the toolchains on PATH is sufficient. z3 + pkg-config
   # back the SMT-bounded test (the `smt` feature links libz3).
-  nativeBuildInputs = [ pkgs.gcc pkgs.clang pkgs.rustc pkgs.cargo pkgs.gnumake unifiedZ3 pkgs.pkg-config ];
+  # Runtime tool closure (Phase 15 task 2): these are PROPAGATED into the
+  # installed package so `rfs test ...` works from a bare install - rustc/cargo
+  # compile generated code, gcc/clang build C artifacts (clang carries the
+  # libFuzzer runtime for --suite fuzz), make drives the C example projects,
+  # unifiedZ3 + pkg-config back SMT mode, cargo-fuzz scaffolds the Rust fuzz
+  # pipeline. buildInputs are on PATH during checkPhase too, so the existing
+  # check scripts keep working unchanged. The BUILD itself still uses
+  # buildRustPackage's callPackage-injected rustc/cargo (nixpkgs defaults -
+  # they are not public arguments of buildRustPackage in this nixpkgs), so a
+  # user-passed rustc/cargo lands in the runtime closure + wrapper, not in the
+  # build toolchain.
+  buildInputs = [ rustc cargo gcc clang make unifiedZ3 pkg-config cargo-fuzz ]
+    ++ pkgs.lib.optionals (mermaid-cli != null) [ mermaid-cli ]
+    ++ pkgs.lib.optionals (plantuml != null) [ plantuml ]
+    ++ pkgs.lib.optionals (graphviz != null) [ graphviz ];
+
+  # This nixpkgs' stdenv does NOT auto-propagate buildInputs (verified by
+  # evaluation: propagatedBuildInputs was [] with them set), so declare the
+  # runtime closure explicitly - otherwise a nix-env install / inputsFrom shell
+  # would put only rfs's own bin/ on PATH and none of the tools.
+  propagatedBuildInputs = buildInputs;
+
+  nativeBuildInputs = [ ];
 
   doCheck = true;
   checkPhase = ''

@@ -242,6 +242,12 @@ Rationale: the naming change is atomic - no test may keep pinning the old
 - No documentation updates (tasks 7-8).
 - No change to `generate_core`'s fused contract or the aggregate-crate path.
 
+## Task corrections
+
+| Correction | Description + rationale |
+|------------|-------------------------|
+| `tests/smt_bounded_test.rs` line 139: `.primary_code()` -> `.primary_code().to_string()` (found at close-out, task 11) | The smt-feature leg does not compile under the default feature set, so tasks 1-10's green runs never built it: its `generate_smt_source` helper still expected `primary_code()` to return a `String`, but the slot-model rewrite changed it to `&str` (E0308). One-line fix per the compiler's own suggestion; no behaviour change. Rationale: PROTOCOL.md section 3 - close-out records green, it does not manufacture it; the defect routes back to the owning task (task 1 introduced the signature change) and is re-verified here before the phase exits. |
+
 ## Other information
 
 - Re-check while implementing: whether any OTHER library consumer of

@@ -1592,7 +1592,7 @@ fn mc_enum_input_field_domain_qualified_both_backends() {
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
         let rs = dir.join("m_mc.rs");
-        std::fs::write(&rs, &rust_code).unwrap();
+        std::fs::write(&rs, rust_code).unwrap();
         // Phase 14 task 5: the Rust mc references the fsm via include! - write
         // the referenced fsm file alongside (standalone default name) so it
         // resolves when the mc is compiled.
@@ -1944,7 +1944,7 @@ fn no_std_compile_sweep_and_body_parity_all_valid_examples() {
             // Compile sweep: rustc must accept the no_std artifact.
             if have_rustc {
                 let path = dir.join(format!("{stem}_{mode}.rs"));
-                std::fs::write(&path, &nostd_code).unwrap();
+                std::fs::write(&path, nostd_code).unwrap();
                 let out = std::process::Command::new(common::toolchain::rustc())
                     .args([
                         "--edition",

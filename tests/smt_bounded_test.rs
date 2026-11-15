@@ -137,6 +137,7 @@ fn generate(backend_name: &str, src: &str, what: &str) -> String {
         .run(backend, &ir, &options)
         .unwrap_or_else(|e| panic!("smt-bounded codegen {backend_name} for {what}: {e:?}"))
         .primary_code()
+        .to_string()
 }
 
 /// z3 compile+link flags. Prefer pkg-config: it knows nixpkgs' split `lib`/`dev`

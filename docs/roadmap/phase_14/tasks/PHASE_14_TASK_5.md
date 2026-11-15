@@ -204,3 +204,9 @@ duplication.
 - If the test section references fsm items through paths that assume module
   nesting (it should not - today's fused output is flat), fix the rendering in
   Action 5.1, not the include mechanism.
+
+## Task corrections
+
+| Correction | Description + rationale |
+|------------|-------------------------|
+| Clippy lints in task-5 test code (found at close-out, task 11) | `tests/codegen_test.rs` lines 1595 and 1947: `std::fs::write(&rs, &rust_code)` / `std::fs::write(&path, &nostd_code)` trip clippy::needless_borrow - `rust_code`/`nostd_code` are already `&str` (returned by the slot-model `primary_code()`), so the extra `&` borrows a reference. Fixed by dropping the inner borrow; the written bytes are identical. Rationale: PROTOCOL.md section 3 - close-out records green, it does not manufacture it; the clippy baseline comparison at task 11 flagged both as new warnings introduced by this task's test code. |

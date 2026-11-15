@@ -2701,7 +2701,8 @@ fn artifact_header_generated_output_matches_documented_format() {
                         (out.mc_header.as_deref(), "mc-header"),
                         (out.fsm_header.as_deref(), "fsm-header"),
                     ] {
-                        let hdr = slot.expect(&format!("{what}: c mc fills the {slot_what} slot"));
+                        let msg = format!("{what}: c mc fills the {slot_what} slot");
+                        let hdr = slot.expect(&msg);
                         assert_eq!(
                             hdr.lines().next(),
                             Some(expected_header_line(&ir).as_str()),

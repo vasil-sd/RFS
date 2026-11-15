@@ -157,6 +157,7 @@ untested.
 | Correction | Description + rationale |
 |------------|-------------------------|
 | Action 3.1 under-scoped the header's required content | The action assumed only the MC engine's report types needed hoisting into the mc header. In reality the MC engine calls FSM internals that were source-local statics (`rfs_commit`, `trace_vars`, `assume_monitors_step`, `prop_monitors_step`, `ASSUME_LABELS`/`N_ASSUME_LABELS`) - visible only because the FSM core used to be inlined into the same translation unit. Exposing them as EXTERNAL symbols declared in the fsm header (a `c/fsm.rs` change, plus `mod.rs`/`codegen.rs` plumbing) was a hard requirement of the object+link split, not an optional refactor. The mc header itself stays thin (run entry points + the fsm-header include that supplies the report/trace types). Rationale: the MC cannot link against the fsm object unless the symbols it calls are exported; see Plan correction 3a. |
+| Clippy lint in task-3 test code (found at close-out, task 11) | `tests/info_format_test.rs` line 2704: `slot.expect(&format!(...))` trips clippy::expect_fun_call (function call inside of expect). Fixed by hoisting the format! into a `msg` binding before the expect. Zero behavioural change; the assertion message is byte-identical. Rationale: PROTOCOL.md section 3 - close-out records green, it does not manufacture it; the clippy baseline comparison at task 11 flagged this as a new warning introduced by this task's test code. |
 
 ## Other information
 

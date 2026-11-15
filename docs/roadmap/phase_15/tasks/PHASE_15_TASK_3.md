@@ -205,6 +205,10 @@ dirs to PATH.
 
 | Correction | Description + rationale |
 |------------|-------------------------|
+| Nix string-escaping idiom | The planned `$${VAR}` escaping does NOT exist in this nix (2.35.6): `$$` is not an escape sequence in indented OR regular strings (verified empirically - `$${x}` stays literal, while `${x}` interpolates and `\$` only protects a bare dollar). Runtime brace groups are therefore assembled with `db = "$" + "{"` and written as `${db}VAR...` - the interpolation emits `$` and the following text supplies the brace group. |
+| Wrapper generation: printf -> quoted heredocs | The first draft used `printf '%s\n' ... "exec \"$dir/$name.real\" \"$@\""` - the double-quoted argument let the BUILD-time shell expand $dir (unset -> empty) and $@ (the derivation's own args), producing a one-line wrapper with literal \n and a mangled exec line. Replaced by five explicit `cat <<'WRAP'` blocks with the binary name hardcoded per block: a quoted heredoc keeps every runtime token ($0, $dir, $@, $(...)) literal, and a shell loop variable would be invisible to Nix anyway. |
+| Missing closing braces in generated expansions | Four generated brace groups lost their `}` (the `${db}VAR` idiom makes the closing brace easy to drop): `${PATH"`, `${PKG_CONFIG_PATH`, and the three optionalString diagram lines (`${RFS_DOT:-"` etc.). Each caught by `sh -n` on the generated preamble after a rebuild; all fixed. |
+| PATH-invocation fallback in wrappers | The planned wrapper computed `dir=$(dirname -- "$0")` only - but when invoked via PATH (the common case: nix-env profile / nix develop), $0 is bare, dirname yields `.`, and the wrapper sourced rfs-env.sh from the CWD. Added `[ -f "$dir/rfs-env.sh" ] || dir=$(dirname -- "$(command -v -- "$0")")` to all five wrappers; verified both backends pass via PATH invocation from /tmp and /. |
 
 ## Other information
 - If postFixup turns out to run before some fixup that rewrites bin/ entries

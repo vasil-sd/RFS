@@ -1,9 +1,10 @@
 // Plain-C sync-style ARQ handler (Phase 5 task 12): the C mirror of the
 // Rust sync_handler example (crates/examples/sync_handler) against the
 // generated spec-43 sliding-window ARQ sender - same scripted peer, same
-// expected outcome. The generated FSM source is included directly (single
-// translation unit), exactly like the fuzz skeleton does it.
-#include "arq_fsm.c"
+// expected outcome. The generated FSM is a SEPARATE translation unit: this
+// file includes only its header (arq_fsm.h); the implementation lives in
+// arq_fsm.o and is linked by the Makefile (Phase 14 task 9).
+#include "arq_fsm.h"
 
 #include <stdio.h>
 #include <stdlib.h>

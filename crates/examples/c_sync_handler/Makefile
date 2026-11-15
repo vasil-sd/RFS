@@ -28,11 +28,24 @@ $(GEN_FSM) $(GEN_FSM_H): $(SPEC)
 	mkdir -p $(BUILD_DIR)
 	$(RFS) codegen c production $(SPEC) --out-fsm-header $(GEN_FSM_H) --out-fsm-code $(GEN_FSM)
 
-c_sync_handler: src/handler.c $(GEN_FSM) $(GEN_FSM_H)
-	$(CC) -Wall -I$(BUILD_DIR) -I. -o $@ src/handler.c
+# Phase 14 task 9: explicit object files + link. The FSM is a separate
+# translation unit - handler.c includes only arq_fsm.h, and arq_fsm.o (the
+# generated source, which self-includes "build/arq_fsm.h" - hence -I.) is
+# linked with handler.o. The zero-warning bar holds for BOTH compiles.
+OBJ_FSM := $(BUILD_DIR)/arq_fsm.o
+OBJ_HANDLER := $(BUILD_DIR)/handler.o
+
+c_sync_handler: $(OBJ_HANDLER) $(OBJ_FSM)
+	$(CC) -o $@ $(OBJ_HANDLER) $(OBJ_FSM)
+
+$(OBJ_FSM): $(GEN_FSM) $(GEN_FSM_H)
+	$(CC) -Wall -I. -c $(GEN_FSM) -o $@
+
+$(OBJ_HANDLER): src/handler.c $(GEN_FSM_H)
+	$(CC) -Wall -I$(BUILD_DIR) -I. -c src/handler.c -o $@
 
 run: c_sync_handler
 	./c_sync_handler
 
 clean:
-	rm -rf $(BUILD_DIR) c_sync_handler
+	rm -rf $(BUILD_DIR) c_sync_handler   # the objects live in $(BUILD_DIR)

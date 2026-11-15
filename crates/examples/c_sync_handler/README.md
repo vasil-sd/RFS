@@ -8,11 +8,14 @@ Rust-ecosystem examples).
 
 ## Layout
 
-- `src/handler.c` - the scripted peer. Includes the generated FSM source
-  directly (`#include "arq_fsm.c"`, single translation unit - the same wiring
-  the fuzz skeleton uses). No sanitizers: plain `gcc -Wall`.
-- `Makefile` - generates the C FSM via the rfs toolchain, then builds with
-  `gcc -Wall` (zero-warning bar).
+- `src/handler.c` - the scripted peer. Includes ONLY the generated FSM header
+  (`#include "arq_fsm.h"`) - the FSM implementation is a separate translation
+  unit. No sanitizers: plain `gcc -Wall`.
+- `Makefile` - generates the C FSM header/source pair via the rfs toolchain,
+  then compiles EXPLICIT object files (`build/arq_fsm.o` from the generated
+  source, `build/handler.o` from handler.c) and links them into
+  `c_sync_handler` (Phase 14 task 9). The zero-warning bar holds for both
+  object compiles.
 
 ## Build & run
 

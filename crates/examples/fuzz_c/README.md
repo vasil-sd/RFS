@@ -9,17 +9,20 @@ over `fsm_step` with the stop-on-assumption-violation handler.
 ## Layout
 
 - `Makefile` - generation + clang build + bounded smoke run.
-- `build/` (generated, not checked in): `rfs_generated_fsm.c` (production FSM
-  source, under the exact name the skeleton's `#include` expects) and
-  `fuzz_target.c` (the emitted skeleton).
+- `build/` (generated, not checked in): `rfs_generated_fsm.h` +
+  `rfs_generated_fsm.c` (the production FSM header/source pair, under the
+  exact names the skeleton's `#include` expects), `fuzz_target.c` (the emitted
+  skeleton - a named slot of the `test` command) and `spec_test.c` (the test
+  executable source the same command co-emits; unused by this example).
 
 ## CLANG requirement
 
 **Generation works without clang; building does not.** The build recipe is a
-libFuzzer-enabled clang:
+libFuzzer-enabled clang compiling BOTH sources together (the skeleton
+references the fsm through its header - Phase 14 task 4):
 
 ```sh
-clang -O1 -fsanitize=fuzzer,address -o fuzz_target build/fuzz_target.c
+clang -O1 -fsanitize=fuzzer,address -I. -o fuzz_target build/rfs_generated_fsm.c build/fuzz_target.c
 ```
 
 If `clang` is absent, `make generate` still works and `make` fails at the

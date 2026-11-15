@@ -416,3 +416,99 @@ doc-section START.md "0. System prompt"` (exit 0). The session-opening protocol 
 `START.md` builds any missing tools here; the usage guide for the six tools is
 `dev_tools/SKILL.md`. Nothing in the `rfs` build/test path invokes `rfs-dev`, so a
 missing `rfs-dev` never breaks `cargo build` / `cargo test` of the toolchain itself.
+
+## 10. Nix package manager on this Ubuntu sandbox
+
+Added in Phase 15 (full Nix development support). Nix is the second supported
+way to build, test and run RFS (the first is the canonical rustup toolchain,
+section 2). This section covers setup on THIS Ubuntu sandbox; day-to-day
+build/test/run commands are in `BUILD.md` section 8.
+
+### 10.1 Install Nix on Ubuntu
+
+The official installer:
+
+```sh
+curl -sS https://nixos.org/nix/install | sh
+```
+
+At install time it offers two modes:
+
+- **Multi-user (default):** installs a `nix-daemon` service (a systemd unit).
+  The daemon is a privileged process that mediates ALL writes to the `/nix`
+  store; every `nix` command then talks to it through
+  `/nix/var/nix/daemon-socket/socket`. It is REQUIRED for non-root users (an
+  unprivileged user cannot write the store directly) and for remote/daemon-
+  mediated builds. A root user CAN also work without it.
+- **Single-user (`--no-daemon`):** no daemon is installed or started; each nix
+  command accesses the store directly as the invoking user. Root works out of
+  the box; an unprivileged user needs write access to `/nix`.
+
+In a container WITHOUT systemd (like this sandbox) the multi-user unit never
+starts, so there are exactly two working options: install with `--no-daemon`
+(single-user mode), or keep a multi-user install and start the daemon manually
+from its store path:
+
+```sh
+sudo /nix/store/<hash>-nix-<version>/bin/nix-daemon &   # clients then connect via the daemon socket
+```
+
+This sandbox needs NEITHER action - see 10.2.
+
+### 10.2 Current state of this sandbox (verified 2026-11-15)
+
+| Fact | Value |
+|---|---|
+| Nix version / binary | **2.35.6** at `/nix/store/g3m57m0jcdj84fas49lpiwpisacp20gr-nix-2.35.6/bin/nix` - NOT on PATH (no `/usr/bin/nix`, no `/etc/profile.d/nix.sh`) |
+| Daemon | none running, none needed: no `/nix/var/nix/daemon-socket` exists, yet `nix build` works - as root, Nix falls back to single-user (direct) mode |
+| `/etc/nix/nix.conf` | exactly `experimental-features = nix-command flakes` and `sandbox = false` |
+| Store | pre-populated from the preliminary nix work (many `*-rfs-1.0.0.drv` + built outputs), so rebuilds are mostly cache hits |
+| Network | `cache.nixos.org` reachable (verified: `nix build --expr 'hello'` fetched and ran) |
+| `<nixpkgs>` | resolves via the root channel profile to nixpkgs **unstable 26.11pre** (`lib.version = "26.11pre1109744.4fe25e12eb9f"`) |
+
+### 10.3 Using nix here
+
+The binary is not on PATH, so prepend its store bin dir in every shell that
+runs nix (env does not persist between tool calls):
+
+```sh
+export PATH=/nix/store/g3m57m0jcdj84fas49lpiwpisacp20gr-nix-2.35.6/bin:$PATH
+cd /workspace/host/RFS
+```
+
+The three commands this project uses (`--impure` is REQUIRED: `<nixpkgs>`
+resolves through the channel profile, not a flake input):
+
+```sh
+nix build --impure --expr 'import ./nix/package.nix { }'                 # package + full checkPhase
+nix build --impure --expr '(import ./nix/package.nix { }).overrideAttrs (a: { doCheck = false; })'
+nix develop -f shell.nix -c '<command>'                                  # dev shell, one command
+```
+
+Build/test/run details, the wrapper's env-var contract, and the full-suite
+dev-shell matrix: `BUILD.md` section 8.
+
+### 10.4 Previous nix work and references
+
+- Commit **dd6e0f4** (2026-11-12) "Make generated C clang-clean and add Nix
+  package + dev shell": created `nix/package.nix` (buildRustPackage, the
+  unified-z3 prefix, doCheck over the 10 MC suites + smt_bounded_test) and
+  `shell.nix`; running the model-checking suite under nix's clang also exposed
+  and fixed three C-backend defects (-Wunused-function on static inline
+  helpers, double-paren equality guards, a use-after-scope UB in --violate
+  parsing).
+- Commit **d1c1b31** (2026-11-12): the unified-z3 prefix switched from copying
+  to plain `ln -s` - this nixpkgs' symlinkJoin builds with `lndir`, which
+  dereferences and would copy the 44 MB libz3.so; ordinary symlinks keep the
+  prefix at zero copied bytes.
+- Known finding (recorded in `TASKS.md`, Phase 14 task 8 close-out): `nix
+  develop -f shell.nix` failed on the rfs package build because
+  `ref_mc_diff_test` panicked on a CLANG-style warning attributed to
+  `gcc -Wall` - "clang answering for gcc", a tool-resolution artifact of the
+  nix sandbox, NOT a codegen bug. Phase 15 task 3's wrapper (explicit
+  `RFS_GCC`) resolves it; do not re-chase it as a codegen regression.
+- Packaging reference: [How to package a Rust app using Nix](https://dev.to/misterio/how-to-package-a-rust-app-using-nix-3lh3)
+  - the buildRustPackage happy path (minimal default.nix, `cargoLock.lockFile`,
+  `cleanSource`, flake variant, `shell.nix` with `inputsFrom` + extra
+  buildInputs, `importTOML` for name/version). Our `nix/package.nix` follows
+  this pattern.

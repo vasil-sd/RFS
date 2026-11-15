@@ -1610,6 +1610,9 @@ impl ExprCtx {
 }
 
 fn gen_expr(e: &Expr, env: &Env, ctx: &ExprCtx) -> Result<String, String> {
+    // Phase 15 task 2a: the same shared boolean fold as the C backend's
+    // gen_expr_c entry - keeps both backends' rendered guards in parity.
+    let e = &crate::lang::ir::simplify_expr(e);
     let ty = validator::type_expr(e, env)?;
     match e {
         Expr::Int { value } => Ok(value.to_string()),

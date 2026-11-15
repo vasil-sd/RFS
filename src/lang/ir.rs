@@ -1430,3 +1430,363 @@ impl Ir {
         IrJson::from_json(v, "$")
     }
 }
+
+// ---------------------------------------------------------------------------
+// Boolean simplification (Phase 15 task 2a)
+// ---------------------------------------------------------------------------
+
+/// Bottom-up boolean simplification of an IR expression: folds tautological
+/// and contradictory forms so rendered C never contains e.g.
+/// `(s != B) || (s == B)` (clang `-Wtautological-overlap-compare`:
+/// "overlapping comparisons always evaluate to true") or
+/// `(s == C) && (s == A)` ("non-overlapping comparisons always evaluate to
+/// false"). Every rewrite is a boolean equivalence, so transition enablement,
+/// monitor evaluation and MC results are unchanged. Both backends apply it at
+/// their expression-render entry (`gen_expr_c` / `gen_expr`), which keeps the
+/// rendered guards of the two backends in parity. Non-boolean expressions pass
+/// through structurally untouched (their children are still simplified, but no
+/// folding rule fires on a non-logical node).
+pub fn simplify_expr(e: &Expr) -> Expr {
+    match e {
+        Expr::Binary { op, left, right } => {
+            let l = Box::new(simplify_expr(left));
+            let r = Box::new(simplify_expr(right));
+            match op {
+                BinOp::LogicOr => {
+                    if is_bool_const(&l, true) || is_bool_const(&r, true) {
+                        return Expr::Bool { value: true };
+                    }
+                    if is_complement(&l, &r) {
+                        return Expr::Bool { value: true };
+                    }
+                    // De Morgan dual of is_disjoint_eq: `s != F || s != C`
+                    // (distinct constants) is a tautology - no value can equal
+                    // both constants, so it differs from at least one of them.
+                    if is_exhaustive_neq(&l, &r) {
+                        return Expr::Bool { value: true };
+                    }
+                    if is_bool_const(&l, false) {
+                        return *r;
+                    }
+                    if is_bool_const(&r, false) {
+                        return *l;
+                    }
+                    Expr::Binary {
+                        op: *op,
+                        left: l,
+                        right: r,
+                    }
+                }
+                BinOp::LogicAnd => {
+                    if is_bool_const(&l, false) || is_bool_const(&r, false) {
+                        return Expr::Bool { value: false };
+                    }
+                    if is_complement(&l, &r) || is_disjoint_eq(&l, &r) {
+                        return Expr::Bool { value: false };
+                    }
+                    if is_bool_const(&l, true) {
+                        return *r;
+                    }
+                    if is_bool_const(&r, true) {
+                        return *l;
+                    }
+                    Expr::Binary {
+                        op: *op,
+                        left: l,
+                        right: r,
+                    }
+                }
+                _ => Expr::Binary {
+                    op: *op,
+                    left: l,
+                    right: r,
+                },
+            }
+        }
+        Expr::Unary {
+            op: UnaryOp::Not,
+            expr,
+        } => {
+            let inner = simplify_expr(expr);
+            if let Expr::Bool { value } = &inner {
+                return Expr::Bool { value: !value };
+            }
+            Expr::Unary {
+                op: UnaryOp::Not,
+                expr: Box::new(inner),
+            }
+        }
+        Expr::Unary { op, expr } => Expr::Unary {
+            op: *op,
+            expr: Box::new(simplify_expr(expr)),
+        },
+
+        Expr::Path { path } => Expr::Path { path: path.clone() },
+        Expr::Int { value } => Expr::Int { value: *value },
+        Expr::Bool { value } => Expr::Bool { value: *value },
+    }
+}
+
+fn is_bool_const(e: &Expr, v: bool) -> bool {
+    matches!(e, Expr::Bool { value } if *value == v)
+}
+
+/// Whether `b` is the direct structural negation of `a`: `Eq` <-> `NotEq`
+/// (the comparison is symmetric - BOTH operand orders count, so
+/// `B == state` negates `state != B`), `!x` <-> `x`. Anything else has no
+/// direct negation at this level.
+fn is_negation(a: &Expr, b: &Expr) -> bool {
+    match (a, b) {
+        (
+            Expr::Binary {
+                op: BinOp::Eq,
+                left: l1,
+                right: r1,
+            },
+            Expr::Binary {
+                op: BinOp::NotEq,
+                left: l2,
+                right: r2,
+            },
+        )
+        | (
+            Expr::Binary {
+                op: BinOp::NotEq,
+                left: l1,
+                right: r1,
+            },
+            Expr::Binary {
+                op: BinOp::Eq,
+                left: l2,
+                right: r2,
+            },
+        ) => (l1 == l2 && r1 == r2) || (l1 == r2 && r1 == l2),
+        (
+            Expr::Unary {
+                op: UnaryOp::Not,
+                expr,
+            },
+            inner,
+        ) => **expr == *inner,
+        (
+            outer,
+            Expr::Unary {
+                op: UnaryOp::Not,
+                expr,
+            },
+        ) => *outer == **expr,
+        _ => false,
+    }
+}
+
+fn is_complement(a: &Expr, b: &Expr) -> bool {
+    is_negation(a, b) || is_negation(b, a)
+}
+
+/// An `Eq` with one side a [`Path`] and the other a constant-like reference -
+/// either another single-element variant [`Path`] (e.g. `state == B`) or an
+/// [`Int`] literal (e.g. `v0 == 3`) - in either operand order. Returns the
+/// (path, constant) pair.
+fn eq_path_const(e: &Expr) -> Option<(&Vec<String>, &Expr)> {
+    match e {
+        Expr::Binary {
+            op: BinOp::Eq,
+            left,
+            right,
+        } => {
+            if let Expr::Path { path } = left.as_ref() {
+                if is_const_like(right) {
+                    return Some((path, right));
+                }
+            }
+            if let Expr::Path { path } = right.as_ref() {
+                if is_const_like(left) {
+                    return Some((path, left));
+                }
+            }
+            None
+        }
+        _ => None,
+    }
+}
+
+fn is_const_like(e: &Expr) -> bool {
+    matches!(e, Expr::Int { .. }) || matches!(e, Expr::Path { path } if path.len() == 1)
+}
+
+/// Two equalities of the SAME path against DIFFERENT constant-like references
+/// can never both hold (`state == C && state == A`, `v0 == 3 && v0 == 5`) -
+/// clang rejects the rendered form with "non-overlapping comparisons always
+/// evaluate to false". Mixed constant kinds (Path vs Int) are not folded: the
+/// typing that would make them comparable is not visible at this level.
+fn is_disjoint_eq(a: &Expr, b: &Expr) -> bool {
+    match (eq_path_const(a), eq_path_const(b)) {
+        (Some((p1, c1)), Some((p2, c2))) => p1 == p2 && c1 != c2,
+        _ => false,
+    }
+}
+
+/// A `NotEq` with one side a [`Path`] and the other a constant-like reference,
+/// in either operand order (the mirror image of `eq_path_const`).
+fn neq_path_const(e: &Expr) -> Option<(&Vec<String>, &Expr)> {
+    match e {
+        Expr::Binary {
+            op: BinOp::NotEq,
+            left,
+            right,
+        } => {
+            if let Expr::Path { path } = left.as_ref() {
+                if is_const_like(right) {
+                    return Some((path, right));
+                }
+            }
+            if let Expr::Path { path } = right.as_ref() {
+                if is_const_like(left) {
+                    return Some((path, left));
+                }
+            }
+            None
+        }
+        _ => None,
+    }
+}
+
+/// Two inequalities of the SAME path against DIFFERENT constant-like references
+/// always hold together (`state != F || state != C`): no value can equal both
+/// constants, so it differs from at least one. Clang rejects the rendered form
+/// with "overlapping comparisons always evaluate to true". Mixed constant kinds
+/// are not folded (same rationale as `is_disjoint_eq`).
+fn is_exhaustive_neq(a: &Expr, b: &Expr) -> bool {
+    match (neq_path_const(a), neq_path_const(b)) {
+        (Some((p1, c1)), Some((p2, c2))) => p1 == p2 && c1 != c2,
+        _ => false,
+    }
+}
+
+#[cfg(test)]
+mod simplify_tests {
+    use super::*;
+
+    fn path(s: &str) -> Expr {
+        Expr::Path {
+            path: vec![s.to_string()],
+        }
+    }
+    fn eq(l: Expr, r: Expr) -> Expr {
+        Expr::Binary {
+            op: BinOp::Eq,
+            left: Box::new(l),
+            right: Box::new(r),
+        }
+    }
+    fn neq(l: Expr, r: Expr) -> Expr {
+        Expr::Binary {
+            op: BinOp::NotEq,
+            left: Box::new(l),
+            right: Box::new(r),
+        }
+    }
+    fn lor(l: Expr, r: Expr) -> Expr {
+        Expr::Binary {
+            op: BinOp::LogicOr,
+            left: Box::new(l),
+            right: Box::new(r),
+        }
+    }
+    fn land(l: Expr, r: Expr) -> Expr {
+        Expr::Binary {
+            op: BinOp::LogicAnd,
+            left: Box::new(l),
+            right: Box::new(r),
+        }
+    }
+    fn b(v: bool) -> Expr {
+        Expr::Bool { value: v }
+    }
+
+    #[test]
+    fn or_of_complements_folds_to_true() {
+        // The specgen shape that triggered clang: state != B || state == B.
+        let e = lor(neq(path("state"), path("B")), eq(path("state"), path("B")));
+        assert_eq!(simplify_expr(&e), b(true));
+        // Operand order inside the comparison is irrelevant (Eq is symmetric).
+        let e = lor(eq(path("B"), path("state")), neq(path("state"), path("B")));
+        assert_eq!(simplify_expr(&e), b(true));
+    }
+
+    #[test]
+    fn and_of_complements_folds_to_false() {
+        let e = land(neq(path("state"), path("B")), eq(path("state"), path("B")));
+        assert_eq!(simplify_expr(&e), b(false));
+    }
+
+    #[test]
+    fn disjoint_equalities_fold_to_false() {
+        // state == C && state == A (the 900016 warning shape).
+        let e = land(eq(path("state"), path("C")), eq(path("state"), path("A")));
+        assert_eq!(simplify_expr(&e), b(false));
+        // Integer variant: v0 == 3 && v0 == 5.
+        let i = |v: u64| Expr::Int { value: v };
+        let e = land(eq(path("v0"), i(3)), eq(path("v0"), i(5)));
+        assert_eq!(simplify_expr(&e), b(false));
+        // Same constant on both sides is NOT disjoint - stays as-is.
+        let e = land(eq(path("state"), path("A")), eq(path("state"), path("A")));
+        assert_eq!(simplify_expr(&e), e);
+    }
+
+    #[test]
+    fn constants_absorb() {
+        assert_eq!(simplify_expr(&lor(b(true), path("x"))), b(true));
+        assert_eq!(simplify_expr(&lor(path("x"), b(false))), path("x"));
+        assert_eq!(simplify_expr(&land(b(false), path("x"))), b(false));
+        assert_eq!(simplify_expr(&land(b(true), path("x"))), path("x"));
+    }
+
+    #[test]
+    fn nested_tautology_folds_bottom_up() {
+        // (state != B || state == B) || state != C  ->  true.
+        let inner = lor(neq(path("state"), path("B")), eq(path("state"), path("B")));
+        let e = lor(inner, neq(path("state"), path("C")));
+        assert_eq!(simplify_expr(&e), b(true));
+    }
+
+    #[test]
+    fn not_of_constant_folds() {
+        assert_eq!(
+            simplify_expr(&Expr::Unary {
+                op: UnaryOp::Not,
+                expr: Box::new(b(true))
+            }),
+            b(false)
+        );
+    }
+
+    #[test]
+    fn non_boolean_expressions_pass_through() {
+        let plus = Expr::Binary {
+            op: BinOp::Plus,
+            left: Box::new(Expr::Int { value: 1 }),
+            right: Box::new(path("v0")),
+        };
+        assert_eq!(simplify_expr(&plus), plus);
+    }
+
+    #[test]
+    fn exhaustive_inequalities_fold_to_true() {
+        // state != F || state != C (distinct constants) - the 900008/900016/
+        // 900020 warning shape: no value equals both constants.
+        let e = lor(neq(path("state"), path("F")), neq(path("state"), path("C")));
+        assert_eq!(simplify_expr(&e), b(true));
+        // Same constant on both sides is NOT exhaustive - stays as-is
+        // (state could be B, making both disjuncts false).
+        let e = lor(neq(path("state"), path("B")), neq(path("state"), path("B")));
+        assert_eq!(simplify_expr(&e), e);
+    }
+
+    #[test]
+    fn satisfiable_conjunction_stays() {
+        // state != B && state != C is satisfiable (state could be A).
+        let e = land(neq(path("state"), path("B")), neq(path("state"), path("C")));
+        assert_eq!(simplify_expr(&e), e);
+    }
+}

@@ -794,6 +794,11 @@ fn strip_redundant_outer_parens(s: &str) -> String {
 }
 
 fn gen_expr_c(e: &Expr, env: &Env, ctx: &Ctx, module: &Module) -> Result<String, String> {
+    // Phase 15 task 2a: fold tautological/contradictory boolean forms before
+    // rendering - the shared simplify_expr keeps generated C warning-free under
+    // clang's -Wtautological-overlap-compare and in parity with the Rust
+    // backend (which applies the same fold at its gen_expr entry).
+    let e = &crate::lang::ir::simplify_expr(e);
     let ty = validator::type_expr(e, env)?;
     let width = match &ty {
         ExprType::Bit(w) => Some(*w),

@@ -612,7 +612,11 @@ pub fn c_driver_source(module: &rfs::Module, artifact_file: &str) -> String {
     m.push_str("        if (len == 0) continue;\n");
     m.push_str("        i++;\n");
     m.push_str("        char* bar = strchr(line, '|');\n");
-    m.push_str("        const char* name = line; uint64_t fields[64]; int nf = 0;\n");
+    // `fields` is zero-initialized (Phase 15 task 2a): reads are bounded by
+    // `nf`, but gcc -O2's -Wmaybe-uninitialized cannot track that through the
+    // inlined parse helper and warns on the unwritten tail. The = {} is a
+    // semantics no-op.
+    m.push_str("        const char* name = line; uint64_t fields[64] = {}; int nf = 0;\n");
     m.push_str("        if (bar) { *bar = 0; char* p = bar + 1; char* tok = strtok(p, \",\"); while (tok && nf < 64) { fields[nf++] = strtoull(tok, 0, 10); tok = strtok(0, \",\"); } }\n");
     m.push_str("        input_t in = rfs_pp_parse_input(name, fields);\n");
     m.push_str("        step_result_t r = fsm_step(&f, in, rfs_pp_stop_handler, 0);\n");

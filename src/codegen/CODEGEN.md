@@ -80,20 +80,42 @@ pub struct BackendOptions {
     pub no_std: bool,                      // production only (task 9): Rust #![no_std]+alloc; C no-op
     pub with_property_monitors: bool,      // production only (D-P3-6); test/mc always include monitors
     pub with_protocol_fsm: bool,           // production+test only (task 11): emit `impl ProtocolFsm for Fsm`
+    // Phase 14: the RESOLVED artifact names the CLI write loop computed
+    // (take-or-emit), passed to the generators so a generated source
+    // #include!s / include!s the CORRECT reference name. None = standalone
+    // default name.
+    pub fsm_header_name: Option<String>,   // C only
+    pub fsm_source_name: Option<String>,   // C: the .c; Rust: the referenced .rs
+    pub mc_header_name: Option<String>,    // C only
 }
 
-/// Result of one generation command.
+/// Result of one generation command (Phase 14: named artifact slots).
 pub struct CodegenOutput {
-    pub code: String,            // generated source text
-    pub warnings: Vec<String>,   // non-fatal notes (printed to stderr by the CLI)
-    pub extra_files: Vec<ExtraFile>, // additional files written next to --out
+    pub fsm_header: Option<String>,   // C only: production-FSM header (types + public API)
+    pub fsm_code: Option<String>,     // production FSM source (C: implementation; Rust: self-contained .rs)
+    pub mc_header: Option<String>,    // C only: MC engine header (run entry point + report types)
+    pub mc_code: Option<String>,      // model-checker executable source
+    pub test_code: Option<String>,    // unit-test artifact source
+    pub fuzz_target: Option<String>,  // libFuzzer skeleton source (test command)
+    pub warnings: Vec<String>,        // non-fatal notes (printed to stderr by the CLI)
 }
-
-/// An additional file emitted alongside the primary artifact (Phase 5 task 5):
-/// e.g. the Rust `test` command's `fuzz_target.rs`, which depends on
-/// `libfuzzer_sys` and must not be inlined into the dependency-free artifact.
-pub struct ExtraFile { pub name: String, pub content: String }
 ```
+
+**Slot model (Phase 14).** Each command fills exactly the slots its artifacts
+occupy - "which artifacts does this command produce" is a property of the
+filled slots, not of a primary string plus unnamed extras:
+
+| Command | Rust slots filled | C slots filled |
+|---|---|---|
+| `production` | `fsm_code` | `fsm_header` + `fsm_code` (the header/source pair) |
+| `mc` | `mc_code` + `fsm_code` (the BARE referenced file) | `mc_header` + `mc_code` + `fsm_header` + `fsm_code` |
+| `test` | `test_code` + `fuzz_target` + `fsm_code` (bare) | `test_code` + `fuzz_target` + `fsm_header` + `fsm_code` |
+
+The referenced fsm slots are the TAKE-OR-EMIT input of the CLI write loop: an
+existing artifact on disk is referenced without rewrite, a missing one is
+emitted new (see 4.2). `primary_code()` returns the most-derived filled slot
+(mc > test > fsm) for library consumers that want "the" artifact; it panics
+only when no slot is filled at all.
 
 `AssumptionSelection` implements `FromStr` (`all`, `none`, or a comma-separated
 label list), `Default = All`, and derives `PartialEq, Eq`. `NO_STD_PRODUCTION_ONLY_ERROR` is the pinned rejection message for `--no-std` on a non-production command; both the CLI parser and the four test/mc backend entry points return it, so one string covers every path. `PROTOCOL_FSM_MC_ERROR` is the analogous pinned rejection for `--with-protocol-fsm` on `mc` (the trait impl belongs to the production/test surface; the model checker keeps its own runtime) - enforced by the CLI parser and by both mc entry points at library level.
@@ -165,8 +187,15 @@ pub enum CodegenRequest {
     Help,                                // rfs codegen --help | -h
     BackendHelp(String),                 // rfs codegen <backend> --help
     Generate { backend_name: String, command: CodegenCommandKind, input: String,
-               out: Option<String>, assumptions: AssumptionSelection, steps: usize,
-               with_property_monitors: bool,
+               base: Option<String>,     // raw --out value; Some("-") = stdout marker
+               out_fsm_code: Option<String>,  out_fsm_header: Option<String>,
+               out_mc_code: Option<String>,   out_mc_header: Option<String>,
+               out_test_code: Option<String>, out_fuzz_target: Option<String>,
+               fsm_file: Option<String>,      // Rust NAME[.rs] | C form-1 STEM
+               fsm_file_header: Option<String>,  // C form 2 (with --fsm-file-source)
+               fsm_file_source: Option<String>,  // C form 2 (with --fsm-file-header)
+               assumptions: AssumptionSelection, steps: usize,
+               no_std: bool, with_property_monitors: bool,
                mc_mode: McMode, mc_max_states: usize, mc_nondet: bool,
                mc_timeout_sec: u64, mc_threads: usize, mc_smt_bound: usize,
                counterexample_format: CounterexampleFormat,
@@ -176,25 +205,30 @@ pub enum CodegenRequest {
 pub fn parse_codegen_args(args: &[String]) -> Result<CodegenRequest, Vec<String>>;
 ```
 
-Defaults: `--assumes all`, `--steps 4`, no `--out` (stdout), monitors off,
-no `--no-std`, no `--with-protocol-fsm`; MC flags default to `--mode exact`,
-`--max-states 1000000`,
+Defaults: `--assumes all`, `--steps 4`, no output options at all (BASE then
+defaults to the SPEC FILE STEM and artifacts are written to the CWD - see 4.2),
+monitors off, no `--no-std`, no `--with-protocol-fsm`; MC flags default to
+`--mode exact`, `--max-states 1000000`,
 no `--nondet`, `--timeout-sec 0` (off), `--threads 1`, `--smt-bound 10`,
 `--counterexample-format text`. Parse errors: missing subcommand, unknown
-command name, `--out`/`--assumes` without value, non-numeric `--steps`,
-`--with-property-monitors` on a non-production command (test/mc always include
-property monitors), `--no-std` on a non-production command (pinned
-`NO_STD_PRODUCTION_ONLY_ERROR`; the test/mc backend entry points enforce the
-same rule at library level), bad `--mode` value (exact|fuzz|smt-bounded),
-non-positive `--threads`/`--smt-bound`, bad `--counterexample-format` value
-(pinned `COUNTEREXAMPLE_FORMAT_ERROR`; accepts exactly `json`|`text`),
-`--with-protocol-fsm` on `mc` (pinned `PROTOCOL_FSM_MC_ERROR`; the mc backend
-entry points enforce the same rule at library level), unknown options, stray
-positional arguments. The parser does **not** check the input
-extension or the backend name — those are done in the CLI layer (below) so
-tests can exercise parsing in isolation.
+command name, any output flag without value, non-numeric `--steps`,
+per-command flag-subset violations (D14-1): `--out-fsm-*` on mc/test, the
+header flags (`--out-fsm-header`, `--out-mc-header`) on the RUST backend,
+`--fsm-file*` on production (production IS the fsm artifact), C form-2 given
+partially (`--fsm-file-header` without `--fsm-file-source` or vice versa),
+C form 1 combined with form 2, `--with-property-monitors` on a non-production
+command (test/mc always include property monitors), `--no-std` on a
+non-production command (pinned `NO_STD_PRODUCTION_ONLY_ERROR`; the test/mc
+backend entry points enforce the same rule at library level), bad `--mode`
+value (exact|fuzz|smt-bounded), non-positive `--threads`/`--smt-bound`, bad
+`--counterexample-format` value (pinned `COUNTEREXAMPLE_FORMAT_ERROR`; accepts
+exactly `json`|`text`), `--with-protocol-fsm` on `mc` (pinned
+`PROTOCOL_FSM_MC_ERROR`; the mc backend entry points enforce the same rule at
+library level), unknown options, stray positional arguments. The parser does
+**not** check the input extension or the backend name — those are done in the
+CLI layer (below) so tests can exercise parsing in isolation.
 
-### 4.2 CLI layer (`cmd_codegen` in `src/main.rs`)
+### 4.2 CLI layer (`run_cli` in `src/cli/commands/codegen.rs`)
 
 For a `Generate` request the CLI, in order:
 
@@ -204,19 +238,39 @@ For a `Generate` request the CLI, in order:
 3. converts the file to IR (`frontend::convert_file_to_ir`); parse errors →
    stderr + exit 1;
 4. takes `ir.modules[0]` (a spec with no modules is an error);
-5. dispatches via `CodegenCommandKind::run`; generation errors → stderr + exit 1;
-6. prints warnings to stderr, then writes the code to `--out` (creating parent
-   directories) or stdout; with `--out`, every `extra_files` entry is written
-   next to it (`<dir(--out)>/<name>`) and a `wrote <path>` line is printed per
-   file; success → exit 0.
+5. resolves NAMING (D14-3): BASE := the `--out` value when given, otherwise
+   the SPEC FILE STEM (file name without extension, no directory component).
+   Each artifact's final path is its per-artifact flag when given, else the
+   BASE-derived default - production: `BASE-fsm.h` + `BASE-fsm.c` (C) or
+   `BASE-fsm.rs` (Rust); mc: `BASE-mc.h` + `BASE-mc.c` (C) or `BASE-mc.rs`
+   (Rust); test: `BASE-test.c` + `BASE-fuzz-target.c` (C) or `BASE-test.rs`
+   + `BASE-fuzz-target.rs` (Rust). Relative names resolve against the CWD;
+   `--out DIR/BASE` places the whole set under DIR/.
+6. resolves the FSM REFERENCE for mc/test (D14-2): explicit fsm-reference
+   flags > C form-1 STEM expansion to `STEM.h` + `STEM.c` (NO `-fsm` suffix) >
+   the BASE-derived fsm name. The referenced artifact is TAKEN if already
+   present on disk, otherwise EMITTED new - one invocation yields a complete,
+   self-consistent set either way. C form 1 requires BOTH files to exist;
+   a partial pair is a usage error (exit 1, nothing overwritten). A taken
+   artifact whose line-1 header spec hash (D-P6-3) differs from the current
+   spec's hash produces a stderr WARNING (stale reuse) but is still
+   referenced. The resolved names are stamped into `BackendOptions` so a
+   generated source references the CORRECT file name.
+7. dispatches via `CodegenCommandKind::run`; generation errors → stderr + exit 1;
+8. prints warnings to stderr, then writes every filled slot: parent
+   directories are created (`create_dir_all`) and a `wrote <path>` line is
+   printed per file; the command's OWN artifacts are always written fresh
+   (overwritten), only the referenced fsm artifact may be taken. Success →
+   exit 0.
 
-Strict multi-file rule (Phase 5 task 5): a command whose output carries extra
-files CANNOT run in stdout mode - the CLI exits 1 with a diagnostic naming the
-extra files and pointing at `--out` (no graceful degradation: the extra files
-would be silently lost).
+Stdout mode: `--out -` prints the single filled slot to stdout and is REFUSED
+(exit 1, diagnostic naming the slots) when more than one slot would be
+written - rust `production` is the only command that can run in it. This is a
+deliberate behaviour change from the pre-Phase-14 default-stdout policy:
+no-output-flag invocations WRITE spec-stem-named files instead of printing.
 
-Exit codes: 0 on success, 1 on any error. All diagnostics go to stderr except
-the generated source (stdout).
+Exit codes: 0 on success, 1 on any error (incl. naming errors). All
+diagnostics go to stderr except the generated source in stdout mode.
 
 ### 4.3 Examples
 
@@ -224,12 +278,15 @@ the generated source (stdout).
 rfs codegen --list
 rfs codegen --help
 rfs codegen rust --help
-rfs codegen rust production spec.rfs --out fsm.rs
-rfs codegen rust production spec.rfs --with-property-monitors --out fsm.rs
-rfs codegen rust production spec.rfs --no-std --out fsm.rs   # #![no_std] + extern crate alloc (identical API)
-rfs codegen rust production spec.rfs --with-protocol-fsm --out fsm.rs  # + impl ProtocolFsm (links to rfs-adapters)
-rfs codegen rust test spec.json --steps 6 --out fsm_test.rs
-rfs codegen rust mc spec.rfs --assumes a1,a2 --out fsm_mc.rs
+rfs codegen rust production spec.rfs                        # writes spec-fsm.rs (spec-stem default)
+rfs codegen rust production spec.rfs --out arq              # writes arq-fsm.rs (BASE shortcut)
+rfs codegen rust production spec.rfs --out-fsm-code fsm.rs  # explicit per-artifact name
+rfs codegen rust production spec.rfs --no-std --out arq     # #![no_std] + extern crate alloc (identical API)
+rfs codegen rust production spec.rfs --with-protocol-fsm --out arq   # + impl ProtocolFsm (links to rfs-adapters)
+rfs codegen rust test spec.json --steps 6                   # writes spec-fsm.rs + spec-test.rs + spec-fuzz-target.rs
+rfs codegen rust mc spec.rfs --assumes a1,a2                # writes spec-fsm.rs + spec-mc.rs (mc references the fsm via include!)
+rfs codegen c production spec.rfs --out arq                 # writes arq-fsm.h + arq-fsm.c
+rfs codegen c mc spec.rfs --fsm-file my_fsm                 # takes/emits my_fsm.h + my_fsm.c; writes spec-mc.h + spec-mc.c
 ```
 
 ## 5. Shared language-agnostic modules
@@ -310,13 +367,14 @@ rfs codegen rust mc spec.rfs --assumes a1,a2 --out fsm_mc.rs
     sequence (`ALL_INPUTS[i]`) with `StopAssumptionHandler` and prints one
     deterministic line: `random_trace seed=… steps=… ok=… unexpected=…
     assumption=… property=… states_visited=…` (distinct visited states).
-  The Rust `test` command ALSO emits `fuzz_target.rs` as a separate extra
-  file (`CodegenOutput.extra_files`): `#![no_main]` + `libfuzzer_sys::
+  The Rust `test` command ALSO emits `fuzz_target.rs` as its own named slot
+  (`CodegenOutput.fuzz_target`): `#![no_main]` + `libfuzzer_sys::
   fuzz_target!`, decoding the first byte as variant selector and each field
   per `FuzzDecodePlan`, looping decoded inputs over `Fsm::step`. It is kept
-  OUT of the main artifact so that one stays dependency-free (the aggregate
-  generated-code crate compiles without external deps); the CLI writes it
-  next to `--out` and refuses stdout mode. Building/running it is task 12.
+  OUT of the test artifact so that one stays dependency-free (the aggregate
+  generated-code crate compiles without external deps); the CLI writes it to
+  its resolved name (`BASE-fuzz-target.rs` by default) and refuses stdout
+  mode for multi-slot commands. Building/running it is task 12.
 - C rendering (Phase 5 task 6, `c_test.rs`) mirrors the Rust renderer with
   IDENTICAL coverage: each test is a plain-assert function run from a table
   in `main()`, printing one line per test (`PASS <name>` / `FAIL <name>`) so
@@ -495,11 +553,19 @@ checks; keep any such checks aligned with section 4.2 above.
 
 ## 9. Invariants
 
-1. Generated source is a single self-contained file per command; no external
-   dependencies; compiles with stable Rust, edition 2021. The ONE documented
-   exception (Phase 5 task 11): `--with-protocol-fsm` (off by default) emits
-   an `impl ProtocolFsm for Fsm` block that references the `rfs-adapters`
-   crate - the opt-in that links a generated artifact to an external crate.
+1. The FSM implementation exists in EXACTLY ONE file per invocation; dependent
+   artifacts reference it instead of carrying a second copy (Phase 14): C mc/
+   test/fuzz-target sources `#include` the fsm HEADER (never a `.c`) and are
+   built by compiling each source to an object and linking; Rust mc/test
+   artifacts carry `include!("<fsm file>")` at crate root. The Rust production
+   artifact is a single self-contained .rs (flat crate-root items - the
+   precondition that makes include! safe); C production is a header/source
+   pair, each with its own line-1 artifact header. No generated artifact has
+   external dependencies and compiles with stable Rust (edition 2021) /
+   `gcc -Wall`. The ONE documented exception (Phase 5 task 11):
+   `--with-protocol-fsm` (off by default) emits an `impl ProtocolFsm for Fsm`
+   block that references the `rfs-adapters` crate - the opt-in that links a
+   generated artifact to an external crate.
 2. Codegen is deterministic: same IR + same options ⇒ byte-identical output.
 3. Production code and model checker consume the **same IR module**; they must
    not diverge in transition semantics.

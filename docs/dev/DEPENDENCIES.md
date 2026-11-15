@@ -836,10 +836,13 @@ table, `render_monitor` uses `src/codegen/ident.rs::snake`, and
 ### Rust unit-test generation (`src/codegen/backends/rust/test.rs`)
 
 `src/codegen/backends/rust/test.rs::generate_unit_tests` runs
-`src/codegen/backends/rust/fsm.rs::generate_core` with `with_tests` + `Always`
-monitor mode, then appends the libfuzzer_sys fuzz skeleton as a separate
-extra file via `src/codegen/backends/rust/test.rs::emit_fuzz_target` (decoding inputs
-per `src/codegen/test_plan.rs::build_fuzz_decode`). `src/codegen/backends/rust/test.rs::emit_test_module`
+`src/codegen/backends/rust/fsm.rs::generate_test_reference` (which renders the
+fused parts with `with_tests` + `Always` monitor mode via
+`src/codegen/backends/rust/fsm.rs::render_fsm_parts`) - the BARE referenced fsm
+file in the fsm-code slot and the include!-prefixed test section in the
+test-code slot (Phase 14 D14-5) - then fills the fuzz-target slot with the
+libfuzzer_sys skeleton via `src/codegen/backends/rust/test.rs::emit_fuzz_target`
+(decoding inputs per `src/codegen/test_plan.rs::build_fuzz_decode`). `src/codegen/backends/rust/test.rs::emit_test_module`
 renders the `#[cfg(test)]` module from the shared plan
 (`src/codegen/test_plan.rs::build_test_plan`, with the negative-test assertion
 chosen via `src/codegen/test_plan.rs::has_definite_unexpected`): the module-level

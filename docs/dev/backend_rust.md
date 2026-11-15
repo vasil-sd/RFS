@@ -311,9 +311,15 @@ Code: `src/codegen/backends/rust/fsm.rs::generate_production`,
 ## Unit-test, fuzz and aggregate-crate generation (`src/codegen/backends/rust/test.rs`)
 
 **Entry point.** generate_unit_tests rejects `--no_std` with the pinned
-`src/codegen/mod.rs::NO_STD_PRODUCTION_ONLY_ERROR`, runs generate_core(module,
-options, true, Always), and appends one ExtraFile: the fuzz_target.rs
-skeleton (below). The test artifact itself stays dependency-free.
+`src/codegen/mod.rs::NO_STD_PRODUCTION_ONLY_ERROR`, runs
+generate_test_reference(module, options) - which renders the fused parts via
+render_fsm_parts(with_tests=true, Always) and returns the BARE referenced fsm
+file (line-1 + core, no inner attributes) in the fsm-code slot plus the test
+section prefixed with its own prelude + include!("<fsm file>") in the
+test-code slot (Phase 14 D14-5) - and fills the fuzz-target slot with the
+fuzz_target.rs skeleton (below). The test artifact itself stays
+dependency-free; the fused generate_core(with_tests=true) contract is
+preserved byte-for-byte for the aggregate-crate path.
 
 **The test module.** emit_test_module renders a `#[cfg(test)] mod tests`
 appended to the production source, from the shared plan

@@ -18,7 +18,7 @@ Phase state (2026-11-07):
 | 11 - Source refactoring per the Phase 10 proposals (no functionality change) | COMPLETE (close-out 2026-11-07: full verification green, `PHASE_11_STATUS.md`) | `PHASE_11.md`, `PHASE_11_PLAN.md`, `tasks/PHASE_11_TASK_{1..14}.md` (+ `_STATUS` files), `PHASE_11_STATUS.md` |
 | 12 - LLM assistant development tooling | COMPLETE (close-out 2026-11-08: full verification green - root 535 unchanged, workspace 663 = 559 + rfs-dev's 104, clippy at the 46-line baseline with zero in dev_tools, fmt clean; `PHASE_12_STATUS.md`) | `PHASE_12.md`, `PHASE_12_PLAN.md`, `tasks/PHASE_12_TASK_{1..6}.md` (+ `_STATUS` files for 1-6), `PHASE_12_STATUS.md` |
 | 13 - CLI source refactoring (unified command plugins) | COMPLETE (close-out 2026-11-10: full verification green - root 535/535 unchanged, fmt clean, clippy at baseline with zero new warnings; `PHASE_13_STATUS.md`) | `PHASE_13.md`, `PHASE_13_PLAN.md`, `PHASE_13_STATUS.md` (no per-task files - ran on a consolidated working file deleted at close-out) |
-| 14 - CLI help correctness and separated codegen artifacts | EXECUTING (task files written 2026-11-13; tasks 1-7 complete 2026-11-14, tasks 8-11 pending) | `PHASE_14.md`, `PHASE_14_PLAN.md`, `tasks/PHASE_14_TASK_{1..11}.md` (+ `_STATUS` files as tasks complete) |
+| 14 - CLI help correctness and separated codegen artifacts | EXECUTING (task files written 2026-11-13; tasks 1-8 complete 2026-11-15, tasks 9-11 pending) | `PHASE_14.md`, `PHASE_14_PLAN.md`, `tasks/PHASE_14_TASK_{1..11}.md` (+ `_STATUS` files as tasks complete) |
 
 Keep this table current: update it when a phase is planned, completed, or re-planned.
 Note (2026-10-16): Phase 3 implementation began before the per-task protocol was

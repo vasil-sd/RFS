@@ -165,17 +165,32 @@ and renders (all names are stable; the C backend mirrors them in task 6):
   (`ok`/`unexpected`/`assumption`/`property` counts + distinct visited
   states).
 
-Test code is appended to the production source as `mod tests { ... }`, so the
-`test` artifact always contains the full production API plus its tests.
+**Artifact layout (Phase 14: reference instead of duplication).** The CLI
+`test` artifact no longer fuses FSM + tests into one string: `Gen` renders the
+fsm-core items and the test section into SEPARATE strings (`render_fsm_parts`),
+and `generate_test_reference` returns the BARE referenced fsm file (line-1
+header + core, NO inner attributes - `include!` cannot bring `#![...]` into an
+including crate) in the `fsm_code` slot and the test section prefixed with its
+own prelude + `include!("<fsm file>");` in the `test_code` slot. The include!
+reference name is the RESOLVED fsm file from `BackendOptions` (take-or-emit),
+so the two files always agree; both land in the same directory and the test
+file compiles with plain `rustc --edition 2021 --test`. The flat-items
+precondition holds: the production artifact is flat crate-root items (no `mod`
+declarations, no inner `include!`), verified against property-bearing specs.
+The fused `generate_core(with_tests=true)` contract is PRESERVED byte-for-byte
+for the aggregate-crate path (`cargo test-generated-code`, 1683 tests) - it
+fuses the same parts in emission order and never touches the CLI layout.
 
-**Fuzz skeleton (separate file).** The command ALSO emits `fuzz_target.rs`
-via `CodegenOutput.extra_files`: a `#![no_main]` + `libfuzzer_sys::
+**Fuzz skeleton (named slot).** The command ALSO emits `fuzz_target.rs` as its
+own slot (`CodegenOutput.fuzz_target`): a `#![no_main]` + `libfuzzer_sys::
 fuzz_target!` target that decodes the first byte as variant selector and each
 field per the planner's `FuzzDecodePlan`, then loops decoded inputs over
-`Fsm::step`. It is deliberately NOT inlined: the main artifact (and the
-aggregate generated-code crate) must stay dependency-free. The CLI writes it
-next to `--out` and refuses stdout mode for the `test` command (no graceful
-degradation). Building/running it with cargo-fuzz is wired by Phase 5 task 12.
+`Fsm::step`. It is deliberately NOT inlined: the test artifact (and the
+aggregate generated-code crate) must stay dependency-free. The CLI writes it to
+its resolved name (`BASE-fuzz-target.rs` by default) and refuses stdout mode
+for multi-slot commands. The skeleton KEEPS its crate-wiring model (lib root =
+the production source, `use crate::{...}`); building/running it with
+cargo-fuzz is wired by Phase 5 task 12.
 
 ### Aggregate tooling
 
@@ -198,9 +213,12 @@ bitvectors, k-liveness cycle query, exit codes 0 pass-within-bound / 1 fail /
 2 unknown, PASS always labeled incomplete). The codegen-time `--smt-bound N`
 default is embedded via `{BOUND}`.
 
-**Exact / fuzz modes** (default): the production FSM core (`generate_core`, no
-unit tests, property monitors ALWAYS included per D-P3-6) plus three appended
-parts dispatched by the generated `main` on the runtime `--mode` flag:
+**Exact / fuzz modes** (default): the mc executable carries its own line-1
+header + inner-attribute prelude, then `include!("<fsm file>")` - the RESOLVED
+reference name from `BackendOptions`, take-or-emit - instead of inlining a
+duplicate of the FSM core (Phase 14; the bare referenced file is co-emitted or
+taken via the `fsm_code` slot), then three appended parts dispatched by the
+generated `main` on the runtime `--mode` flag:
 
 - `EXACT_ENGINE` (default; rendered from the plan by `exact_codegen`):
   level-synchronous BFS over configurations = (state index, packed vars,

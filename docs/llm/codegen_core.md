@@ -21,7 +21,7 @@ critical constraint: one plan, rendered identically in Rust and C.
 | `src/codegen/mod.rs::Backend` / `src/codegen/mod.rs::BACKENDS` | static plugin value (name, description, command descriptors, 3 fn pointers) + the registry (C + Rust); a new backend appends ONE entry |
 | `src/codegen/mod.rs::CodegenCommandKind::run` / `run_module` | standard dispatch: stamp spec hash over the WHOLE file's canonical IR JSON, generate for the FIRST module; run_module = per-module library path, caller owns the hash |
 | `src/codegen/mod.rs::BackendOptions` | shared options bag (assumptions, steps, no_std, monitors, mc mode/limits, counterexample format, protocol-fsm opt-in, spec_hash); backends ignore inapplicable fields |
-| `src/codegen/mod.rs::CodegenOutput` / `ExtraFile` | code + warnings + extra files (fuzz_target.rs/.c is separate - libFuzzer dep; CLI refuses stdout mode with extras) |
+| `src/codegen/mod.rs::CodegenOutput` / `ArtifactSlot` | six named artifact slots (fsm-header/fsm-code/mc-header/mc-code/test-code/fuzz-target, each Option<String>) + warnings; a command's artifacts = its filled slots; the CLI write loop resolves names (BASE := --out or spec stem), takes-or-emits referenced fsm files and refuses `--out -` for multi-slot commands |
 | `src/codegen/mod.rs::parse_codegen_args` | all-errors CLI parsing; command-scoped rejections via the two pinned error constants |
 | `src/codegen/fsm.rs::build_variants` | flattens event/output groups: single-variant bare name, else group_variant, numeric suffixes on duplicates; NOT yet target-mangled |
 | `src/codegen/fsm.rs::representative_values` | candidate-input defaults: bool false, bit 0, enum first variant (full path) |

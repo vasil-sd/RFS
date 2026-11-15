@@ -137,9 +137,11 @@ Code: `src/codegen/backends/c/mod.rs::C_BACKEND`,
 ## Production FSM generation (`src/codegen/backends/c/fsm.rs`)
 
 **Entry points.** generate_production maps `--with-property-monitors` to
-Gated (else Off); generate_core is the shared core emitter - `test` and `mc`
-always pass Always. It returns a CodegenOutput with empty extra_files; each
-command appends its own extras.
+Gated (else Off) and delegates to generate_fsm_pair - the shared pair emitter
+that `test` and `mc` also call with Always. It fills BOTH fsm slots (header +
+source, Phase 14 header/source split); each command adds its own artifacts on
+top (the mc pair, the test source + fuzz skeleton) and references the fsm
+through its header.
 
 **Gen pipeline.** Gen::new rejects unsupported bit widths UP FRONT (collecting
 every bad width into one error, D8), builds the flattened variants via

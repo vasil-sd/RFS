@@ -83,10 +83,12 @@ to ...)` for directory-mode failures (file mode reports on stderr). JSON mode
   `src/cli/utils.rs::convert_file_to_ir`, builds `src/codegen/mod.rs::BackendOptions`
   (spec_hash starts empty - it is stamped from the whole-file canonical IR
   JSON by the command's run per D-P6-3), and calls
-  `src/codegen/mod.rs::CodegenCommandKind::run`. With --out: parent directories
-  are created, the artifact + any extra files (e.g. the rust test command's
-  fuzz skeleton) are written next to it. Without --out: stdout mode REFUSES
-  commands that emit additional files (strict - no silent file loss).
+  `src/codegen/mod.rs::CodegenCommandKind::run`, then hands the filled slots to
+  `src/cli/commands/codegen.rs::write_artifacts` (Phase 14): BASE := the --out
+  value or the spec-file stem, per-artifact flags override individual names,
+  the referenced fsm slots are taken-or-emitted (partial C pair = usage error;
+  a stale line-1 hash warns per D14-4), and `--out -` prints the single filled
+  slot - REFUSING multi-slot commands (strict - no silent file loss).
 - `src/cli/commands/info.rs::run_cli`: --json/--log-level + path; dispatches on the BARE
   first token `format` BEFORE any path handling, so a spec file literally
   named format cannot collide (D-P7-6); otherwise calls
@@ -270,11 +272,12 @@ the shared file contract; (2) resolve the backend via
 `src/codegen/mod.rs::get_backend` and the compiler preset (`src/cli/ext_tool.rs::ExtTool`
 RUSTC for rust, GCC for c) through ExtTool::resolve with the CLI overrides;
 (3) codegen the test artifact via the `src/codegen/mod.rs::CodegenCommandKind`
-UnitTests registry dispatch (no renderer logic duplicated); the fuzz-skeleton
-extra file is consumed by the fuzz suite when selected; (4) when --suite fuzz:
-`src/cli/commands/test.rs::build_fuzz_context` - a SECOND registry dispatch for the
-production source + the emitted skeleton, generated BEFORE --print-script so
-both modes share them; (5) --print-script -> `src/cli/commands/test.rs::render_script`
+UnitTests registry dispatch (no renderer logic duplicated); the fuzz-target
+slot is consumed by the fuzz suite when selected; (4) when --suite fuzz:
+`src/cli/commands/test.rs::build_fuzz_context` - the fsm source + header (C)
+or production source (Rust lib root) come from the SAME test codegen output
+(Phase 14 task 4 - no separate production dispatch), generated BEFORE
+--print-script so both modes share them; (5) --print-script -> `src/cli/commands/test.rs::render_script`
 (+ `src/cli/commands/test.rs::render_fuzz_steps`) - deterministic POSIX sh, no
 execution; (6) execution in a temp dir (`src/cli/commands/test.rs::make_temp_dir`; a
 Drop guard cleans it on EVERY exit path): suites run SEQUENTIALLY and every

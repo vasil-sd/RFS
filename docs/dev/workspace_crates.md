@@ -63,8 +63,10 @@ production / test_command / with_property_monitors / no_std /
 with_protocol_fsm / spec): defaults are backend rust and the production
 codegen command. `.backend()` accepts "rust" or "c" (anything else errors at
 compile time). `.test_command()` selects the `test` codegen command, whose
-extra file is the libfuzzer fuzz skeleton written NEXT TO the main artifact
-(fuzz_target.rs / fuzz_target.c) - used by the Phase 5 task 12 fuzz examples.
+fuzz-target slot is the libfuzzer fuzz skeleton written to OUT_DIR/fuzz_target.rs
+/ OUT_DIR/fuzz_target.c (the referenced fsm file also lands in OUT_DIR - an
+existing one from a prior production run is taken as-is) - used by the Phase 5
+task 12 fuzz examples.
 `.no_std(true)` maps to the production-only --no-std flag (generated Rust
 becomes #![no_std] + extern crate alloc with an identical public API; for the
 C backend the flag is a documented no-op). `.with_protocol_fsm(true)` maps to

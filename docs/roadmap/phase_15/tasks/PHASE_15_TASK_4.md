@@ -169,6 +169,9 @@ running them in sequence) and record exact pass counts:
 
 | Correction | Description + rationale |
 |------------|-------------------------|
+| Rust fuzz verified via the unwrapped binary + proxy, not the wrapped `rfs` | Verification item 5's "`--backend rust` -> exit 0" is met by invoking `rfs.real` with the rustup proxy bin dir first on PATH (exit 0: nightly + cargo-fuzz + libFuzzer all work under nix). The WRAPPED `rfs`'s `rfs-env.sh` prepends the nix store stable `cargo`/`rustc`, so cargo-fuzz's internal bare-`cargo` build call resolves to store-stable and rejects `-Zsanitizer` (the scaffold's nightly pin is honoured only by the rustup proxy). This is a task-3 wrapper concern, not a shell.nix defect; routed to a plan correction + follow-up. The C fuzz backend works fully through the wrapped binary. |
+| `TMPDIR=/tmp` for mmdc-invoking suites | This sandbox's nix-shell temp dir is deeply nested, so chromium's SingletonSocket path exceeds 108 chars and mmdc fails to launch. A normal Ubuntu nix uses a short `/tmp/nix-shell.XXXX` and is unaffected; left out of the shellHook so the definition stays correct for normal systems. |
+| Isolated `CARGO_TARGET_DIR` for the workspace run | The shared repo `target/` held mixed host/nix rlibs (four `librfs_adapters-*.rlib`), and `nostd_minimal.rs`'s non-deterministic rlib selection hit a mismatched one -> E0514. A clean `CARGO_TARGET_DIR=/tmp/rfs-nix-target` gives a deterministic 685/0. `smt_bounded_test` runs with the DEFAULT target dir instead (its scratch project hardcodes `<proj>/target/release/smt_gen`, which `CARGO_TARGET_DIR` would redirect). |
 
 ## Other information
 - First `nix develop` entry may take a while (nightly download + any missing

@@ -121,6 +121,8 @@ Structure (subsections under `## 8. Building, testing and running RFS with Nix`)
 
 | Correction | Description + rationale |
 |------------|-------------------------|
+| Custom-tools example binds `pkgs` first | The plan's suggested `nix build --impure --expr 'import ./nix/package.nix { gcc = pkgs.gcc14; … }'` is not copy-paste valid: a bare `--expr` has no `pkgs` in scope ("undefined variable 'pkgs'"). The working form is `let pkgs = import <nixpkgs> {}; in import ./nix/package.nix { gcc = pkgs.gcc13; mermaid-cli = pkgs.mermaid-cli; }`. A trailing `;` after the top-level expression is also rejected by Nix (same rule as task 4's z3-unified.nix lambda). Documented the correct form + why the bare form fails. |
+| One-shot dev-shell form is `--command sh -c '…'`, not `-c '<string>'` | nix execs a bare string as a single program name ("exec: … not found"). The section uses `--command sh -c '…'` throughout and says so explicitly. |
 
 ## Other information
 - Write this task LAST among the doc tasks: it describes shipped behavior, so

@@ -312,3 +312,124 @@ jobs:
 
 (Timing/RSS values in the artifact are per-machine; compare trends, not
 absolute numbers.)
+
+## 8. Building, testing and running RFS with Nix
+
+A first-class alternative to the rustup toolchain in section 2: the whole build,
+test and run surface works from a `nix develop` shell or an installed package, with
+every external tool resolved deterministically from the store. Install + sandbox
+state: `TOOLCHAIN.md` section 10. How tools are found (the portability contract):
+`TOOLCHAIN.md` section 8, the per-tool env-var table at section 8.2. Plain
+`nix build` / `nix develop` with `--impure` throughout (channel-profile nixpkgs).
+
+### 8.1 Prerequisites
+
+Nix on this sandbox per `TOOLCHAIN.md` section 10: prepend the store bin dir to
+PATH and pass `--impure` to every command (channel-profile nixpkgs, so `<nixpkgs>`
+resolves only in impure mode). Single-user mode as root - no daemon needed.
+
+    export PATH=/nix/store/g3m57m0jcdj84fas49lpiwpisacp20gr-nix-2.35.6/bin:$PATH
+
+### 8.2 Building the package
+
+    # with checks (runs the model-checking + SMT suites in checkPhase)
+    nix build --impure --expr 'import ./nix/package.nix { }'
+    # without checks (fast - just builds the five binaries + tool closure)
+    nix build --impure --expr '(import ./nix/package.nix { }).overrideAttrs (a: { doCheck = false; })'
+
+The built output (`result`) carries the five binaries (`rfs`, `build_training`,
+`extract_training_snippets`, `generate_code_tests`, `test_generated_code`) plus the
+full runtime tool closure - rustc/cargo/gcc/clang/make/unified-z3/pkg-config/
+cargo-fuzz are propagated dependencies, so `rfs test ...` works from a bare install
+with no environment setup.
+
+Every tool is an overridable argument (12-argument signature: pkgs, rustc, cargo,
+gcc, clang, make, z3, pkg-config, cargo-fuzz, mermaid-cli, plantuml, graphviz).
+Pass your own versions by binding `pkgs` first - a bare `--expr` has no `pkgs` in
+scope, so `import ./nix/package.nix { gcc = pkgs.gcc13; }` on its own is an error:
+
+    nix build --impure --expr 'let pkgs = import <nixpkgs> {}; in import ./nix/package.nix { gcc = pkgs.gcc13; mermaid-cli = pkgs.mermaid-cli; }'
+
+`mermaid-cli` / `plantuml` / `graphviz` are optional (null by default); passing one
+adds it to the closure and makes the wrapper export its `RFS_*` var (section 8.3).
+The other nine default to the plain nixpkgs packages, so a no-arg call is unchanged.
+
+### 8.3 Running the wrapped binary
+
+Each of the five binaries is a thin wrapper that sources `bin/rfs-env.sh` before
+exec'ing the real one (`<name>.real`). The preamble prepends the closure's tool bin
+dirs to PATH and sets, ONLY when the user has not already defined the variable:
+
+| Variable | Purpose |
+|---|---|
+| `RFS_RUSTC` / `RFS_GCC` / `RFS_CLANG` | rust codegen+test compile / C codegen+test compile / libFuzzer host |
+| `RFS_CARGO_FUZZ` | the cargo that has the `fuzz` subcommand |
+| `RFS_MAKE` | C example projects |
+| `RFS_Z3_DIR` / `Z3_SYS_Z3_DIR` / `Z3_LIBRARY_PATH_OVERRIDE` | z3 discovery for SMT mode (the unified prefix) |
+| `PKG_CONFIG_PATH` (always prepended) | makes the unified `z3.pc` resolvable |
+| `RFS_DOT` / `RFS_PLANTUML` / `RFS_MERMAID` | external diagram rendering - only when the optional args were passed at build |
+
+User redefinition always wins: an already-set `RFS_*` (or standard var) is left
+untouched. The full per-tool resolver contract is `TOOLCHAIN.md` section 8.2 -
+this table only names what the wrapper sets. Inspect what a run would do without
+executing it (`--print-script`):
+
+    rfs test --suite unit --backend c --print-script examples/valid/02_counter.rfs
+    # -> "# tools: gcc=<store path>/bin/gcc"   (the wrapper's store gcc)
+    RFS_GCC=/usr/bin/gcc rfs test --suite unit --backend c --print-script examples/valid/02_counter.rfs
+    # -> "# tools: gcc=/usr/bin/gcc"           (the user's value wins)
+
+Bare-install proof - `env -i` drops the whole environment, so nothing but the
+wrapper's own preamble is in play:
+
+    env -i result/bin/rfs test --suite unit --backend rust examples/valid/02_counter.rfs   # exit 0
+    env -i result/bin/rfs test --suite unit --backend c    examples/valid/02_counter.rfs   # exit 0
+    env -i result/bin/rfs test --suite fuzz --backend c --fuzz-max-total-time 5 examples/valid/02_counter.rfs   # exit 0
+
+### 8.4 The dev shell (full test suite)
+
+    nix develop -f shell.nix                          # interactive; the hook prints the resolved tool matrix
+    nix develop -f shell.nix --command sh -c '<cmd>'  # one-shot
+
+Use `--command sh -c '...'`, not `-c '<string>'` - nix execs a bare string as a
+single program name. First entry downloads the nightly toolchain via rustup (needs
+network); afterwards it is cached in the profile dir. The shell puts the wrapped
+`rfs` and the whole build closure on PATH, so every suite that runs on Ubuntu runs
+here:
+
+| Suite | Command (inside `--command sh -c '...'`) |
+|---|---|
+| all workspace tests | `cargo test --workspace` |
+| SMT-bounded mode | `cargo test --features smt` |
+| generated-code suite (1683) | `cargo test-generated-code` |
+| unit, both backends | `rfs test --suite unit --backend rust examples/valid/02_counter.rfs` / `--backend c ...` |
+| fuzz, C backend | `rfs test --suite fuzz --backend c --fuzz-max-total-time 5 examples/valid/02_counter.rfs` |
+| fuzz, Rust backend (nightly) | see the note below - needs the unwrapped binary + proxy on PATH |
+| example projects (gcc+make, clang-gated) | `cargo test --test example_projects_test` |
+| diagram parity (external half active) | `cargo test --test diagram_render_parity_test` |
+| docs-sync gates | `cargo test --test dev_docs_test --test docs_md_test` |
+
+The Rust fuzz pipeline needs the nightly toolchain, which is rustup-based (not in
+the package closure). The wrapped `rfs` prepends the store-stable cargo to PATH,
+and cargo-fuzz re-invokes bare `cargo` for its build - so that internal call resolves
+to stable and rejects `-Zsanitizer` (the scaffold's nightly pin is honoured only by
+the rustup proxy). Run it through the unwrapped binary with the proxy first on PATH:
+
+    nix develop -f shell.nix --command sh -c 'export TMPDIR=/tmp; export PATH="$(dirname "$(command -v rustup)"):$PATH"; "$(dirname "$(command -v rfs)")/rfs.real" test --suite fuzz --backend rust --fuzz-max-total-time 5 examples/valid/02_counter.rfs'
+
+Two more gotchas in THIS sandbox (a normal Ubuntu nix needs neither): the nix-shell
+temp dir is deeply nested, so mmdc-invoking suites need `export TMPDIR=/tmp;`
+prepended inside the sh -c string (chromium's socket path otherwise exceeds 108
+chars); and the shared repo `target/` may hold mixed host/nix rlibs, so a clean
+`CARGO_TARGET_DIR` avoids a spurious E0514 in the no_std check. mmdc must not run
+concurrently - the diagram parity suite already serializes it (`TOOLCHAIN.md`
+section 6.5).
+
+### 8.5 Bare package vs dev shell
+
+| Works from the installed package alone | Needs the dev shell |
+|---|---|
+| unit suites, both backends | Rust fuzz nightly pipeline - nightly is rustup-based (not in the closure), and the wrapped binary's PATH prepend needs the proxy (section 8.4) |
+| C fuzz (clang + libFuzzer are in the closure) | cargo-driven test suites (`cargo test --workspace`, `--features smt`, ...) - they need the build closure that `inputsFrom` provides |
+| SMT mode (unified z3 + pkg-config are in the closure) | rfs-dev (its port-equality call is python3-gated; python3 is a shell-only input) |
+| external diagram rendering, IF the optional args were passed at build time | |

@@ -140,34 +140,124 @@ fn generate(backend_name: &str, src: &str, what: &str) -> String {
         .to_string()
 }
 
-/// z3 compile+link flags. Prefer pkg-config: it knows nixpkgs' split `lib`/`dev`
-/// outputs and emits the exact `-I`/`-L` for each (a single `--variable=prefix`
-/// points only at the bin-only `out`, whose `include/` does not exist). Fall back
-/// to a unified project-local install dir when pkg-config has no z3 module.
-/// `-lm` is always appended: the generated SMT C calls libm directly, and the
-/// shared libz3's DT_NEEDED does not guarantee it on every toolchain.
+/// The z3 prefix usable in THIS environment + whether it came from an explicit
+/// var (`true`) or pkg-config auto-discovery (`false`). An explicit install is
+/// PROBED before being trusted: under `nix develop` the host-local RFS_Z3_DIR
+/// default from .cargo/env.toml still exists (the host filesystem is mounted)
+/// but its libz3.so cannot load under the shell's glibc - a no-op program
+/// linked against it exits 127. On probe failure we fall back to the
+/// pkg-config tier of the same resolver chain (the nix unified prefix). All
+/// three consumers (z3_compile_args, build_rust, run_bin) share this one
+/// resolution, so both backends always link and run the SAME solver - the
+/// Phase 15 task-2b parity guarantee.
+fn resolved_z3() -> &'static (String, bool) {
+    static RESOLVED: std::sync::OnceLock<(String, bool)> = std::sync::OnceLock::new();
+    RESOLVED.get_or_init(|| {
+        let (z3, explicit) =
+            common::toolchain::z3().expect("z3 availability checked at test entry");
+        if !explicit || z3_prefix_runs(&z3) {
+            return (z3, explicit);
+        }
+        // Explicit prefix is not loadable here (foreign glibc): fall back to
+        // the pkg-config tier of the resolver chain, probed the same way.
+        if let Ok(out) = Command::new("pkg-config")
+            .args(["--variable=prefix", "z3"])
+            .output()
+        {
+            if out.status.success() {
+                let prefix = String::from_utf8_lossy(&out.stdout).trim().to_string();
+                let d = std::path::Path::new(&prefix);
+                let install_ok = !prefix.is_empty()
+                    && (d.join("include").join("z3.h").is_file()
+                        || d.join("bin").is_dir()
+                        || d.join("lib").is_dir());
+                if install_ok && z3_prefix_runs(&prefix) {
+                    return (prefix, false);
+                }
+            }
+        }
+        // No usable fallback: keep the explicit prefix so the real compile/run
+        // fails loudly instead of skipping silently.
+        (z3, explicit)
+    })
+}
+
+/// True when a no-op program linked against `prefix`'s libz3 actually RUNS in
+/// this environment (exit 0). Catches an explicit install whose library cannot
+/// load here - e.g. the host-local z3 under a nix develop shell's glibc.
+fn z3_prefix_runs(prefix: &str) -> bool {
+    let dir = root().join("target").join("rfs_smt_bounded");
+    std::fs::create_dir_all(&dir).expect("create scratch dir");
+    let src = dir.join("z3_probe.c");
+    std::fs::write(&src, "int main(void){return 0;}\n").expect("write probe source");
+    let bin = dir.join("z3_probe");
+    let out = Command::new(common::toolchain::gcc())
+        .arg("-O1")
+        .arg(&src)
+        .arg("-o")
+        .arg(&bin)
+        .arg(format!("-L{prefix}/lib"))
+        .arg(format!("-L{prefix}/bin"))
+        .args(["-lz3", "-lm"])
+        .output()
+        .expect("run gcc on z3 probe");
+    if !out.status.success() {
+        return false;
+    }
+    let existing = std::env::var("LD_LIBRARY_PATH").unwrap_or_default();
+    let run = Command::new(&bin)
+        .env(
+            "LD_LIBRARY_PATH",
+            format!("{prefix}/lib:{prefix}/bin:{existing}"),
+        )
+        .output()
+        .expect("run z3 probe binary");
+    run.status.code() == Some(0)
+}
+
+/// z3 compile+link flags from the unified resolver (`RFS_Z3_DIR` >
+/// `Z3_SYS_Z3_DIR` > pkg-config, TOOLCHAIN.md section 8.1). An EXPLICIT install
+/// compiles against its own prefix - both `-L{z3}/lib` and `-L{z3}/bin` are
+/// searched (nixpkgs' unified prefix keeps libz3.so in lib/, the project-local
+/// release install in bin/) - and a raw pkg-config lookup must NOT shadow it,
+/// or the C backend would link a different solver than the Rust backend (which
+/// links this same prefix in `build_rust`): the Phase 15 task-2b parity
+/// regression class. Auto-discovered z3 (no explicit var) keeps pkg-config's
+/// own flags: they know nixpkgs' split lib/dev outputs, where no single prefix
+/// carries both include/ and lib/. `-lm` is always appended: the generated SMT
+/// C calls libm directly, and the shared libz3's DT_NEEDED does not guarantee
+/// it on every toolchain.
 fn z3_compile_args() -> Vec<String> {
-    if let Ok(out) = Command::new("pkg-config")
+    let (z3, explicit) = resolved_z3().to_owned();
+    // Unified-prefix flags (see the doc comment for why both lib/ and bin/).
+    let prefix_flags = vec![
+        format!("-I{z3}/include"),
+        format!("-L{z3}/lib"),
+        format!("-L{z3}/bin"),
+        "-lz3".to_string(),
+    ];
+    let mut args = if explicit {
+        prefix_flags
+    } else if let Ok(out) = Command::new("pkg-config")
         .args(["--cflags", "--libs", "z3"])
         .output()
     {
         if out.status.success() {
             let s = String::from_utf8_lossy(&out.stdout);
-            let mut args: Vec<String> = s.split_whitespace().map(str::to_string).collect();
-            if !args.is_empty() {
-                args.push("-lm".to_string());
-                return args;
+            let pc: Vec<String> = s.split_whitespace().map(str::to_string).collect();
+            if !pc.is_empty() {
+                pc
+            } else {
+                prefix_flags
             }
+        } else {
+            prefix_flags
         }
-    }
-    let z3 = common::toolchain::z3_dir().expect("z3 availability checked at test entry");
-    vec![
-        format!("-I{z3}/include"),
-        format!("-L{z3}/lib"),
-        format!("-L{z3}/bin"),
-        "-lz3".to_string(),
-        "-lm".to_string(),
-    ]
+    } else {
+        prefix_flags
+    };
+    args.push("-lm".to_string());
+    args
 }
 
 fn compile_c(src: &Path, bin: &Path) {
@@ -217,7 +307,10 @@ fn build_rust(project: &Path, src_code: &str) -> PathBuf {
     // `explicit` is true when z3 came from RFS_Z3_DIR / Z3_SYS_Z3_DIR (the
     // project-local install, whose version we pin) and false for a pkg-config
     // system z3 (whose version z3-sys reads from the headers itself).
-    let (z3, explicit) = common::toolchain::z3().expect("z3 availability checked at test entry");
+    // resolved_z3() probes an explicit prefix for loadability first - under
+    // nix develop the host-local default cannot run and falls back to the
+    // pkg-config tier, keeping both backends on the same solver.
+    let (z3, explicit) = resolved_z3().to_owned();
     let lib_override = format!("{z3}/bin");
     // Separate statements (not a chain): the builder methods return &mut Self,
     // so chaining into a `let` would dangle the temporary Command.
@@ -227,6 +320,12 @@ fn build_rust(project: &Path, src_code: &str) -> PathBuf {
     cmd.env("Z3_SYS_Z3_DIR", &z3);
     cmd.env("Z3_LIBRARY_PATH_OVERRIDE", &lib_override);
     if explicit {
+        // Keep z3-sys OFF its own pkg-config probe: a system z3 module would
+        // win the -L order and link a different solver than the C backend in
+        // z3_compile_args (the Phase 15 task-2b parity regression class).
+        // With the probe disabled, linking goes through
+        // Z3_LIBRARY_PATH_OVERRIDE only - the same unified prefix.
+        cmd.env("Z3_NO_PKG_CONFIG", "1");
         cmd.env("Z3_SYS_Z3_VERSION", "5.3.1");
     }
     let out = cmd.output().expect("run cargo in scratch project");
@@ -239,7 +338,10 @@ fn build_rust(project: &Path, src_code: &str) -> PathBuf {
 }
 
 fn run_bin(bin: &Path, args: &[&str]) -> (i32, String) {
-    let z3 = common::toolchain::z3_dir().expect("z3 availability checked at test entry");
+    // The SAME resolved prefix the binaries were linked against - never a raw
+    // z3_dir(), which under nix develop would point at the unrunnable host
+    // install and shadow the store library via LD_LIBRARY_PATH.
+    let z3 = resolved_z3().0.clone();
     // libz3.so lives in bin/ for the project-local install and lib/ for a
     // system (nixpkgs) one - expose both, prepended to any existing value.
     let existing = std::env::var("LD_LIBRARY_PATH").unwrap_or_default();

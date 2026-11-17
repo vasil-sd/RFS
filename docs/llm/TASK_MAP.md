@@ -61,9 +61,9 @@ Shared infrastructure: external tools `src/cli/ext_tool.rs::ExtTool` / `resolve`
 | Concern | Read fragment | Files/functions |
 |---|---|---|
 | Codegen-time plan | dev:mc-engine-plan | `src/mc/plan.rs::McPlan::compute` (pure function of module + assumption selection; config encoding = the visited-set buffer) |
-| Exact bounded checker (reference) | dev:mc-engine-exact | `src/mc/ref_mc.rs::run`, `render_text`, `to_json_report` (ground truth, D-P6-5) |
-| Liveness analysis | dev:mc-engine-liveness | `src/mc/ref_mc.rs` (position graph, product automaton, SCCs, lasso witness) |
-| Counterexample verification | dev:mc-engine-verify | `src/mc/ref_mc.rs::verify_counterexample`, minimal violation labels |
+| Exact bounded checker (reference) | dev:mc-engine-exact | engine `src/mc/ref_mc_exact.rs::run` (entry point `src/mc/ref_mc.rs::run` delegates, D-P16-1), `render_text`, `to_json_report` (ground truth, D-P6-5) |
+| Liveness analysis | dev:mc-engine-liveness | `src/mc/ref_mc_exact.rs` (position graph, product automaton, SCCs, lasso witness) |
+| Counterexample verification | dev:mc-engine-verify | `src/mc/ref_mc.rs::verify_counterexample`, minimal violation labels (`src/mc/ref_mc_exact.rs::minimal_violation_labels`) |
 | SMT bounded mode | dev:mc-engine-smt | `src/mc/smt_plan.rs` (k-step unrolling spec), `src/mc/smt_emit.rs` (Rust z3 + C libz3 emitter) |
 | PSL -> monitor compiler | dev:monitor-compiler-overview (+ -signals / -nodes / -compile / -reference) | `src/codegen/monitor.rs::compile_formula`, `MonitorPlan`, `ReferenceMonitor` |
 

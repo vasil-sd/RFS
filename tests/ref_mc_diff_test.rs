@@ -16,7 +16,7 @@
 //!     aligned in Phase 6 task 3);
 //!   * `max_depth` agreement (both use level-synchronous BFS);
 //!   * on failure: the engine's label is a member of ref_mc's minimal-depth
-//!     violation-label set (`ref_mc::minimal_violation_labels`); for specs
+//!     violation-label set (`ref_mc_exact::minimal_violation_labels`); for specs
 //!     with a UNIQUE minimal label, label+step equality is additionally
 //!     asserted (the observed ambiguous set is pinned below);
 //!   * CE replay: the engine's counterexample must be a valid execution that
@@ -441,8 +441,9 @@ fn compare_one(name: &str, ir: &rfs::Ir) {
                     reason,
                     rfs::codegen::mc_concepts::FailReason::PropertyViolation
                 ) {
-                    let labels = rfs::mc::ref_mc::minimal_violation_labels(module, &ref_cfg())
-                        .unwrap_or_else(|e| panic!("[{name}] minimal labels: {e}"));
+                    let labels =
+                        rfs::mc::ref_mc_exact::minimal_violation_labels(module, &ref_cfg())
+                            .unwrap_or_else(|e| panic!("[{name}] minimal labels: {e}"));
                     assert!(
                         !labels.is_empty() && labels.contains(&label),
                         "[{name}/{backend_name}] engine label '{label}' not in ref minimal set {labels:?}"

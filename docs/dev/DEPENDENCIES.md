@@ -1377,7 +1377,7 @@ independently re-checks a reported counterexample (replay via
 `check_initial` / `check_step_config`, property confirmation via
 `property_confirms_at` -> `mon_step`, liveness via `verify_lasso` ->
 `skel_eval` / `prod_delta`, deadlock via `verify_deadlock` ->
-`mon_from_key`); `src/mc/ref_mc.rs::minimal_violation_labels` re-runs the BFS
+`mon_from_key`); `src/mc/ref_mc_exact.rs::minimal_violation_labels` re-runs the BFS
 to collect all violated labels (`collect_min_labels`);
 `src/mc/ref_mc.rs::render_text` / `src/mc/ref_mc.rs::to_json_report` render the
 unified report (`render_text_impl` -> `render_vars` / `render_input` /

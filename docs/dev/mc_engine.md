@@ -177,7 +177,7 @@ flag; deadlock = no successor at all (SEMANTICS 8.4) with deadlock_mons
 captured - the persistent monitor projection of the deadlocked configuration,
 which an external verifier needs to re-derive the "no surviving successor"
 judgment (it depends on assumption-pruning state not printed in the report).
-`src/mc/ref_mc.rs::CfgKey` is a STRUCTURED key (state + typed var encodings - enums
+`src/mc/ref_mc_exact.rs::CfgKey` is a STRUCTURED key (state + typed var encodings - enums
 as variant index, bools 0/1, bits raw - + per-monitor mon_key projections), no
 bit-packing: deliberate, behavior must not depend on the container. Liveness
 analysis runs only when no safety failure/deadlock was found; a witness inside
@@ -213,9 +213,9 @@ Code: `src/mc/ref_mc.rs::Val`, `src/mc/ref_mc.rs::RType`, `src/mc/ref_mc.rs::Eva
 `src/mc/ref_mc.rs::pattern_bindings`, `src/mc/ref_mc.rs::match_effect`,
 `src/mc/ref_mc.rs::input_matches_variant`, `src/mc/ref_mc.rs::RefConfig`,
 `src/mc/ref_mc.rs::IoRec`, `src/mc/ref_mc.rs::StepRec`, `src/mc/ref_mc.rs::CeData`,
-`src/mc/ref_mc.rs::RefResult`, `src/mc/ref_mc.rs::BNode`, `src/mc/ref_mc.rs::CfgKey`,
-`src/mc/ref_mc.rs::val_key`, `src/mc/ref_mc.rs::bnode_key`, `src/mc/ref_mc.rs::run`,
-`src/mc/ref_mc.rs::path_to`, `src/mc/ref_mc.rs::trace_steps`,
+`src/mc/ref_mc.rs::RefResult`, `src/mc/ref_mc_exact.rs::BNode`, `src/mc/ref_mc_exact.rs::CfgKey`,
+`src/mc/ref_mc_exact.rs::val_key`, `src/mc/ref_mc_exact.rs::bnode_key`, `src/mc/ref_mc.rs::run`,
+`src/mc/ref_mc_exact.rs::path_to`, `src/mc/ref_mc_exact.rs::trace_steps`,
 `src/mc/ref_mc.rs::render_text`, `src/mc/ref_mc.rs::to_json_report`,
 `src/codegen/mc_concepts.rs::EXACT_DEFAULT_MAX_STATES`,
 `src/codegen/mc_concepts.rs::EXACT_DEFAULT_TIMEOUT_SEC`,
@@ -232,22 +232,22 @@ LivProp additionally carries formula_text from the own formula printer
 (byte-identical to the generated engines' embedded formula strings) and leaves
 in first-appearance order.
 
-**liv_analyze.** `src/mc/ref_mc.rs::liv_analyze` on the explored graph:
+**liv_analyze.** `src/mc/ref_mc_exact.rs::liv_analyze` on the explored graph:
 
 - **Position graph**: position 0 = initial sample; one position per explored
   edge; labels are EDGE-based (SEMANTICS 6.5) - position k's label is the
-  sample of step k. Per-position label bits via `src/mc/ref_mc.rs::leaf_bits`
+  sample of step k. Per-position label bits via `src/mc/ref_mc_exact.rs::leaf_bits`
   (bit 2k = leaf k atom A, bit 2k+1 = the until-right operand).
 - **Product reachability**: BFS with parent pointers over (position, automaton
-  state) pairs from (0, start_q); `src/mc/ref_mc.rs::prod_delta` is the mixed-radix
+  state) pairs from (0, start_q); `src/mc/ref_mc_exact.rs::prod_delta` is the mixed-radix
   transition of the per-leaf progress automata - safety 0=ok/1=bad, eventually
   0=wait/1=done, until 0=ok/1=sat/2=bad; all transitions are one-way, so every
   state sequence on an infinite path is eventually constant (the limit vector).
 - **SCCs**: iterative Tarjan over the reachable product graph; on-cycle =
   non-trivial SCC member or self-loop singleton.
 - **Falsifying limit vector search**: q ascending in discovery order - t_k =
-  `src/mc/ref_mc.rs::leaf_good`(kind, digit); skip if the skeleton evaluates true
-  under t (`src/mc/ref_mc.rs::skel_eval`); else the first witness pair on a cycle
+  `src/mc/ref_mc_exact.rs::leaf_good`(kind, digit); skip if the skeleton evaluates true
+  under t (`src/mc/ref_mc_exact.rs::skel_eval`); else the first witness pair on a cycle
   with automaton state q (discovery order).
 - **Lasso construction**: product path from the start pair to the witness pair
   via parent pointers (prefix edges = positions of P1..P_{a-1}); the witness
@@ -256,7 +256,7 @@ in first-appearance order.
   path-only pruning re-explores diamond subgraphs exponentially and spins forever
   on small graphs (Phase 6 task 4 finding, specgen seed 900_006); edges to the
   witness pair are checked before the visited test, so any cycle through it is
-  still found. Returns `src/mc/ref_mc.rs::LivWitness`{lasso, cycle_start} where
+  still found. Returns `src/mc/ref_mc_exact.rs::LivWitness`{lasso, cycle_start} where
   cycle_start = prefix length = the reported violation step.
 
 **Truncated-graph soundness.** liv_analyze runs on the completed OR truncated
@@ -264,7 +264,7 @@ graph (only when no safety failure/deadlock was found): a witness found inside
 the explored part is sound - all its edges are real transitions; otherwise the
 UNKNOWN status stands. Never a false pass-complete.
 
-**liv_note.** `src/mc/ref_mc.rs::liv_note`: human-facing explanation of which leaves
+**liv_note.** `src/mc/ref_mc_exact.rs::liv_note`: human-facing explanation of which leaves
 are falsified on the witness - for each falsified leaf, the first falsifying
 position (safety: bad is absorbing and constant on the cycle; until: left fails
 without right holding) - "safety subformula false at step N" / "eventually body
@@ -273,10 +273,10 @@ joined with "; ".
 
 Code: `src/mc/ref_mc.rs::Leaf`, `src/mc/ref_mc.rs::Skel`, `src/mc/ref_mc.rs::LivProp`,
 `src/mc/ref_mc.rs::decompose_top`, `src/mc/ref_mc.rs::decompose_properties`,
-`src/mc/ref_mc.rs::LivWitness`, `src/mc/ref_mc.rs::leaf_signals`,
-`src/mc/ref_mc.rs::skel_eval`, `src/mc/ref_mc.rs::liv_analyze`,
-`src/mc/ref_mc.rs::prod_delta`, `src/mc/ref_mc.rs::leaf_good`,
-`src/mc/ref_mc.rs::leaf_bits`, `src/mc/ref_mc.rs::liv_note`
+`src/mc/ref_mc_exact.rs::LivWitness`, `src/mc/ref_mc_exact.rs::leaf_signals`,
+`src/mc/ref_mc_exact.rs::skel_eval`, `src/mc/ref_mc_exact.rs::liv_analyze`,
+`src/mc/ref_mc_exact.rs::prod_delta`, `src/mc/ref_mc_exact.rs::leaf_good`,
+`src/mc/ref_mc_exact.rs::leaf_bits`, `src/mc/ref_mc_exact.rs::liv_note`
 
 
 <a id="dev:mc-engine-verify"></a>
@@ -304,11 +304,11 @@ testing): dispatch on (reason, ce kind) - a mismatch is an error.
   the carried monitor projection (`src/mc/ref_mc.rs::mon_from_key` reconstructs a
   MonSt from its persistent projection).
 
-**minimal_violation_labels.** `src/mc/ref_mc.rs::minimal_violation_labels`: two
+**minimal_violation_labels.** `src/mc/ref_mc_exact.rs::minimal_violation_labels`: two
 phases - phase 1 canonical run finds the first violation in traversal order;
 phase 2 re-runs BFS but keeps processing levels until level first_step-1 is
 fully expanded, collecting every label confirmed at the minimal step
-(`src/mc/ref_mc.rs::collect_min_labels`); liveness witnesses from phase-1's graph
+(`src/mc/ref_mc_exact.rs::collect_min_labels`); liveness witnesses from phase-1's graph
 are included when their cycle start <= the global min. Sorted output.
 
 **Differential-testing role.** tests/ref_mc_diff_test.rs (ref-MC vs BOTH
@@ -329,7 +329,7 @@ Code: `src/mc/ref_mc.rs::verify_counterexample`, `src/mc/ref_mc.rs::check_initia
 `src/mc/ref_mc.rs::mon_from_key`, `src/mc/ref_mc.rs::step_trace`,
 `src/mc/ref_mc.rs::initial_config`, `src/mc/ref_mc.rs::io_to_input`,
 `src/mc/ref_mc.rs::io_to_output`, `src/mc/ref_mc.rs::json_val`,
-`src/mc/ref_mc.rs::minimal_violation_labels`, `src/mc/ref_mc.rs::collect_min_labels`,
+`src/mc/ref_mc_exact.rs::minimal_violation_labels`, `src/mc/ref_mc_exact.rs::collect_min_labels`,
 `tests/ref_mc_diff_test.rs`, `tests/ref_mc_sweep_test.rs`,
 `tests/ref_mc_diag_test.rs`, `tests/backend_parity_test.rs`
 

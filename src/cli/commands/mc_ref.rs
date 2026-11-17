@@ -9,13 +9,13 @@
 //! Flag surface mirrors the generated exact-mode binaries where applicable:
 //! `--max-states N`, `--timeout-sec N`, `--assumes all|none|labels` (same wire
 //! format as `mc_concepts::parse_assume_selection`),
-//! `--counterexample-format json|text` (default text), `--log-level`.
-//! NOT applicable (documented in the usage text): `--seed`/`--steps`/
-//! `--violate`/unexpected-injection (fuzz-mode concepts; exact search is
-//! seedless, D-P4-7) and `--threads`/`--fast` (generated-engine tuning; ref_mc
-//! is single-threaded). `--nondet`: ref_mc explores all enabled transitions by
-//! construction - its liveness semantics match the generated engine's DEFAULT
-//! exact mode.
+//! `--counterexample-format json|text` (default text), `--nondet`, `--log-level`.
+//! `--nondet` fires EVERY enabled transition as its own successor (the
+//! generated engines' nondet mode); liveness then requires strongly-fair bad
+//! cycles (D-P4-11). NOT applicable (documented in the usage text):
+//! `--seed`/`--steps`/`--violate`/unexpected-injection (fuzz-mode concepts;
+//! exact search is seedless, D-P4-7) and `--threads`/`--fast` (generated-engine
+//! tuning; ref_mc is single-threaded).
 //!
 //! Exit codes MIRROR the generated binaries: 0 pass-complete, 1 fail,
 //! 2 unknown-state-limit; usage/parse/validation errors exit 1 (the existing
@@ -57,6 +57,8 @@ pub struct McRefOptions {
     pub assumes: String,
     /// `--counterexample-format`: text (default) or json.
     pub ce_format: CeFormat,
+    /// `--nondet`: fire every enabled transition as its own successor.
+    pub nondet: bool,
 }
 
 impl Default for McRefOptions {
@@ -66,6 +68,7 @@ impl Default for McRefOptions {
             timeout_sec: None,
             assumes: "all".to_string(),
             ce_format: CeFormat::Text,
+            nondet: false,
         }
     }
 }
@@ -110,6 +113,7 @@ pub fn run_mc_ref(path: &Path, opts: &McRefOptions) -> Result<(ExitCode, String)
             .timeout_sec
             .unwrap_or(crate::codegen::mc_concepts::EXACT_DEFAULT_TIMEOUT_SEC),
         assume_arg: opts.assumes.clone(),
+        nondet: opts.nondet,
     };
     let res = ref_mc::run(module, &cfg)?;
     let out = match opts.ce_format {
@@ -133,7 +137,7 @@ pub fn exit_code_for(status: crate::codegen::mc_concepts::ExactStatus) -> ExitCo
 }
 
 fn usage() -> String {
-    "usage: rfs mc-ref <spec.rfs|spec.json> [--max-states N] [--timeout-sec N]\n       [--assumes all|none|labels] [--counterexample-format json|text]\n       [--log-level off|error|warn|info|debug]\n\nRuns the reference model checker in-process (no compilation). Exit codes\nmirror the generated exact-mode binaries: 0 pass-complete, 1 fail,\n2 unknown-state-limit.\n\nNot applicable (and why):\n  --seed/--steps/--violate/--unexpected-prob: fuzz-mode concepts; exact\n    search is seedless (D-P4-7).\n  --threads/--fast: generated-engine tuning; ref_mc is single-threaded.\n  --nondet: ref_mc explores all enabled transitions by construction - its\n    liveness semantics match the generated engine's DEFAULT exact mode."
+    "usage: rfs mc-ref <spec.rfs|spec.json> [--max-states N] [--timeout-sec N]\n       [--assumes all|none|labels] [--counterexample-format json|text]\n       [--nondet] [--log-level off|error|warn|info|debug]\n\nRuns the reference model checker in-process (no compilation). Exit codes\nmirror the generated exact-mode binaries: 0 pass-complete, 1 fail,\n2 unknown-state-limit.\n\n--nondet fires EVERY enabled transition as its own successor (the generated\nengines' nondet mode); liveness then requires strongly-fair bad cycles.\n\nNot applicable (and why):\n  --seed/--steps/--violate/--unexpected-prob: fuzz-mode concepts; exact\n    search is seedless (D-P4-7).\n  --threads/--fast: generated-engine tuning; ref_mc is single-threaded."
         .to_string()
 }
 
@@ -192,6 +196,9 @@ pub fn run_cli(args: &[String]) -> ExitCode {
                     return ExitCode::FAILURE;
                 }
             },
+            "--nondet" => {
+                opts.nondet = true;
+            }
             "--counterexample-format" => {
                 match take_value(args, &mut i, &arg) {
                     Ok(v) => match CeFormat::parse(&v) {

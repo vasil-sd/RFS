@@ -59,7 +59,7 @@ use crate::lang::ir::*;
 // The counterexample verification re-derives the exact engine's liveness
 // acceptance condition (D-P16-1: the helpers live with the engine).
 use super::ref_mc_exact::{
-    self, leaf_bits, leaf_good, leaf_signals, prod_delta, skel_eval, state_name,
+    self, leaf_bits, leaf_good, leaf_signals, match_effects_all, prod_delta, skel_eval, state_name,
 };
 
 // ---------------------------------------------------------------------------
@@ -399,7 +399,7 @@ pub(crate) fn eval_expr(e: &Expr, ctx: &EvalCtx) -> Result<Val, String> {
     }
 }
 
-fn bool_of(v: &Val) -> Result<bool, String> {
+pub(crate) fn bool_of(v: &Val) -> Result<bool, String> {
     match v {
         Val::Bool(b) => Ok(*b),
         other => Err(format!("expected boolean, got {other:?}")),
@@ -1308,7 +1308,7 @@ pub(crate) struct Effect {
 
 /// Bindings of a matched pattern: (bind name -> field value), with the
 /// binding types for expression typing.
-fn pattern_bindings(
+pub(crate) fn pattern_bindings(
     module: &Module,
     t: &Transition,
     inp: &InputVal,
@@ -1439,12 +1439,12 @@ pub(crate) fn match_effect(
     None
 }
 
-fn input_group(module: &Module, input: &InputVal) -> Option<String> {
+pub(crate) fn input_group(module: &Module, input: &InputVal) -> Option<String> {
     let variants = flatten(&module.events);
     Some(variants[input.variant].group.clone())
 }
 
-fn input_matches_variant(module: &Module, t: &Transition, input: &InputVal) -> bool {
+pub(crate) fn input_matches_variant(module: &Module, t: &Transition, input: &InputVal) -> bool {
     // Group-level check is done by the caller; here: variant + field patterns.
     let variants = flatten(&module.events);
     let vi = &variants[input.variant];
@@ -1473,7 +1473,7 @@ fn input_matches_variant(module: &Module, t: &Transition, input: &InputVal) -> b
     }
 }
 
-fn var_map(module: &Module, vars: &[Val]) -> HashMap<String, Val> {
+pub(crate) fn var_map(module: &Module, vars: &[Val]) -> HashMap<String, Val> {
     module
         .vars
         .iter()
@@ -1482,11 +1482,11 @@ fn var_map(module: &Module, vars: &[Val]) -> HashMap<String, Val> {
         .collect()
 }
 
-fn state_index(module: &Module, name: &str) -> Option<usize> {
+pub(crate) fn state_index(module: &Module, name: &str) -> Option<usize> {
     state_variants(module).iter().position(|s| s == name)
 }
 
-fn output_variant_idx(module: &Module, o: &OutputExpr) -> Option<usize> {
+pub(crate) fn output_variant_idx(module: &Module, o: &OutputExpr) -> Option<usize> {
     let variants = flatten(&module.outputs);
     match &o.variant {
         Some(v) => variants
@@ -1906,6 +1906,10 @@ pub struct RefConfig {
     /// label list (unknown labels silently dropped - same as the generated
     /// binaries' `--assumes`).
     pub assume_arg: String,
+    /// `--nondet`: fire EVERY enabled transition as its own successor (the
+    /// generated engines' nondet mode) instead of only the first match.
+    /// Liveness then requires STRONGLY FAIR bad cycles (D-P4-11).
+    pub nondet: bool,
 }
 
 impl Default for RefConfig {
@@ -1914,6 +1918,7 @@ impl Default for RefConfig {
             max_states: EXACT_DEFAULT_MAX_STATES,
             timeout_sec: EXACT_DEFAULT_TIMEOUT_SEC,
             assume_arg: "all".to_string(),
+            nondet: false,
         }
     }
 }
@@ -2475,12 +2480,22 @@ fn io_to_output(module: &Module, io: &JsonIo) -> Result<OutputVal, String> {
     })
 }
 
-/// Replay a fixed input sequence through the module using ref_mc's own
-/// transition logic (deterministic first-match firing + `on_error` fallback).
-/// Returns the sample sequence: sample 0 = initial configuration, sample k =
-/// step k. `Err` when some input has no enabled transition and no `on_error`
-/// (the generated production FSM would report UnexpectedEvent there).
-pub fn step_trace(module: &Module, inputs: &[InputVal]) -> Result<Vec<Sample>, String> {
+/// Replay a CE's input sequence through ref_mc's OWN transition logic, one
+/// sample per step (sample 0 = the initial configuration).
+///
+/// Deterministic (`nondet == false`): each step takes the FIRST matching effect
+/// (the generated engines' default exact mode), so the replay is unambiguous.
+/// Nondet (`nondet == true`): a step's input may enable SEVERAL effects; the CE
+/// took one specific one, so the replay selects the enabled effect whose
+/// (to_state, vars, outputs) matches the CE's claim for that step - and errors
+/// if the claim is not an enabled effect at all. This keeps the verification a
+/// genuine ground-truth check (an invalid nondet CE is still rejected) while
+/// following the actual path the engine took.
+pub fn step_trace(
+    module: &Module,
+    steps: &[JsonStep],
+    nondet: bool,
+) -> Result<Vec<Sample>, String> {
     let (q0, mut vars) = initial_config(module)?;
     let mut state = q0;
     let mut samples = vec![Sample {
@@ -2489,21 +2504,63 @@ pub fn step_trace(module: &Module, inputs: &[InputVal]) -> Result<Vec<Sample>, S
         to_state: state,
         vars: vars.clone(),
     }];
-    for (k, input) in inputs.iter().enumerate() {
-        let eff = match_effect(module, state, &vars, input).ok_or_else(|| {
-            format!(
-                "CE step {} is not a valid execution (no enabled transition)",
-                k + 1
-            )
-        })?;
-        samples.push(Sample {
-            input: Some(input.clone()),
-            outputs: eff.outputs,
-            to_state: eff.next_state,
-            vars: eff.next_vars.clone(),
-        });
-        state = eff.next_state;
-        vars = eff.next_vars;
+    for (k, step) in steps.iter().enumerate() {
+        let input = io_to_input(module, &step.input)?;
+        if nondet {
+            // The claim must be ONE of the enabled effects (not just the first).
+            let effects = match_effects_all(module, state, &vars, &input);
+            let claimed_to = ce_state_name(&step.to_state);
+            let to_idx = state_index(module, claimed_to)
+                .ok_or_else(|| format!("CE step {}: unknown to_state '{}'", k + 1, claimed_to))?;
+            let mut claimed_vars = vars.clone();
+            for (name, j) in &step.vars {
+                let pos = module
+                    .vars
+                    .iter()
+                    .position(|v| &v.name == name)
+                    .ok_or_else(|| format!("CE step {}: unknown var '{name}'", k + 1))?;
+                claimed_vars[pos] = json_val(j, &format!("CE step {} var {name}", k + 1))?;
+            }
+            let claimed_outputs: Vec<OutputVal> = step
+                .outputs
+                .iter()
+                .map(|jio| io_to_output(module, jio))
+                .collect::<Result<_, _>>()?;
+            let matched = effects.iter().any(|e| {
+                e.next_state == to_idx
+                    && e.next_vars == claimed_vars
+                    && e.outputs == claimed_outputs
+            });
+            if !matched {
+                return Err(format!(
+                    "CE step {}: claim is not an enabled effect (nondet)",
+                    k + 1
+                ));
+            }
+            samples.push(Sample {
+                input: Some(input),
+                outputs: claimed_outputs,
+                to_state: to_idx,
+                vars: claimed_vars.clone(),
+            });
+            state = to_idx;
+            vars = claimed_vars;
+        } else {
+            let eff = match_effect(module, state, &vars, &input).ok_or_else(|| {
+                format!(
+                    "CE step {} is not a valid execution (no enabled transition)",
+                    k + 1
+                )
+            })?;
+            samples.push(Sample {
+                input: Some(input),
+                outputs: eff.outputs,
+                to_state: eff.next_state,
+                vars: eff.next_vars.clone(),
+            });
+            state = eff.next_state;
+            vars = eff.next_vars;
+        }
     }
     Ok(samples)
 }
@@ -2982,11 +3039,7 @@ pub fn verify_counterexample(
             },
         ) => {
             check_initial(module, initial_state, initial_vars)?;
-            let inputs: Vec<InputVal> = steps
-                .iter()
-                .map(|s| io_to_input(module, &s.input))
-                .collect::<Result<_, _>>()?;
-            let samples = step_trace(module, &inputs)?;
+            let samples = step_trace(module, steps, cfg.nondet)?;
             let q0 = initial_config(module)?.0;
             let mut prev = q0;
             for (k, s) in steps.iter().enumerate() {
@@ -3013,12 +3066,8 @@ pub fn verify_counterexample(
                     prefix.len()
                 ));
             }
-            let inputs: Vec<InputVal> = prefix
-                .iter()
-                .chain(cycle.iter())
-                .map(|s| io_to_input(module, &s.input))
-                .collect::<Result<_, _>>()?;
-            let samples = step_trace(module, &inputs)?;
+            let all_steps: Vec<JsonStep> = prefix.iter().chain(cycle.iter()).cloned().collect();
+            let samples = step_trace(module, &all_steps, cfg.nondet)?;
             let q0 = initial_config(module)?.0;
             let mut prev = q0;
             for (k, s) in prefix.iter().chain(cycle.iter()).enumerate() {

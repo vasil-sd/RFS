@@ -2664,3 +2664,26 @@ PHASE 8 IS NOW COMPLETE.
 - cargo test 557/0 (UNCHANGED); cargo test --workspace 685/0 (UNCHANGED); cargo test --features smt 559/0 (UNCHANGED); cargo test-generated-code 1683/1683 (UNCHANGED).
 - cargo fmt clean; cargo clippy --all-targets at baseline 55 warning lines / 0 errors (one transient `unused mut` in the new audit fixed).
 - rfs-dev inventory audit EXACT (SRC 965 fns / 200 types, TEST 980 fns / 34 types - zero per-file diffs); rfs-dev sync-check clean; dev_docs_test 9/0.
+
+## 2026-11-17 18:59 — Phase 16 task 2 (complete): --nondet successor strategy + strong-fairness liveness guard in the ref exact engine, exposed as rfs mc-ref --nondet, pinned by a cross-backend differential variant
+
+### Interpretation & plan
+
+- Requested: execute Phase 16 task 2 (PHASE_16_TASK_2.md) - give the ref exact engine the generated engines' `--nondet` successor strategy (every enabled transition becomes a successor) with D-P4-11 strong-fairness liveness semantics, expose it as `rfs mc-ref --nondet`, and pin it with a cross-backend differential variant. An interrupted earlier session had already landed the full implementation + docs uncommitted; this session verified, repaired (fmt, clippy, llm-budget), re-ran the canonical sweep under the CORRECT toolchain, and closed out the bookkeeping.
+- Planned: confirm the pinned generated-engine semantics in both backends; verify the all-matches enumeration, BFS strategy switch, liv_analyze fairness guard, CLI flag, diff variant and doc/inventory sync; run the full canonical sweep; write the status file + this entry; commit.
+
+### Report
+
+- `src/mc/ref_mc_exact.rs`: new `pub(crate) fn match_effects_all` (all-matches enumeration - every matching transition in firing order as an effect, on_error only when nothing matched, empty = unexpected; deterministic first-match is its one-element head). The `run()` BFS and `collect_min_labels` select effects by strategy: deterministic keeps the single-effect path byte-for-byte, `--nondet` enqueues one successor per effect (tid carried in parent/adj); the `any_successor` deadlock check generalizes (no effect for ANY input = deadlock). `liv_analyze` gains `complete: &[bool]` + `nondet: bool`: a nondet bad cycle must be STRONGLY FAIR - a config is eligible only if `adj[c].len() == 1 && complete[c]`; the witness search tries EVERY strongly-fair-eligible on-cycle pair at the falsifying q and the closing DFS descends only into eligible pairs. Deterministic mode: every config eligible, unchanged. Four new unit tests (enumeration firing order, on_error/empty, nondet exploration breadth, fairness guard flipping a deterministic liveness FAIL to a nondet PASS).
+- `src/mc/ref_mc.rs`: `RefConfig.nondet` (Default = false); seven common-core items widened to `pub(crate)` for the enumeration; `step_trace` re-signatured `&[InputVal]` -> `&[JsonStep] + nondet: bool` - nondet replay selects the enabled effect matching the CE's claimed (to_state, vars, outputs) and rejects a claim that is not an enabled effect; `verify_counterexample` passes raw steps through.
+- `src/cli/commands/mc_ref.rs`: `--nondet` flag + `McRefOptions.nondet`; module doc + usage text rewritten (the "Not applicable: --nondet" note removed). BUILD.md mc-ref row: --nondet moved from the N/A list to the flag list.
+- `tests/ref_mc_diff_test.rs`: `compare_one_nondet` + two diff tests over eligible examples + 20 pinned-seed random specs (status/exit/states exact, reason/label/step on failure, transitions NOT asserted, CE replay through the nondet-aware verifier, sample-0 assumption asymmetry handled). `tests/toolchain_fuzz_test.rs`: RefConfig literal +`nondet: false`.
+- Docs/inventory same commit: SRC_STRUCTURE.md +1 row (match_effects_all); TEST_STRUCTURE.md +8 rows, llm-budget 1327 -> 1335; docs/dev/mc_engine.md documents the enumeration, the strategy switch and the D-P4-11 guard.
+
+### Verification results
+
+- cargo test 563/0 (= 557 + 6); cargo test --workspace 691/0 (= 685 + 6); cargo test --features smt 565/0 (= 559 + 6); cargo test-generated-code 1683/1683 (UNCHANGED - no template touched).
+- cargo fmt clean; cargo clippy --all-targets at baseline (4 needless-borrow warnings in the new test code fixed; zero warnings in any changed file).
+- rfs-dev inventory audit EXACT (SRC 966 fns / 200 types, TEST 988 fns / 34 types - zero per-file diffs); rfs-dev sync-check clean; dev_docs_test 9/0.
+- Liveness examples fail under --nondet in the eligible set (42_bounded_liveness_protocol: deadlock; 44_token_ring: property-violation) - the cross-engine diff suite exercises the fairness guard on real specs.
+- Findings (status file): the session initially ran under the wrong toolchain (sandbox nightly 1.102 instead of canonical stable 1.99.0 per TOOLCHAIN.md §2) - all verification redone under the documented activation; stale librfs_adapters rlibs caused E0514 in nostd_minimal (removed; same cross-toolchain target contamination as Phase 15 task 6); the interrupted session's TEST_STRUCTURE.md llm-budget was not updated - the sync gate caught it, fixed to 1335.

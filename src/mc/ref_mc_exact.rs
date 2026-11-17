@@ -20,10 +20,11 @@ use std::collections::{HashMap, HashSet};
 use std::time::Instant;
 
 use super::ref_mc::{
-    all_inputs, ceil_log2, compile_formula, compile_signal, contains_liveness,
-    decompose_properties, eval_expr, eval_sig, flatten, match_effect, mon_bits, mon_init, mon_key,
-    mon_step, state_variants, CeData, EvalCtx, FlatVariant, InputVal, IoRec, Leaf, LivProp, Mon,
-    MonSt, OutputVal, RefConfig, RefResult, Sample, Sig, Skel, StepRec, Val,
+    all_inputs, bool_of, ceil_log2, compile_formula, compile_signal, contains_liveness,
+    decompose_properties, eval_expr, eval_sig, flatten, input_group, input_matches_variant,
+    match_effect, mon_bits, mon_init, mon_key, mon_step, output_variant_idx, pattern_bindings,
+    state_index, state_variants, var_map, CeData, Effect, EvalCtx, FlatVariant, InputVal, IoRec,
+    Leaf, LivProp, Mon, MonSt, OutputVal, RefConfig, RefResult, Sample, Sig, Skel, StepRec, Val,
 };
 use crate::codegen::mc_concepts::{parse_assume_selection, ExactStatus, FailReason};
 use crate::lang::ir::*;
@@ -83,6 +84,169 @@ fn bnode_key(n: &BNode, module: &Module, mon_specs: &[&Mon]) -> CfgKey {
             .map(|(st, sp)| mon_key(st, sp))
             .collect(),
     }
+}
+
+/// ALL matching transition effects for `input` at state `state_idx`, in
+/// firing order (effective priority descending, declaration order for ties) -
+/// the `--nondet` successor strategy fires every one of them. The `on_error`
+/// fallback is included ONLY when no transition matched; an empty result means
+/// unexpected input (no match and no on_error). For a validated spec this is
+/// exactly `match_effect`'s result as a one-element vec in the deterministic
+/// case, so the two strategies share one matching semantics.
+pub(crate) fn match_effects_all(
+    module: &Module,
+    state_idx: usize,
+    vars: &[Val],
+    input: &InputVal,
+) -> Vec<Effect> {
+    let states = state_variants(module).to_vec();
+    let Some(state_name) = states.get(state_idx).cloned() else {
+        return Vec::new();
+    };
+    let Some(group) = input_group(module, input) else {
+        return Vec::new(); // internal invariant (validated spec)
+    };
+
+    // Firing order for this state (own computation of section 3.4).
+    let mut ts: Vec<&Transition> = module
+        .transitions
+        .iter()
+        .filter(|t| t.state == state_name)
+        .collect();
+    ts.sort_by_key(|t| std::cmp::Reverse(t.priority.unwrap_or(0)));
+
+    let mut effects: Vec<Effect> = Vec::new();
+    for t in &ts {
+        if t.pattern.group != group {
+            continue;
+        }
+        if !input_matches_variant(module, t, input) {
+            continue;
+        }
+        let (binds, bind_types) = pattern_bindings(module, t, input).unwrap_or_default();
+        let ctx = EvalCtx {
+            module,
+            state: Val::Enum(state_name.clone()),
+            vars: var_map(module, vars),
+            binds,
+            bind_types,
+        };
+        if let Some(g) = &t.guard {
+            // Validated specs always evaluate; an internal failure means "no
+            // match" (the generated engines would not compile such a spec).
+            if eval_expr(g, &ctx).ok().and_then(|v| bool_of(&v).ok()) == Some(false) {
+                continue;
+            }
+        }
+        // Emitted outputs (declaration order).
+        let mut outputs: Vec<OutputVal> = Vec::new();
+        let mut ok = true;
+        for o in &t.emits {
+            let args: Vec<Val> = match o
+                .args
+                .iter()
+                .map(|a| eval_expr(a, &ctx))
+                .collect::<Result<Vec<_>, _>>()
+            {
+                Ok(v) => v,
+                Err(_) => {
+                    ok = false;
+                    break; // internal invariant (validated spec)
+                }
+            };
+            match output_variant_idx(module, o) {
+                Some(idx) => outputs.push(OutputVal {
+                    variant: idx,
+                    fields: args,
+                }),
+                None => {
+                    ok = false;
+                    break;
+                }
+            };
+        }
+        if !ok {
+            continue; // skip this transition on internal failure
+        }
+        // Simultaneous updates: all RHS on OLD values.
+        let mut next_vars = vars.to_vec();
+        for a in &t.assignments {
+            match eval_expr(&a.value, &ctx).ok() {
+                Some(v) => {
+                    if let Some(pos) = module.vars.iter().position(|x| x.name == a.var) {
+                        next_vars[pos] = v;
+                    }
+                }
+                None => {
+                    ok = false;
+                    break;
+                }
+            };
+        }
+        if !ok {
+            continue;
+        }
+        let Some(next_state) = state_index(module, &t.next_state) else {
+            continue;
+        };
+        effects.push(Effect {
+            tid: t.id,
+            next_state,
+            next_vars,
+            outputs,
+        });
+    }
+
+    // on_error fallback: only when NO transition matched. No pattern bindings,
+    // variables carry over unchanged.
+    if effects.is_empty() {
+        if let Some(oe) = &module.on_error {
+            let ctx = EvalCtx {
+                module,
+                state: Val::Enum(state_name.clone()),
+                vars: var_map(module, vars),
+                binds: HashMap::new(),
+                bind_types: HashMap::new(),
+            };
+            let mut outputs: Vec<OutputVal> = Vec::new();
+            let mut ok = true;
+            for o in &oe.emits {
+                let args: Vec<Val> = match o
+                    .args
+                    .iter()
+                    .map(|a| eval_expr(a, &ctx))
+                    .collect::<Result<Vec<_>, _>>()
+                {
+                    Ok(v) => v,
+                    Err(_) => {
+                        ok = false;
+                        break;
+                    }
+                };
+                match output_variant_idx(module, o) {
+                    Some(idx) => outputs.push(OutputVal {
+                        variant: idx,
+                        fields: args,
+                    }),
+                    None => {
+                        ok = false;
+                        break;
+                    }
+                };
+            }
+            if ok {
+                if let Some(next_state) = state_index(module, &oe.next_state) {
+                    effects.push(Effect {
+                        tid: usize::MAX,
+                        next_state,
+                        next_vars: vars.to_vec(),
+                        outputs,
+                    });
+                }
+            }
+        }
+    }
+    effects
 }
 
 /// Run the brute-force reference model checker on ONE validated module.
@@ -295,84 +459,96 @@ pub(crate) fn run(module: &Module, cfg: &RefConfig) -> Result<RefResult, String>
             let node = nodes[cid].clone();
             let mut any_successor = false;
             for (iidx, input) in inputs.iter().enumerate() {
-                let Some(eff) = match_effect(module, node.state, &node.vars, input) else {
+                // Successor strategy (mirrors the generated engines): deterministic
+                // fires the FIRST matching effect only; --nondet fires EVERY matching
+                // effect as its own successor. Empty = unexpected input.
+                let effects: Vec<Effect> = if cfg.nondet {
+                    match_effects_all(module, node.state, &node.vars, input)
+                } else {
+                    match_effect(module, node.state, &node.vars, input)
+                        .into_iter()
+                        .collect()
+                };
+                if effects.is_empty() {
                     // Unexpected input: this path terminates (SEMANTICS 8.3).
                     unexpected += 1;
                     if first_unexpected.is_none() {
                         first_unexpected = Some((cid, iidx));
                     }
                     continue;
-                };
-                transitions += 1;
-                let sample = Sample {
-                    input: Some(input.clone()),
-                    outputs: eff.outputs.clone(),
-                    to_state: eff.next_state,
-                    vars: eff.next_vars.clone(),
-                };
-                // Step the monitors at sample d + 1 (assumptions first: a
-                // pruned successor is never reported as a property violation).
-                let mut mons = node.mons.clone();
-                let mut pruned = false;
-                for (mi, (_, spec)) in all_mons.iter().enumerate().skip(n_props) {
-                    if mon_step(&mut mons[mi], spec, (d + 1) as u64, &sample, module)? {
-                        pruned = true;
-                        break;
-                    }
                 }
-                let mut violation: Option<(String, usize, Option<usize>)> = None;
-                if !pruned {
-                    for (mi, (label, spec)) in all_mons.iter().enumerate().take(n_props) {
+                for eff in effects {
+                    transitions += 1;
+                    let sample = Sample {
+                        input: Some(input.clone()),
+                        outputs: eff.outputs.clone(),
+                        to_state: eff.next_state,
+                        vars: eff.next_vars.clone(),
+                    };
+                    // Step the monitors at sample d + 1 (assumptions first: a
+                    // pruned successor is never reported as a property violation).
+                    let mut mons = node.mons.clone();
+                    let mut pruned = false;
+                    for (mi, (_, spec)) in all_mons.iter().enumerate().skip(n_props) {
                         if mon_step(&mut mons[mi], spec, (d + 1) as u64, &sample, module)? {
-                            violation = Some((label.clone(), d + 1, {
-                                let t = mons[mi].trigger_step();
-                                (t >= 0).then_some(t as usize)
-                            }));
+                            pruned = true;
                             break;
                         }
                     }
-                }
-                if let Some((label, step, trigger)) = violation {
-                    fail = Some((FailReason::PropertyViolation, label, step));
-                    status = St::Fail;
-                    fail_trigger = trigger;
-                    let mut p = path_to(&parent, cid);
-                    p.push((cid, iidx, eff.tid));
-                    fail_path = p;
-                    break 'level;
-                }
-                if pruned {
-                    continue;
-                }
-                any_successor = true;
-                let next = BNode {
-                    state: eff.next_state,
-                    vars: eff.next_vars,
-                    mons,
-                };
-                let key = bnode_key(&next, module, &mon_specs);
-                let tcid = match visited.get(&key).copied() {
-                    Some(x) => x,
-                    None => {
-                        if nodes.len() >= cfg.max_states {
-                            status = St::StateLimit;
-                            break 'level;
+                    let mut violation: Option<(String, usize, Option<usize>)> = None;
+                    if !pruned {
+                        for (mi, (label, spec)) in all_mons.iter().enumerate().take(n_props) {
+                            if mon_step(&mut mons[mi], spec, (d + 1) as u64, &sample, module)? {
+                                violation = Some((label.clone(), d + 1, {
+                                    let t = mons[mi].trigger_step();
+                                    (t >= 0).then_some(t as usize)
+                                }));
+                                break;
+                            }
                         }
-                        visited.insert(key, nodes.len());
-                        parent.push(Some((cid, iidx, eff.tid)));
-                        depth.push(d + 1);
-                        if d + 1 > max_depth {
-                            max_depth = d + 1;
-                        }
-                        adj.push(Vec::new());
-                        complete.push(false);
-                        nodes.push(next);
-                        next_frontier.push(nodes.len() - 1);
-                        nodes.len() - 1
                     }
-                };
-                // Graph edge: recorded for every success (incl. to visited).
-                adj[cid].push((iidx, eff.tid, tcid));
+                    if let Some((label, step, trigger)) = violation {
+                        fail = Some((FailReason::PropertyViolation, label, step));
+                        status = St::Fail;
+                        fail_trigger = trigger;
+                        let mut p = path_to(&parent, cid);
+                        p.push((cid, iidx, eff.tid));
+                        fail_path = p;
+                        break 'level;
+                    }
+                    if pruned {
+                        continue;
+                    }
+                    any_successor = true;
+                    let next = BNode {
+                        state: eff.next_state,
+                        vars: eff.next_vars,
+                        mons,
+                    };
+                    let key = bnode_key(&next, module, &mon_specs);
+                    let tcid = match visited.get(&key).copied() {
+                        Some(x) => x,
+                        None => {
+                            if nodes.len() >= cfg.max_states {
+                                status = St::StateLimit;
+                                break 'level;
+                            }
+                            visited.insert(key, nodes.len());
+                            parent.push(Some((cid, iidx, eff.tid)));
+                            depth.push(d + 1);
+                            if d + 1 > max_depth {
+                                max_depth = d + 1;
+                            }
+                            adj.push(Vec::new());
+                            complete.push(false);
+                            nodes.push(next);
+                            next_frontier.push(nodes.len() - 1);
+                            nodes.len() - 1
+                        }
+                    };
+                    // Graph edge: recorded for every success (incl. to visited).
+                    adj[cid].push((iidx, eff.tid, tcid));
+                }
             }
             if status != St::Running {
                 break;
@@ -406,7 +582,8 @@ pub(crate) fn run(module: &Module, cfg: &RefConfig) -> Result<RefResult, String>
     let mut liv_result: Option<(usize, LivWitness)> = None;
     if status != St::Fail && !liv_props.is_empty() {
         for (pi, prop) in liv_props.iter().enumerate() {
-            if let Some(w) = liv_analyze(module, &nodes, &adj, &inputs, prop) {
+            if let Some(w) = liv_analyze(module, &nodes, &adj, &complete, &inputs, prop, cfg.nondet)
+            {
                 liv_result = Some((pi, w));
                 break;
             }
@@ -642,8 +819,10 @@ fn liv_analyze(
     module: &Module,
     nodes: &[BNode],
     adj: &[Vec<(usize, usize, usize)>],
+    complete: &[bool],
     inputs: &[InputVal],
     prop: &LivProp,
+    nondet: bool,
 ) -> Option<LivWitness> {
     let leaves = leaf_signals(prop);
     let n = leaves.len();
@@ -825,6 +1004,22 @@ fn liv_analyze(
         }
     }
 
+    // Strong-fairness eligibility (D-P4-11, nondet mode only): a config can sit
+    // on a bad cycle only if it has EXACTLY ONE explored successor AND was fully
+    // expanded - every enabled successor of a cycle state must be taken on the
+    // cycle, so a branching or truncated config cannot be one. Position 0 (the
+    // initial sample) maps to config 0. Deterministic mode: everything eligible.
+    let eligible_cfg = |cid: usize| -> bool { !nondet || (adj[cid].len() == 1 && complete[cid]) };
+    let eligible_pair = |pid: usize| -> bool {
+        let p = pair_pos[pid];
+        let sc = if p == 0 {
+            0
+        } else {
+            pos_edge[p].expect("pair sits on an edge position").0
+        };
+        eligible_cfg(sc)
+    };
+
     // --- Find a falsifying limit vector (q ascending, discovery order). ---
     let kinds: Vec<u8> = leaves.iter().map(|l| l.kind).collect();
     for q in 0..qcount {
@@ -835,86 +1030,95 @@ fn liv_analyze(
             continue; // satisfied for this limit vector
         }
         let start = pair_id.get(&(0, start_q)).copied().unwrap_or(usize::MAX);
-        let mut witness_pair: Option<usize> = None;
-        for pid in start..npairs {
-            if on_cycle[pid] && pair_q[pid] == q {
-                witness_pair = Some(pid);
-                break;
+        // nondet: try EVERY strongly-fair-eligible on-cycle pair at this q - the
+        // first may sit in a mixed SCC whose cycle passes through ineligible
+        // configs (the gated DFS cannot close it), so one candidate is not enough.
+        let candidates: Vec<usize> = (start..npairs)
+            .filter(|&pid| on_cycle[pid] && pair_q[pid] == q && eligible_pair(pid))
+            .collect();
+        for wpid in candidates {
+            // Prefix: product path from the start pair to wpid (parent pointers).
+            // Pairs P0..Pa with Pa = wpid; the edge taken by a product transition
+            // X -> Y is the edge at position pos(Y), so the lasso's PREFIX edges
+            // are the positions of P1..P_{a-1} (wpid's own edge starts the cycle).
+            let mut prefix_pids: Vec<usize> = vec![wpid];
+            let mut cur = wpid;
+            while let Some(pp) = parent_pair[cur] {
+                prefix_pids.push(pp);
+                cur = pp;
             }
-        }
-        let Some(wpid) = witness_pair else { continue };
-        // Prefix: product path from the start pair to wpid (parent pointers).
-        // Pairs P0..Pa with Pa = wpid; the edge taken by a product transition
-        // X -> Y is the edge at position pos(Y), so the lasso's PREFIX edges
-        // are the positions of P1..P_{a-1} (wpid's own edge starts the cycle).
-        let mut prefix_pids: Vec<usize> = vec![wpid];
-        let mut cur = wpid;
-        while let Some(pp) = parent_pair[cur] {
-            prefix_pids.push(pp);
-            cur = pp;
-        }
-        prefix_pids.reverse();
+            prefix_pids.reverse();
 
-        let mut lasso: Vec<(usize, usize, usize)> = Vec::new();
-        for &pid in prefix_pids.iter().skip(1) {
-            if pid == wpid {
-                continue; // wpid's edge belongs to the cycle (below)
+            let mut lasso: Vec<(usize, usize, usize)> = Vec::new();
+            for &pid in prefix_pids.iter().skip(1) {
+                if pid == wpid {
+                    continue; // wpid's edge belongs to the cycle (below)
+                }
+                let (sc, si) =
+                    pos_edge[pair_pos[pid]].expect("prefix pair sits on an edge position");
+                let (iidx, tid, _t) = adj[sc][si];
+                lasso.push((sc, iidx, tid));
             }
-            let (sc, si) = pos_edge[pair_pos[pid]].expect("prefix pair sits on an edge position");
-            let (iidx, tid, _t) = adj[sc][si];
-            lasso.push((sc, iidx, tid));
-        }
-        let cycle_start = lasso.len();
+            let cycle_start = lasso.len();
 
-        // Cycle edges in order: wpid's own edge p_w=(u_w -> v_w) FIRST (after
-        // the prefix we sit at u_w), then one edge per DFS descent. The
-        // closing transition back to wpid re-takes p_w, so it is not recorded
-        // again.
-        {
-            let (sc, si) = pos_edge[pair_pos[wpid]].expect("edge position");
-            let (iidx, tid, _t) = adj[sc][si];
-            lasso.push((sc, iidx, tid));
-        }
-        // DFS for the closing path back to wpid. GLOBAL visited pruning
-        // (not just the current path): every reachable node is explored once,
-        // so the search is O(V+E) - path-only pruning re-explores diamond
-        // subgraphs exponentially and spins forever on small graphs (Phase 6
-        // task 4 finding, specgen seed 900_006). Edges to wpid are checked
-        // before the visited test, so any cycle through wpid is still found.
-        let mut rec: Vec<usize> = Vec::new();
-        let mut visited: HashSet<usize> = HashSet::new();
-        visited.insert(wpid);
-        let mut dfs: Vec<(usize, usize)> = vec![(wpid, 0)];
-        let mut found = false;
-        while let Some(&(at, ci)) = dfs.last() {
-            if ci < prod_adj[at].len() {
-                let w = prod_adj[at][ci];
-                dfs.last_mut().unwrap().1 = ci + 1;
-                if w == wpid {
-                    // Closing transition re-takes p_w - already pushed first.
-                    found = true;
-                    break;
-                }
-                if visited.insert(w) {
-                    rec.push(pair_pos[w]);
-                    dfs.push((w, 0));
-                }
-            } else {
-                let (_node, _) = dfs.pop().unwrap();
-                if !dfs.is_empty() {
-                    rec.pop();
+            // Cycle edges in order: wpid's own edge p_w=(u_w -> v_w) FIRST (after
+            // the prefix we sit at u_w), then one edge per DFS descent. The
+            // closing transition back to wpid re-takes p_w, so it is not recorded
+            // again.
+            {
+                let (sc, si) = pos_edge[pair_pos[wpid]].expect("edge position");
+                let (iidx, tid, _t) = adj[sc][si];
+                lasso.push((sc, iidx, tid));
+            }
+            // DFS for the closing path back to wpid. GLOBAL visited pruning
+            // (not just the current path): every reachable node is explored once,
+            // so the search is O(V+E) - path-only pruning re-explores diamond
+            // subgraphs exponentially and spins forever on small graphs (Phase 6
+            // task 4 finding, specgen seed 900_006). Edges to wpid are checked
+            // before the visited test, so any cycle through wpid is still found.
+            let mut rec: Vec<usize> = Vec::new();
+            let mut visited: HashSet<usize> = HashSet::new();
+            visited.insert(wpid);
+            let mut dfs: Vec<(usize, usize)> = vec![(wpid, 0)];
+            let mut found = false;
+            while let Some(&(at, ci)) = dfs.last() {
+                if ci < prod_adj[at].len() {
+                    let w = prod_adj[at][ci];
+                    dfs.last_mut().unwrap().1 = ci + 1;
+                    if w == wpid {
+                        // Closing transition re-takes p_w - already pushed first.
+                        found = true;
+                        break;
+                    }
+                    // nondet: the cycle may only pass through strongly-fair-eligible
+                    // configs (checked AFTER the closing edge, so any cycle through
+                    // wpid is still found).
+                    if !eligible_pair(w) {
+                        continue;
+                    }
+                    if visited.insert(w) {
+                        rec.push(pair_pos[w]);
+                        dfs.push((w, 0));
+                    }
+                } else {
+                    let (_node, _) = dfs.pop().unwrap();
+                    if !dfs.is_empty() {
+                        rec.pop();
+                    }
                 }
             }
+            if !found {
+                // nondet: this candidate's cycle passes through ineligible
+                // configs - try the next candidate at the same q.
+                continue;
+            }
+            for &p in &rec {
+                let (sc, si) = pos_edge[p].expect("cycle pair sits on an edge position");
+                let (iidx, tid, _t) = adj[sc][si];
+                lasso.push((sc, iidx, tid));
+            }
+            return Some(LivWitness { lasso, cycle_start });
         }
-        if !found {
-            continue; // should not happen (wpid is on a product cycle)
-        }
-        for &p in &rec {
-            let (sc, si) = pos_edge[p].expect("cycle pair sits on an edge position");
-            let (iidx, tid, _t) = adj[sc][si];
-            lasso.push((sc, iidx, tid));
-        }
-        return Some(LivWitness { lasso, cycle_start });
     }
     None
 }
@@ -1245,58 +1449,66 @@ fn collect_min_labels(
         for &cid in &frontier {
             let node = nodes[cid].clone();
             for input in inputs.iter() {
-                let Some(eff) = match_effect(module, node.state, &node.vars, input) else {
-                    continue;
+                // Same successor strategy as run(): deterministic fires the first
+                // match only; --nondet fires every matching effect.
+                let effects: Vec<Effect> = if cfg.nondet {
+                    match_effects_all(module, node.state, &node.vars, input)
+                } else {
+                    match_effect(module, node.state, &node.vars, input)
+                        .into_iter()
+                        .collect()
                 };
-                let sample = Sample {
-                    input: Some(input.clone()),
-                    outputs: eff.outputs.clone(),
-                    to_state: eff.next_state,
-                    vars: eff.next_vars.clone(),
-                };
-                let mut mons = node.mons.clone();
-                let mut pruned = false;
-                for (mi, (_, spec)) in all_mons.iter().enumerate().skip(n_props) {
-                    if mon_step(
-                        &mut mons[mi],
-                        spec,
-                        (level_depth + 1) as u64,
-                        &sample,
-                        module,
-                    )? {
-                        pruned = true;
-                        break;
-                    }
-                }
-                if !pruned {
-                    for (mi, (label, spec)) in all_mons.iter().enumerate().take(n_props) {
+                for eff in effects {
+                    let sample = Sample {
+                        input: Some(input.clone()),
+                        outputs: eff.outputs.clone(),
+                        to_state: eff.next_state,
+                        vars: eff.next_vars.clone(),
+                    };
+                    let mut mons = node.mons.clone();
+                    let mut pruned = false;
+                    for (mi, (_, spec)) in all_mons.iter().enumerate().skip(n_props) {
                         if mon_step(
                             &mut mons[mi],
                             spec,
                             (level_depth + 1) as u64,
                             &sample,
                             module,
-                        )? && level_depth + 1 == target
-                        {
-                            out.insert(label.clone());
+                        )? {
+                            pruned = true;
+                            break;
                         }
                     }
-                }
-                let next = BNode {
-                    state: eff.next_state,
-                    vars: eff.next_vars,
-                    mons,
-                };
-                let key = bnode_key(&next, module, &mon_specs);
-                if !visited.contains_key(&key) && nodes.len() < cfg.max_states {
-                    visited.insert(key, nodes.len());
-                    depth_of.push(level_depth + 1);
-                    next_frontier.push(nodes.len());
-                    nodes.push(next);
-                } else if !visited.contains_key(&key) {
-                    // State cap reached: deeper exploration is impossible; the
-                    // target level was already fully processed above.
-                    return Ok(());
+                    if !pruned {
+                        for (mi, (label, spec)) in all_mons.iter().enumerate().take(n_props) {
+                            if mon_step(
+                                &mut mons[mi],
+                                spec,
+                                (level_depth + 1) as u64,
+                                &sample,
+                                module,
+                            )? && level_depth + 1 == target
+                            {
+                                out.insert(label.clone());
+                            }
+                        }
+                    }
+                    let next = BNode {
+                        state: eff.next_state,
+                        vars: eff.next_vars,
+                        mons,
+                    };
+                    let key = bnode_key(&next, module, &mon_specs);
+                    if !visited.contains_key(&key) && nodes.len() < cfg.max_states {
+                        visited.insert(key, nodes.len());
+                        depth_of.push(level_depth + 1);
+                        next_frontier.push(nodes.len());
+                        nodes.push(next);
+                    } else if !visited.contains_key(&key) {
+                        // State cap reached: deeper exploration is impossible; the
+                        // target level was already fully processed above.
+                        return Ok(());
+                    }
                 }
             }
         }
@@ -1715,5 +1927,129 @@ mod tests {
         // The minimal set carries BOTH labels (sorted).
         let labels = minimal_violation_labels(&m, &cfg()).expect("labels");
         assert_eq!(labels, vec!["p1".to_string(), "p2".to_string()]);
+    }
+
+    // --- Phase 16 task 2: --nondet successor strategy + liveness fairness. ---
+
+    fn nondet_cfg() -> RefConfig {
+        RefConfig {
+            nondet: true,
+            ..Default::default()
+        }
+    }
+
+    /// Two transitions with the same pattern but different priorities BOTH match
+    /// one input; match_effects_all returns both (firing order), match_effect only
+    /// the first.
+    #[test]
+    fn match_effects_all_returns_every_matching_transition() {
+        let m = module(
+            "module m { enum State { A } initial A event Go var x: bit<2> init 0 \
+             transition A on Go { next A; set x = 1; priority 1; } \
+             transition A on Go { next A; set x = 2; priority 0; } }",
+        );
+        let go_idx = flatten(&m.events)
+            .iter()
+            .position(|v| v.unique_name == "Go")
+            .expect("Go variant");
+        let inputs = all_inputs(&m);
+        let inp = &inputs[go_idx];
+        let all = match_effects_all(&m, 0, &[Val::Bit(0)], inp);
+        assert_eq!(all.len(), 2, "both matching transitions are effects");
+        // Firing order: priority 1 (x=1) before priority 0 (x=2).
+        assert_eq!(all[0].next_vars, vec![Val::Bit(1)]);
+        assert_eq!(all[1].next_vars, vec![Val::Bit(2)]);
+        // Deterministic first-match is the head of the same enumeration.
+        let first = match_effect(&m, 0, &[Val::Bit(0)], inp).expect("a match");
+        assert_eq!(first.next_vars, all[0].next_vars);
+    }
+
+    /// on_error is an effect ONLY when no transition matched; with no on_error an
+    /// unmatched input yields an empty enumeration (unexpected).
+    #[test]
+    fn match_effects_all_on_error_fallback_and_empty() {
+        let with_oe = module(
+            "module m { enum State { A } initial A \
+             event Go \
+             event Other \
+             transition A on Go { next A; } on_error { next A; } }",
+        );
+        let other_idx = flatten(&with_oe.events)
+            .iter()
+            .position(|v| v.unique_name == "Other")
+            .expect("Other variant");
+        let inputs = all_inputs(&with_oe);
+        let other = &inputs[other_idx];
+        let effs = match_effects_all(&with_oe, 0, &[], other);
+        assert_eq!(effs.len(), 1, "on_error is the sole effect");
+        assert_eq!(effs[0].tid, usize::MAX, "on_error carries the sentinel tid");
+
+        let no_oe = module(
+            "module m { enum State { A } initial A \
+             event Go \
+             event Other \
+             transition A on Go { next A; } }",
+        );
+        let other2_idx = flatten(&no_oe.events)
+            .iter()
+            .position(|v| v.unique_name == "Other")
+            .expect("Other variant");
+        let inputs = all_inputs(&no_oe);
+        let other2 = &inputs[other2_idx];
+        assert!(
+            match_effects_all(&no_oe, 0, &[], other2).is_empty(),
+            "no match, no on_error"
+        );
+    }
+
+    /// Nondet fires EVERY enabled transition as its own successor, so it reaches
+    /// states the deterministic first-match strategy never explores.
+    #[test]
+    fn nondet_explores_every_enabled_successor() {
+        let m = module(
+            "module m { enum State { A, B, C } initial A event Go \
+             transition A on Go { next B; priority 1; } \
+             transition A on Go { next C; priority 0; } \
+             transition B on Go { next B; } \
+             transition C on Go { next C; } }",
+        );
+        let det = run(&m, &cfg()).expect("deterministic run");
+        assert_eq!(det.status, ExactStatus::PassComplete);
+        assert_eq!(det.states, 2, "deterministic reaches only A and B");
+        let nd = run(&m, &nondet_cfg()).expect("nondet run");
+        assert_eq!(nd.status, ExactStatus::PassComplete);
+        assert_eq!(nd.states, 3, "nondet also reaches C via the second effect");
+    }
+
+    /// The D-P4-11 strong-fairness guard: a cycle through a config that has MORE
+    /// THAN ONE explored successor is not a valid nondet bad cycle. Deterministic
+    /// FAILs the liveness property (the A<->B cycle never emits Done); nondet
+    /// PASSes because A branches to C (which emits Done), so A<->B is not strongly
+    /// fair and must be excluded.
+    #[test]
+    fn nondet_liveness_requires_strongly_fair_cycles() {
+        let m = module(
+            "module m { enum State { A, B, C } initial A event Go \
+             transition A on Go { next B; priority 1; } \
+             transition A on Go { next C; priority 0; } \
+             transition B on Go { next A; } \
+             transition C on Go { next C; } \
+             prop reaches_c : eventually (state == C) ; }",
+        );
+        let det = run(&m, &cfg()).expect("deterministic run");
+        assert!(
+            matches!(
+                det.fail.as_ref(),
+                Some((FailReason::LivenessViolation, label, _)) if label == "reaches_c"
+            ),
+            "deterministic: the A<->B cycle never reaches C (got {:?})",
+            det.fail
+        );
+        let nd = run(&m, &nondet_cfg()).expect("nondet run");
+        assert_eq!(
+            nd.status,
+            ExactStatus::PassComplete,
+            "nondet: A branches to C, so the A<->B cycle is not strongly fair"
+        );
     }
 }

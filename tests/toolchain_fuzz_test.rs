@@ -292,6 +292,7 @@ fn run_one(tag: &str, ir: &rfs::Ir) {
         max_states: MAX_STATES,
         timeout_sec: TIMEOUT_SEC,
         assume_arg: "all".to_string(),
+        nondet: false,
     };
     match rfs::mc::ref_mc::run(module, &cfg) {
         Ok(res) => check_status_agreement(tag, &res),

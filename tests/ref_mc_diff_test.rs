@@ -197,6 +197,7 @@ fn ref_cfg() -> rfs::mc::ref_mc::RefConfig {
         max_states: MAX_STATES,
         timeout_sec: TIMEOUT_SEC,
         assume_arg: "all".to_string(),
+        nondet: false,
     }
 }
 
@@ -489,6 +490,140 @@ fn compare_one(name: &str, ir: &rfs::Ir) {
     }
 }
 
+/// The `--nondet` comparison (Phase 16 task 2): ref-mc with the all-enabled-
+/// successor strategy vs BOTH generated engines run with `--nondet`. Asserts
+/// status/exit agreement, EXACT state counts, and reason/label/step agreement
+/// on failure. Transition counts are NOT asserted cross-engine (documented
+/// convention - the engines count differently by design). This is the first
+/// independent ground truth for nondet semantics: both generated engines derive
+/// from the same `plan.rs`, so agreement with ref-mc's own effect enumeration
+/// is the new signal.
+fn compare_one_nondet(name: &str, ir: &rfs::Ir) {
+    let module = &ir.modules[0];
+    let nd_cfg = rfs::mc::ref_mc::RefConfig {
+        nondet: true,
+        ..ref_cfg()
+    };
+    let res = match rfs::mc::ref_mc::run(module, &nd_cfg) {
+        Ok(r) => r,
+        Err(e) => {
+            // Documented asymmetry (same as the deterministic variant): an
+            // assumption already violated at the initial configuration makes the
+            // generated binaries panic/abort while ref_mc reports a clean error.
+            // Both must name the SAME label; no report is emitted. This happens
+            // before any nondet exploration, so it is mode-independent.
+            let cap = "assumption '";
+            let Some(start) = e.find(cap) else {
+                panic!("[{name}] ref_mc nondet run failed: {e}")
+            };
+            let rest = &e[start + cap.len()..];
+            let end = rest
+                .find('\'')
+                .unwrap_or_else(|| panic!("[{name}] malformed ref error: {e}"));
+            let label = &rest[..end];
+            for backend_name in ["rust", "c"] {
+                let bin = mc_json_binary(name, backend_name, ir);
+                let out = Command::new(&bin)
+                    .arg("--nondet")
+                    .output()
+                    .unwrap_or_else(|e2| panic!("run MC binary {:?}: {e2}", bin));
+                assert!(
+                    !out.status.success(),
+                    "[{name}/{backend_name}] sample-0 assumption violation must fail the run"
+                );
+                let err = String::from_utf8_lossy(&out.stderr);
+                assert!(
+                    err.contains(&format!("RFS assumption violated: {label}")),
+                    "[{name}/{backend_name}] panic/abort must name the violated assumption:\n{err}"
+                );
+            }
+            return;
+        }
+    };
+    assert_ne!(
+        res.status,
+        rfs::codegen::mc_concepts::ExactStatus::UnknownStateLimit,
+        "[{name}] ref_mc nondet hit the state/timeout budget - update the eligible list"
+    );
+
+    for backend_name in ["rust", "c"] {
+        let bin = mc_json_binary(name, backend_name, ir);
+        let (exit, doc) = run_mc_json(&bin, &["--nondet"]);
+
+        assert_eq!(
+            doc_status(&doc),
+            res.status.wire(),
+            "[{name}/{backend_name}] nondet status diverges: engine '{}' vs ref '{}'\n{}",
+            doc_status(&doc),
+            res.status.wire(),
+            doc.to_string_compact()
+        );
+        assert_eq!(
+            exit,
+            res.status.exit_code(),
+            "[{name}/{backend_name}] nondet exit code {exit} != status exit {}",
+            res.status.exit_code()
+        );
+
+        // States EXACT (same reachable set under the all-enabled strategy);
+        // transitions NOT asserted cross-engine.
+        let metrics = doc.get("metrics").expect("[{name}] metrics object missing");
+        assert_eq!(
+            metrics.get("states").and_then(|v| v.as_int()),
+            Some(res.states as i64),
+            "[{name}/{backend_name}] nondet states diverge"
+        );
+
+        let engine_fail = doc_fail(&doc);
+        match (engine_fail, &res.fail) {
+            (None, None) => {}
+            (Some((reason, label, step)), Some((rref, lref, sref))) => {
+                assert_eq!(
+                    reason, *rref,
+                    "[{name}/{backend_name}] nondet reason diverges"
+                );
+                if matches!(
+                    reason,
+                    rfs::codegen::mc_concepts::FailReason::PropertyViolation
+                ) {
+                    let labels = rfs::mc::ref_mc_exact::minimal_violation_labels(module, &nd_cfg)
+                        .unwrap_or_else(|e| panic!("[{name}] nondet minimal labels: {e}"));
+                    assert!(
+                        !labels.is_empty() && labels.contains(&label),
+                        "[{name}/{backend_name}] nondet engine label '{label}' not in ref minimal set {labels:?}"
+                    );
+                    let ambiguous = AMBIGUOUS.contains(&name);
+                    if labels.len() == 1 || !ambiguous {
+                        assert_eq!(&label, lref, "[{name}/{backend_name}] nondet label diverges: engine '{label}' vs ref '{lref}'");
+                        assert_eq!(step, *sref, "[{name}/{backend_name}] nondet step diverges: engine {step} vs ref {sref}");
+                    }
+                } else {
+                    // Deadlock / liveness: label+step are the ground-truth identity.
+                    assert_eq!(
+                        &label, lref,
+                        "[{name}/{backend_name}] nondet label diverges"
+                    );
+                    assert_eq!(step, *sref, "[{name}/{backend_name}] nondet step diverges");
+                }
+                let ce = json_ce(&doc);
+                rfs::mc::ref_mc::verify_counterexample(
+                    module,
+                    &nd_cfg,
+                    reason,
+                    &label,
+                    step,
+                    &ce,
+                    res.deadlock_mons.as_ref(),
+                )
+                .unwrap_or_else(|e| panic!("[{name}/{backend_name}] nondet CE replay failed: {e}"));
+            }
+            (a, b) => {
+                panic!("[{name}/{backend_name}] nondet fail presence diverges: engine {a:?} vs ref {b:?}")
+            }
+        }
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Test 1: all eligible examples
 // ---------------------------------------------------------------------------
@@ -525,6 +660,33 @@ fn ref_mc_vs_generated_random_specs() {
 }
 
 // ---------------------------------------------------------------------------
+// Test 2b: --nondet over all eligible examples + random specs
+// ---------------------------------------------------------------------------
+
+#[test]
+fn ref_mc_vs_generated_all_eligible_examples_nondet() {
+    for spec in eligible_examples() {
+        let name = example_name(&spec);
+        let src = std::fs::read_to_string(&spec).unwrap_or_else(|e| panic!("read {spec:?}: {e}"));
+        let ir = rfs::parse_source(&src).unwrap_or_else(|e| panic!("{name} must parse: {e}"));
+        compare_one_nondet(&name, &ir);
+    }
+}
+
+#[test]
+fn ref_mc_vs_generated_random_specs_nondet() {
+    for seed in RANDOM_SEEDS {
+        let mut gen = rfs::lang::specgen::SpecGen::new(seed, rfs::lang::specgen::Bounds::small());
+        let ir = gen.generate();
+        let src = rfs::print_ir(&ir);
+        let reparsed = rfs::parse_source(&src).unwrap_or_else(|e| panic!("seed {seed}: {e}"));
+        assert_eq!(reparsed, ir, "seed {seed}: printer round-trip drift");
+        let name = format!("rand_{seed}");
+        compare_one_nondet(&name, &ir);
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Test 3: negative control - no false PASS (complete)
 // ---------------------------------------------------------------------------
 
@@ -543,6 +705,7 @@ fn tiny_state_limit_never_pass_complete() {
             max_states: 1000,
             timeout_sec: TIMEOUT_SEC,
             assume_arg: "all".to_string(),
+            nondet: false,
         },
     )
     .expect("ref run");

@@ -153,6 +153,11 @@ of SEMANTICS 3.4); pattern group + variant + field-pattern check, guard
 evaluation (an internal failure means "no match" - validated specs always
 evaluate), emit args, SIMULTANEOUS var updates from old values; on_error is the
 final catch-all with tid = usize::MAX and no bindings.
+`src/mc/ref_mc_exact.rs::match_effects_all` is the ALL-MATCHES enumeration of the
+same semantics (the `--nondet` successor strategy): every matching transition in
+firing order becomes an effect, on_error only when nothing matched, empty =
+unexpected input. Deterministic mode's result is its one-element head, so both
+strategies share one matching core.
 
 **run() - level-synchronous BFS.** `src/mc/ref_mc.rs::run` (config:
 `src/mc/ref_mc.rs::RefConfig` - max_states / timeout_sec / assume_arg, defaults
@@ -167,8 +172,11 @@ assumption violated at sample 0 is a clean error (the generated binaries panic
 there; a CLI tool reports exit 1 instead), a property violation is FAIL with the
 initial trace only. BFS: per-config timeout check (ONE level can exceed the
 wall-clock budget on its own, so checking only between levels would let a run
-blow past --timeout-sec); for each input in canonical order, match_effect ->
-unexpected = path terminates (SEMANTICS 8.3), counted in statistics; else step
+blow past --timeout-sec); for each input in canonical order, the successor
+strategy selects the effects - deterministic fires the FIRST match only,
+`--nondet` (`RefConfig.nondet`) fires EVERY matching effect as its own successor
+(each carrying its transition id in parent/adj) - empty = unexpected = path
+terminates (SEMANTICS 8.3), counted in statistics; else step
 the monitors at d+1 (assumptions first - a pruned successor is never reported as
 a property violation), first-violation-wins stop AFTER the per-level loop
 (SEMANTICS 9.5); visited checked at ENQUEUE time with the max_states cap; adj
@@ -247,8 +255,15 @@ in first-appearance order.
   non-trivial SCC member or self-loop singleton.
 - **Falsifying limit vector search**: q ascending in discovery order - t_k =
   `src/mc/ref_mc_exact.rs::leaf_good`(kind, digit); skip if the skeleton evaluates true
-  under t (`src/mc/ref_mc_exact.rs::skel_eval`); else the first witness pair on a cycle
-  with automaton state q (discovery order).
+  under t (`src/mc/ref_mc_exact.rs::skel_eval`); else a witness pair on a cycle with
+  automaton state q (discovery order). In `--nondet` mode a bad cycle must be
+  STRONGLY FAIR (D-P4-11): every enabled successor of a cycle state is taken on the
+  cycle, so a config qualifies only if it has EXACTLY ONE explored successor AND was
+  fully expanded (`adj[c].len() == 1 && complete[c]`). The witness search therefore
+  tries EVERY strongly-fair-eligible on-cycle pair at q (the first may sit in a mixed
+  SCC whose cycle passes through ineligible configs) and the closing DFS descends only
+  into eligible pairs - a branching or truncated config can never be a cycle state.
+  Deterministic mode: every config is eligible, so this is a no-op.
 - **Lasso construction**: product path from the start pair to the witness pair
   via parent pointers (prefix edges = positions of P1..P_{a-1}); the witness
   pair's own edge starts the cycle (pushed FIRST); DFS for the closing path back

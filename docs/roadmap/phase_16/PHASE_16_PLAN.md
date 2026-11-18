@@ -166,6 +166,7 @@ docs/dev MC-engine fragments gain per-mode sections.
 
 | # | Task | Correction type | Description + rationale |
 |---|------|-----------------|--------------------------|
+| 1 | 5 | change | Task 3 finalized with FIVE new clippy warnings left in `src/mc/ref_mc_fuzz.rs` (2x doc_lazy_continuation, 2x too_many_arguments 8/7, 1x collapsible_if - clippy at 61 lines / 37 unique vs the 55/34 baseline) instead of fixing them, per user direction (the session had been looping on clippy). Task 5 now fixes them FIRST as a new action 1 (behavior-neutral: doc indentation, if-collapse, parameter grouping or targeted allow citing generated-runtime signature parity), proves neutrality by re-running the lib + fuzz suites, and only then runs the close-out sweep so "clippy at baseline" still holds. The fix is recorded here; task 3's file stays frozen per FORMATTING.md section 5. |
 
 ## Other information
 

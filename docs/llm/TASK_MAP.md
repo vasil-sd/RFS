@@ -62,6 +62,7 @@ Shared infrastructure: external tools `src/cli/ext_tool.rs::ExtTool` / `resolve`
 |---|---|---|
 | Codegen-time plan | dev:mc-engine-plan | `src/mc/plan.rs::McPlan::compute` (pure function of module + assumption selection; config encoding = the visited-set buffer) |
 | Exact bounded checker (reference) | dev:mc-engine-exact | engine `src/mc/ref_mc_exact.rs::run` (entry point `src/mc/ref_mc.rs::run` delegates, D-P16-1), `render_text`, `to_json_report` (ground truth, D-P6-5) |
+| Seeded fuzz mode (reference) | dev:mc-engine-fuzz | engine `src/mc/ref_mc_fuzz.rs::run` (entry point `src/mc/ref_mc.rs::run_fuzz` delegates, D-P16-1), the generated runtimes' exact draw sequence via `utils::rng`, byte-parity summary line + per-run violation report |
 | Liveness analysis | dev:mc-engine-liveness | `src/mc/ref_mc_exact.rs` (position graph, product automaton, SCCs, lasso witness) |
 | Counterexample verification | dev:mc-engine-verify | `src/mc/ref_mc.rs::verify_counterexample`, minimal violation labels (`src/mc/ref_mc_exact.rs::minimal_violation_labels`) |
 | SMT bounded mode | dev:mc-engine-smt | `src/mc/smt_plan.rs` (k-step unrolling spec), `src/mc/smt_emit.rs` (Rust z3 + C libz3 emitter) |
@@ -101,6 +102,7 @@ Shared infrastructure: external tools `src/cli/ext_tool.rs::ExtTool` / `resolve`
 | tests/ref_mc_sweep_test.rs | ref-MC byte-parity sweep | dev:mc-engine-exact |
 | tests/ref_mc_diag_test.rs | ref-MC diagnostic companion | dev:mc-engine-exact |
 | tests/ref_mc_diff_test.rs | ref-MC vs generated-MC differential (no false pass) | dev:mc-engine-verify |
+| tests/ref_mc_fuzz_test.rs | ref-MC fuzz vs BOTH generated fuzz binaries: byte-parity summary lines + per-run reports, exit-code mirroring | dev:mc-engine-fuzz |
 | tests/monitor_integration_test.rs | monitor compiler integration | dev:monitor-compiler-overview |
 | tests/monitor_ref_test.rs | hand-written monitor references | dev:monitor-compiler-reference |
 | tests/psl_translation_test.rs | PSL translation pins | dev:monitor-compiler-compile |
@@ -170,7 +172,9 @@ above.
 - `src/mc/plan.rs` - codegen-time plan for the exact MC engine (embedded in both binaries)
 - `src/mc/smt_plan.rs` - backend-neutral SMT spec for k-step unrolling over z3 bitvectors
 - `src/mc/smt_emit.rs` - shared SMT emitter: renders the spec into Rust (z3 crate) and C (libz3)
-- `src/mc/ref_mc.rs` - brute-force reference model checker (ground truth, rfs mc-ref; no intra-mc/ imports)
+- `src/mc/ref_mc.rs` - brute-force reference model checker common core + entry points (ground truth, rfs mc-ref; no intra-mc/ imports)
+- `src/mc/ref_mc_exact.rs` - the exact-mode engine (BFS + liveness + minimal labels), moved out of ref_mc.rs in Phase 16 task 1
+- `src/mc/ref_mc_fuzz.rs` - the seeded fuzz-mode engine (Phase 16 task 3): the generated runtimes' exact draw sequence, byte-parity reports
 - `src/codegen/monitor.rs` - PSL-to-monitor compiler: formulas to MonitorPlan
 - `src/lang/specgen.rs` - seeded random spec generator + incremental mutation
 - `crates/rfs-build/src/lib.rs` - rfs-build: the build.rs helper API for RFS codegen

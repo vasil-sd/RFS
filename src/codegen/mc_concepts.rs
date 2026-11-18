@@ -243,6 +243,46 @@ pub fn exact_summary_line(
     s
 }
 
+/// The fuzz-mode summary line format (D-P16-5): single-sourced here and
+/// interpolated into BOTH generated runtimes - the Rust template prints it via
+/// `println!` over this `{}` form, the C template derives its printf format by
+/// replacing each `{}` with `%d`. The `property_violations` counter is always
+/// 0 (a violation exits immediately, printing no summary) but the field stays
+/// for a stable format.
+pub const FUZZ_SUMMARY_FORMAT: &str = "model-check summary: runs={} bound={} completed={} unexpected={} assumption_stops={} property_violations={}";
+
+/// Render one fuzz-mode summary line (the exact wire format both generated
+/// runtimes print after all runs complete). Renders the constant directly -
+/// `format!` requires a string literal on stable, so the six `{}` slots are
+/// filled in order; a unit test pins the rendered bytes.
+pub fn fuzz_summary_line(
+    runs: usize,
+    bound: usize,
+    completed: usize,
+    unexpected: usize,
+    assumption_stops: usize,
+    property_violations: usize,
+) -> String {
+    let vals = [
+        runs,
+        bound,
+        completed,
+        unexpected,
+        assumption_stops,
+        property_violations,
+    ];
+    let mut out = String::with_capacity(FUZZ_SUMMARY_FORMAT.len() + 24);
+    let mut rest = FUZZ_SUMMARY_FORMAT;
+    for v in vals {
+        let Some(pos) = rest.find("{}") else { break };
+        out.push_str(&rest[..pos]);
+        out.push_str(&v.to_string());
+        rest = &rest[pos + 2..];
+    }
+    out.push_str(rest);
+    out
+}
+
 // ---------------------------------------------------------------------------
 // Counterexample report format (Phase 5 task 10)
 // ---------------------------------------------------------------------------
@@ -595,6 +635,13 @@ pub const EXACT_DEFAULT_THREADS: usize = 1;
 /// also accepts runtime `--bound N`. Small by design - SMT mode is bug hunting
 /// on larger bitvectors, not a completeness tool.
 pub const SMT_DEFAULT_BOUND: usize = 10;
+/// Fuzz-mode defaults (D-P16-4): the generated fuzz runtimes' built-in values,
+/// shared so `rfs mc-ref --mode fuzz` and the generated binaries agree without
+/// copy-paste. `--bound` steps per run, `--runs` number of runs, `--seed` the
+/// LCG seed.
+pub const FUZZ_DEFAULT_BOUND: usize = 5;
+pub const FUZZ_DEFAULT_RUNS: usize = 20;
+pub const FUZZ_DEFAULT_SEED: u64 = 12345;
 
 #[cfg(test)]
 mod tests {
@@ -654,6 +701,20 @@ mod tests {
                 Some((FailReason::Deadlock, "-", 4))
             ),
             "model-check summary: status=fail states=10 transitions=20 max_depth=4 reason=deadlock label=- step=4"
+        );
+    }
+
+    #[test]
+    fn fuzz_summary_line_format() {
+        // Byte-pins the rendered constant (the generated runtimes print this
+        // exact line after all runs complete).
+        assert_eq!(
+            fuzz_summary_line(20, 5, 18, 1, 1, 0),
+            "model-check summary: runs=20 bound=5 completed=18 unexpected=1 assumption_stops=1 property_violations=0"
+        );
+        assert_eq!(
+            fuzz_summary_line(0, 0, 0, 0, 0, 0),
+            "model-check summary: runs=0 bound=0 completed=0 unexpected=0 assumption_stops=0 property_violations=0"
         );
     }
 

@@ -13,5 +13,6 @@
 pub mod plan;
 pub mod ref_mc;
 pub mod ref_mc_exact;
+pub mod ref_mc_fuzz;
 pub mod smt_emit;
 pub mod smt_plan;

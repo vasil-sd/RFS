@@ -6,27 +6,35 @@
 //! spawning the binary; [`run_cli`] is the thin argument-parsing shell for
 //! `main.rs`.
 //!
-//! Flag surface mirrors the generated exact-mode binaries where applicable:
+//! Flag surface mirrors the generated binaries per mode (D-P16-4):
+//! `--mode exact|fuzz` (default exact) selects the engine. EXACT mode:
 //! `--max-states N`, `--timeout-sec N`, `--assumes all|none|labels` (same wire
 //! format as `mc_concepts::parse_assume_selection`),
 //! `--counterexample-format json|text` (default text), `--nondet`, `--log-level`.
 //! `--nondet` fires EVERY enabled transition as its own successor (the
 //! generated engines' nondet mode); liveness then requires strongly-fair bad
-//! cycles (D-P4-11). NOT applicable (documented in the usage text):
-//! `--seed`/`--steps`/`--violate`/unexpected-injection (fuzz-mode concepts;
-//! exact search is seedless, D-P4-7) and `--threads`/`--fast` (generated-engine
-//! tuning; ref_mc is single-threaded).
+//! cycles (D-P4-11). FUZZ mode: `--bound N` (5), `--runs N` (20), `--seed N`
+//! (12345), `--assumes`, `--violate label:prob:percent%,...`,
+//! `--unexpected-prob P` (0.0) - the generated fuzz runtimes' flag surface,
+//! driving the seeded engine in `ref_mc_fuzz.rs`. Exact-only flags
+//! (`--max-states`/`--timeout-sec`/`--counterexample-format`/`--nondet`) are a
+//! usage error under `--mode fuzz`. NOT applicable (documented in the usage
+//! text): `--threads`/`--fast` (generated-engine tuning; ref_mc is
+//! single-threaded).
 //!
-//! Exit codes MIRROR the generated binaries: 0 pass-complete, 1 fail,
-//! 2 unknown-state-limit; usage/parse/validation errors exit 1 (the existing
-//! command convention).
+//! Exit codes MIRROR the generated binaries per mode: exact 0 pass-complete,
+//! 1 fail, 2 unknown-state-limit; fuzz 0 no property violation (summary line),
+//! 1 violation found (per-run report, NO summary line). Usage/parse/validation
+//! errors exit 1 (the existing command convention).
 //! Docs: dev:cli-commands-overview, dev:cli-commands-mc-ref-gen-spec, llm:cli-commands
 
 use std::path::Path;
 use std::process::ExitCode;
 
 use crate::cli::utils::{self, Format};
-use crate::mc::ref_mc::{self, RefConfig};
+use crate::codegen::mc_concepts::ViolationSpec;
+use crate::mc::ref_mc::{self, FuzzConfig, RefConfig};
+use crate::mc::ref_mc_fuzz::FuzzReport;
 
 /// Counterexample report format on the wire.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -46,29 +54,70 @@ impl CeFormat {
     }
 }
 
+/// The model-checking mode (`--mode`): exact (default) or seeded fuzz.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum McMode {
+    Exact,
+    Fuzz,
+}
+
+impl McMode {
+    /// Parse the `--mode` value (case-sensitive).
+    pub fn parse(s: &str) -> Option<McMode> {
+        match s {
+            "exact" => Some(McMode::Exact),
+            "fuzz" => Some(McMode::Fuzz),
+            _ => None,
+        }
+    }
+}
+
 /// Options for one `mc-ref` run (parsed flag values; `None` = engine default).
 #[derive(Debug, Clone)]
 pub struct McRefOptions {
+    /// `--mode exact|fuzz` (default exact).
+    pub mode: McMode,
     /// `--max-states N`; `None` = `mc_concepts::EXACT_DEFAULT_MAX_STATES`.
+    /// EXACT-MODE-ONLY (rejected under `--mode fuzz`).
     pub max_states: Option<usize>,
     /// `--timeout-sec N` (wall clock, 0 = off); `None` = engine default.
+    /// EXACT-MODE-ONLY (rejected under `--mode fuzz`).
     pub timeout_sec: Option<u64>,
-    /// `--assumes` wire string: `all`, `none`, or comma-separated labels.
+    /// `--assumes` wire string: `all`, `none`, or comma-separated labels
+    /// (shared by both modes).
     pub assumes: String,
-    /// `--counterexample-format`: text (default) or json.
+    /// `--counterexample-format`: text (default) or json. EXACT-MODE-ONLY.
     pub ce_format: CeFormat,
-    /// `--nondet`: fire every enabled transition as its own successor.
+    /// `--nondet`: fire every enabled transition as its own successor
+    /// (EXACT-MODE-ONLY).
     pub nondet: bool,
+    /// `--bound N`: fuzz steps per run; `None` = `FUZZ_DEFAULT_BOUND`.
+    pub bound: Option<usize>,
+    /// `--runs N`: fuzz run count; `None` = `FUZZ_DEFAULT_RUNS`.
+    pub runs: Option<usize>,
+    /// `--seed N`: fuzz LCG seed; `None` = `FUZZ_DEFAULT_SEED`.
+    pub seed: Option<u64>,
+    /// `--violate label:prob:percent%,...` parsed directives (fuzz only).
+    pub violate: Vec<ViolationSpec>,
+    /// `--unexpected-prob P`: fuzz unexpected-injection probability
+    /// (fuzz only); `None` = 0.0.
+    pub unexpected_prob: Option<f64>,
 }
 
 impl Default for McRefOptions {
     fn default() -> Self {
         Self {
+            mode: McMode::Exact,
             max_states: None,
             timeout_sec: None,
             assumes: "all".to_string(),
             ce_format: CeFormat::Text,
             nondet: false,
+            bound: None,
+            runs: None,
+            seed: None,
+            violate: Vec::new(),
+            unexpected_prob: None,
         }
     }
 }
@@ -105,6 +154,46 @@ pub fn run_mc_ref(path: &Path, opts: &McRefOptions) -> Result<(ExitCode, String)
                 .join("; ")
         ));
     }
+    // Mode dispatch (D-P16-4): exact is the default and byte-unchanged; fuzz
+    // routes to the seeded engine. Exact-only flags are a usage error under
+    // `--mode fuzz` (the generated fuzz binary has no such flags).
+    if opts.mode == McMode::Fuzz {
+        if opts.max_states.is_some()
+            || opts.timeout_sec.is_some()
+            || opts.ce_format != CeFormat::Text
+            || opts.nondet
+        {
+            return Err(
+                "--max-states/--timeout-sec/--counterexample-format/--nondet are exact-mode-only"
+                    .to_string(),
+            );
+        }
+        let cfg = FuzzConfig {
+            bound: opts
+                .bound
+                .unwrap_or(crate::codegen::mc_concepts::FUZZ_DEFAULT_BOUND),
+            runs: opts
+                .runs
+                .unwrap_or(crate::codegen::mc_concepts::FUZZ_DEFAULT_RUNS),
+            seed: opts
+                .seed
+                .unwrap_or(crate::codegen::mc_concepts::FUZZ_DEFAULT_SEED),
+            assume_arg: opts.assumes.clone(),
+            violate: opts.violate.clone(),
+            unexpected_prob: opts.unexpected_prob.unwrap_or(0.0),
+        };
+        let report = ref_mc::run_fuzz(module, &cfg)?;
+        // Exit 0 on completion (summary line), 1 on a property violation
+        // (per-run report, NO summary line) - mirroring the generated binaries.
+        return match report {
+            // The summary line carries no trailing newline; the engine prints it
+            // with println! (one \n).
+            FuzzReport::Completed { summary } => Ok((ExitCode::SUCCESS, format!("{summary}\n"))),
+            // The per-run report already ends with exactly one \n (the last trace
+            // line); the engine's print_trace does the same - no extra newline.
+            FuzzReport::Violated { report } => Ok((ExitCode::FAILURE, report)),
+        };
+    }
     let cfg = RefConfig {
         max_states: opts
             .max_states
@@ -137,7 +226,7 @@ pub fn exit_code_for(status: crate::codegen::mc_concepts::ExactStatus) -> ExitCo
 }
 
 fn usage() -> String {
-    "usage: rfs mc-ref <spec.rfs|spec.json> [--max-states N] [--timeout-sec N]\n       [--assumes all|none|labels] [--counterexample-format json|text]\n       [--nondet] [--log-level off|error|warn|info|debug]\n\nRuns the reference model checker in-process (no compilation). Exit codes\nmirror the generated exact-mode binaries: 0 pass-complete, 1 fail,\n2 unknown-state-limit.\n\n--nondet fires EVERY enabled transition as its own successor (the generated\nengines' nondet mode); liveness then requires strongly-fair bad cycles.\n\nNot applicable (and why):\n  --seed/--steps/--violate/--unexpected-prob: fuzz-mode concepts; exact\n    search is seedless (D-P4-7).\n  --threads/--fast: generated-engine tuning; ref_mc is single-threaded."
+    "usage: rfs mc-ref <spec.rfs|spec.json> [--mode exact|fuzz]\n       [exact: --max-states N --timeout-sec N --nondet --counterexample-format json|text]\n       [fuzz: --bound N --runs N --seed N --violate label:prob:percent%,... --unexpected-prob P]\n       [--assumes all|none|labels] [--log-level off|error|warn|info|debug]\n\nRuns the reference model checker in-process (no compilation).\n\n--mode exact (default): exhaustive exact search. Exit codes mirror the\n  generated exact-mode binaries: 0 pass-complete, 1 fail, 2 unknown-state-\n  limit. --nondet fires EVERY enabled transition as its own successor;\n  liveness then requires strongly-fair bad cycles.\n--mode fuzz: seeded random testing (the generated fuzz runtimes' strategy).\n  Exit codes: 0 no property violation (summary line printed), 1 violation\n  found (per-run report printed, NO summary line). --bound steps per run (5),\n  --runs count (20), --seed LCG seed (12345), --violate forced-violation\n  directives, --unexpected-prob injection probability (0.0).\n\n--assumes is shared by both modes. Exact-only flags (--max-states/\n--timeout-sec/--counterexample-format/--nondet) are a usage error under\n--mode fuzz.\n\nNot applicable (and why):\n  --threads/--fast: generated-engine tuning; ref_mc is single-threaded."
         .to_string()
 }
 
@@ -199,6 +288,99 @@ pub fn run_cli(args: &[String]) -> ExitCode {
             "--nondet" => {
                 opts.nondet = true;
             }
+            "--mode" => match take_value(args, &mut i, &arg) {
+                Ok(v) => match McMode::parse(&v) {
+                    Some(m) => opts.mode = m,
+                    None => {
+                        eprintln!(
+                            "error: --mode expects exact or fuzz (got '{}')\n{}",
+                            v,
+                            usage()
+                        );
+                        return ExitCode::FAILURE;
+                    }
+                },
+                Err(e) => {
+                    eprintln!("error: {}\n{}", e, usage());
+                    return ExitCode::FAILURE;
+                }
+            },
+            "--bound" => match take_value(args, &mut i, &arg) {
+                Ok(v) => match v.parse::<usize>() {
+                    Ok(n) => opts.bound = Some(n),
+                    Err(_) => {
+                        eprintln!(
+                            "error: --bound expects a non-negative integer (got '{}')\n{}",
+                            v,
+                            usage()
+                        );
+                        return ExitCode::FAILURE;
+                    }
+                },
+                Err(e) => {
+                    eprintln!("error: {}\n{}", e, usage());
+                    return ExitCode::FAILURE;
+                }
+            },
+            "--runs" => match take_value(args, &mut i, &arg) {
+                Ok(v) => match v.parse::<usize>() {
+                    Ok(n) => opts.runs = Some(n),
+                    Err(_) => {
+                        eprintln!(
+                            "error: --runs expects a non-negative integer (got '{}')\n{}",
+                            v,
+                            usage()
+                        );
+                        return ExitCode::FAILURE;
+                    }
+                },
+                Err(e) => {
+                    eprintln!("error: {}\n{}", e, usage());
+                    return ExitCode::FAILURE;
+                }
+            },
+            "--seed" => match take_value(args, &mut i, &arg) {
+                Ok(v) => match v.parse::<u64>() {
+                    Ok(n) => opts.seed = Some(n),
+                    Err(_) => {
+                        eprintln!(
+                            "error: --seed expects a non-negative integer (got '{}')\n{}",
+                            v,
+                            usage()
+                        );
+                        return ExitCode::FAILURE;
+                    }
+                },
+                Err(e) => {
+                    eprintln!("error: {}\n{}", e, usage());
+                    return ExitCode::FAILURE;
+                }
+            },
+            "--violate" => match take_value(args, &mut i, &arg) {
+                Ok(v) => opts.violate.extend(
+                    v.split(',')
+                        .map(|s| s.trim().to_string())
+                        .filter(|s| !s.is_empty())
+                        .map(|s| ViolationSpec::parse(&s)),
+                ),
+                Err(e) => {
+                    eprintln!("error: {}\n{}", e, usage());
+                    return ExitCode::FAILURE;
+                }
+            },
+            "--unexpected-prob" => match take_value(args, &mut i, &arg) {
+                Ok(v) => match v.parse::<f64>() {
+                    Ok(p) => opts.unexpected_prob = Some(p),
+                    Err(_) => {
+                        eprintln!("error: --unexpected-prob expects a floating-point probability (got '{}')\n{}", v, usage());
+                        return ExitCode::FAILURE;
+                    }
+                },
+                Err(e) => {
+                    eprintln!("error: {}\n{}", e, usage());
+                    return ExitCode::FAILURE;
+                }
+            },
             "--counterexample-format" => {
                 match take_value(args, &mut i, &arg) {
                     Ok(v) => match CeFormat::parse(&v) {

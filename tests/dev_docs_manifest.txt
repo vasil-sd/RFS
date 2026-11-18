@@ -84,6 +84,7 @@ src/mc/mod.rs
 src/mc/plan.rs
 src/mc/ref_mc.rs
 src/mc/ref_mc_exact.rs
+src/mc/ref_mc_fuzz.rs
 src/mc/smt_emit.rs
 src/mc/smt_plan.rs
 src/training.rs

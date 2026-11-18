@@ -94,10 +94,16 @@ pub fn generate_model_checker(
     out.push_str(&exact);
     // The __LCG_*__ placeholders are filled from the shared pub consts so the
     // emitted runtime stays in one RNG family with utils::rng by construction.
+    // The __FUZZ_SUMMARY_FORMAT__ placeholder is filled from the shared
+    // mc_concepts constant (D-P16-5) so the wire format has one source.
     out.push_str(
         &FUZZ_RUNTIME
             .replace("__LCG_MULT__", &crate::utils::rng::LCG_MULT.to_string())
-            .replace("__LCG_ADD__", &crate::utils::rng::LCG_ADD.to_string()),
+            .replace("__LCG_ADD__", &crate::utils::rng::LCG_ADD.to_string())
+            .replace(
+                "__FUZZ_SUMMARY_FORMAT__",
+                crate::codegen::mc_concepts::FUZZ_SUMMARY_FORMAT,
+            ),
     );
     out.push_str(MAIN_DISPATCH);
     // The referenced fsm file is BARE (line-1 header + core items, NO inner
@@ -1776,7 +1782,7 @@ fn run_fuzz() {
         if status == "completed" { completed += 1; }
     }
 
-    println!("model-check summary: runs={} bound={} completed={} unexpected={} assumption_stops={} property_violations={}", runs, bound, completed, unexpected_count, assumption_stops, property_violations);
+    println!("__FUZZ_SUMMARY_FORMAT__", runs, bound, completed, unexpected_count, assumption_stops, property_violations);
 }
 "#;
 

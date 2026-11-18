@@ -294,6 +294,66 @@ Code: `src/mc/ref_mc.rs::Leaf`, `src/mc/ref_mc.rs::Skel`, `src/mc/ref_mc.rs::Liv
 `src/mc/ref_mc_exact.rs::leaf_bits`, `src/mc/ref_mc_exact.rs::liv_note`
 
 
+<a id="dev:mc-engine-fuzz"></a>
+## Fuzz mode (`src/mc/ref_mc_fuzz.rs`)
+
+**Role.** The seeded random-testing engine behind `rfs mc-ref --mode fuzz`
+(Phase 16 task 3, D-P16-4): the generated fuzz runtimes' 3-phase input strategy
+with their EXACT RNG draw sequence, so ref-mc is an independent ground truth for
+a mode that previously had only shared-plan backend parity. It steps
+DETERMINISTICALLY (first matching transition - `src/mc/ref_mc.rs::match_effect`);
+fuzz randomizes INPUTS, not transitions (no nondet involvement).
+
+**Input enumeration.** `src/mc/ref_mc.rs::fuzz_inputs` yields ONE representative
+input per event variant, in declaration order (representative value per field:
+false / 0 / first enum variant) - exactly the generated runtimes' `ALL_INPUTS`
+(`representative_input_expr`). This is NOT the exact-mode full-domain Cartesian
+product (`src/mc/ref_mc.rs::all_inputs`); matching the representative list is what
+makes the seeded draw sequence parity-hold.
+
+**Draw sequence (parity-critical contract).** Per run: (1) for each `--violate`
+spec in order, `rng.chance(spec.prob)` -> `violating[i]`. Per step 0..bound:
+(2a) forced phase - for each spec index in order, IF `violating[idx]`,
+`rng.chance(target_fraction[idx])`; if true, a DRAW-FREE scan of all inputs
+(clone + first-match trial) finds the first whose trial yields an assumption or
+property violation with that label; step the real state with it (Stop handler),
+on assumption violation count + break, then check for a property violation.
+(2b) unexpected phase - `rng.chance(unexpected_prob)`; if true,
+`rng.pick_index(all_inputs)` and step with the CONTINUE assumption handler; on
+UnexpectedEvent count + break, then check for a property violation. (2c) allowed
+phase - a draw-free scan builds the allowed list (inputs whose trial is Ok or a
+property violation); if empty -> stuck + break; `rng.pick_index(allowed)` and step
+with the Stop handler, mapping errors to statuses, then check for a property
+violation. After the loop a `completed` status increments its counter. Trial steps
+consume NO draws (they run on clones before any real-step draw).
+
+**RNG.** `src/utils/rng.rs::Rng` (`chance`, `pick_index` - both pre-existing with
+the exact f64 forms the generated runtimes use; no rng.rs change was needed). The
+generated templates keep their inline Rng copies interpolating the shared LCG
+constants - unchanged.
+
+**Sample 0 + step semantics.** A fresh FSM per run steps ALL assumption monitors
+at sample 0 (the generated `Fsm::new` runs before the CLI selection is applied);
+an assumption violated there is a clean error (the binaries panic/abort naming the
+same label). Property monitors then run at sample 0 - a violation reports
+immediately. From step 1 only SELECTED assumptions are monitored
+(`src/codegen/mc_concepts.rs::parse_assume_selection`); assumptions step before
+properties (a pruned successor is never reported as a property violation), same
+order as the exact BFS.
+
+**Report + summary.** A property violation renders the byte-parity per-run report
+(`run N property violation: <label>`, optional trigger-step lines, violation step,
+vars at each, then the counterexample trace via `src/mc/ref_mc.rs::render_input` /
+`render_outputs` / `render_vars`) and exits 1 with NO summary line. After all runs
+complete, `src/codegen/mc_concepts.rs::fuzz_summary_line` prints the single-sourced
+summary (the `property_violations` field is always 0 - a violation exits
+immediately - but stays for a stable format). Exit codes: 0 no property violation,
+1 violation found.
+
+Code: `src/mc/ref_mc_fuzz.rs::run`, `src/mc/ref_mc_fuzz.rs::step_fsm`,
+`src/mc/ref_mc.rs::fuzz_inputs`, `src/mc/ref_mc.rs::run_fuzz`,
+`src/codegen/mc_concepts.rs::fuzz_summary_line`
+
 <a id="dev:mc-engine-verify"></a>
 ## Counterexample verification + minimal labels (`src/mc/ref_mc.rs`)
 

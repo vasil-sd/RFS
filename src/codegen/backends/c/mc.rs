@@ -2569,14 +2569,17 @@ int run_fuzz(int argc, char** argv) {{
         if (strcmp(status, "completed") == 0) completed++;
     }}
 
-    printf("model-check summary: runs=%d bound=%d completed=%d unexpected=%d assumption_stops=%d property_violations=%d\n", runs, bound, completed, unexpected_count, assumption_stops, property_violations);
+    // Summary format single-sourced in mc_concepts (D-P16-5): the brace form is
+    // rendered to printf's `%d` form at codegen time.
+    printf("{fuzz_summary_format}\n", runs, bound, completed, unexpected_count, assumption_stops, property_violations);
     return 0;
 }}
 "#,
         n_all = n_all,
         cand_list = cand_list,
         lcg_mult = crate::utils::rng::LCG_MULT,
-        lcg_add = crate::utils::rng::LCG_ADD
+        lcg_add = crate::utils::rng::LCG_ADD,
+        fuzz_summary_format = crate::codegen::mc_concepts::FUZZ_SUMMARY_FORMAT.replace("{}", "%d")
     )
 }
 

@@ -52,7 +52,8 @@ use std::collections::{HashMap, HashSet};
 
 use crate::codegen::mc_concepts::{
     exact_summary_line, parse_assume_selection, ExactStatus, FailReason, JsonCounterexample,
-    JsonIo, JsonStep, McJsonReport, EXACT_DEFAULT_MAX_STATES, EXACT_DEFAULT_TIMEOUT_SEC,
+    JsonIo, JsonStep, McJsonReport, ViolationSpec, EXACT_DEFAULT_MAX_STATES,
+    EXACT_DEFAULT_TIMEOUT_SEC, FUZZ_DEFAULT_BOUND, FUZZ_DEFAULT_RUNS, FUZZ_DEFAULT_SEED,
 };
 use crate::lang::ir::*;
 
@@ -61,6 +62,8 @@ use crate::lang::ir::*;
 use super::ref_mc_exact::{
     self, leaf_bits, leaf_good, leaf_signals, match_effects_all, prod_delta, skel_eval, state_name,
 };
+// The fuzz-mode engine (Phase 16 task 3) - same D-P16-1 delegation pattern.
+use super::ref_mc_fuzz;
 
 // ---------------------------------------------------------------------------
 // Values (IR-level value representation)
@@ -1247,6 +1250,28 @@ fn representative_value(ty: &Type, module: &Module) -> Option<Val> {
     }
 }
 
+/// The fuzz-mode input enumeration (D-P16-4 parity): ONE representative input
+/// per event variant, in declaration order - exactly the generated fuzz
+/// runtimes' `ALL_INPUTS` (one representative value per field, NOT the full
+/// domain Cartesian product that exact mode's `all_inputs` enumerates). The
+/// fuzz strategy randomizes over this list; matching it is what makes the
+/// seeded draw sequence parity-hold across all three engines.
+pub(crate) fn fuzz_inputs(module: &Module) -> Vec<InputVal> {
+    let variants = flatten(&module.events);
+    variants
+        .iter()
+        .enumerate()
+        .map(|(vi, v)| InputVal {
+            variant: vi,
+            fields: v
+                .fields
+                .iter()
+                .map(|(_, ty)| representative_value(ty, module).unwrap_or(Val::Bit(0)))
+                .collect(),
+        })
+        .collect()
+}
+
 /// The canonical input enumeration (section 9.4): event variants in
 /// declaration order; within a variant, fields in declaration order; concrete
 /// fields over their full domain, abstracted fields at their representative.
@@ -1923,6 +1948,38 @@ impl Default for RefConfig {
     }
 }
 
+/// Configuration for one fuzz-mode run (the generated fuzz binaries' flag
+/// surface, D-P16-4): same names, defaults and wire formats.
+#[derive(Debug, Clone)]
+pub struct FuzzConfig {
+    /// `--bound N`: steps per run (default 5).
+    pub bound: usize,
+    /// `--runs N`: number of runs (default 20).
+    pub runs: usize,
+    /// `--seed N`: the LCG seed (default 12345).
+    pub seed: u64,
+    /// `--assumes` wire string: `all`, `none`, or comma-separated labels.
+    pub assume_arg: String,
+    /// `--violate label:prob:percent%,...` parsed directives (default empty).
+    pub violate: Vec<ViolationSpec>,
+    /// `--unexpected-prob P`: probability of injecting an unexpected input per
+    /// step (default 0.0).
+    pub unexpected_prob: f64,
+}
+
+impl Default for FuzzConfig {
+    fn default() -> Self {
+        Self {
+            bound: FUZZ_DEFAULT_BOUND,
+            runs: FUZZ_DEFAULT_RUNS,
+            seed: FUZZ_DEFAULT_SEED,
+            assume_arg: "all".to_string(),
+            violate: Vec::new(),
+            unexpected_prob: 0.0,
+        }
+    }
+}
+
 /// One recorded input/output of a counterexample step.
 #[derive(Debug, Clone)]
 pub struct IoRec {
@@ -2014,6 +2071,14 @@ pub fn run(module: &Module, cfg: &RefConfig) -> Result<RefResult, String> {
     ref_mc_exact::run(module, cfg)
 }
 
+/// Fuzz-mode entry point (D-P16-1): delegates to the seeded engine in
+/// `ref_mc_fuzz.rs`. Returns the report (summary line after all runs, or the
+/// per-run violation report that terminated a run) - the CLI maps it to the
+/// 0/1 exit contract.
+pub fn run_fuzz(module: &Module, cfg: &FuzzConfig) -> Result<ref_mc_fuzz::FuzzReport, String> {
+    ref_mc_fuzz::run(module, cfg)
+}
+
 // ---------------------------------------------------------------------------
 // Report rendering (unified with the generated engines, D-P6-10)
 // ---------------------------------------------------------------------------
@@ -2030,7 +2095,7 @@ fn render_val(v: &Val, ty: &Type) -> String {
     }
 }
 
-fn render_vars(module: &Module, vars: &[Val]) -> String {
+pub(crate) fn render_vars(module: &Module, vars: &[Val]) -> String {
     if module.vars.is_empty() {
         return "Vars".to_string();
     }
@@ -2044,7 +2109,7 @@ fn render_vars(module: &Module, vars: &[Val]) -> String {
 }
 
 /// Render one input in `Input::...` Debug form.
-fn render_input(io: &IoRec, variants: &[FlatVariant]) -> String {
+pub(crate) fn render_input(io: &IoRec, variants: &[FlatVariant]) -> String {
     if io.fields.is_empty() {
         return format!("Input::{}", io.variant);
     }
@@ -2062,7 +2127,7 @@ fn render_input(io: &IoRec, variants: &[FlatVariant]) -> String {
 }
 
 /// Render one output in `Output::...` Debug form.
-fn render_output(io: &IoRec, variants: &[FlatVariant]) -> String {
+pub(crate) fn render_output(io: &IoRec, variants: &[FlatVariant]) -> String {
     if io.fields.is_empty() {
         return format!("Output::{}", io.variant);
     }
@@ -2079,7 +2144,7 @@ fn render_output(io: &IoRec, variants: &[FlatVariant]) -> String {
     format!("Output::{} {{ {} }}", io.variant, fields.join(", "))
 }
 
-fn render_outputs(outs: &[IoRec], variants: &[FlatVariant]) -> String {
+pub(crate) fn render_outputs(outs: &[IoRec], variants: &[FlatVariant]) -> String {
     if outs.is_empty() {
         return "[]".to_string();
     }
@@ -2368,7 +2433,7 @@ pub fn to_json_report(res: &RefResult, module: &Module) -> McJsonReport {
 // ---------------------------------------------------------------------------
 
 /// The module's initial configuration: (state index, variable values).
-fn initial_config(module: &Module) -> Result<(usize, Vec<Val>), String> {
+pub(crate) fn initial_config(module: &Module) -> Result<(usize, Vec<Val>), String> {
     let states = state_variants(module).to_vec();
     let q0 = module
         .initial_state

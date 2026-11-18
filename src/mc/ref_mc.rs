@@ -64,6 +64,11 @@ use super::ref_mc_exact::{
 };
 // The fuzz-mode engine (Phase 16 task 3) - same D-P16-1 delegation pattern.
 use super::ref_mc_fuzz;
+// The SMT-bounded executor (Phase 16 task 4) - feature-gated (in-process z3
+// execution requires the optional `smt` feature; codegen of smt artifacts is
+// NOT gated).
+#[cfg(feature = "smt")]
+use super::ref_mc_smt;
 
 // ---------------------------------------------------------------------------
 // Values (IR-level value representation)
@@ -2077,6 +2082,15 @@ pub fn run(module: &Module, cfg: &RefConfig) -> Result<RefResult, String> {
 /// 0/1 exit contract.
 pub fn run_fuzz(module: &Module, cfg: &FuzzConfig) -> Result<ref_mc_fuzz::FuzzReport, String> {
     ref_mc_fuzz::run(module, cfg)
+}
+
+/// SMT-bounded entry point (D-P16-1): delegates to the in-process z3 executor
+/// in `ref_mc_smt.rs` (feature-gated - codegen of smt artifacts is NOT gated,
+/// in-process execution IS). Returns the outcome (exit code 0/1/2 + full
+/// stdout) - the CLI prints it and maps the exit code.
+#[cfg(feature = "smt")]
+pub fn run_smt(module: &Module, bound: usize) -> Result<ref_mc_smt::SmtOutcome, String> {
+    ref_mc_smt::run(module, bound)
 }
 
 // ---------------------------------------------------------------------------

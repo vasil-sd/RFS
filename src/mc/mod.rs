@@ -14,5 +14,7 @@ pub mod plan;
 pub mod ref_mc;
 pub mod ref_mc_exact;
 pub mod ref_mc_fuzz;
+#[cfg(feature = "smt")]
+pub mod ref_mc_smt;
 pub mod smt_emit;
 pub mod smt_plan;

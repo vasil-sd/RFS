@@ -2710,3 +2710,25 @@ PHASE 8 IS NOW COMPLETE.
 - cargo fmt clean; rfs-dev inventory audit EXACT (SRC 976 fns / 206 types, TEST 1009 fns / 35 types); rfs-dev sync-check clean.
 - clippy at 61 warning lines / 37 unique = baseline 55/34 + 5 new lib warnings in ref_mc_fuzz.rs (2x doc_lazy_continuation, 2x too_many_arguments 8/7, 1x collapsible_if) + 1 new test-target summary line - routed to task 5's close-out per user direction, NOT fixed here.
 - Findings (status file): pick_index already existed in utils::rng with the exact required f64 form (no rng.rs change needed); a PRE-EXISTING Rust/C fuzz parity gap on 29_empty_module (C mis-counts an empty input list as unexpected events - Rust completed=1 vs C unexpected=3 at seed 7/bound 3/runs 4/--unexpected-prob 0.5) - ref-mc matches the documented contract / Rust backend, the example is excluded from the byte-parity suite and flagged for a future codegen fix; sample-0 assumption-violation asymmetry handled (generated binaries panic/abort, ref reports a clean error naming the same label).
+
+## 2026-11-18 09:08 — Phase 16 task 4 (complete): --mode smt-bounded in rfs mc-ref - in-process z3 executor over the shared SmtSpec model, single-sourced summary wire format, cross-backend byte-parity under both solver versions
+
+### Interpretation & plan
+
+- Requested: execute Phase 16 task 4 (PHASE_16_TASK_4.md) - add SMT-bounded checking (`--mode smt-bounded`) to `rfs mc-ref` as an in-process z3 execution over the SHARED `SmtSpec` encoding model (one encoding, three consumers), single-source the SMT status/summary wire format in mc_concepts.rs, and pin it with a cross-backend byte-parity suite under BOTH host and nix z3 versions. This completes the mode unification.
+- Planned: single-source the four summary formats into both templates and prove byte-identity FIRST (1683/1683 + smt_bounded_test); implement the executor mirroring SMT_ENGINE_RUST step for step with its own Se->z3 conversion (D-P16-3 independence); wire the CLI (--mode smt-bounded, --bound only, 0/1/2 exits, non-smt diagnostic); add the parity suite; run the full canonical sweep + the nix dev-shell half.
+
+### Report
+
+- `src/mc/ref_mc_smt.rs` (new, 907 lines, feature-gated): the in-process executor - `run` consumes the model chain (`McPlan::compute` -> `build_smt_spec`, rejection errors verbatim); `run_unrolled` mirrors SMT_ENGINE_RUST step for step (fixed step-variable names/order, fixed constraint order, safety-then-liveness queries, identical model reading); `se_to_z3`/`sf_to_z3` mirror the emitter's rendering rules with own copies of cmp_widths_full/shift_amt_width/widen/global_field_index; `print_trace` in the pinned witness format; 4 unit tests.
+- `src/codegen/mc_concepts.rs`: D-P16-5 wire format - `SmtStatus` (wire names + exit codes 0/1/2), four summary-line constants, `fill_slots`, `smt_summary_line` + byte-pin test. Both templates interpolate the constants (Rust: 4 placeholders over 5 println sites; C: printf formats derived via fill_slots with %u/%s) - emitted bytes UNCHANGED.
+- `src/mc/ref_mc.rs`: `run_smt` entry (D-P16-1 delegation, feature-gated). `src/cli/commands/mc_ref.rs`: `McMode::SmtBounded`, every flag other than `--bound` rejected under the mode, 0/1/2 exit mapping, non-smt-build diagnostic (exit 1), usage text.
+- `tests/ref_mc_smt_test.rs` (new): FULL-stdout byte-parity + exit-code mirroring vs BOTH generated SMT binaries over the fail/liveness/pass spec family at bounds 1/3/5 (mirrors smt_bounded_test's z3 resolution/build helpers locally); every assertion names both solver sides.
+- Docs/inventory same commit: SRC_STRUCTURE.md +26 rows (budget 1786), TEST_STRUCTURE.md +22 rows (budget 1379), TASK_MAP.md executor row, docs/dev/mc_engine.md in-process-executor section, BUILD.md mc-ref line, tests/dev_docs_manifest.txt.
+
+### Verification results
+
+- cargo test 573/0 (= 572 + 1); cargo test --workspace 701/0 + 2 pre-existing ignored (= 700 + 1); cargo test --features smt 583/0 (= 574 + 9); cargo test-generated-code 1683/1683 UNCHANGED (the template interpolation moved no bytes).
+- nix half: target/ wiped, `nix develop -f shell.nix --impure` ref_mc_smt_test 4/4 green with BOTH sides on the nix unified z3 5.3.2.
+- cargo fmt clean; clippy warning set IDENTICAL to the post-task-3 state (61 lines / 37 unique - zero new warnings from this task's code); rfs-dev inventory audit EXACT (SRC 998 fns / 210 types, TEST 1031 fns / 35 types); sync-check clean; dev_docs_test 9/0.
+- Findings (status file): host in-process z3 is the SYSTEM solver 4.8.12 (pkg-config resolution, below z3-sys' 4.13.3 minimum with an enum-numbering warning) - the executor works correctly on it, so the host half is actually CROSS-solver-version parity (4.8.12 in-process vs 5.3.1 generated), strictly stronger than the task's "host z3 5.3.1" wording; a witness-trace stray-space bug (`vars={x=0 }` vs `vars={x=0}`) was caught by the unit tests and fixed; the task file's "five distinct sites" are four distinct formats (unknown appears twice).

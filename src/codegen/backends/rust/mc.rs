@@ -51,7 +51,28 @@ pub fn generate_model_checker(
         );
         let mut code = header;
         code.push_str(&crate::mc::smt_emit::emit_rust_spec(&spec));
-        code.push_str(&SMT_ENGINE_RUST.replace("{BOUND}", &options.mc_smt_bound.to_string()));
+        // The __SMT_SUMMARY_*__ placeholders are filled from the shared
+        // mc_concepts constants (D-P16-5) so the wire format has one source.
+        code.push_str(
+            &SMT_ENGINE_RUST
+                .replace("{BOUND}", &options.mc_smt_bound.to_string())
+                .replace(
+                    "__SMT_SUMMARY_FAIL_PROPERTY_FORMAT__",
+                    crate::codegen::mc_concepts::SMT_SUMMARY_FAIL_PROPERTY_FORMAT,
+                )
+                .replace(
+                    "__SMT_SUMMARY_UNKNOWN_FORMAT__",
+                    crate::codegen::mc_concepts::SMT_SUMMARY_UNKNOWN_FORMAT,
+                )
+                .replace(
+                    "__SMT_SUMMARY_FAIL_LIVENESS_FORMAT__",
+                    crate::codegen::mc_concepts::SMT_SUMMARY_FAIL_LIVENESS_FORMAT,
+                )
+                .replace(
+                    "__SMT_SUMMARY_PASS_FORMAT__",
+                    crate::codegen::mc_concepts::SMT_SUMMARY_PASS_FORMAT,
+                ),
+        );
         return Ok(CodegenOutput {
             mc_code: Some(code),
             ..Default::default()
@@ -1988,7 +2009,8 @@ fn run_smt() -> i32 {
                         }
                     }
                     println!("FAIL");
-                    println!("model-check summary: status=fail mode=smt-bounded bound={k} reason=property-violation label={} step={vstep}", PROP_NAMES[p]);
+                    // Summary format single-sourced in mc_concepts (D-P16-5).
+                    println!("__SMT_SUMMARY_FAIL_PROPERTY_FORMAT__", k, PROP_NAMES[p], vstep);
                     println!("property violation: {}", PROP_NAMES[p]);
                     println!("  violation step: {vstep}");
                     smt_print_trace(k, &m, &s_vars, &v_vars, ev_vars.as_deref(), &fld_vars);
@@ -1997,7 +2019,7 @@ fn run_smt() -> i32 {
                 SatResult::Unsat => {}
                 SatResult::Unknown => {
                     println!("UNKNOWN (solver inconclusive within bound {k})");
-                    println!("model-check summary: status=unknown mode=smt-bounded bound={k}");
+                    println!("__SMT_SUMMARY_UNKNOWN_FORMAT__", k);
                     return 2;
                 }
             }
@@ -2045,7 +2067,7 @@ fn run_smt() -> i32 {
                             }
                         }
                         println!("FAIL");
-                        println!("model-check summary: status=fail mode=smt-bounded bound={k} reason=liveness-violation label={} step={}", PROP_NAMES[p], pair.0);
+                        println!("__SMT_SUMMARY_FAIL_LIVENESS_FORMAT__", k, PROP_NAMES[p], pair.0);
                         println!("liveness violation: {}", PROP_NAMES[p]);
                         println!("  violation step: {}", pair.0);
                         println!("  cycle length: {}", pair.1 - pair.0);
@@ -2055,7 +2077,7 @@ fn run_smt() -> i32 {
                     SatResult::Unsat => {}
                     SatResult::Unknown => {
                         println!("UNKNOWN (solver inconclusive within bound {k})");
-                        println!("model-check summary: status=unknown mode=smt-bounded bound={k}");
+                        println!("__SMT_SUMMARY_UNKNOWN_FORMAT__", k);
                         return 2;
                     }
                 }
@@ -2063,7 +2085,7 @@ fn run_smt() -> i32 {
         }
         // No violation found within the bound (incomplete - no claim).
         println!("PASS WITHIN BOUND {k} (incomplete - no completeness claim)");
-        println!("model-check summary: status=pass-within-bound mode=smt-bounded bound={k}");
+        println!("__SMT_SUMMARY_PASS_FORMAT__", k);
         0
     })
 }

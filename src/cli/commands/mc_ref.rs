@@ -7,16 +7,20 @@
 //! `main.rs`.
 //!
 //! Flag surface mirrors the generated binaries per mode (D-P16-4):
-//! `--mode exact|fuzz` (default exact) selects the engine. EXACT mode:
-//! `--max-states N`, `--timeout-sec N`, `--assumes all|none|labels` (same wire
-//! format as `mc_concepts::parse_assume_selection`),
+//! `--mode exact|fuzz|smt-bounded` (default exact) selects the engine. EXACT
+//! mode: `--max-states N`, `--timeout-sec N`, `--assumes all|none|labels`
+//! (same wire format as `mc_concepts::parse_assume_selection`),
 //! `--counterexample-format json|text` (default text), `--nondet`, `--log-level`.
 //! `--nondet` fires EVERY enabled transition as its own successor (the
 //! generated engines' nondet mode); liveness then requires strongly-fair bad
 //! cycles (D-P4-11). FUZZ mode: `--bound N` (5), `--runs N` (20), `--seed N`
 //! (12345), `--assumes`, `--violate label:prob:percent%,...`,
 //! `--unexpected-prob P` (0.0) - the generated fuzz runtimes' flag surface,
-//! driving the seeded engine in `ref_mc_fuzz.rs`. Exact-only flags
+//! driving the seeded engine in `ref_mc_fuzz.rs`. SMT-BOUNDED mode: `--bound N`
+//! (10, `SMT_DEFAULT_BOUND`) only - the generated SMT binary parses ONLY
+//! `--bound`, so every other flag is a usage error under it; drives the
+//! in-process z3 executor in `ref_mc_smt.rs` (feature-gated on `smt`; a
+//! non-smt build exits with a clear diagnostic). Exact-only flags
 //! (`--max-states`/`--timeout-sec`/`--counterexample-format`/`--nondet`) are a
 //! usage error under `--mode fuzz`. NOT applicable (documented in the usage
 //! text): `--threads`/`--fast` (generated-engine tuning; ref_mc is
@@ -24,8 +28,9 @@
 //!
 //! Exit codes MIRROR the generated binaries per mode: exact 0 pass-complete,
 //! 1 fail, 2 unknown-state-limit; fuzz 0 no property violation (summary line),
-//! 1 violation found (per-run report, NO summary line). Usage/parse/validation
-//! errors exit 1 (the existing command convention).
+//! 1 violation found (per-run report, NO summary line); smt-bounded 0
+//! pass-within-bound, 1 fail, 2 unknown. Usage/parse/validation errors exit 1
+//! (the existing command convention).
 //! Docs: dev:cli-commands-overview, dev:cli-commands-mc-ref-gen-spec, llm:cli-commands
 
 use std::path::Path;
@@ -54,11 +59,13 @@ impl CeFormat {
     }
 }
 
-/// The model-checking mode (`--mode`): exact (default) or seeded fuzz.
+/// The model-checking mode (`--mode`): exact (default), seeded fuzz, or
+/// SMT-bounded.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum McMode {
     Exact,
     Fuzz,
+    SmtBounded,
 }
 
 impl McMode {
@@ -67,6 +74,7 @@ impl McMode {
         match s {
             "exact" => Some(McMode::Exact),
             "fuzz" => Some(McMode::Fuzz),
+            "smt-bounded" => Some(McMode::SmtBounded),
             _ => None,
         }
     }
@@ -75,7 +83,7 @@ impl McMode {
 /// Options for one `mc-ref` run (parsed flag values; `None` = engine default).
 #[derive(Debug, Clone)]
 pub struct McRefOptions {
-    /// `--mode exact|fuzz` (default exact).
+    /// `--mode exact|fuzz|smt-bounded` (default exact).
     pub mode: McMode,
     /// `--max-states N`; `None` = `mc_concepts::EXACT_DEFAULT_MAX_STATES`.
     /// EXACT-MODE-ONLY (rejected under `--mode fuzz`).
@@ -84,14 +92,17 @@ pub struct McRefOptions {
     /// EXACT-MODE-ONLY (rejected under `--mode fuzz`).
     pub timeout_sec: Option<u64>,
     /// `--assumes` wire string: `all`, `none`, or comma-separated labels
-    /// (shared by both modes).
+    /// (exact + fuzz; rejected under `--mode smt-bounded` - the generated SMT
+    /// binary parses only `--bound`).
     pub assumes: String,
     /// `--counterexample-format`: text (default) or json. EXACT-MODE-ONLY.
     pub ce_format: CeFormat,
     /// `--nondet`: fire every enabled transition as its own successor
     /// (EXACT-MODE-ONLY).
     pub nondet: bool,
-    /// `--bound N`: fuzz steps per run; `None` = `FUZZ_DEFAULT_BOUND`.
+    /// `--bound N`: fuzz steps per run (`None` = `FUZZ_DEFAULT_BOUND`) or SMT
+    /// unrolling depth (`None` = `SMT_DEFAULT_BOUND`) - the generated binaries'
+    /// flag, mode-dependent default.
     pub bound: Option<usize>,
     /// `--runs N`: fuzz run count; `None` = `FUZZ_DEFAULT_RUNS`.
     pub runs: Option<usize>,
@@ -155,8 +166,53 @@ pub fn run_mc_ref(path: &Path, opts: &McRefOptions) -> Result<(ExitCode, String)
         ));
     }
     // Mode dispatch (D-P16-4): exact is the default and byte-unchanged; fuzz
-    // routes to the seeded engine. Exact-only flags are a usage error under
-    // `--mode fuzz` (the generated fuzz binary has no such flags).
+    // routes to the seeded engine; smt-bounded to the in-process z3 executor.
+    // The generated SMT binary parses ONLY `--bound` - every other flag is a
+    // usage error under `--mode smt-bounded`.
+    if opts.mode == McMode::SmtBounded {
+        if opts.max_states.is_some()
+            || opts.timeout_sec.is_some()
+            || opts.ce_format != CeFormat::Text
+            || opts.nondet
+            || opts.runs.is_some()
+            || opts.seed.is_some()
+            || !opts.violate.is_empty()
+            || opts.unexpected_prob.is_some()
+            || opts.assumes != "all"
+        {
+            return Err(
+                "--max-states/--timeout-sec/--counterexample-format/--nondet/--runs/--seed/"
+                    .to_string()
+                    + "--violate/--unexpected-prob/--assumes are not available under --mode smt-bounded",
+            );
+        }
+        #[cfg(feature = "smt")]
+        {
+            let out = ref_mc::run_smt(
+                module,
+                opts.bound
+                    .unwrap_or(crate::codegen::mc_concepts::SMT_DEFAULT_BOUND),
+            )?;
+            // Exit codes mirror the generated SMT binaries: 0 pass-within-bound,
+            // 1 fail, 2 unknown.
+            let code = match out.exit_code {
+                0 => ExitCode::SUCCESS,
+                1 => ExitCode::FAILURE,
+                _ => ExitCode::from(2),
+            };
+            return Ok((code, out.output));
+        }
+        #[cfg(not(feature = "smt"))]
+        {
+            // The one deliberate surface difference from the generated SMT
+            // binaries: codegen of smt artifacts is NOT feature-gated, in-
+            // process execution IS (the z3 crate is optional).
+            return Err(
+                "--mode smt-bounded requires the `smt` cargo feature (rebuild with --features smt)"
+                    .to_string(),
+            );
+        }
+    }
     if opts.mode == McMode::Fuzz {
         if opts.max_states.is_some()
             || opts.timeout_sec.is_some()
@@ -226,7 +282,7 @@ pub fn exit_code_for(status: crate::codegen::mc_concepts::ExactStatus) -> ExitCo
 }
 
 fn usage() -> String {
-    "usage: rfs mc-ref <spec.rfs|spec.json> [--mode exact|fuzz]\n       [exact: --max-states N --timeout-sec N --nondet --counterexample-format json|text]\n       [fuzz: --bound N --runs N --seed N --violate label:prob:percent%,... --unexpected-prob P]\n       [--assumes all|none|labels] [--log-level off|error|warn|info|debug]\n\nRuns the reference model checker in-process (no compilation).\n\n--mode exact (default): exhaustive exact search. Exit codes mirror the\n  generated exact-mode binaries: 0 pass-complete, 1 fail, 2 unknown-state-\n  limit. --nondet fires EVERY enabled transition as its own successor;\n  liveness then requires strongly-fair bad cycles.\n--mode fuzz: seeded random testing (the generated fuzz runtimes' strategy).\n  Exit codes: 0 no property violation (summary line printed), 1 violation\n  found (per-run report printed, NO summary line). --bound steps per run (5),\n  --runs count (20), --seed LCG seed (12345), --violate forced-violation\n  directives, --unexpected-prob injection probability (0.0).\n\n--assumes is shared by both modes. Exact-only flags (--max-states/\n--timeout-sec/--counterexample-format/--nondet) are a usage error under\n--mode fuzz.\n\nNot applicable (and why):\n  --threads/--fast: generated-engine tuning; ref_mc is single-threaded."
+    "usage: rfs mc-ref <spec.rfs|spec.json> [--mode exact|fuzz|smt-bounded]\n       [exact: --max-states N --timeout-sec N --nondet --counterexample-format json|text]\n       [fuzz: --bound N --runs N --seed N --violate label:prob:percent%,... --unexpected-prob P]\n       [smt-bounded: --bound N]\n       [--assumes all|none|labels] [--log-level off|error|warn|info|debug]\n\nRuns the reference model checker in-process (no compilation).\n\n--mode exact (default): exhaustive exact search. Exit codes mirror the\n  generated exact-mode binaries: 0 pass-complete, 1 fail, 2 unknown-state-\n  limit. --nondet fires EVERY enabled transition as its own successor;\n  liveness then requires strongly-fair bad cycles.\n--mode fuzz: seeded random testing (the generated fuzz runtimes' strategy).\n  Exit codes: 0 no property violation (summary line printed), 1 violation\n  found (per-run report printed, NO summary line). --bound steps per run (5),\n  --runs count (20), --seed LCG seed (12345), --violate forced-violation\n  directives, --unexpected-prob injection probability (0.0).\n--mode smt-bounded: k-step SMT unrolling over z3 (the generated SMT binaries'\n  mode, in-process). Exit codes mirror them: 0 pass-within-bound, 1 fail,\n  2 unknown. --bound is the unrolling depth (10); it is the ONLY accepted\n  flag - specs with assumptions or on_error blocks are rejected (same as\n  codegen). Requires the `smt` cargo feature; a non-smt build exits with a\n  clear diagnostic.\n\n--assumes is shared by exact and fuzz. Exact-only flags (--max-states/\n--timeout-sec/--counterexample-format/--nondet) are a usage error under\n--mode fuzz; every flag other than --bound is a usage error under\n--mode smt-bounded.\n\nNot applicable (and why):\n  --threads/--fast: generated-engine tuning; ref_mc is single-threaded."
         .to_string()
 }
 

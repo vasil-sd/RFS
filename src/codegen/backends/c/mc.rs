@@ -54,7 +54,34 @@ pub fn generate_model_checker(
         );
         let mut code = header;
         code.push_str(&crate::mc::smt_emit::emit_c_spec(&spec));
-        code.push_str(&SMT_ENGINE_C.replace("{BOUND}", &options.mc_smt_bound.to_string()));
+        // The __SMT_SUMMARY_*_FORMAT_C__ placeholders are derived from the
+        // shared mc_concepts brace forms (D-P16-5): each {} becomes the slot's
+        // printf type (%u for bound/step, %s for label).
+        use crate::codegen::mc_concepts::fill_slots;
+        let fail_property_c = fill_slots(
+            crate::codegen::mc_concepts::SMT_SUMMARY_FAIL_PROPERTY_FORMAT,
+            &["%u", "%s", "%u"],
+        );
+        let unknown_c = fill_slots(
+            crate::codegen::mc_concepts::SMT_SUMMARY_UNKNOWN_FORMAT,
+            &["%u"],
+        );
+        let fail_liveness_c = fill_slots(
+            crate::codegen::mc_concepts::SMT_SUMMARY_FAIL_LIVENESS_FORMAT,
+            &["%u", "%s", "%u"],
+        );
+        let pass_c = fill_slots(
+            crate::codegen::mc_concepts::SMT_SUMMARY_PASS_FORMAT,
+            &["%u"],
+        );
+        code.push_str(
+            &SMT_ENGINE_C
+                .replace("{BOUND}", &options.mc_smt_bound.to_string())
+                .replace("__SMT_SUMMARY_FAIL_PROPERTY_FORMAT_C__", &fail_property_c)
+                .replace("__SMT_SUMMARY_UNKNOWN_FORMAT_C__", &unknown_c)
+                .replace("__SMT_SUMMARY_FAIL_LIVENESS_FORMAT_C__", &fail_liveness_c)
+                .replace("__SMT_SUMMARY_PASS_FORMAT_C__", &pass_c),
+        );
         return Ok(CodegenOutput {
             mc_code: Some(code),
             ..Default::default()
@@ -2808,14 +2835,16 @@ static int run_smt(int argc, char **argv) {
                 if (smt_read_bool(c, m, alive[i]) && !smt_read_bool(c, m, phi)) { vstep = i; break; }
             }
             printf("FAIL\n");
-            printf("model-check summary: status=fail mode=smt-bounded bound=%u reason=property-violation label=%s step=%u\n", k, PROP_NAMES[p], vstep);
+            // Summary format single-sourced in mc_concepts (D-P16-5): the brace
+            // form is rendered to printf's typed form at codegen time.
+            printf("__SMT_SUMMARY_FAIL_PROPERTY_FORMAT_C__\n", k, PROP_NAMES[p], vstep);
             printf("property violation: %s\n", PROP_NAMES[p]);
             printf("  violation step: %u\n", vstep);
             smt_print_trace(c, k, m, s_vars, v_vars, ev_vars, fld_vars);
             ret = 1; goto done;
         } else if (r == Z3_L_UNDEF) {
             printf("UNKNOWN (solver inconclusive within bound %u)\n", k);
-            printf("model-check summary: status=unknown mode=smt-bounded bound=%u\n", k);
+            printf("__SMT_SUMMARY_UNKNOWN_FORMAT_C__\n", k);
             ret = 2; goto done;
         }
     }
@@ -2871,7 +2900,7 @@ static int run_smt(int argc, char **argv) {
                     }
                 }
                 printf("FAIL\n");
-                printf("model-check summary: status=fail mode=smt-bounded bound=%u reason=liveness-violation label=%s step=%u\n", k, PROP_NAMES[p], pa);
+                printf("__SMT_SUMMARY_FAIL_LIVENESS_FORMAT_C__\n", k, PROP_NAMES[p], pa);
                 printf("liveness violation: %s\n", PROP_NAMES[p]);
                 printf("  violation step: %u\n", pa);
                 printf("  cycle length: %u\n", pb - pa);
@@ -2879,14 +2908,14 @@ static int run_smt(int argc, char **argv) {
                 ret = 1; goto done;
             } else if (r == Z3_L_UNDEF) {
                 printf("UNKNOWN (solver inconclusive within bound %u)\n", k);
-                printf("model-check summary: status=unknown mode=smt-bounded bound=%u\n", k);
+                printf("__SMT_SUMMARY_UNKNOWN_FORMAT_C__\n", k);
                 ret = 2; goto done;
             }
         }
     }
     // No violation found within the bound (incomplete - no claim).
     printf("PASS WITHIN BOUND %u (incomplete - no completeness claim)\n", k);
-    printf("model-check summary: status=pass-within-bound mode=smt-bounded bound=%u\n", k);
+    printf("__SMT_SUMMARY_PASS_FORMAT_C__\n", k);
 
 done:
     free(s_vars);

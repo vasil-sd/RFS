@@ -284,6 +284,106 @@ pub fn fuzz_summary_line(
 }
 
 // ---------------------------------------------------------------------------
+// SMT-bounded mode summary line (Phase 16 task 4, D-P16-5)
+// ---------------------------------------------------------------------------
+
+/// The status of an SMT-bounded run (D-P16-5): wire name + exit code, shared
+/// by both generated runtimes and the in-process ref-mc executor.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SmtStatus {
+    /// No violation found within the bound (incomplete - no completeness claim).
+    PassWithinBound,
+    /// A safety or liveness property was violated.
+    Fail,
+    /// The solver was inconclusive within the bound.
+    Unknown,
+}
+
+impl SmtStatus {
+    /// Wire name in the summary line (`status=<s>`).
+    pub fn wire(&self) -> &'static str {
+        match self {
+            SmtStatus::PassWithinBound => "pass-within-bound",
+            SmtStatus::Fail => "fail",
+            SmtStatus::Unknown => "unknown",
+        }
+    }
+
+    /// Exit code mirroring the generated SMT binaries.
+    pub fn exit_code(&self) -> i32 {
+        match self {
+            SmtStatus::PassWithinBound => 0,
+            SmtStatus::Fail => 1,
+            SmtStatus::Unknown => 2,
+        }
+    }
+}
+
+/// The four SMT-bounded summary line formats (D-P16-5): single-sourced here
+/// and interpolated into BOTH generated runtimes - the Rust template prints
+/// them via `println!` over these `{}` forms, the C template derives its
+/// printf formats by filling each `{}` with the slot's printf type (%u / %s)
+/// via [`fill_slots`]. The in-process ref-mc executor renders them through
+/// [`smt_summary_line`] - one wire format, three consumers.
+pub const SMT_SUMMARY_FAIL_PROPERTY_FORMAT: &str = "model-check summary: status=fail mode=smt-bounded bound={} reason=property-violation label={} step={}";
+pub const SMT_SUMMARY_UNKNOWN_FORMAT: &str =
+    "model-check summary: status=unknown mode=smt-bounded bound={}";
+pub const SMT_SUMMARY_FAIL_LIVENESS_FORMAT: &str = "model-check summary: status=fail mode=smt-bounded bound={} reason=liveness-violation label={} step={}";
+pub const SMT_SUMMARY_PASS_FORMAT: &str =
+    "model-check summary: status=pass-within-bound mode=smt-bounded bound={}";
+
+/// Fill the `{}` slots of a brace-form format with the given replacements, in
+/// order (the C templates derive their printf formats this way; `format!`
+/// needs a string literal on stable). Remaining slots stay as-is.
+pub fn fill_slots(format: &str, slots: &[&str]) -> String {
+    let mut out = String::with_capacity(format.len() + 8);
+    let mut rest = format;
+    for s in slots {
+        let Some(pos) = rest.find("{}") else { break };
+        out.push_str(&rest[..pos]);
+        out.push_str(s);
+        rest = &rest[pos + 2..];
+    }
+    out.push_str(rest);
+    out
+}
+
+/// Render one SMT-bounded summary line (the exact wire format both generated
+/// runtimes print). `reason`/`label`/`step` are required for `Fail`, unused
+/// otherwise.
+pub fn smt_summary_line(
+    status: SmtStatus,
+    bound: usize,
+    reason: Option<FailReason>,
+    label: Option<&str>,
+    step: Option<usize>,
+) -> String {
+    let b = bound.to_string();
+    match status {
+        SmtStatus::PassWithinBound => fill_slots(SMT_SUMMARY_PASS_FORMAT, &[&b]),
+        SmtStatus::Unknown => fill_slots(SMT_SUMMARY_UNKNOWN_FORMAT, &[&b]),
+        SmtStatus::Fail => {
+            let reason = reason.expect("a fail status carries a reason");
+            let label = label.expect("a fail status carries a label");
+            let step = step.expect("a fail status carries a step").to_string();
+            match reason {
+                FailReason::PropertyViolation => fill_slots(
+                    SMT_SUMMARY_FAIL_PROPERTY_FORMAT,
+                    &[b.as_str(), label, step.as_str()],
+                ),
+                FailReason::LivenessViolation => fill_slots(
+                    SMT_SUMMARY_FAIL_LIVENESS_FORMAT,
+                    &[b.as_str(), label, step.as_str()],
+                ),
+                // SMT-bounded has no deadlock status (a stuck unroll drops
+                // `alive`, it is not reportable).
+                FailReason::Deadlock => unreachable!("smt-bounded never reports deadlock"),
+            }
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Counterexample report format (Phase 5 task 10)
 // ---------------------------------------------------------------------------
 
@@ -702,6 +802,44 @@ mod tests {
             ),
             "model-check summary: status=fail states=10 transitions=20 max_depth=4 reason=deadlock label=- step=4"
         );
+    }
+
+    #[test]
+    fn smt_summary_line_formats() {
+        // Byte-pins all four rendered formats (the exact summary lines both
+        // generated SMT runtimes print).
+        assert_eq!(
+            smt_summary_line(
+                SmtStatus::Fail,
+                3,
+                Some(FailReason::PropertyViolation),
+                Some("counter_bounded"),
+                Some(0)
+            ),
+            "model-check summary: status=fail mode=smt-bounded bound=3 reason=property-violation label=counter_bounded step=0"
+        );
+        assert_eq!(
+            smt_summary_line(SmtStatus::Unknown, 10, None, None, None),
+            "model-check summary: status=unknown mode=smt-bounded bound=10"
+        );
+        assert_eq!(
+            smt_summary_line(
+                SmtStatus::Fail,
+                5,
+                Some(FailReason::LivenessViolation),
+                Some("reach_b"),
+                Some(2)
+            ),
+            "model-check summary: status=fail mode=smt-bounded bound=5 reason=liveness-violation label=reach_b step=2"
+        );
+        assert_eq!(
+            smt_summary_line(SmtStatus::PassWithinBound, 7, None, None, None),
+            "model-check summary: status=pass-within-bound mode=smt-bounded bound=7"
+        );
+        // Exit codes mirror the generated SMT binaries.
+        assert_eq!(SmtStatus::PassWithinBound.exit_code(), 0);
+        assert_eq!(SmtStatus::Fail.exit_code(), 1);
+        assert_eq!(SmtStatus::Unknown.exit_code(), 2);
     }
 
     #[test]

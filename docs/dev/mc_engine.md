@@ -529,13 +529,39 @@ cargo feature), codegen flag --smt-bound N (default 10) overridable at runtime.
 Algorithm views L1-L3: dev:algorithms-mc-engine; external references:
 [model checking, SMT/SAT solving](REFERENCES.md#model-checking-smt-sat-solving).
 
+**In-process executor (Phase 16 task 4, D-P16-3).** `src/mc/ref_mc_smt.rs::run`
+(feature-gated on `smt`) is the THIRD consumer of the shared encoding model: it
+runs the same k-step unrolling IN-PROCESS over z3 for `rfs mc-ref --mode
+smt-bounded` - no compilation. It consumes the model chain exactly as the backends
+do (`src/mc/plan.rs::McPlan::compute` -> `src/mc/smt_plan.rs::build_smt_spec`, whose
+rejection errors surface verbatim) and keeps its OWN conversion + unrolling +
+queries (the D-P16-3 stopping point: model-level sharing, not emission sharing),
+mirroring the pinned conventions step for step - fixed step-variable names/order
+(s_/v_/ev_/fld_), fixed base-constraint order (initial config, then per-step
+enabled/fires/any_fire/alive + next-state and per-var ITE chains), fixed query
+order (safety in declaration order, then liveness), identical model reading (first
+violating i; first equal-config a<b pair) and the pinned witness-trace format.
+`src/mc/ref_mc_smt.rs::se_to_z3` mirrors `src/mc/smt_emit.rs::render_se_rust` rule for
+rule (its own copies of cmp_widths_full / shift_amt_width / widen per the
+independence contract); `src/mc/ref_mc_smt.rs::sf_to_z3` mirrors render_sf_rust. The
+summary line renders through the single-sourced `src/codegen/mc_concepts.rs::smt_summary_line`
+(D-P16-5 - one wire format, three consumers). An emitter bug and an executor bug
+stay distinguishable; a model bug is caught by all three agreeing.
+
 **Parity pins.** The emitter's own test module pins the width/shift semantics
 (cmp_widths_full_fits_and_widens, shift_amt_width_rules,
 oversized_literal_comparison_widens, shift_rendering_paths) and - the D-P4-12 core
 guarantee - that EVERY builder function renders to the SAME sequence of z3 operations
 in Rust and C: rust_and_c_render_identical_op_sequences normalizes both backends'
 bodies to op tokens (backend syntax stripped; leaves map to the same s/v_j/fld_g
-tokens) and asserts equality.
+tokens) and asserts equality. The executor is pinned by its own unit tests
+(fail-at-initial / liveness-cycle / pass-within-bound / rejection errors) and by
+tests/ref_mc_smt_test.rs - byte-parity of FULL stdout (human lines + witness trace
++ summary line) and exit codes against BOTH generated SMT binaries over the same
+spec family at multiple bounds; the suite names both solver sides in every
+assertion (the executor links whatever z3-sys resolved at build time, the
+generated binaries the unified resolver's prefix - cross-solver-version parity
+when they differ, the Phase 15 task-2b lesson).
 
 Code: `src/mc/smt_plan.rs::Se`, `src/mc/smt_plan.rs::Sb`, `src/mc/smt_plan.rs::Sf`,
 `src/mc/smt_plan.rs::SmtVar`, `src/mc/smt_plan.rs::SmtClass`, `src/mc/smt_plan.rs::SmtTrans`,
@@ -555,5 +581,17 @@ Code: `src/mc/smt_plan.rs::Se`, `src/mc/smt_plan.rs::Sb`, `src/mc/smt_plan.rs::S
 `src/mc/smt_emit.rs::render_bit_bin_c`, `src/mc/smt_emit.rs::shift_amt_width`,
 `src/mc/smt_emit.rs::render_shift_rust`, `src/mc/smt_emit.rs::render_shift_c`,
 `src/mc/smt_emit.rs::emit_rust_spec`, `src/mc/smt_emit.rs::emit_c_spec`,
+`src/mc/ref_mc_smt.rs::run`, `src/mc/ref_mc_smt.rs::run_unrolled`,
+`src/mc/ref_mc_smt.rs::se_to_z3`, `src/mc/ref_mc_smt.rs::sf_to_z3`,
+`src/mc/ref_mc_smt.rs::cmp_widths_full`, `src/mc/ref_mc_smt.rs::shift_amt_width`,
+`src/mc/ref_mc_smt.rs::widen`, `src/mc/ref_mc_smt.rs::global_field_index`,
+`src/mc/ref_mc_smt.rs::print_trace`, `src/mc/ref_mc_smt.rs::SmtOutcome`,
+`src/mc/ref_mc_smt.rs::z3_version`, `src/mc/ref_mc.rs::run_smt`,
+`src/codegen/mc_concepts.rs::SmtStatus`, `src/codegen/mc_concepts.rs::smt_summary_line`,
+`src/codegen/mc_concepts.rs::fill_slots`,
+`src/codegen/mc_concepts.rs::SMT_SUMMARY_FAIL_PROPERTY_FORMAT`,
+`src/codegen/mc_concepts.rs::SMT_SUMMARY_UNKNOWN_FORMAT`,
+`src/codegen/mc_concepts.rs::SMT_SUMMARY_FAIL_LIVENESS_FORMAT`,
+`src/codegen/mc_concepts.rs::SMT_SUMMARY_PASS_FORMAT`,
 `src/mc/plan.rs::McPlan`, `src/codegen/fsm.rs::RepValue`
 

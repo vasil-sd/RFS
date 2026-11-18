@@ -65,7 +65,7 @@ Shared infrastructure: external tools `src/cli/ext_tool.rs::ExtTool` / `resolve`
 | Seeded fuzz mode (reference) | dev:mc-engine-fuzz | engine `src/mc/ref_mc_fuzz.rs::run` (entry point `src/mc/ref_mc.rs::run_fuzz` delegates, D-P16-1), the generated runtimes' exact draw sequence via `utils::rng`, byte-parity summary line + per-run violation report |
 | Liveness analysis | dev:mc-engine-liveness | `src/mc/ref_mc_exact.rs` (position graph, product automaton, SCCs, lasso witness) |
 | Counterexample verification | dev:mc-engine-verify | `src/mc/ref_mc.rs::verify_counterexample`, minimal violation labels (`src/mc/ref_mc_exact.rs::minimal_violation_labels`) |
-| SMT bounded mode | dev:mc-engine-smt | `src/mc/smt_plan.rs` (k-step unrolling spec), `src/mc/smt_emit.rs` (Rust z3 + C libz3 emitter) |
+| SMT bounded mode | dev:mc-engine-smt | `src/mc/smt_plan.rs` (k-step unrolling spec), `src/mc/smt_emit.rs` (Rust z3 + C libz3 emitter), in-process executor `src/mc/ref_mc_smt.rs::run` (entry point `src/mc/ref_mc.rs::run_smt` delegates, D-P16-1; third consumer of the shared model, D-P16-3) |
 | PSL -> monitor compiler | dev:monitor-compiler-overview (+ -signals / -nodes / -compile / -reference) | `src/codegen/monitor.rs::compile_formula`, `MonitorPlan`, `ReferenceMonitor` |
 
 ### Workspace crates (deep dive dev:workspace-crates-overview)
@@ -175,6 +175,7 @@ above.
 - `src/mc/ref_mc.rs` - brute-force reference model checker common core + entry points (ground truth, rfs mc-ref; no intra-mc/ imports)
 - `src/mc/ref_mc_exact.rs` - the exact-mode engine (BFS + liveness + minimal labels), moved out of ref_mc.rs in Phase 16 task 1
 - `src/mc/ref_mc_fuzz.rs` - the seeded fuzz-mode engine (Phase 16 task 3): the generated runtimes' exact draw sequence, byte-parity reports
+- `src/mc/ref_mc_smt.rs` - the in-process SMT-bounded executor (Phase 16 task 4): third consumer of the shared SmtSpec model over z3, feature-gated
 - `src/codegen/monitor.rs` - PSL-to-monitor compiler: formulas to MonitorPlan
 - `src/lang/specgen.rs` - seeded random spec generator + incremental mutation
 - `crates/rfs-build/src/lib.rs` - rfs-build: the build.rs helper API for RFS codegen

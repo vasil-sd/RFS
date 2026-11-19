@@ -384,7 +384,7 @@ policy test pins the rejection message.
    strictness change can break .json inputs that used to load (or accept
    input that should be rejected): update the scope-limits note in the module
    docs.
-5. **Verify:** `cargo test --lib json_rw`, `cargo test --test frontend_test`,
+5. **Verify:** `cargo test --lib json_rw`, `cargo test --test utils_test`,
    `cargo test --test info_format_test`, then the full [BUILD.md](../../BUILD.md) section 5
    checklist.
 6. **Docs sync:** [DESIGN.md](../../DESIGN.md) (D10 / D-P5-2 / D-P6-2), [KB.md](../../KB.md); training snippets

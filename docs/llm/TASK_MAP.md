@@ -28,7 +28,7 @@ Shared infrastructure: external tools `src/cli/ext_tool.rs::ExtTool` / `resolve`
 | test | dev:cli-commands-test | `src/cli/commands/test.rs::run_test`, `run_unit_suite`, `run_fuzz_c`, `run_fuzz_rust`, `render_script`; dispatch `src/cli/commands/test.rs::run_cli` |
 | diagram | dev:cli-commands-diagram | `src/cli/commands/diagram/mod.rs::run_diagram`, `DIAGRAMS`, `DiagramPlugin`; plugins `src/cli/commands/diagram/dot.rs::DOT_PLUGIN`, `src/cli/commands/diagram/plantuml.rs::PUML_PLUGIN`, `src/cli/commands/diagram/mermaid.rs::MMD_PLUGIN`, `src/cli/commands/diagram/tables.rs::TABLE_PLUGIN` / `MD_PLUGIN`; dispatch `src/cli/commands/diagram/mod.rs::run_cli` |
 | codegen | dev:codegen-plugin-api | `src/codegen/mod.rs::parse_codegen_args`, `get_backend`, `list_backends`, `CodegenCommandKind::run`; backends `src/codegen/backends/rust/mod.rs` / `src/codegen/backends/c/mod.rs`; dispatch + Phase 14 write loop (naming resolution, take-or-emit, stdout mode) `src/cli/commands/codegen.rs::run_cli`, `write_artifacts` |
-| mc-ref | dev:cli-commands-mc-ref-gen-spec + dev:mc-engine-exact | `src/cli/commands/mc_ref.rs::run_mc_ref`, `exit_code_for`, `run_cli`; engine `src/mc/ref_mc.rs::run` |
+| mc-ref | dev:cli-commands-mc-ref-gen-spec + dev:mc-engine-exact/fuzz/smt | `src/cli/commands/mc_ref.rs::run_mc_ref` (mode dispatch, D-P16-4), `exit_code_for`, `run_cli`; engines `src/mc/ref_mc.rs::run` / `run_fuzz` / `run_smt` delegating to `ref_mc_exact` / `ref_mc_fuzz` / `ref_mc_smt` |
 | gen-spec | dev:cli-commands-mc-ref-gen-spec | `src/cli/commands/gen_spec.rs::run_cli`, `generate_random`, `mutate_base`; engine `src/lang/specgen.rs::SpecGen`, `mutate_traced` |
 
 ### Frontend core (source -> IR -> validation)

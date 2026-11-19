@@ -2774,3 +2774,17 @@ PHASE 8 IS NOW COMPLETE.
 - `docs/dev/cli_commands.md`: Overview now states EVERY command is a plugin in ALL_COMMANDS with a run_cli entry point and main.rs is a pure name-dispatcher; the Dispatch main() paragraph matches the shipped dispatcher (find() over the registry, shared handling in src/cli/args.rs); the Library API surface lists the seven current top-level modules with their verified submodules (cli/codegen/json/lang/mc/training/utils) instead of the flat pre-Phase 11 names; the mc-ref section describes McMode + the 11-field McRefOptions, D-P16-4 mode dispatch (smt-bounded first with its flag rejection + smt-feature diagnostic, then fuzz via FuzzConfig, else exact), per-mode exit codes, not-applicable reduced to --threads/--fast, and links dev:mc-engine-exact/fuzz/smt.
 - Finding: the task file's "per-mode exit codes via exit_code_for" was inaccurate - exit_code_for is exact-only (takes ExactStatus); fuzz/smt-bounded codes are derived inline in run_mc_ref's dispatch. Documented the actual mechanism; recorded as a task correction. FuzzConfig lives in src/mc/ref_mc.rs, not the command module.
 - Verification: `cargo test --test dev_docs_test` 9/9 OK (every backticked file::item reference resolves, fragment ownership intact); `cargo fmt --check` clean. Status: `docs/roadmap/phase_17/tasks/PHASE_17_TASK_2_STATUS.md`.
+
+## 2026-11-19 17:41 — Phase 17 task 3: LLM set + KB.md stale refs fixed, both inventory budgets extended
+
+### Interpretation & plan
+
+- Phase 17 implementation stage, task 3 of 12: fix the stale LLM-set rows (TASK_MAP mc-ref row, CHANGE_IMPACT/TEST_STRUCTURE old names, llm/cli_commands dispatch + exit codes), add KB.md §4.2 rows for the three Phase 16 ref_mc_* files, and extend both inventory budgets (user instruction) before tasks 6-9 append rows.
+
+### Report
+
+- Budgets extended: SRC_STRUCTURE 1786 -> 1830, TEST_STRUCTURE 1379 -> 1430 (both were exactly at their old budgets).
+- TASK_MAP row 31 now names the D-P16-4 mode dispatch + all three engine entry points; CHANGE_IMPACT fixed (gen_spec_cmd, test_cmd, frontend_test x3); TEST_STRUCTURE thirteen line-neutral fixes (gen_spec_cmd/mc_ref_cmd/cli_log + ten frontend_test -> utils_test incl. a mermaid node label); llm/cli_commands.md rows 33/39 updated (registry dispatch, exact-only exit_code_for).
+- KB.md §4.2: three new rows (ref_mc_exact/fuzz/smt.rs) + updated ref_mc.rs (common core + entry points) and mc_ref.rs (three-mode dispatch) rows.
+- Scope expansion (task corrections recorded): the sweep found 15 more live stale refs than listed - ten frontend_test in llm/ir_json_rw, llm/validator, dev/ir_json_rw, dev/validator, and five SRC_STRUCTURE phantom frontend.rs/test_cmd refs incl. a PHANTOM file-mapping row the one-directional inventory audit does not catch (renamed to the real src/cli/utils.rs). Intentional rename-history notes ("X -> Y") kept by design.
+- Verification: `cargo test --test dev_docs_test` 9/9 OK; `rfs-dev inventory audit` EXACT zero per-file diffs (SRC 998 fns / 210 types, TEST 1031 fns / 35 types); `cargo fmt --check` clean. Status: `docs/roadmap/phase_17/tasks/PHASE_17_TASK_3_STATUS.md`.

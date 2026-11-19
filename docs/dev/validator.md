@@ -258,7 +258,7 @@ Checklist for developers changing what the validator accepts or reports:
    warning-only order-dependent pairs, zero-bound rules incl. the nested
    case). The 13-file invalid corpus must keep failing.
 4. Verify: `cargo test --lib validator`, `cargo test --test example_corpus_test`,
-   `cargo test --test frontend_test`, then the full [BUILD.md](../../BUILD.md) section 5
+   `cargo test --test utils_test`, then the full [BUILD.md](../../BUILD.md) section 5
    checklist.
 5. Docs sync: [DESIGN.md](../../DESIGN.md) section 13 (diagnostics plan) and [KB.md](../../KB.md) when a rule
    changes; training snippets if the change is user-visible.

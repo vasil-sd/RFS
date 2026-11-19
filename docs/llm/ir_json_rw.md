@@ -33,7 +33,7 @@ toolchain. Four files: `src/lang/ir.rs` (types + per-type to_json/from_json),
 
 **Invariants that must not break.**
 
-- Declaration-order keys, byte-pinned by golden tests (frontend_test compact + pretty pins) - never alphabetize.
+- Declaration-order keys, byte-pinned by golden tests (utils_test compact + pretty pins) - never alphabetize.
 - Option fields render null EXCEPT Module.version / Module.on_error, which are omitted when None (both optional on read).
 - Internally tagged enums: "kind" FIRST, snake_case; UnaryOp/BinOp serialize as bare strings.
 - The u64 value model is 64-bit signed end to end: fail above i64::MAX, reject negatives - never clamp.
@@ -48,7 +48,7 @@ together (the walk test fails on drift); expect the golden pins + round-trip
 property + version-policy test in tests/utils_test.rs to fire; json_rw
 formatting changes also hit cross-backend byte parity (generated MC engines
 embed writer copies). Verify: cargo test --lib json_rw, cargo test --test
-frontend_test, cargo test --test info_format_test. Full table:
+utils_test, cargo test --test info_format_test. Full table:
 llm:change-impact.
 
 **Deep dive.** dev:ir-json-rw-overview + dev:ir-model / dev:ir-wire-format /

@@ -126,3 +126,10 @@ flags + exit codes. Content source: PHASE_16_STATUS.md + the files themselves.
 - No row ADDITIONS to either inventory in this task - that belongs to tasks
   6-9 (same-commit rule, PROTOCOL.md section 5).
 - No changes to the other KB.md sections.
+
+## Task corrections
+
+| Correction | Description + rationale |
+|------------|-------------------------|
+| Stale-name sweep wider than listed | The task file named TEST_STRUCTURE rows 1196-1197 + CHANGE_IMPACT row 35, but the full sweep found 10 more live `frontend_test` references (TEST_STRUCTURE x4 incl. a mermaid node label, llm/ir_json_rw x2, llm/validator x2, dev/ir_json_rw x1, dev/validator x1) and 5 SRC_STRUCTURE phantom `frontend.rs`/`test_cmd` references (row 598 description, row 1269 component description, row 1416 tree legend, row 1656 file-mapping row - a PHANTOM file row the one-directional inventory audit does not catch, row 1701 mermaid label). All fixed line-neutral; the intentional rename-history notes ("X -> Y" form, rows 1334-1336/1362/1387/1415) were kept as designed |
+| Two extra files touched | `docs/dev/ir_json_rw.md` + `docs/dev/validator.md` (Class A) carried live `cargo test --test frontend_test` commands - fixed; not in the task file's affected-files list but required by the task's own goal (no stale names in docs/dev/) |

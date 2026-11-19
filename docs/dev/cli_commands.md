@@ -9,10 +9,12 @@ plugin system, and the shared external-tool infrastructure.
 The `rfs` binary exposes EIGHT subcommands, dispatched from
 `src/main.rs::main`: `parse`, `validate`, `info` (with the Phase 7
 `info format` sub-mode), `test`, `diagram`, `codegen`, `mc-ref`, and
-`gen-spec`. The first six are parsed in `src/main.rs` itself; `mc-ref` and
-`gen-spec` delegate to thin shells (`src/cli/commands/mc_ref.rs::run_cli`,
-`src/cli/commands/gen_spec.rs::run_cli`) that own their argument parsing. Command-to-
-module map:
+`gen-spec`. EVERY command is a plugin registered in `ALL_COMMANDS`
+(`src/cli/commands/mod.rs`), each exposing a `run_cli(args) -> ExitCode`
+entry point that owns its argument parsing; `main.rs` is a pure name-
+dispatcher over the registry (mirroring the diagram-format and codegen-backend
+plugin mechanisms - adding a top-level command is one module + one registry
+line). Command-to-module map:
 
 | Command | Logic entry | Deep-dive fragment |
 |---|---|---|
@@ -58,11 +60,12 @@ command plus a help paragraph per command (flags, semantics, exit codes) and
 an examples block. It is printed by --help on every command and on unknown or
 missing subcommand.
 
-**main().** `src/main.rs::main` matches the first argument: parse/validate/
-info/test/diagram/codegen dispatch to their cmd_* wrappers in this file;
-mc-ref and gen-spec call their modules' run_cli shells; an unknown subcommand
-prints `error: unknown subcommand '<x>'; expected ...` + usage and exits 1;
-no arguments prints the usage and exits 1.
+**main().** `src/main.rs::main` resolves the first argument via
+`src/cli/commands/mod.rs::find` over the `ALL_COMMANDS` registry and calls the
+plugin's `run_cli`; an unknown subcommand prints `error: unknown subcommand
+'<x>'; expected ...` + usage and exits 1; no arguments prints the usage and
+exits 1. The shared argument handling every plugin uses (usage text, format/
+value takers, error conventions) lives in `src/cli/args.rs`.
 
 **Per-command wrappers.** All follow the same manual-parsing loop (a --
 token is skipped, flags consume their values via helpers like
@@ -119,12 +122,12 @@ Code: `src/cli/args.rs::usage`, `src/main.rs::main`, `src/cli/args.rs::take_form
 <a id="dev:cli-commands-library"></a>
 ## Library API surface (`src/lib.rs`)
 
-The crate is a LIBRARY plus a CLI: every module is public (backends, cli_log,
-codegen, codegen_fsm/mc/test, diagram(s), ebnf_grammar, error, ext_tool,
-frontend, gen_spec_cmd, info, info_format, ir, json_rw, json_schema, mc_plan,
-mc_ref_cmd, monitor, parser, printer, ref_mc, smt_emit/plan, spec_hash,
-specgen, test_cmd, training, validator); the CLI entry point is
-`src/main.rs`. Re-exports for external consumers: `src/lang/parser.rs::parse_source`
+The crate is a LIBRARY plus a CLI: seven public top-level modules - `cli`
+(args, log, utils, ext_tool, commands, info_format), `codegen` (fsm, test_plan,
+mc_concepts, monitor, ident, backends), `json` (json_rw, json_schema), `lang`
+(parser, validator, ir, printer, error, specgen), `mc` (plan, smt_plan,
+smt_emit, ref_mc, ref_mc_exact, ref_mc_fuzz, ref_mc_smt), `training`, `utils`
+(hash, rng) - the Phase 11 layout; the CLI entry point is `src/main.rs`. Re-exports for external consumers: `src/lang/parser.rs::parse_source`
 / `src/lang/parser.rs::parse_file`, `src/lang/printer.rs::print_ir`,
 `src/lang/error.rs::ParseError` / Span, the whole IR model (ir::*), and the
 frontend API (`src/cli/utils.rs::Format`, run_conversion, plan_conversion,
@@ -328,22 +331,33 @@ Code: `src/cli/commands/test.rs::TestSuite`, `src/cli/commands/test.rs::TestOpti
 <a id="dev:cli-commands-mc-ref-gen-spec"></a>
 ## mc-ref + gen-spec (`src/cli/commands/mc_ref.rs`, `src/cli/commands/gen_spec.rs`, `src/lang/specgen.rs`)
 
-**rfs mc-ref.** `src/cli/commands/mc_ref.rs::CeFormat` (Text | Json) + parse;
-`src/cli/commands/mc_ref.rs::McRefOptions { max_states, timeout_sec, assumes,
-ce_format }` with Default from the shared exact-mode constants
-(`src/codegen/mc_concepts.rs::EXACT_DEFAULT_MAX_STATES`,
-`src/codegen/mc_concepts.rs::EXACT_DEFAULT_TIMEOUT_SEC`). `src/cli/commands/mc_ref.rs::run_mc_ref`
-applies the shared file contract on the FIRST module, builds a RefConfig, and
-calls `src/mc/ref_mc.rs::run` IN-PROCESS - no compilation (rapid prototyping in
-shell/REPL; engine deep dive: dev:mc-engine-exact). Reports are UNIFIED with
-the generated exact-mode binaries: render_text or to_json_report (one compact
-line + trailing newline - the wire contract the parity suites check).
-`src/cli/commands/mc_ref.rs::exit_code_for` mirrors the generated binaries: 0 pass-
-complete, 1 fail, 2 unknown-state-limit. NOT applicable flags are documented
-in the usage text: --seed/--steps/--violate (fuzz-mode concepts),
---threads/--fast (single-threaded by construction), --nondet (ref_mc explores
-all enabled transitions by construction). `src/cli/commands/mc_ref.rs::run_cli` is the
-thin shell main.rs dispatches to.
+**rfs mc-ref.** `src/cli/commands/mc_ref.rs::McMode` (Exact | Fuzz |
+SmtBounded) + parse; `src/cli/commands/mc_ref.rs::CeFormat` (Text | Json);
+`src/cli/commands/mc_ref.rs::McRefOptions { mode, max_states, timeout_sec,
+assumes, ce_format, nondet, bound, runs, seed, violate, unexpected_prob }` -
+one struct with mode-dependent fields, Default = exact mode with the shared
+defaults (`EXACT_DEFAULT_MAX_STATES`, `FUZZ_DEFAULT_BOUND/RUNS/SEED`,
+`SMT_DEFAULT_BOUND` in `src/codegen/mc_concepts.rs`).
+`src/cli/commands/mc_ref.rs::run_mc_ref` applies the shared file contract on
+the FIRST module, then dispatches by mode (D-P16-4): smt-bounded first - every
+flag other than `--bound` is a usage error, requires the `smt` cargo feature
+(a non-smt build returns a clear diagnostic), routes to
+`src/mc/ref_mc.rs::run_smt`, exit codes 0 pass-within-bound / 1 fail / 2
+unknown mirror the generated SMT binaries; fuzz next - exact-only flags are
+usage errors, builds `src/mc/ref_mc.rs::FuzzConfig` and routes to
+`src/mc/ref_mc.rs::run_fuzz` (the generated runtimes' exact LCG draw sequence),
+exit codes 0 no violation (summary line) / 1 violation (per-run report, NO
+summary line); otherwise exact via `src/mc/ref_mc.rs::run` with
+`src/cli/commands/mc_ref.rs::exit_code_for` mirroring the generated binaries:
+0 pass-complete / 1 fail / 2 unknown-state-limit. All three modes run IN-
+PROCESS - no compilation (rapid prototyping in shell/REPL). Reports are
+UNIFIED with the generated binaries per mode: render_text or to_json_report
+(one compact line + trailing newline - the wire contract the parity suites
+check, all three modes vs BOTH backends). Engine deep dives: dev:mc-engine-
+exact, dev:mc-engine-fuzz, dev:mc-engine-smt. NOT applicable flags are
+documented in the usage text: --threads/--fast (single-threaded by
+construction). `src/cli/commands/mc_ref.rs::run_cli` is the thin argument-
+parsing shell the registry dispatches to.
 
 **rfs gen-spec.** `src/cli/commands/gen_spec.rs::DEFAULT_SEED` = 12345 (pinned);
 `src/cli/commands/gen_spec.rs::RandomOptions { seed, bounds }`. Two modes:
@@ -377,9 +391,10 @@ returns (ir, applied ops). `src/lang/specgen.rs::mutate` = mutate_traced without
 the trace. Consumers: rfs gen-spec, the root fuzz/ libFuzzer targets (fuzzer
 bytes -> seed + bounds), and tests/toolchain_fuzz_test.rs.
 
-Code: `src/cli/commands/mc_ref.rs::CeFormat`, `src/cli/commands/mc_ref.rs::McRefOptions`,
-`src/cli/commands/mc_ref.rs::run_mc_ref`, `src/cli/commands/mc_ref.rs::exit_code_for`,
-`src/cli/commands/mc_ref.rs::run_cli`, `src/cli/commands/gen_spec.rs::DEFAULT_SEED`,
+Code: `src/cli/commands/mc_ref.rs::McMode`, `src/cli/commands/mc_ref.rs::CeFormat`,
+`src/cli/commands/mc_ref.rs::McRefOptions`, `src/cli/commands/mc_ref.rs::run_mc_ref`,
+`src/cli/commands/mc_ref.rs::exit_code_for`, `src/cli/commands/mc_ref.rs::run_cli`,
+`src/mc/ref_mc.rs::run_fuzz`, `src/mc/ref_mc.rs::run_smt`, `src/cli/commands/gen_spec.rs::DEFAULT_SEED`,
 `src/cli/commands/gen_spec.rs::RandomOptions`, `src/cli/commands/gen_spec.rs::generate_random`,
 `src/cli/commands/gen_spec.rs::mutate_base`, `src/cli/commands/gen_spec.rs::verify_rendered`,
 `src/cli/commands/gen_spec.rs::run_cli`, `src/utils/rng.rs::Rng`, `src/lang/specgen.rs::Bounds`,

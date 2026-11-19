@@ -2761,3 +2761,16 @@ PHASE 8 IS NOW COMPLETE.
 - `docs/user/INTEGRATION.md`: Nix installation pointer (`nix build`, BUILD.md section 8) added to the rfs-build toolchain-resolution paragraph.
 - Finding: pre-existing inaccuracy - section 1's SMT row showed runtime `--smt-bound N`, but that is the CODEGEN-time flag; the runtime flag (generated binaries AND mc-ref, Phase 16 unification) is `--bound N`. Corrected.
 - Verification: `cargo test --test docs_md_test` 5/5 OK (cross-link check confirms the stable section-2 anchor still resolves for INTEGRATION.md's link); `cargo fmt --check` clean. Status: `docs/roadmap/phase_17/tasks/PHASE_17_TASK_1_STATUS.md`.
+
+## 2026-11-19 12:52 — Phase 17 task 2: developer CLI doc aligned with the shipped plugin architecture + three-mode mc-ref
+
+### Interpretation & plan
+
+- Phase 17 implementation stage, task 2 of 12: `docs/dev/cli_commands.md` still described the pre-Phase 13 dispatch (cmd_* bodies in main.rs), the pre-Phase 11 flat module list, and an exact-only mc-ref command model.
+- Plan: read the actual source first (src/lib.rs module tree, src/cli/commands/mod.rs registry, src/cli/commands/mc_ref.rs options model + dispatch), then rewrite the four stale spots; verify with dev_docs_test.
+
+### Report
+
+- `docs/dev/cli_commands.md`: Overview now states EVERY command is a plugin in ALL_COMMANDS with a run_cli entry point and main.rs is a pure name-dispatcher; the Dispatch main() paragraph matches the shipped dispatcher (find() over the registry, shared handling in src/cli/args.rs); the Library API surface lists the seven current top-level modules with their verified submodules (cli/codegen/json/lang/mc/training/utils) instead of the flat pre-Phase 11 names; the mc-ref section describes McMode + the 11-field McRefOptions, D-P16-4 mode dispatch (smt-bounded first with its flag rejection + smt-feature diagnostic, then fuzz via FuzzConfig, else exact), per-mode exit codes, not-applicable reduced to --threads/--fast, and links dev:mc-engine-exact/fuzz/smt.
+- Finding: the task file's "per-mode exit codes via exit_code_for" was inaccurate - exit_code_for is exact-only (takes ExactStatus); fuzz/smt-bounded codes are derived inline in run_mc_ref's dispatch. Documented the actual mechanism; recorded as a task correction. FuzzConfig lives in src/mc/ref_mc.rs, not the command module.
+- Verification: `cargo test --test dev_docs_test` 9/9 OK (every backticked file::item reference resolves, fragment ownership intact); `cargo fmt --check` clean. Status: `docs/roadmap/phase_17/tasks/PHASE_17_TASK_2_STATUS.md`.

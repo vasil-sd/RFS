@@ -130,3 +130,9 @@ unchanged unless stale (verify against `src/cli/commands/gen_spec.rs`).
 - No changes to other docs/dev/ files (mc_engine.md is already current from
   Phase 16).
 - No source changes.
+
+## Task corrections
+
+| Correction | Description + rationale |
+|------------|-------------------------|
+| exit_code_for scope | The task file said "per-mode exit codes via `exit_code_for`"; the actual source shows `exit_code_for` is EXACT-mode-only (it takes `ExactStatus`) - fuzz and smt-bounded exit codes are derived inline in `run_mc_ref`'s mode dispatch. The doc describes the actual mechanism; no work deviation, descriptive correction only |

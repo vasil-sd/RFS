@@ -2801,3 +2801,15 @@ PHASE 8 IS NOW COMPLETE.
 - src/cli/args.rs usage(): mc-ref signature line is now `--mode exact|fuzz|smt-bounded` + per-mode flag groups; the help paragraph describes all three modes with per-mode exit codes (exact 0/1/2, fuzz 0/1 no summary line on violation, smt-bounded 0 pass-within-bound/1/2 unknown), the smt-feature requirement, and not-applicable reduced to --threads/--fast.
 - Spot-checks: no-arg rfs prints the new line; unknown subcommand exits 1; rfs mc-ref's own usage unchanged. No test pins this string (verified in preparation) - nothing migrated.
 - Verification: cargo test 573/0 (exactly the Phase 16 baseline - printed text only); clippy clean for args.rs (56 pre-existing baseline lines elsewhere); cargo fmt --check clean. Status: docs/roadmap/phase_17/tasks/PHASE_17_TASK_4_STATUS.md.
+
+## 2026-11-19 20:10 — Phase 17 task 5: mmdc/puppeteer browser-binary finding recorded in TOOLCHAIN.md
+
+### Interpretation & plan
+
+- Phase 17 implementation stage, task 5 of 12: record the preparation-stage finding that mmdc on PATH is not mmdc working - the mermaid-cli npm package does not bundle its browser, and the default puppeteer cache sits in the ephemeral sandbox HOME.
+- Plan: add one gotcha bullet to TOOLCHAIN.md section 6.4 with the verified install recipe (persistent PUPPETEER_CACHE_DIR + the bundled puppeteer 25.16.0 installer + symlink), then verify with docs_md_test + a live render.
+
+### Report
+
+- TOOLCHAIN.md section 6.4: new bullet "mmdc present is NOT mmdc working" (observed 2026-11-19) - names the missing chrome-headless-shell, the ephemeral-sandbox-HOME trap, the Node 18 vs latest-puppeteer crash ("Invalid regular expression flags"), and carries the exact verified recipe as a copy-paste block (PUPPETEER_CACHE_DIR=/workspace/host/.cache/puppeteer, npm install --prefix puppeteer@25.16.0, its installer script, symlink into ~/.cache); notes the --no-sandbox config from the adjacent bullet still applies.
+- Verification: cargo test --test docs_md_test 5/5 OK; cargo fmt --check clean; live mmdc render produced a fresh SVG end-to-end (the documented recipe works). Status: docs/roadmap/phase_17/tasks/PHASE_17_TASK_5_STATUS.md.

@@ -180,6 +180,25 @@ rfs diagram --format mmd  --out d.mmd  spec.rfs && mmdc -i d.mmd -o d.svg -q
   always passes a generated puppeteer config (`{"args":["--no-sandbox","--disable-dev-shm-usage"]}`,
   overridable via `RFS_MERMAID_PUPPETEER_ARGS`). `mmdc -o` only accepts
   md/svg/png/pdf extensions (not `/dev/null`).
+- **mmdc present is NOT mmdc working** (observed 2026-11-19): the mermaid-cli
+  npm package does NOT bundle its browser - every render fails with "Could not
+  find chrome-headless-shell" until the browser binary is installed separately.
+  Install it into a PERSISTENT `PUPPETEER_CACHE_DIR` (the sandbox `$HOME` is
+  ephemeral per session, so the default `~/.cache/puppeteer` location loses the
+  download every session): on Node 18 the latest npx-fetched puppeteer crashes
+  with "Invalid regular expression flags" (it needs Node 20+), so install the
+  version mermaid-cli BUNDLES and run its installer:
+
+  ```sh
+  export PUPPETEER_CACHE_DIR=/workspace/host/.cache/puppeteer   # persistent
+  npm install --prefix /tmp/pptr puppeteer@25.16.0              # mermaid-cli's bundled version
+  node /tmp/pptr/node_modules/puppeteer/lib/esm/puppeteer/node/install.js
+  ln -sfn $PUPPETEER_CACHE_DIR ~/.cache/puppeteer               # or export PUPPETEER_CACHE_DIR in every shell
+  ```
+
+  The installer fetches both `chrome` and `chrome-headless-shell`; afterwards
+  `mmdc -i t.mmd -o t.svg -q -p pup.json` renders end-to-end (the `--no-sandbox`
+  config from the previous bullet still applies as root).
 - **plantuml** exits **200** on a syntax error (and still writes an error SVG),
   so rfs gates on the exit status, not file presence.
 

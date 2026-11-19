@@ -2788,3 +2788,16 @@ PHASE 8 IS NOW COMPLETE.
 - KB.md §4.2: three new rows (ref_mc_exact/fuzz/smt.rs) + updated ref_mc.rs (common core + entry points) and mc_ref.rs (three-mode dispatch) rows.
 - Scope expansion (task corrections recorded): the sweep found 15 more live stale refs than listed - ten frontend_test in llm/ir_json_rw, llm/validator, dev/ir_json_rw, dev/validator, and five SRC_STRUCTURE phantom frontend.rs/test_cmd refs incl. a PHANTOM file-mapping row the one-directional inventory audit does not catch (renamed to the real src/cli/utils.rs). Intentional rename-history notes ("X -> Y") kept by design.
 - Verification: `cargo test --test dev_docs_test` 9/9 OK; `rfs-dev inventory audit` EXACT zero per-file diffs (SRC 998 fns / 210 types, TEST 1031 fns / 35 types); `cargo fmt --check` clean. Status: `docs/roadmap/phase_17/tasks/PHASE_17_TASK_3_STATUS.md`.
+
+## 2026-11-19 18:26 — Phase 17 task 4: global usage text now shows the three-mode mc-ref CLI
+
+### Interpretation & plan
+
+- Phase 17 implementation stage, task 4 of 12: the global usage() in src/cli/args.rs still showed the pre-Phase 16 exact-only mc-ref signature + help paragraph, contradicting rfs mc-ref's own usage text.
+- Plan: replace exactly those two blocks with the three-mode content (re-flowed to the global style), leave every other command byte-identical, spot-check the three invocation shapes, run the full suite as the behaviour-preservation proof.
+
+### Report
+
+- src/cli/args.rs usage(): mc-ref signature line is now `--mode exact|fuzz|smt-bounded` + per-mode flag groups; the help paragraph describes all three modes with per-mode exit codes (exact 0/1/2, fuzz 0/1 no summary line on violation, smt-bounded 0 pass-within-bound/1/2 unknown), the smt-feature requirement, and not-applicable reduced to --threads/--fast.
+- Spot-checks: no-arg rfs prints the new line; unknown subcommand exits 1; rfs mc-ref's own usage unchanged. No test pins this string (verified in preparation) - nothing migrated.
+- Verification: cargo test 573/0 (exactly the Phase 16 baseline - printed text only); clippy clean for args.rs (56 pre-existing baseline lines elsewhere); cargo fmt --check clean. Status: docs/roadmap/phase_17/tasks/PHASE_17_TASK_4_STATUS.md.

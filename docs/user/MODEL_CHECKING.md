@@ -23,13 +23,15 @@ Property language: [PROPERTIES.md](PROPERTIES.md).
 | Mode | Command | Completeness | Use it when |
 |---|---|---|---|
 | **Exact** (default) | `rfs codegen <backend> mc spec.rfs --out mc.rs` then run the binary, or `rfs mc-ref spec.rfs` | COMPLETE: explores the full reachable graph; PASS means proven on every path | small/medium specs (the benchmark set runs 94-104k states in seconds); you need a PROOF |
-| **Fuzz** (bounded random) | same binary with `--mode fuzz` | INCOMPLETE: seeded random walks; finds bugs fast, proves nothing | large specs where exact search is too big; bug hunting; CI smoke checks |
-| **SMT bounded** (feature-gated) | build rfs with `--features smt`, then `--mode smt-bounded --smt-bound N` | INCOMPLETE: k-step unrolling over z3; PASS is ALWAYS labeled incomplete | targeted deep-sequence bug hunting beyond the fuzz bound |
+| **Fuzz** (bounded random) | the binary with `--mode fuzz`, or `rfs mc-ref spec.rfs --mode fuzz` | INCOMPLETE: seeded random walks; finds bugs fast, proves nothing | large specs where exact search is too big; bug hunting; CI smoke checks |
+| **SMT bounded** (feature-gated) | build rfs with `--features smt`, then the binary with `--mode smt-bounded --bound N` - or `rfs mc-ref spec.rfs --mode smt-bounded` (same feature requirement, no compilation) | INCOMPLETE: k-step unrolling over z3; PASS is ALWAYS labeled incomplete | targeted deep-sequence bug hunting beyond the fuzz bound |
 
-All three share the same report format (text or JSON) and exit codes:
-**0 = pass-complete, 1 = fail, 2 = unknown-state-limit**. Exact mode contains
-NO randomness: the same spec + flags give byte-identical reports in both
-backends.
+All three share the same report format (text or JSON). Exit codes are per-mode:
+**exact** 0 = pass-complete, 1 = fail, 2 = unknown-state-limit; **fuzz**
+0 = no property violation (summary line printed), 1 = violation found (per-run
+report, NO summary line); **smt-bounded** 0 = pass-within-bound, 1 = fail,
+2 = unknown. Exact mode contains NO randomness: the same spec + flags give
+byte-identical reports in both backends.
 
 ```mermaid
 flowchart TD
@@ -46,7 +48,8 @@ flowchart TD
 
 `rfs mc-ref` runs the toolchain's REFERENCE model checker (independent, brute-
 force implementation of the same semantics) WITHOUT compiling any generated
-code - rapid prototyping in a shell or REPL.
+code - rapid prototyping in a shell or REPL. It supports ALL THREE modes with
+a unified CLI: `--mode exact|fuzz|smt-bounded` (default `exact`).
 
 ```sh
 rfs mc-ref examples/valid/46_version_header.rfs
@@ -54,33 +57,71 @@ rfs mc-ref examples/valid/46_version_header.rfs
 #    model-check summary: status=pass-complete states=17 transitions=33 max_depth=16
 ```
 
-Flags (unified with the generated exact-mode binary where applicable):
+### Exact mode (default)
 
 | Flag | Meaning |
 |---|---|
 | `--max-states N` | state cap; hitting it yields `unknown-state-limit` (exit 2) instead of a completeness claim. Default 1000000 |
 | `--timeout-sec N` | wall-clock timeout, default 0 = off. Never affects WHICH result a machine would otherwise report |
-| `--assumes all\|none\|labels` | assumption selection (same wire format as the generated binary; unknown labels silently dropped) |
+| `--nondet` | nondeterministic mode: EVERY enabled transition fires as its own successor instead of first-match-wins; liveness then requires strongly-fair bad cycles |
 | `--counterexample-format json\|text` | report format, default text; SAME document model as the generated binaries |
-| `--log-level off\|error\|warn\|info\|debug` | stderr progress filter |
 
-NOT applicable to `rfs mc-ref` (documented in its usage text): `--seed`,
-`--steps`, `--violate` (fuzz-mode concepts), `--threads`/`--fast` (ref_mc is
-single-threaded), `--nondet` (the reference engine explores ALL enabled
-transitions by construction). Exit codes mirror the generated binaries:
-0 pass-complete / 1 fail / 2 unknown-state-limit.
+Exit codes: 0 pass-complete / 1 fail / 2 unknown-state-limit.
+
+### Fuzz mode (`--mode fuzz`)
+
+Seeded random testing with the generated fuzz runtimes' EXACT draw sequence -
+no compilation, same strategy, byte-identical reports.
+
+| Flag | Meaning |
+|---|---|
+| `--bound N` | steps per run. Default 5 |
+| `--runs N` | number of runs. Default 20 |
+| `--seed N` | LCG seed. Default 12345 |
+| `--violate label:prob:percent%,...` | forced-violation directives (see [section 7](#7-forced-violations---violate)) |
+| `--unexpected-prob P` | unexpected-input injection probability. Default 0.0 |
+
+Exit codes: 0 no property violation (summary line printed) / 1 violation found
+(per-run report printed, NO summary line). Exact-only flags (`--max-states`,
+`--timeout-sec`, `--counterexample-format`, `--nondet`) are a usage error under
+`--mode fuzz`.
+
+### SMT-bounded mode (`--mode smt-bounded`)
+
+k-step SMT unrolling over z3, IN-PROCESS - the generated SMT binaries' mode
+without the compilation cycle. Requires rfs built with `--features smt` (a
+non-smt build exits with a clear diagnostic).
+
+| Flag | Meaning |
+|---|---|
+| `--bound N` | unrolling depth. Default 10 - the ONLY accepted flag; specs with assumptions or `on_error` blocks are rejected (same as codegen) |
+
+Exit codes: 0 pass-within-bound / 1 fail / 2 unknown.
+
+### Shared flags and not-applicable flags
+
+`--assumes all|none|labels` (shared by exact and fuzz; same wire format as the
+generated binaries, unknown labels silently dropped) and `--log-level
+off|error|warn|info|debug` apply to every mode.
+
+NOT applicable to `rfs mc-ref` (documented in its usage text): `--threads`/
+`--fast` - generated-engine tuning; the reference engine is single-threaded.
 
 **Parity:** because the report format is unified, `rfs mc-ref` output is
-directly comparable - byte-for-byte where deterministic - with the generated
-MC binaries' output. Verified in this repository on
+directly comparable - byte-for-byte where deterministic - with BOTH generated
+backends' output in ALL THREE modes (the fuzz and smt-bounded parity suites pin
+summary lines and witness traces against both backends). Verified in this
+repository on
 [examples/valid/13_properties_safety.rfs](../../examples/valid/13_properties_safety.rfs):
 the text reports of `rfs mc-ref`, the Rust MC binary, and the C MC binary are
 IDENTICAL (the JSON documents differ only in the informational
 `peak_rss_kb` field each generated binary self-reports; `mc-ref` reports 0,
 it runs in-process).
 
-Use `rfs mc-ref` for quick interactive checks; use a generated binary when you
-need the production-identical engine, parallelism (`--threads`), or fuzz mode.
+Use `rfs mc-ref` for quick interactive checks in any mode; use a generated
+binary when you need the production-identical engine (MC = production core +
+runtime, so checked behavior equals shipped behavior) or parallelism
+(`--threads`, `--fast`).
 
 ## 3. Generated MC binary: exact-mode flags
 

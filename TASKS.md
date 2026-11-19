@@ -2747,3 +2747,17 @@ PHASE 8 IS NOW COMPLETE.
 - Nix side: target/ wiped; nix build (doCheck=true) OK - derivation built from the final source (snapshot verified to contain all Phase 16 files + the clippy fixes), output in store, exit 0; the checkPhase commands re-run under the dev shell pass 44/44 (= Phase 15's 42 + task 2's two nondet diff tests); dev-shell full smt suite 583/0 under z3 5.3.2 including a fresh ref_mc_smt_test nix half (both sides on 5.3.2).
 - Findings recorded in PHASE_16_STATUS.md: the pre-existing Rust/C fuzz parity gap on 29_empty_module (C mis-counts an empty input list as unexpected events; routed to a future codegen task); a latent nix --rebuild non-determinism (forcing a rebuild of the unchanged doCheck derivation fails nix's byte-comparison - the cached output is valid; Phase 15 never exercised --rebuild on an unchanged derivation; routed to a future nix-hygiene task).
 - Bookkeeping: PHASE_16_STATUS.md written per FORMATTING.md section 4 (files, functionality deltas, exact test counts, all findings); CURRENT_STATE.md phase-16 row PLANNED -> COMPLETE. Phase 16 is CLOSED.
+
+## 2026-11-19 12:36 — Phase 17 task 1: user docs aligned with the unified three-mode mc-ref + Nix install pointer
+
+### Interpretation & plan
+
+- Phase 17 implementation stage, task 1 of 12 (plan: `docs/roadmap/phase_17/PHASE_17_PLAN.md`): fix the stale user documentation - `docs/user/MODEL_CHECKING.md` sections 1-2 still described `rfs mc-ref` as exact-only (pre-Phase 16), and `docs/user/INTEGRATION.md` had no Nix installation pointer.
+- Plan: rewrite section 2 with per-mode flag tables + exit codes from the actual usage text; fix section 1's mode table + exit-code paragraph; add the one-line Nix pointer; verify with docs_md_test + fmt.
+
+### Report
+
+- `docs/user/MODEL_CHECKING.md`: section 2 rewritten - three per-mode flag tables (exact: --max-states/--timeout-sec/--nondet/--counterexample-format; fuzz: --bound 5/--runs 20/--seed 12345/--violate/--unexpected-prob 0.0; smt-bounded: --bound 10 only, assumptions/on_error rejected, smt feature required), per-mode exit codes (fuzz 0/1 with no 2; smt-bounded 0 pass-within-bound/1/2 unknown), not-applicable reduced to --threads/--fast, parity statement now covers all three modes vs BOTH backends. Section 1: Fuzz + SMT rows gain the mc-ref command forms; exit-code paragraph made per-mode.
+- `docs/user/INTEGRATION.md`: Nix installation pointer (`nix build`, BUILD.md section 8) added to the rfs-build toolchain-resolution paragraph.
+- Finding: pre-existing inaccuracy - section 1's SMT row showed runtime `--smt-bound N`, but that is the CODEGEN-time flag; the runtime flag (generated binaries AND mc-ref, Phase 16 unification) is `--bound N`. Corrected.
+- Verification: `cargo test --test docs_md_test` 5/5 OK (cross-link check confirms the stable section-2 anchor still resolves for INTEGRATION.md's link); `cargo fmt --check` clean. Status: `docs/roadmap/phase_17/tasks/PHASE_17_TASK_1_STATUS.md`.

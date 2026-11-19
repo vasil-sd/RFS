@@ -57,8 +57,11 @@ Builder options:
 
 Toolchain resolution: the `RFS_BIN` environment variable wins; otherwise bare
 `rfs` on PATH. A cold checkout must run `cargo build` at the RFS repository
-root first (produces `target/debug/rfs`) or set `RFS_BIN`. The helper also
-emits the correct cargo rerun directives, so spec edits trigger regeneration.
+root first (produces `target/debug/rfs`) or set `RFS_BIN`; alternatively
+install via `nix build` (BUILD.md section 8) - the package carries the full
+external-tool closure, so `rfs test ...` works from a bare install. The helper
+also emits the correct cargo rerun directives, so spec edits trigger
+regeneration.
 
 Pulling the artifact into your crate: either `include!` a body file (build.rs
 must strip the leading inner attributes - `include!` rejects them - and mirror

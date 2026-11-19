@@ -1,0 +1,43 @@
+# FIX for the deadlock: the original spec's Established state is TERMINAL - no
+# transition leaves it, so once the handshake completes the machine can never
+# act again and exact MC reports a deadlock (a configuration with no enabled
+# transition). The fix adds a Tick-driven teardown out of Established back to
+# Idle. A Recv(Syn)-driven reset would NOT work: prop syn_ack requires EVERY
+# Recv(Syn) input to emit Send(SynAck), and a Drop-emitting reset arm would
+# violate it. Tick is unconstrained by any property here, and the env_tick
+# assumption (a Tick within 5 steps) guarantees Established is never stuck.
+# rfs mc-ref fixed.rfs -> PASS (complete), 62 states.
+module tcp_handshake_like {
+  enum State { Idle, SynSent, Established }
+  initial Idle
+  event Recv(Syn)
+  event Recv(Ack(ack_seq: bit<4>))
+  event Tick
+  output Send(SynAck)
+  output Drop
+  var seq: bit<4> init 0
+  var timer: bit<3> init 7
+  transition Idle on Recv(Syn) {
+    next SynSent;
+    emit Send(SynAck);
+    set seq = 1;
+  }
+  transition SynSent on Recv(Ack(ack_seq)) where ack_seq == seq {
+    next Established;
+  }
+  transition SynSent on Tick where timer > 0 {
+    next SynSent;
+    set timer = timer - 1;
+  }
+  transition SynSent on Tick where timer == 0 {
+    next Idle;
+    emit Drop;
+  }
+  transition Established on Tick {
+    next Idle;
+    emit Drop;
+  }
+  prop syn_ack : always (input_is(Recv(Syn)) -> output_has(Send(SynAck))) ;
+  prop timeout_progress : always (state == SynSent -> bounded_eventually[10] (state != SynSent)) ;
+  assume env_tick : always (bounded_eventually[5] (input_is(Tick))) ;
+}

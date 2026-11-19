@@ -1,0 +1,19 @@
+# FIX for the duplicate priority: two transitions from state A on event E both
+# declared priority 5 - the firing order between them would be undefined, so
+# the validator rejects the spec. The fix gives the self-loop a LOWER priority
+# (4): when both guards could match, transition #0 (priority 5) fires first and
+# the self-loop only fires if it is the sole enabled match. Priorities must be
+# UNIQUE per (state, event pattern) - see LANGUAGE.md.
+module m {
+  enum State { A, B }
+  initial A
+  event E
+  transition A on E {
+    next B;
+    priority 5;
+  }
+  transition A on E {
+    next A;
+    priority 4;
+  }
+}

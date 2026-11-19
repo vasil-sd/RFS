@@ -213,3 +213,108 @@ fn fuzz_c_generates_without_clang_and_builds_when_available() {
         .arg("clean")
         .output();
 }
+
+// ---------------------------------------------------------------------------
+// Phase 17 task 6: the three NEGATIVE example projects. Each runs the REAL rfs
+// binary on the example's spec(s) and pins the failure output (the diagnostic
+// IS the deliverable), then proves the fixed variant passes. No external tools
+// are needed - these are pure CLI invocations of rfs_bin().
+// ---------------------------------------------------------------------------
+
+fn run_rfs(args: &[&str]) -> (i32, String) {
+    let out = std::process::Command::new(rfs_bin())
+        .args(args)
+        .output()
+        .expect("spawn rfs");
+    (
+        out.status.code().unwrap_or(-1),
+        format!(
+            "{}{}",
+            String::from_utf8_lossy(&out.stdout),
+            String::from_utf8_lossy(&out.stderr)
+        ),
+    )
+}
+
+#[test]
+fn mc_deadlock_fail_reports_deadlock_and_fix_passes() {
+    let dir = repo_root().join("crates/examples/mc_deadlock_fail");
+    // The broken spec: terminal Established deadlocks - exit 1 + the pinned CE.
+    let (code, out) = run_rfs(&[
+        "mc-ref",
+        dir.join("04_tcp_handshake_like.rfs").to_str().unwrap(),
+    ]);
+    assert_eq!(code, 1, "deadlock spec must fail mc-ref:\n{out}");
+    assert!(
+        out.contains("status=fail") && out.contains("reason=deadlock"),
+        "pinned summary line missing:\n{out}"
+    );
+    assert!(
+        out.contains("to=State::Established"),
+        "the CE must end in the terminal state:\n{out}"
+    );
+    // The fixed spec: Tick teardown out of Established - exit 0, PASS complete.
+    let (code, out) = run_rfs(&["mc-ref", dir.join("fixed.rfs").to_str().unwrap()]);
+    assert_eq!(code, 0, "fixed spec must pass mc-ref:\n{out}");
+    assert!(
+        out.contains("PASS (complete)"),
+        "pinned PASS missing:\n{out}"
+    );
+}
+
+#[test]
+fn mc_property_violation_fail_reports_rst_and_fix_passes() {
+    let dir = repo_root().join("crates/examples/mc_property_violation_fail");
+    // The mutated variant: rst_goes_closed violated at step 2 - exit 1 + pinned CE.
+    let (code, out) = run_rfs(&[
+        "mc-ref",
+        dir.join("47_http2_stream_rst_fail.rfs").to_str().unwrap(),
+    ]);
+    assert_eq!(code, 1, "mutated variant must fail mc-ref:\n{out}");
+    assert!(
+        out.contains("reason=property-violation label=rst_goes_closed step=2"),
+        "pinned violation line missing:\n{out}"
+    );
+    assert!(
+        out.contains("to=State::HalfClosedLocal"),
+        "the CE must show the retargeted arm:\n{out}"
+    );
+    // The fixed variant (= the original spec 47): exit 0, PASS complete.
+    let (code, out) = run_rfs(&["mc-ref", dir.join("fixed.rfs").to_str().unwrap()]);
+    assert_eq!(code, 0, "fixed variant must pass mc-ref:\n{out}");
+    assert!(
+        out.contains("PASS (complete)"),
+        "pinned PASS missing:\n{out}"
+    );
+}
+
+#[test]
+fn invalid_spec_diagnosis_reports_duplicate_priority_and_fix_validates() {
+    let dir = repo_root().join("crates/examples/invalid_spec_diagnosis");
+    // Text mode: exit 1 + the pinned semantic diagnostic.
+    let (code, out) = run_rfs(&["validate", dir.join("broken.rfs").to_str().unwrap()]);
+    assert_eq!(code, 1, "broken spec must fail validation:\n{out}");
+    assert!(
+        out.contains("duplicate priority 5 for the same event pattern (transitions #0 and #1)"),
+        "pinned diagnostic missing:\n{out}"
+    );
+    // JSON mode: exit 1 + ok=false + kind=semantic + line/col 0/0 (module-level).
+    let (code, out) = run_rfs(&[
+        "validate",
+        "--json",
+        dir.join("broken.rfs").to_str().unwrap(),
+    ]);
+    assert_eq!(code, 1, "broken spec must fail --json validation:\n{out}");
+    assert!(
+        out.contains("\"ok\": false"),
+        "pinned ok=false missing:\n{out}"
+    );
+    assert!(
+        out.contains("\"kind\": \"semantic\""),
+        "pinned kind missing:\n{out}"
+    );
+    // The fixed spec: exit 0, valid.
+    let (code, out) = run_rfs(&["validate", dir.join("fixed.rfs").to_str().unwrap()]);
+    assert_eq!(code, 0, "fixed spec must validate:\n{out}");
+    assert!(out.contains("valid"), "pinned valid line missing:\n{out}");
+}

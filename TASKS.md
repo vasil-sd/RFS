@@ -2813,3 +2813,15 @@ PHASE 8 IS NOW COMPLETE.
 
 - TOOLCHAIN.md section 6.4: new bullet "mmdc present is NOT mmdc working" (observed 2026-11-19) - names the missing chrome-headless-shell, the ephemeral-sandbox-HOME trap, the Node 18 vs latest-puppeteer crash ("Invalid regular expression flags"), and carries the exact verified recipe as a copy-paste block (PUPPETEER_CACHE_DIR=/workspace/host/.cache/puppeteer, npm install --prefix puppeteer@25.16.0, its installer script, symlink into ~/.cache); notes the --no-sandbox config from the adjacent bullet still applies.
 - Verification: cargo test --test docs_md_test 5/5 OK; cargo fmt --check clean; live mmdc render produced a fresh SVG end-to-end (the documented recipe works). Status: docs/roadmap/phase_17/tasks/PHASE_17_TASK_5_STATUS.md.
+
+## 2026-11-19 20:35 — Phase 17 task 6: three negative example projects with pinned failures + fixes
+
+### Interpretation & plan
+
+- Execute PHASE_17_TASK_6.md: mc_deadlock_fail (spec 04), mc_property_violation_fail (http2_rst_fail variant), invalid_spec_diagnosis (duplicate priority) - each with real captured output, template README, fix + re-run proof, and a pinned test leg.
+
+### Report
+
+- 3 new plain-dir example projects under crates/examples/ (6 spec files + 3 READMEs); tests/example_projects_test.rs + run_rfs helper + 3 legs; TEST_STRUCTURE.md +4 rows (1383/1430).
+- Finding: generated MC artifacts reference their fsm by codegen-time name - flat-dir + plain-filename compilation is the reliable recipe (noted for USAGE.md task 10). All three engines byte-identical on the deadlock CE.
+- Verification: example_projects_test 6/6, cargo test 576/0 (573 baseline + 3), dev_docs_test 9/9, docs_md_test 5/5, clippy clean for new code, fmt clean. Committed.

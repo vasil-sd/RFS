@@ -178,9 +178,15 @@ Code: `crates/rfs-adapters/src/lib.rs::ProtocolFsm`,
 <a id="dev:workspace-crates-examples"></a>
 ## Examples (`crates/examples/`)
 
-Five example projects, all on the spec-43 sliding-window ARQ sender. The
-three Rust crates are workspace members; the two C projects are Makefile-
-driven and NOT cargo members (the C equivalent surface of the Rust examples).
+Example projects: six Rust workspace members + two Makefile-driven C projects
+(NOT cargo members - the C equivalent surface of the Rust examples) + seven
+plain-dir examples (NOT cargo members): three spec-level negative examples
+(Phase 17 task 6) and four script-driven walkthroughs (Phase 17 task 8 -
+mc_walkthrough, json_schema_ci, specgen_mutation_loop, tool_resolution). The
+first three Rust crates are all on the spec-43 sliding-window ARQ sender; the
+Phase 17 task 7 crates cover usage scenarios none of them covers. The plain-dir
+examples carry no tracked .rs files (shell scripts + .rfs specs + Makefiles),
+so they have no inventory rows - their test legs live in example_projects_test.
 
 **sync_handler.** Drives the generated FSM from another thread over std mpsc
 channels via the channel adapter (`crates/examples/sync_handler/src/lib.rs::
@@ -196,6 +202,33 @@ pins the outcome; the demo binary prints it and exits 0/1.
 inside poll_next, driven with the plain futures executor (no tokio); identical
 ArqReport shape and pinned outcome. Its build.rs is byte-identical to
 sync_handler's (both use --with-protocol-fsm).
+
+**no_std_fsm.** (Phase 17 task 7.1) A genuinely `#![no_std]` + `extern crate
+alloc` lib around the spec-03 timeout/retry machine generated with
+`.no_std(true)` (`crates/examples/no_std_fsm/src/lib.rs::run_session`): the
+artifact's public API is identical to the std build, and the driver uses only
+the inherent Fsm::new()/step() - NO rfs-adapters dependency. The test drives a
+full session (three Retries, one Drop, an idle Ack rejected as
+UnexpectedEvent, resend + Ack success) from a plain test context.
+
+**monitors_production.** (Phase 17 task 7.2) The spec-41 property showcase
+generated with `.with_property_monitors(true)`: all five properties compile to
+online monitors. `run_correct_session` drives the happy path (monitors quiet,
+one Send(Ack) emitted); `run_violating_session` (debug-gated - the
+PropertyViolation variant is #[cfg(debug_assertions)]) drives Fin + four Ticks
+with no Ack, and fin_acked_bounded surfaces at sample 5 as StepError::
+PropertyViolation { label, step } - the same label/step the MC counterexample
+reports; `run_unmonitored_session` (the release twin) proves the identical
+sequence steps all Ok with the monitors compiled out. The C-side equivalent is
+-DRFS_PROPERTY_MONITORS (documented in the README).
+
+**callback_minimal_adapters.** (Phase 17 task 7.3) The two rfs-adapters never
+demonstrated against a REAL generated spec: the callback driver reaches all
+three outcomes on spec 03 (Completed(5) via a reactive send-then-tick-until-
+Drop closure, Failed(UnexpectedEvent, 0) on an out-of-band Ack, StepLimit(4)
+for a never-stopping closure), and the no_std minimal wrapper forwards every
+output/error of the wrapped FSM and composes with the callback driver
+(Minimal<Fsm> is itself a ProtocolFsm - the same Completed(5)).
 
 **fuzz_rust.** The cargo-fuzz harness wiring the EMITTED libfuzzer_sys
 skeleton to the generated FSM (`crates/examples/fuzz_rust/build.rs`): step 1
@@ -228,10 +261,16 @@ target.
 **Pinning.** tests/example_projects_test.rs: c_sync_handler builds wall-clean
 and matches the Rust scenario; fuzz_rust's skeleton compiles in its cargo-
 fuzz layout; fuzz_c generates without clang (build gated on clang
-availability).
+availability); each Phase 17 task 7 member gets a nested-cargo build+test leg
+(monitors_production additionally runs its RELEASE suite, pinning the zero-
+cost claim mechanically).
 
 Code: `crates/examples/sync_handler/src/lib.rs::run`,
 `crates/examples/sync_handler/src/lib.rs::ArqReport`,
 `crates/examples/async_handler/src/lib.rs::run`,
+`crates/examples/no_std_fsm/src/lib.rs::run_session`,
+`crates/examples/monitors_production/src/lib.rs::run_correct_session`,
+`crates/examples/monitors_production/src/lib.rs::run_violating_session`,
+`crates/examples/callback_minimal_adapters/src/lib.rs::run_callback_completion`,
 `crates/examples/fuzz_rust/build.rs`, `crates/examples/fuzz_rust/src/lib.rs`,
 `tests/example_projects_test.rs`

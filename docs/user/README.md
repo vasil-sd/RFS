@@ -20,6 +20,7 @@ sampling them.
 | Write a spec: syntax, states, events, variables, transitions, expressions | [LANGUAGE.md](LANGUAGE.md) |
 | Assert properties and environment assumptions; understand monitors and skip warnings | [PROPERTIES.md](PROPERTIES.md) |
 | Model-check your spec: modes, every flag, statuses, reading reports | [MODEL_CHECKING.md](MODEL_CHECKING.md) |
+| Run any CLI command with confidence: every pattern, option, generated artifact and error | [USAGE.md](USAGE.md) |
 | Integrate generated code: build.rs, adapters, C Makefiles, no_std, CI | [INTEGRATION.md](INTEGRATION.md) |
 | Learn from concrete protocol examples (with state diagrams + real MC results) | [EXAMPLES.md](EXAMPLES.md) |
 | Understand abstraction/assumptions, deadlock failures, limits, migration | [FAQ.md](FAQ.md) |
@@ -61,6 +62,11 @@ rendered in-process by default - no external tools needed), `codegen`,
 ```sh
 rfs                     # full usage, including per-command descriptions
 ```
+
+For the exhaustive reference - every invocation pattern, option, generated
+artifact and error for all eight commands, plus the external-tool resolution
+contract and a table of all runnable example projects - see
+[USAGE.md](USAGE.md).
 
 ## A two-minute tour
 

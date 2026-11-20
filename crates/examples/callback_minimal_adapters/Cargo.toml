@@ -1,0 +1,16 @@
+# Phase 17 task 7.3 example: the two rfs-adapters never demonstrated before,
+# driven against a REAL generated spec (spec 03, the timeout/retry machine,
+# generated with --with-protocol-fsm so its Fsm implements ProtocolFsm).
+# The callback driver reaches all three of its outcomes (Completed / Failed /
+# StepLimit); the no_std minimal wrapper forwards steps and composes with the
+# callback driver.
+[package]
+name = "callback_minimal_adapters"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+rfs-adapters = { path = "../../rfs-adapters" }
+
+[build-dependencies]
+rfs-build = { path = "../../rfs-build" }

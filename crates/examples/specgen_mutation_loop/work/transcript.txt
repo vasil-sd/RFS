@@ -1,0 +1,32 @@
+$ /workspace/host/RFS/crates/examples/specgen_mutation_loop/../../../target/debug/rfs gen-spec --out work/base.rfs --seed 17
+exit=0
+$ /workspace/host/RFS/crates/examples/specgen_mutation_loop/../../../target/debug/rfs gen-spec --out work/base_again.rfs --seed 17
+exit=0
+DETERMINISM: base.rfs and base_again.rfs are byte-identical
+$ /workspace/host/RFS/crates/examples/specgen_mutation_loop/../../../target/debug/rfs validate work/base.rfs
+valid work/base.rfs
+exit=0
+$ /workspace/host/RFS/crates/examples/specgen_mutation_loop/../../../target/debug/rfs mc-ref work/base.rfs
+PASS (complete)
+model-check summary: status=pass-complete states=4 transitions=12 max_depth=1
+  unexpected terminations: 16
+  first unexpected: config 0 input index 4
+  monitor size: 7 bits
+  memory estimate: 136 bytes
+exit=0
+$ /workspace/host/RFS/crates/examples/specgen_mutation_loop/../../../target/debug/rfs gen-spec --base work/base.rfs --mutations 8 --seed 1 --out work/mut.rfs
+exit=0
+$ /workspace/host/RFS/crates/examples/specgen_mutation_loop/../../../target/debug/rfs validate work/mut.rfs
+valid work/mut.rfs
+exit=0
+$ /workspace/host/RFS/crates/examples/specgen_mutation_loop/../../../target/debug/rfs mc-ref work/mut.rfs
+FAIL
+model-check summary: status=fail states=1 transitions=0 max_depth=0 reason=property-violation label=p2 step=0
+  unexpected terminations: 0
+  monitor size: 7 bits
+  memory estimate: 34 bytes
+property violation: p2
+  violation step: 0 (initial configuration)
+counterexample trace:
+  initial state=State::A vars=Vars
+exit=1

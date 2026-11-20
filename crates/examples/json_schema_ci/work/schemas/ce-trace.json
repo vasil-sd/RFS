@@ -1,0 +1,204 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Counterexample trace document (ce-trace)",
+  "description": "The counterexample payload of an exact-mode MC report - the value\nof the `counterexample` key, present IFF `status` is \"fail\" (see the mc-report\nformat for the full document). Emitted by both backends' generated engines\n(`--counterexample-format json`) and by the in-process reference MC; key\norder is part of the cross-backend byte-parity contract. Internally-tagged\nby `kind`: a property violation carries the full trace, a liveness violation\ncarries prefix + one cycle iteration, a deadlock carries the terminal\nconfiguration. `ce_steps` (last key of every counterexample) is the trace-length\nquality metric: `steps.len()` for a trace, prefix + cycle length for a\nlasso, the depth for a deadlock configuration. Value encoding in the\nname->value maps (`initial_vars`, `vars`, `fields`): bool -> JSON boolean,\nbit<N> -> unsigned decimal integer, enum -> \"Type::Variant\" string - the\nsame names the text report prints.",
+  "allOf": [
+    {
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "enum": [
+                "trace"
+              ]
+            },
+            "initial_state": {
+              "type": "string",
+              "description": "initial state (`State::Name`)"
+            },
+            "initial_vars": {
+              "$ref": "#/definitions/ce_fields"
+            },
+            "steps": {
+              "type": "array",
+              "items": {
+                "$ref": "#/definitions/ce_step"
+              },
+              "description": "the violating steps in execution order (0-based)"
+            },
+            "ce_steps": {
+              "type": "integer",
+              "description": "trace length in steps (quality metric; last key of the object)"
+            }
+          },
+          "required": [
+            "kind",
+            "initial_state",
+            "initial_vars",
+            "steps",
+            "ce_steps"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "enum": [
+                "lasso"
+              ]
+            },
+            "initial_state": {
+              "type": "string",
+              "description": "initial state (`State::Name`)"
+            },
+            "initial_vars": {
+              "$ref": "#/definitions/ce_fields"
+            },
+            "prefix": {
+              "type": "array",
+              "items": {
+                "$ref": "#/definitions/ce_step"
+              },
+              "description": "steps before the cycle (may be empty)"
+            },
+            "cycle": {
+              "type": "array",
+              "items": {
+                "$ref": "#/definitions/ce_step"
+              },
+              "description": "one iteration of the violating cycle"
+            },
+            "cycle_length": {
+              "type": "integer",
+              "description": "number of steps in `cycle` (== its length)"
+            },
+            "ce_steps": {
+              "type": "integer",
+              "description": "trace length in steps (quality metric; last key of the object)"
+            }
+          },
+          "required": [
+            "kind",
+            "initial_state",
+            "initial_vars",
+            "prefix",
+            "cycle",
+            "cycle_length",
+            "ce_steps"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "enum": [
+                "deadlock-config"
+              ]
+            },
+            "depth": {
+              "type": "integer",
+              "description": "graph depth of the dead configuration"
+            },
+            "state": {
+              "type": "string",
+              "description": "state of the dead configuration (`State::Name`)"
+            },
+            "vars": {
+              "$ref": "#/definitions/ce_fields"
+            },
+            "ce_steps": {
+              "type": "integer",
+              "description": "trace length in steps (quality metric; last key of the object)"
+            }
+          },
+          "required": [
+            "kind",
+            "depth",
+            "state",
+            "vars",
+            "ce_steps"
+          ],
+          "additionalProperties": false
+        }
+      ]
+    }
+  ],
+  "definitions": {
+    "ce_step": {
+      "type": "object",
+      "properties": {
+        "input": {
+          "$ref": "#/definitions/ce_io"
+        },
+        "outputs": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/ce_io"
+          },
+          "description": "outputs emitted by the step (may be empty)"
+        },
+        "from_state": {
+          "type": "string",
+          "description": "state before the step (`State::Name`)"
+        },
+        "to_state": {
+          "type": "string",
+          "description": "state after the step (`State::Name`)"
+        },
+        "vars": {
+          "$ref": "#/definitions/ce_fields"
+        }
+      },
+      "required": [
+        "input",
+        "outputs",
+        "from_state",
+        "to_state",
+        "vars"
+      ],
+      "additionalProperties": false
+    },
+    "ce_io": {
+      "type": "object",
+      "properties": {
+        "variant": {
+          "type": "string",
+          "description": "event/output variant name (unique_name form, e.g. `Go_G`)"
+        },
+        "fields": {
+          "$ref": "#/definitions/ce_fields"
+        }
+      },
+      "required": [
+        "variant",
+        "fields"
+      ],
+      "additionalProperties": false
+    },
+    "ce_fields": {
+      "type": "object",
+      "additionalProperties": {
+        "$ref": "#/definitions/ce_value"
+      }
+    },
+    "ce_value": {
+      "anyOf": [
+        {
+          "type": "boolean"
+        },
+        {
+          "type": "integer"
+        },
+        {
+          "type": "string"
+        }
+      ]
+    }
+  }
+}

@@ -74,7 +74,7 @@ Shared infrastructure: external tools `src/cli/ext_tool.rs::ExtTool` / `resolve`
 |---|---|---|
 | build.rs helper | dev:workspace-crates-build | `crates/rfs-build/src/lib.rs::RfsBuild`, `resolve_rfs_bin` (RFS_BIN > PATH); real end-to-end in `crates/rfs-build/tests/integration.rs` |
 | ProtocolFsm + adapters | dev:workspace-crates-adapters | `crates/rfs-adapters/src/lib.rs::ProtocolFsm`; `minimal.rs::Minimal`, `callback.rs::drive`, `channel.rs::ChannelFsm`, `async_adapter.rs::AsyncFsm`; tests `crates/rfs-adapters/tests/adapters.rs` (mock FSM), `crates/rfs-adapters/tests/nostd_minimal.rs` (no_std compile checks) |
-| Examples (Rust + C) | dev:workspace-crates-examples | `crates/examples/sync_handler/src/lib.rs::run`, `crates/examples/async_handler/src/lib.rs::run` (same scripted ARQ scenario, pinned ArqReport); `crates/examples/fuzz_rust/build.rs` (adapted fuzz skeleton + detached cargo-fuzz workspace); C projects c_sync_handler / fuzz_c are Makefile-driven, NOT cargo members |
+| Examples (Rust + C) | dev:workspace-crates-examples | `crates/examples/sync_handler/src/lib.rs::run`, `crates/examples/async_handler/src/lib.rs::run` (same scripted ARQ scenario, pinned ArqReport); `crates/examples/no_std_fsm/src/lib.rs::run_session` (#![no_std] lib around the spec-03 artifact); `crates/examples/monitors_production/src/lib.rs::run_violating_session` (spec-41 online monitors: debug violation + release zero-cost); `crates/examples/callback_minimal_adapters/src/lib.rs::run_callback_completion` (callback driver + minimal wrapper over spec 03); `crates/examples/fuzz_rust/build.rs` (adapted fuzz skeleton + detached cargo-fuzz workspace); C projects c_sync_handler / fuzz_c are Makefile-driven, NOT cargo members |
 
 ### Fuzz + training + code-test harness (deep dive dev:toolchain-fuzz-overview)
 
@@ -190,6 +190,12 @@ above.
 - `crates/examples/async_handler/build.rs` - example build script: spec-43 ARQ sender via rfs-build
 - `crates/examples/async_handler/src/lib.rs` - async_handler example lib (generated sliding-window FSM)
 - `crates/examples/async_handler/src/main.rs` - async_handler demo binary (futures stream)
+- `crates/examples/callback_minimal_adapters/build.rs` - example build script: spec-03 timeout/retry machine with --with-protocol-fsm
+- `crates/examples/callback_minimal_adapters/src/lib.rs` - callback driver + minimal wrapper over a real generated FSM (Phase 17 task 7.3)
+- `crates/examples/monitors_production/build.rs` - example build script: spec-41 property showcase with --with-property-monitors
+- `crates/examples/monitors_production/src/lib.rs` - production online monitors: debug violation + release zero-cost (Phase 17 task 7.2)
+- `crates/examples/no_std_fsm/build.rs` - example build script: spec-03 timeout/retry machine with --no-std
+- `crates/examples/no_std_fsm/src/lib.rs` - #![no_std] lib around the generated artifact (Phase 17 task 7.1)
 - `crates/examples/sync_handler/build.rs` - example build script: spec-43 ARQ sender via rfs-build
 - `crates/examples/sync_handler/src/lib.rs` - sync_handler example lib (generated sliding-window FSM)
 - `crates/examples/sync_handler/src/main.rs` - sync_handler demo binary (std mpsc channels)

@@ -10,8 +10,14 @@
 crates/examples/async_handler/build.rs
 crates/examples/async_handler/src/lib.rs
 crates/examples/async_handler/src/main.rs
+crates/examples/callback_minimal_adapters/build.rs
+crates/examples/callback_minimal_adapters/src/lib.rs
 crates/examples/fuzz_rust/build.rs
 crates/examples/fuzz_rust/src/lib.rs
+crates/examples/monitors_production/build.rs
+crates/examples/monitors_production/src/lib.rs
+crates/examples/no_std_fsm/build.rs
+crates/examples/no_std_fsm/src/lib.rs
 crates/examples/sync_handler/build.rs
 crates/examples/sync_handler/src/lib.rs
 crates/examples/sync_handler/src/main.rs

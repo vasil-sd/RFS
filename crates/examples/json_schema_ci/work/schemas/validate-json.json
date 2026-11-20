@@ -1,0 +1,80 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Validate diagnostics document (validate-json)",
+  "description": "The structured diagnostics document of `rfs validate --json` -\nthe shape editor integrations consume (Phase 5 task 13). File mode prints\nONE object for the input file (`ok: true` with an empty `errors` array on\nsuccess); directory mode prints an array of one object per FAILING file -\nvalid files are omitted entirely, so an all-valid directory prints `[]`.\nExit codes mirror the text path: 0 when nothing failed, 1 otherwise. The\nroot is a union of the two shapes (draft-07 anyOf over the same\n`validate_file` definition). A `.json` input that is not valid IR JSON\nproduces a CLI-level stderr error in file mode (no document) but appears as\na `kind: \"semantic\"` entry (line/col 0) in directory mode.",
+  "allOf": [
+    {
+      "anyOf": [
+        {
+          "$ref": "#/definitions/validate_file"
+        },
+        {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/validate_file"
+          }
+        }
+      ]
+    }
+  ],
+  "definitions": {
+    "validate_file": {
+      "type": "object",
+      "properties": {
+        "file": {
+          "type": "string",
+          "description": "the input path as passed on the command line (file mode) or the collected file path (directory mode)"
+        },
+        "ok": {
+          "type": "boolean",
+          "description": "true IFF `errors` is empty"
+        },
+        "errors": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/validate_error"
+          },
+          "description": "structured diagnostics; empty when ok (file mode prints the object even on success)"
+        }
+      },
+      "required": [
+        "file",
+        "ok",
+        "errors"
+      ],
+      "additionalProperties": false
+    },
+    "validate_error": {
+      "type": "object",
+      "properties": {
+        "kind": {
+          "type": "string",
+          "enum": [
+            "parse",
+            "semantic"
+          ],
+          "description": "\"parse\" = RFS source rejected by the parser (line/col are the 1-based error position); \"semantic\" = parsed IR rejected by the validator, or a .json input that is not valid IR JSON in directory mode (no span: line/col are 0)"
+        },
+        "line": {
+          "type": "integer",
+          "description": "1-based error line; 0 when unknown (semantic errors carry no span)"
+        },
+        "col": {
+          "type": "integer",
+          "description": "1-based error column; 0 when unknown"
+        },
+        "message": {
+          "type": "string",
+          "description": "the diagnostic text (same wording as the stderr report)"
+        }
+      },
+      "required": [
+        "kind",
+        "line",
+        "col",
+        "message"
+      ],
+      "additionalProperties": false
+    }
+  }
+}

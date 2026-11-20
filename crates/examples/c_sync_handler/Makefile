@@ -4,9 +4,17 @@
 #
 # Toolchain resolution mirrors rfs-build: RFS_BIN env var > bare `rfs` on
 # PATH; override with `make RFS=/path/to/rfs`. A cold checkout must run
-# `cargo build` first (produces target/debug/rfs) or set RFS_BIN. The C
-# compiler honors the standard CC variable (Phase 12 portability - NixOS /
-# nix-shell export CC); override with `make CC=/path/to/gcc`.
+# `cargo build` first (produces target/debug/rfs) or set RFS_BIN.
+#
+# Compiler choice: the C compiler honors the standard CC variable (Phase 12
+# portability - NixOS / nix-shell export CC). The generated C is
+# COMPILER-AGNOSTIC - it compiles warning-free under BOTH gcc and clang (the
+# guarantee pinned by tests/c_compiler_agnostic_test.rs). So:
+#   make                 -> the system C compiler (CC ?= gcc)
+#   make CC=clang        -> the SAME scenario built under clang
+#   make CC=/path/to/cc  -> any explicit compiler
+# When driving rfs itself, the equivalents are the RFS_GCC / RFS_CLANG env
+# vars (TOOLCHAIN.md section 8.2).
 
 RFS ?= $(if $(RFS_BIN),$(RFS_BIN),rfs)
 CC ?= gcc

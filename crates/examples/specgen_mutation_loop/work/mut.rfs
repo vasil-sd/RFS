@@ -1,0 +1,64 @@
+module gen {
+  enum State { A, B, C, D }
+  enum T0 { V0, V1, V2, V3 }
+  initial A
+  event ER0(S0())
+  event ER0(U1)
+  event ER0(S2(f0: T0, f1: T0))
+  event E1(S0(f0: bit<6>, f1: bool))
+  event E1(U1)
+  event E1(S2(f0: bit<2>, f1: bool))
+  output O0(S0())
+  transition A on ER0(U1) where state != C && state != C {
+    next B;
+    emit O0(S0);
+    emit O0(S0);
+  }
+  transition A on E1(S0(b1_0, b1_1)) {
+    next C;
+    emit O0(S0);
+    emit O0(S0);
+    priority 68;
+  }
+  transition A on ER0(S2(b3_0, b3_1)) where true {
+    next D;
+    emit O0(S0);
+    emit O0(S0);
+    priority 53;
+  }
+  transition D on E1(S0(b4_0, b4_1)) {
+    next C;
+  }
+  transition B on E1(S0(b5_0, b5_1)) {
+    next A;
+    emit O0(S0);
+  }
+  transition B on E1(U1) {
+    next A;
+    emit O0(S0);
+  }
+  transition D on E1(S2(b7_0, b7_1)) {
+    next C;
+    emit O0(S0);
+    priority 60;
+  }
+  transition C on ER0(S0()) where state != D && state != A {
+    next B;
+    emit O0(S0);
+  }
+  transition A on ER0(S0()) where true {
+    next D;
+    priority 85;
+  }
+  transition D on E1(S2(b10_0, b10_1)) {
+    next C;
+  }
+  transition B on E1(S2(b11_0, b11_1)) where (b11_1 || b11_1) && b11_1 {
+    next A;
+    emit O0(S0);
+    emit O0(S0);
+  }
+  prop p0 : input_is(ER0(U1)) -> bounded_eventually[5] (output_has(O0(S0()))) ;
+  prop p1 : input_is(ER0(U1)) -> bounded_eventually[3] (output_has(O0(S0()))) ;
+  prop p2 : true && false ;
+}

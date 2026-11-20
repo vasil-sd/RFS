@@ -1,0 +1,284 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Info introspection document (info-json)",
+  "description": "The machine-readable introspection document of `rfs info <spec> --json`\n(Phase 5 task 3) - what IDE/tooling consumers parse. One object per module in\nthe top-level `modules` array; stable key order, all keys always present with\nJSON null for absent values (a fixed schema). Unlike the spec-json IR\ndocument: types/expressions/formulas are rendered as human-readable strings,\n`transitions` is an integer COUNT (not an array of transition objects - use\nspec-json for the full transition data), and each property/assumption carries\nits `monitor_status`.",
+  "type": "object",
+  "properties": {
+    "modules": {
+      "type": "array",
+      "items": {
+        "$ref": "#/definitions/info_module"
+      },
+      "description": "one object per module, in spec order"
+    }
+  },
+  "required": [
+    "modules"
+  ],
+  "additionalProperties": false,
+  "definitions": {
+    "info_module": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string",
+          "description": "module name"
+        },
+        "version": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "the version header (X.Y or X.Y.Z); null when the module has none"
+        },
+        "initial_state": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "the initial state name; null when absent"
+        },
+        "enums": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/info_enum"
+          }
+        },
+        "events": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/info_group"
+          }
+        },
+        "outputs": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/info_group"
+          }
+        },
+        "vars": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/info_var"
+          }
+        },
+        "transitions": {
+          "type": "integer",
+          "description": "the NUMBER of transitions in the module - an integer count, NOT an array of transition objects (use spec-json for the full transition data)"
+        },
+        "on_error": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/info_on_error"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "the on_error declaration; null when the module has none"
+        },
+        "properties": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/info_prop"
+          }
+        },
+        "assumptions": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/info_prop"
+          }
+        }
+      },
+      "required": [
+        "name",
+        "version",
+        "initial_state",
+        "enums",
+        "events",
+        "outputs",
+        "vars",
+        "transitions",
+        "on_error",
+        "properties",
+        "assumptions"
+      ],
+      "additionalProperties": false
+    },
+    "info_enum": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string",
+          "description": "enum type name"
+        },
+        "variants": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "variant names, in declaration order"
+        }
+      },
+      "required": [
+        "name",
+        "variants"
+      ],
+      "additionalProperties": false
+    },
+    "info_group": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string",
+          "description": "group name (event or output)"
+        },
+        "variants": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/info_variant"
+          }
+        }
+      },
+      "required": [
+        "name",
+        "variants"
+      ],
+      "additionalProperties": false
+    },
+    "info_variant": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string",
+          "description": "variant name"
+        },
+        "fields": {
+          "anyOf": [
+            {
+              "type": "array",
+              "items": {
+                "$ref": "#/definitions/info_field"
+              }
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "null for a unit variant; the field list for a struct variant"
+        }
+      },
+      "required": [
+        "name",
+        "fields"
+      ],
+      "additionalProperties": false
+    },
+    "info_field": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string",
+          "description": "field name"
+        },
+        "type": {
+          "type": "string",
+          "description": "rendered type text (e.g. bool, bit<8>, an enum type name)"
+        }
+      },
+      "required": [
+        "name",
+        "type"
+      ],
+      "additionalProperties": false
+    },
+    "info_var": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string",
+          "description": "variable name"
+        },
+        "type": {
+          "type": "string",
+          "description": "rendered type text (e.g. bool, bit<8>, an enum type name)"
+        },
+        "init": {
+          "type": "string",
+          "description": "rendered initializer expression text"
+        }
+      },
+      "required": [
+        "name",
+        "type",
+        "init"
+      ],
+      "additionalProperties": false
+    },
+    "info_on_error": {
+      "type": "object",
+      "properties": {
+        "next_state": {
+          "type": "string",
+          "description": "the state entered when an input has no enabled transition"
+        },
+        "emits": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/info_emit"
+          },
+          "description": "outputs emitted on the error transition (may be empty)"
+        }
+      },
+      "required": [
+        "next_state",
+        "emits"
+      ],
+      "additionalProperties": false
+    },
+    "info_emit": {
+      "type": "object",
+      "properties": {
+        "group": {
+          "type": "string",
+          "description": "output group name"
+        },
+        "variant": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "variant name; null when the group has a single unnamed variant"
+        }
+      },
+      "required": [
+        "group",
+        "variant"
+      ],
+      "additionalProperties": false
+    },
+    "info_prop": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string",
+          "description": "property/assumption label"
+        },
+        "formula": {
+          "type": "string",
+          "description": "rendered formula text (the same text the default `rfs info` prints)"
+        },
+        "monitor_status": {
+          "type": "string",
+          "description": "\"monitored\" or \"skipped: <reason>\" - the SAME R1-R4 monitor-subset check the codegen backends use, so info never disagrees with generated code; the reason text is open-ended, hence a plain string (not an enum)"
+        }
+      },
+      "required": [
+        "name",
+        "formula",
+        "monitor_status"
+      ],
+      "additionalProperties": false
+    }
+  }
+}

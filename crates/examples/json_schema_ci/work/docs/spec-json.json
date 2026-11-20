@@ -1,0 +1,200 @@
+{
+  "ir_version": 1,
+  "modules": [
+    {
+      "name": "timeout_retry",
+      "enums": [
+        {
+          "name": "State",
+          "variants": [
+            "Idle",
+            "Sending"
+          ]
+        }
+      ],
+      "initial_state": "Idle",
+      "events": [
+        {
+          "name": "Send",
+          "variants": [
+            {
+              "kind": "unit",
+              "name": "Send"
+            }
+          ]
+        },
+        {
+          "name": "Ack",
+          "variants": [
+            {
+              "kind": "unit",
+              "name": "Ack"
+            }
+          ]
+        },
+        {
+          "name": "Tick",
+          "variants": [
+            {
+              "kind": "unit",
+              "name": "Tick"
+            }
+          ]
+        }
+      ],
+      "outputs": [
+        {
+          "name": "Retry",
+          "variants": [
+            {
+              "kind": "unit",
+              "name": "Retry"
+            }
+          ]
+        },
+        {
+          "name": "Drop",
+          "variants": [
+            {
+              "kind": "unit",
+              "name": "Drop"
+            }
+          ]
+        }
+      ],
+      "vars": [
+        {
+          "name": "timer",
+          "ty": {
+            "kind": "bit",
+            "width": 3
+          },
+          "init": {
+            "kind": "int",
+            "value": 3
+          }
+        }
+      ],
+      "transitions": [
+        {
+          "id": 0,
+          "state": "Idle",
+          "pattern": {
+            "group": "Send",
+            "variant": null
+          },
+          "guard": null,
+          "next_state": "Sending",
+          "emits": [],
+          "assignments": [
+            {
+              "var": "timer",
+              "value": {
+                "kind": "int",
+                "value": 3
+              }
+            }
+          ],
+          "priority": null
+        },
+        {
+          "id": 1,
+          "state": "Sending",
+          "pattern": {
+            "group": "Ack",
+            "variant": null
+          },
+          "guard": null,
+          "next_state": "Idle",
+          "emits": [],
+          "assignments": [],
+          "priority": null
+        },
+        {
+          "id": 2,
+          "state": "Sending",
+          "pattern": {
+            "group": "Tick",
+            "variant": null
+          },
+          "guard": {
+            "kind": "binary",
+            "op": "gt",
+            "left": {
+              "kind": "path",
+              "path": [
+                "timer"
+              ]
+            },
+            "right": {
+              "kind": "int",
+              "value": 0
+            }
+          },
+          "next_state": "Sending",
+          "emits": [
+            {
+              "group": "Retry",
+              "variant": null,
+              "args": []
+            }
+          ],
+          "assignments": [
+            {
+              "var": "timer",
+              "value": {
+                "kind": "binary",
+                "op": "minus",
+                "left": {
+                  "kind": "path",
+                  "path": [
+                    "timer"
+                  ]
+                },
+                "right": {
+                  "kind": "int",
+                  "value": 1
+                }
+              }
+            }
+          ],
+          "priority": null
+        },
+        {
+          "id": 3,
+          "state": "Sending",
+          "pattern": {
+            "group": "Tick",
+            "variant": null
+          },
+          "guard": {
+            "kind": "binary",
+            "op": "eq",
+            "left": {
+              "kind": "path",
+              "path": [
+                "timer"
+              ]
+            },
+            "right": {
+              "kind": "int",
+              "value": 0
+            }
+          },
+          "next_state": "Idle",
+          "emits": [
+            {
+              "group": "Drop",
+              "variant": null,
+              "args": []
+            }
+          ],
+          "assignments": [],
+          "priority": null
+        }
+      ],
+      "properties": [],
+      "assumptions": []
+    }
+  ]
+}

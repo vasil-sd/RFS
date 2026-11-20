@@ -1,0 +1,15 @@
+FAIL
+model-check summary: status=fail states=2 transitions=3 max_depth=1 reason=property-violation label=ack_bounded step=2
+  unexpected terminations: 3
+  first unexpected: config 0 input index 1
+  monitor size: 3 bits
+  memory estimate: 66 bytes
+property violation: ack_bounded
+  trigger step: 1
+  vars at trigger step: Vars { timer: 3 }
+  violation step: 2
+  vars at violation step: Vars { timer: 2 }
+counterexample trace:
+  initial state=State::Idle vars=Vars { timer: 3 }
+  step 0 input=Input::Send outputs=[] from=State::Idle to=State::Sending vars=Vars { timer: 3 }
+  step 1 input=Input::Tick outputs=[Output::Retry] from=State::Sending to=State::Sending vars=Vars { timer: 2 }

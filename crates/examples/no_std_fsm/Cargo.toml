@@ -1,0 +1,13 @@
+# Phase 17 task 7.1 example: production codegen with --no-std. The crate lib
+# is #![no_std] + extern crate alloc and includes the generated artifact
+# (spec 03, the timeout/retry machine) byte-identically; a test drives a full
+# session through it, proving the no_std build exposes the identical public
+# API. No rfs-adapters dependency: the driver uses the artifact's inherent
+# Fsm::new()/step() API directly.
+[package]
+name = "no_std_fsm"
+version = "0.1.0"
+edition = "2021"
+
+[build-dependencies]
+rfs-build = { path = "../../rfs-build" }

@@ -2825,3 +2825,19 @@ PHASE 8 IS NOW COMPLETE.
 - 3 new plain-dir example projects under crates/examples/ (6 spec files + 3 READMEs); tests/example_projects_test.rs + run_rfs helper + 3 legs; TEST_STRUCTURE.md +4 rows (1383/1430).
 - Finding: generated MC artifacts reference their fsm by codegen-time name - flat-dir + plain-filename compilation is the reliable recipe (noted for USAGE.md task 10). All three engines byte-identical on the deadlock CE.
 - Verification: example_projects_test 6/6, cargo test 576/0 (573 baseline + 3), dev_docs_test 9/9, docs_md_test 5/5, clippy clean for new code, fmt clean. Committed.
+
+## 2026-11-20 11:26 — Phase 17 close-out (task 12): full verification green, PHASE_17_STATUS.md written, all state records synced; phase COMPLETE
+
+### Interpretation & plan
+
+- Execute PHASE_17_TASK_12.md: run the full verification matrix and record every count; write PHASE_17_STATUS.md per FORMATTING.md section 4; sync TASKS.md / CURRENT_STATE.md / START.md / BUILD.md; commit.
+- No functionality change this task - verify and record only.
+
+### Report
+
+- Verification matrix (all green): root `cargo test` **584/0** (Phase 16 baseline 573 + 11 new example_projects legs), `--workspace` **720/0** (+11 legs + 8 inline tests from the three new member crates no_std_fsm 1 / monitors_production 2 / callback_minimal_adapters 5), `--features smt` **594/0** under z3 5.3.1, `test-generated-code` **1720/194**, docs_md_test **5/5** (now covering USAGE.md + 15 example READMEs), dev_docs_test **9/9** (extended 1830/1430 budgets hold), `rfs-dev inventory audit` **EXACT** (SRC 1013 fns/213 types, TEST 1055 fns/35 types, zero per-file diffs), clippy 0 errors, fmt clean.
+- generated-code moved 1683 -> **1720** (192 -> 194 modules): the +2 modules / +37 tests are task 11's two new valid-spec fences (the generator path-dedups, so every snippets/valid file is its own module). All pre-existing modules regenerate byte-identical - no codegen behaviour change. Recorded as the new baseline, not a regression.
+- Wrote `docs/roadmap/phase_17/PHASE_17_STATUS.md` (FORMATTING.md section 4): the three member crates' sources, Cargo.toml + example_projects_test.rs + args.rs changes, all doc changes (USAGE.md new; MODEL_CHECKING/cli_commands/LLM set/KB.md/TOOLCHAIN.md changed; 10 new + 5 upgraded example READMEs), training files + regenerated snippets (138->140 valid) + aggregate (267->271); Changed/Removed functionality = none; New functionality = the doc + examples + training surface.
+- Synced state records: CURRENT_STATE.md phase-17 row (COMPLETE) + header date 2026-11-07 -> 2026-11-20; START.md docs/user/ doc-map row gains USAGE.md; BUILD.md root 538->584, workspace 666->720, smt 540->594, generated-code 1683/192->1720/194, example-projects 3->14 (root sub-count + dedicated row), training 138/128/267->140/128/271 (command table + alias re-verification + known-good baseline paragraph).
+- Finding: BUILD.md's root/workspace/smt count lines were STALE from Phases 15-16 (read 538/666/540, below the true Phase 16 baseline 573/701/583) - they were never synced then. Corrected to the measured values in this close-out.
+- Phase 17 deliverables recap: USAGE.md (exhaustive CLI reference), 10 new example projects (3 negative-MC, 3 cargo-member, 4 plain-dir) + 5 upgraded READMEs + c_sync_handler `make CC=clang`, all mc-ref staleness fixed across user/dev/LLM/KB/usage-text/training surfaces, training set aligned (3 rewrites + 4 new entries). Committed.

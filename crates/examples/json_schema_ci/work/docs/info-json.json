@@ -1,0 +1,78 @@
+{
+  "modules": [
+    {
+      "name": "timeout_retry",
+      "version": null,
+      "initial_state": "Idle",
+      "enums": [
+        {
+          "name": "State",
+          "variants": [
+            "Idle",
+            "Sending"
+          ]
+        }
+      ],
+      "events": [
+        {
+          "name": "Send",
+          "variants": [
+            {
+              "name": "Send",
+              "fields": null
+            }
+          ]
+        },
+        {
+          "name": "Ack",
+          "variants": [
+            {
+              "name": "Ack",
+              "fields": null
+            }
+          ]
+        },
+        {
+          "name": "Tick",
+          "variants": [
+            {
+              "name": "Tick",
+              "fields": null
+            }
+          ]
+        }
+      ],
+      "outputs": [
+        {
+          "name": "Retry",
+          "variants": [
+            {
+              "name": "Retry",
+              "fields": null
+            }
+          ]
+        },
+        {
+          "name": "Drop",
+          "variants": [
+            {
+              "name": "Drop",
+              "fields": null
+            }
+          ]
+        }
+      ],
+      "vars": [
+        {
+          "name": "timer",
+          "type": "bit<3>",
+          "init": "3"
+        }
+      ],
+      "transitions": 4,
+      "on_error": null,
+      "properties": [],
+      "assumptions": []
+    }
+  ]
+}

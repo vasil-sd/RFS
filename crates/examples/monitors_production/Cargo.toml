@@ -1,0 +1,13 @@
+# Phase 17 task 7.2 example: production codegen with --with-property-monitors.
+# The generated spec-41 FSM carries online monitors for all five properties;
+# in debug builds a violating environment sequence surfaces the violation at
+# the step API (StepError::PropertyViolation), and in release builds the
+# monitor code is compiled out entirely (zero runtime cost). No rfs-adapters
+# dependency: the drivers use the artifact's inherent Fsm::new()/step() API.
+[package]
+name = "monitors_production"
+version = "0.1.0"
+edition = "2021"
+
+[build-dependencies]
+rfs-build = { path = "../../rfs-build" }

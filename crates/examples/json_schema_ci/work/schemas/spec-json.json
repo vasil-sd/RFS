@@ -1,0 +1,1071 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "IR v1 JSON document (spec-json)",
+  "description": "The machine-readable form of an RFS specification: what\n`rfs parse --output json` writes and what every rfs command accepts as\n`--input json`. Pretty-printed JSON (2-space indent, one trailing newline)\nproduced by json_rw; key order is fixed by the writer. Internally-tagged\nobjects carry a `\"kind\"` discriminator - each variant's allowed fields are\nlisted under its kind. `null` marks an absent value that is still present as\na key (e.g. `guard`, `priority`); the keys `version` and `on_error` are\nomitted entirely when absent.",
+  "type": "object",
+  "properties": {
+    "ir_version": {
+      "type": "integer",
+      "description": "IR format version; this toolchain writes 1 and reads 0..=1"
+    },
+    "modules": {
+      "type": "array",
+      "items": {
+        "$ref": "#/definitions/module"
+      },
+      "description": "modules in file order"
+    }
+  },
+  "required": [
+    "ir_version",
+    "modules"
+  ],
+  "additionalProperties": false,
+  "definitions": {
+    "module": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string",
+          "description": "module name"
+        },
+        "version": {
+          "type": "string",
+          "description": "version string from the `version \"...\"` header; key omitted when absent"
+        },
+        "on_error": {
+          "$ref": "#/definitions/on_error"
+        },
+        "enums": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/enum_decl"
+          }
+        },
+        "initial_state": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "initial state name; null for a module with no states"
+        },
+        "events": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/constructor_group"
+          }
+        },
+        "outputs": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/constructor_group"
+          }
+        },
+        "vars": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/var_decl"
+          }
+        },
+        "transitions": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/transition"
+          }
+        },
+        "properties": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/property"
+          }
+        },
+        "assumptions": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/property"
+          }
+        }
+      },
+      "required": [
+        "name",
+        "enums",
+        "initial_state",
+        "events",
+        "outputs",
+        "vars",
+        "transitions",
+        "properties",
+        "assumptions"
+      ],
+      "additionalProperties": false
+    },
+    "on_error": {
+      "type": "object",
+      "properties": {
+        "next_state": {
+          "type": "string",
+          "description": "fallback target state (required)"
+        },
+        "emits": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/output_expr"
+          },
+          "description": "outputs emitted on fallback (may be empty)"
+        }
+      },
+      "required": [
+        "next_state",
+        "emits"
+      ],
+      "additionalProperties": false
+    },
+    "enum_decl": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "variants": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "variant names in declaration order"
+        }
+      },
+      "required": [
+        "name",
+        "variants"
+      ],
+      "additionalProperties": false
+    },
+    "type": {
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "enum": [
+                "bool"
+              ]
+            }
+          },
+          "required": [
+            "kind"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "enum": [
+                "bit"
+              ]
+            },
+            "width": {
+              "type": "integer",
+              "description": "bit width"
+            }
+          },
+          "required": [
+            "kind",
+            "width"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "enum": [
+                "enum"
+              ]
+            },
+            "name": {
+              "type": "string",
+              "description": "enum type name"
+            }
+          },
+          "required": [
+            "kind",
+            "name"
+          ],
+          "additionalProperties": false
+        }
+      ]
+    },
+    "field_decl": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string",
+          "description": "field name"
+        },
+        "ty": {
+          "$ref": "#/definitions/type"
+        }
+      },
+      "required": [
+        "name",
+        "ty"
+      ],
+      "additionalProperties": false
+    },
+    "constructor_group": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string",
+          "description": "group name"
+        },
+        "variants": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/constructor_variant"
+          }
+        }
+      },
+      "required": [
+        "name",
+        "variants"
+      ],
+      "additionalProperties": false
+    },
+    "constructor_variant": {
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "enum": [
+                "unit"
+              ]
+            },
+            "name": {
+              "type": "string",
+              "description": "variant name"
+            }
+          },
+          "required": [
+            "kind",
+            "name"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "enum": [
+                "struct"
+              ]
+            },
+            "name": {
+              "type": "string",
+              "description": "variant name"
+            },
+            "fields": {
+              "type": "array",
+              "items": {
+                "$ref": "#/definitions/field_decl"
+              }
+            }
+          },
+          "required": [
+            "kind",
+            "name",
+            "fields"
+          ],
+          "additionalProperties": false
+        }
+      ]
+    },
+    "var_decl": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "ty": {
+          "$ref": "#/definitions/type"
+        },
+        "init": {
+          "$ref": "#/definitions/expr"
+        }
+      },
+      "required": [
+        "name",
+        "ty",
+        "init"
+      ],
+      "additionalProperties": false
+    },
+    "transition": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "integer",
+          "description": "stable transition id (declaration order)"
+        },
+        "state": {
+          "type": "string"
+        },
+        "pattern": {
+          "$ref": "#/definitions/event_pattern"
+        },
+        "guard": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/expr"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "guard expression; null when the transition is unconditional"
+        },
+        "next_state": {
+          "type": "string"
+        },
+        "emits": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/output_expr"
+          }
+        },
+        "assignments": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/assignment"
+          }
+        },
+        "priority": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "description": "tie-breaking priority (higher wins); null when unset"
+        }
+      },
+      "required": [
+        "id",
+        "state",
+        "pattern",
+        "guard",
+        "next_state",
+        "emits",
+        "assignments",
+        "priority"
+      ],
+      "additionalProperties": false
+    },
+    "event_pattern": {
+      "type": "object",
+      "properties": {
+        "group": {
+          "type": "string"
+        },
+        "variant": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/pattern_variant"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "null when the pattern matches any variant of the group"
+        }
+      },
+      "required": [
+        "group",
+        "variant"
+      ],
+      "additionalProperties": false
+    },
+    "output_pattern": {
+      "type": "object",
+      "properties": {
+        "group": {
+          "type": "string"
+        },
+        "variant": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/pattern_variant"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "null when the pattern matches any variant of the group"
+        }
+      },
+      "required": [
+        "group",
+        "variant"
+      ],
+      "additionalProperties": false
+    },
+    "pattern_variant": {
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "enum": [
+                "unit"
+              ]
+            },
+            "name": {
+              "type": "string",
+              "description": "variant name"
+            }
+          },
+          "required": [
+            "kind",
+            "name"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "enum": [
+                "struct"
+              ]
+            },
+            "name": {
+              "type": "string",
+              "description": "variant name"
+            },
+            "fields": {
+              "type": "array",
+              "items": {
+                "$ref": "#/definitions/pattern_field"
+              }
+            }
+          },
+          "required": [
+            "kind",
+            "name",
+            "fields"
+          ],
+          "additionalProperties": false
+        }
+      ]
+    },
+    "pattern_field": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "bound variable name; null for anonymous (positional) patterns"
+        },
+        "pattern": {
+          "$ref": "#/definitions/pattern_expr"
+        }
+      },
+      "required": [
+        "name",
+        "pattern"
+      ],
+      "additionalProperties": false
+    },
+    "pattern_expr": {
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "enum": [
+                "wildcard"
+              ]
+            }
+          },
+          "required": [
+            "kind"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "enum": [
+                "bind"
+              ]
+            },
+            "name": {
+              "type": "string",
+              "description": "bound variable name"
+            }
+          },
+          "required": [
+            "kind",
+            "name"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "enum": [
+                "int"
+              ]
+            },
+            "value": {
+              "type": "integer"
+            }
+          },
+          "required": [
+            "kind",
+            "value"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "enum": [
+                "bool"
+              ]
+            },
+            "value": {
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "kind",
+            "value"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "enum": [
+                "enum_variant"
+              ]
+            },
+            "path": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "description": "enum variant path (type :: variant)"
+            }
+          },
+          "required": [
+            "kind",
+            "path"
+          ],
+          "additionalProperties": false
+        }
+      ]
+    },
+    "output_expr": {
+      "type": "object",
+      "properties": {
+        "group": {
+          "type": "string",
+          "description": "output group name"
+        },
+        "variant": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "variant name; null for a bare `emit Group;` (implicit variant)"
+        },
+        "args": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/expr"
+          }
+        }
+      },
+      "required": [
+        "group",
+        "variant",
+        "args"
+      ],
+      "additionalProperties": false
+    },
+    "assignment": {
+      "type": "object",
+      "properties": {
+        "var": {
+          "type": "string"
+        },
+        "value": {
+          "$ref": "#/definitions/expr"
+        }
+      },
+      "required": [
+        "var",
+        "value"
+      ],
+      "additionalProperties": false
+    },
+    "property": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "formula": {
+          "$ref": "#/definitions/formula"
+        }
+      },
+      "required": [
+        "name",
+        "formula"
+      ],
+      "additionalProperties": false
+    },
+    "formula": {
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "enum": [
+                "input_is"
+              ]
+            },
+            "pattern": {
+              "$ref": "#/definitions/event_pattern"
+            }
+          },
+          "required": [
+            "kind",
+            "pattern"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "enum": [
+                "output_has"
+              ]
+            },
+            "pattern": {
+              "$ref": "#/definitions/output_pattern"
+            }
+          },
+          "required": [
+            "kind",
+            "pattern"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "enum": [
+                "expr"
+              ]
+            },
+            "expr": {
+              "$ref": "#/definitions/expr"
+            }
+          },
+          "required": [
+            "kind",
+            "expr"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "enum": [
+                "not"
+              ]
+            },
+            "inner": {
+              "$ref": "#/definitions/formula"
+            }
+          },
+          "required": [
+            "kind",
+            "inner"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "enum": [
+                "and"
+              ]
+            },
+            "left": {
+              "$ref": "#/definitions/formula"
+            },
+            "right": {
+              "$ref": "#/definitions/formula"
+            }
+          },
+          "required": [
+            "kind",
+            "left",
+            "right"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "enum": [
+                "or"
+              ]
+            },
+            "left": {
+              "$ref": "#/definitions/formula"
+            },
+            "right": {
+              "$ref": "#/definitions/formula"
+            }
+          },
+          "required": [
+            "kind",
+            "left",
+            "right"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "enum": [
+                "implies"
+              ]
+            },
+            "left": {
+              "$ref": "#/definitions/formula"
+            },
+            "right": {
+              "$ref": "#/definitions/formula"
+            }
+          },
+          "required": [
+            "kind",
+            "left",
+            "right"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "enum": [
+                "next"
+              ]
+            },
+            "inner": {
+              "$ref": "#/definitions/formula"
+            }
+          },
+          "required": [
+            "kind",
+            "inner"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "enum": [
+                "always"
+              ]
+            },
+            "inner": {
+              "$ref": "#/definitions/formula"
+            }
+          },
+          "required": [
+            "kind",
+            "inner"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "enum": [
+                "bounded_always"
+              ]
+            },
+            "bound": {
+              "type": "integer",
+              "description": "tick bound"
+            },
+            "inner": {
+              "$ref": "#/definitions/formula"
+            }
+          },
+          "required": [
+            "kind",
+            "bound",
+            "inner"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "enum": [
+                "bounded_eventually"
+              ]
+            },
+            "bound": {
+              "type": "integer",
+              "description": "tick bound"
+            },
+            "inner": {
+              "$ref": "#/definitions/formula"
+            }
+          },
+          "required": [
+            "kind",
+            "bound",
+            "inner"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "enum": [
+                "eventually"
+              ]
+            },
+            "inner": {
+              "$ref": "#/definitions/formula"
+            }
+          },
+          "required": [
+            "kind",
+            "inner"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "enum": [
+                "until"
+              ]
+            },
+            "left": {
+              "$ref": "#/definitions/formula"
+            },
+            "right": {
+              "$ref": "#/definitions/formula"
+            }
+          },
+          "required": [
+            "kind",
+            "left",
+            "right"
+          ],
+          "additionalProperties": false
+        }
+      ]
+    },
+    "expr": {
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "enum": [
+                "int"
+              ]
+            },
+            "value": {
+              "type": "integer",
+              "description": "u64 value (i64 range in JSON)"
+            }
+          },
+          "required": [
+            "kind",
+            "value"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "enum": [
+                "bool"
+              ]
+            },
+            "value": {
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "kind",
+            "value"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "enum": [
+                "path"
+              ]
+            },
+            "path": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "description": "identifier path (multi-segment = enum variant)"
+            }
+          },
+          "required": [
+            "kind",
+            "path"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "enum": [
+                "unary"
+              ]
+            },
+            "op": {
+              "$ref": "#/definitions/unary_op"
+            },
+            "expr": {
+              "$ref": "#/definitions/expr"
+            }
+          },
+          "required": [
+            "kind",
+            "op",
+            "expr"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "enum": [
+                "binary"
+              ]
+            },
+            "op": {
+              "$ref": "#/definitions/bin_op"
+            },
+            "left": {
+              "$ref": "#/definitions/expr"
+            },
+            "right": {
+              "$ref": "#/definitions/expr"
+            }
+          },
+          "required": [
+            "kind",
+            "op",
+            "left",
+            "right"
+          ],
+          "additionalProperties": false
+        }
+      ]
+    },
+    "unary_op": {
+      "type": "string",
+      "enum": [
+        "not",
+        "bit_not",
+        "neg"
+      ]
+    },
+    "bin_op": {
+      "type": "string",
+      "enum": [
+        "plus",
+        "minus",
+        "star",
+        "shift_left",
+        "shift_right",
+        "eq",
+        "not_eq",
+        "lt",
+        "le",
+        "gt",
+        "ge",
+        "bit_or",
+        "bit_xor",
+        "bit_and",
+        "logic_or",
+        "logic_and"
+      ]
+    }
+  }
+}

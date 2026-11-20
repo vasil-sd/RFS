@@ -1,0 +1,12 @@
+{
+  "file": "invalid_always_zero_bound.rfs",
+  "ok": false,
+  "errors": [
+    {
+      "kind": "semantic",
+      "line": 0,
+      "col": 0,
+      "message": "module 'always_zero_bound' property 'bad': always[N] requires N >= 1"
+    }
+  ]
+}

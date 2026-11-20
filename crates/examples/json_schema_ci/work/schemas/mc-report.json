@@ -1,0 +1,297 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "MC report document (mc-report)",
+  "description": "The full exact-mode MC report - the single compact JSON document\nboth backends' generated engines print with `--counterexample-format json`\nand the in-process reference MC builds (`rfs mc-ref --counterexample-format\njson`). Key order is part of the cross-backend byte-parity contract, EXCEPT\n`peak_rss_kb` which is INFORMATIONAL (machine-dependent; cross-backend byte\ncomparisons normalize it to 0). The fail fields (`reason`, `label`,\n`step`) and `counterexample` are present IFF `status` is \"fail\" - the schema marks\nthem optional (draft-07 without if/then conditionals, for widest validator\nsupport); the walk test over real runs pins the actual presence. `counterexample` is\nthe ce-trace document (see the ce-trace format for its text rendering).",
+  "type": "object",
+  "properties": {
+    "status": {
+      "type": "string",
+      "enum": [
+        "pass-complete",
+        "fail",
+        "unknown-state-limit"
+      ],
+      "description": "run status (wire names of ExactStatus)"
+    },
+    "metrics": {
+      "$ref": "#/definitions/mc_metrics"
+    },
+    "reason": {
+      "type": "string",
+      "enum": [
+        "property-violation",
+        "liveness-violation",
+        "deadlock"
+      ],
+      "description": "why the run failed (wire names of FailReason); present IFF status is \"fail\""
+    },
+    "label": {
+      "type": "string",
+      "description": "violated property/assumption label; `-` for a deadlock; present IFF status is \"fail\""
+    },
+    "step": {
+      "type": "integer",
+      "description": "violation step (0-based); the dead configuration's depth for a deadlock; present IFF status is \"fail\""
+    },
+    "statistics": {
+      "$ref": "#/definitions/mc_statistics"
+    },
+    "counterexample": {
+      "$ref": "#/definitions/counterexample"
+    }
+  },
+  "required": [
+    "status",
+    "metrics",
+    "statistics"
+  ],
+  "additionalProperties": false,
+  "definitions": {
+    "mc_metrics": {
+      "type": "object",
+      "properties": {
+        "states": {
+          "type": "integer",
+          "description": "configurations enqueued (including the initial one)"
+        },
+        "transitions": {
+          "type": "integer",
+          "description": "enabled effects processed (success + pruned + violation; unexpected inputs do not count)"
+        },
+        "max_depth": {
+          "type": "integer",
+          "description": "greatest depth reached"
+        }
+      },
+      "required": [
+        "states",
+        "transitions",
+        "max_depth"
+      ],
+      "additionalProperties": false
+    },
+    "mc_statistics": {
+      "type": "object",
+      "properties": {
+        "unexpected_terminations": {
+          "type": "integer",
+          "description": "inputs with no enabled transition at their configuration"
+        },
+        "monitor_size_bits": {
+          "type": "integer",
+          "description": "encoded bit width of all property + assumption monitors"
+        },
+        "memory_estimate_bytes": {
+          "type": "integer",
+          "description": "states * (config bytes + 32) - the documented estimate formula"
+        },
+        "peak_rss_kb": {
+          "type": "integer",
+          "description": "INFORMATIONAL (machine-dependent): actual peak RSS in kB self-reported by the binary; 0 on read failure. Cross-backend byte comparisons normalize it to 0"
+        }
+      },
+      "required": [
+        "unexpected_terminations",
+        "monitor_size_bits",
+        "memory_estimate_bytes",
+        "peak_rss_kb"
+      ],
+      "additionalProperties": false
+    },
+    "counterexample": {
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "enum": [
+                "trace"
+              ]
+            },
+            "initial_state": {
+              "type": "string",
+              "description": "initial state (`State::Name`)"
+            },
+            "initial_vars": {
+              "$ref": "#/definitions/ce_fields"
+            },
+            "steps": {
+              "type": "array",
+              "items": {
+                "$ref": "#/definitions/ce_step"
+              },
+              "description": "the violating steps in execution order (0-based)"
+            },
+            "ce_steps": {
+              "type": "integer",
+              "description": "trace length in steps (quality metric; last key of the object)"
+            }
+          },
+          "required": [
+            "kind",
+            "initial_state",
+            "initial_vars",
+            "steps",
+            "ce_steps"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "enum": [
+                "lasso"
+              ]
+            },
+            "initial_state": {
+              "type": "string",
+              "description": "initial state (`State::Name`)"
+            },
+            "initial_vars": {
+              "$ref": "#/definitions/ce_fields"
+            },
+            "prefix": {
+              "type": "array",
+              "items": {
+                "$ref": "#/definitions/ce_step"
+              },
+              "description": "steps before the cycle (may be empty)"
+            },
+            "cycle": {
+              "type": "array",
+              "items": {
+                "$ref": "#/definitions/ce_step"
+              },
+              "description": "one iteration of the violating cycle"
+            },
+            "cycle_length": {
+              "type": "integer",
+              "description": "number of steps in `cycle` (== its length)"
+            },
+            "ce_steps": {
+              "type": "integer",
+              "description": "trace length in steps (quality metric; last key of the object)"
+            }
+          },
+          "required": [
+            "kind",
+            "initial_state",
+            "initial_vars",
+            "prefix",
+            "cycle",
+            "cycle_length",
+            "ce_steps"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "enum": [
+                "deadlock-config"
+              ]
+            },
+            "depth": {
+              "type": "integer",
+              "description": "graph depth of the dead configuration"
+            },
+            "state": {
+              "type": "string",
+              "description": "state of the dead configuration (`State::Name`)"
+            },
+            "vars": {
+              "$ref": "#/definitions/ce_fields"
+            },
+            "ce_steps": {
+              "type": "integer",
+              "description": "trace length in steps (quality metric; last key of the object)"
+            }
+          },
+          "required": [
+            "kind",
+            "depth",
+            "state",
+            "vars",
+            "ce_steps"
+          ],
+          "additionalProperties": false
+        }
+      ]
+    },
+    "ce_step": {
+      "type": "object",
+      "properties": {
+        "input": {
+          "$ref": "#/definitions/ce_io"
+        },
+        "outputs": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/ce_io"
+          },
+          "description": "outputs emitted by the step (may be empty)"
+        },
+        "from_state": {
+          "type": "string",
+          "description": "state before the step (`State::Name`)"
+        },
+        "to_state": {
+          "type": "string",
+          "description": "state after the step (`State::Name`)"
+        },
+        "vars": {
+          "$ref": "#/definitions/ce_fields"
+        }
+      },
+      "required": [
+        "input",
+        "outputs",
+        "from_state",
+        "to_state",
+        "vars"
+      ],
+      "additionalProperties": false
+    },
+    "ce_io": {
+      "type": "object",
+      "properties": {
+        "variant": {
+          "type": "string",
+          "description": "event/output variant name (unique_name form, e.g. `Go_G`)"
+        },
+        "fields": {
+          "$ref": "#/definitions/ce_fields"
+        }
+      },
+      "required": [
+        "variant",
+        "fields"
+      ],
+      "additionalProperties": false
+    },
+    "ce_fields": {
+      "type": "object",
+      "additionalProperties": {
+        "$ref": "#/definitions/ce_value"
+      }
+    },
+    "ce_value": {
+      "anyOf": [
+        {
+          "type": "boolean"
+        },
+        {
+          "type": "integer"
+        },
+        {
+          "type": "string"
+        }
+      ]
+    }
+  }
+}

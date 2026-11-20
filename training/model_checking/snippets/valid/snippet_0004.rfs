@@ -1,0 +1,13 @@
+module timeout {
+  enum State { Idle, Waiting }
+  initial Idle
+  event Req
+  event Ack
+  event Tick
+  output Retry
+  var timer: bit<3> init 3
+  transition Idle on Req { next Waiting; set timer = 3; }
+  transition Waiting on Ack { next Idle; }
+  transition Waiting on Tick where timer > 0 { next Waiting; set timer = timer - 1; emit Retry; }
+  transition Waiting on Tick where timer == 0 { next Idle; }
+}

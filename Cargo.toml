@@ -12,6 +12,12 @@ members = [
     "crates/examples/sync_handler",
     "crates/examples/async_handler",
     "crates/examples/fuzz_rust",
+    # Phase 17 task 7: the three integration examples no current crate covers
+    # (--no-std production codegen, production property monitors, the callback
+    # + minimal adapters).
+    "crates/examples/no_std_fsm",
+    "crates/examples/monitors_production",
+    "crates/examples/callback_minimal_adapters",
     # Phase 12 task 1: LLM-assistant maintenance tooling (binary `rfs-dev`).
     # Operates on the repo's sources/docs as data; nothing in the rfs
     # build/test path invokes it.

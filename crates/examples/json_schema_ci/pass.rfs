@@ -1,0 +1,26 @@
+module timeout_retry {
+  enum State { Idle, Sending }
+  initial Idle
+  event Send
+  event Ack
+  event Tick
+  output Retry
+  output Drop
+  var timer: bit<3> init 3
+  transition Idle on Send {
+    next Sending;
+    set timer = 3;
+  }
+  transition Sending on Ack {
+    next Idle;
+  }
+  transition Sending on Tick where timer > 0 {
+    next Sending;
+    set timer = timer - 1;
+    emit Retry;
+  }
+  transition Sending on Tick where timer == 0 {
+    next Idle;
+    emit Drop;
+  }
+}

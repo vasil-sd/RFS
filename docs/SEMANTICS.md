@@ -883,11 +883,44 @@ found one is reported - sound (never a false pass) but run-dependent.
 runtime `--bound N`) performs k-step unrolling of the transition system over
 bitvectors with a shared z3 spec rendered identically by both backends. Exit
 codes 0/1/2; PASS results are ALWAYS labeled INCOMPLETE (`PASS WITHIN BOUND k
-(incomplete - no completeness claim)`). v1 scope rejections (shared error text
-in both backends): assumptions, `on_error` blocks, enum-typed variables, and
-property formulas beyond top-level `always`/`eventually` over boolean
-combinations of expressions. This mode is a bug-hunting extension; the v1.0
-completeness guarantees above apply to exact mode only.
+(incomplete - no completeness claim)`).
+
+**Property support (task 1A).** The DEFAULT class is checked unconditionally:
+top-level `always`, `always[N]`, `eventually`, and one-shot
+`bounded_eventually[N]`, whose bodies may use boolean combinations of
+expressions plus the cheap step operators `input_is(...)`, `output_has(...)`
+and `next (...)`. `input_is`/`output_has` match exactly as in section 5.3
+(pattern matching per 3.1; wildcards and bindings constrain nothing, literal
+field arguments compare against the consumed input's / emitted output's
+payload); they are false at sample 0 (no transition just taken). `next (p)`
+holds at anchor i iff p holds at step i+1; anchors within one step of the
+horizon (i + depth >= k for the property's maximum `next` nesting depth)
+are DROPPED - sound (a dropped anchor can only miss a violation, never create
+a false FAIL). Renamed event parameters (`Reply(R(rk))` for declared field
+`rkey`) are supported unconditionally: pattern bindings alias to the
+declared field positionally, so guards may reference the binding name.
+
+The FULL class - `until`, `bounded_eventually[N]` under another temporal
+operator, and any temporal operator nested under another (including under
+`next`) - is checked only with `--full-properties` (both surfaces: `rfs mc-ref
+--mode smt-bounded --full-properties` and the generated SMT binaries). Its
+expansions are quantifier-free and horizon-truncated: `bounded_eventually[N]`
+at anchor q becomes the disjunction over j in q..min(q+N, k) of the body at
+j (a window exceeding the horizon is PENDING - no violation claim); `p until
+q` becomes (some j < k with q(j) and p throughout 0..<j - strictly before,
+per the weak-until definition in section 6.1) OR (p throughout 0..<k) - the
+second disjunct is horizon-truncated, weaker than true "p forever", which
+keeps the expansion sound (no false FAILs; no completeness claim either way).
+Without the flag, every FULL property is OMITTED with a per-property stderr
+warning naming it and the flag, and the summary line
+gains `properties_omitted=M` only when M > 0 (existing captures stay
+byte-identical).
+
+v1 scope rejections (shared error text in both backends): assumptions,
+`on_error` blocks, enum-typed variables, wildcard event patterns over
+multi-variant groups in transitions, and enum-variant output patterns in
+`output_has`. This mode is a bug-hunting extension; the v1.0 completeness
+guarantees above apply to exact mode only.
 
 ---
 

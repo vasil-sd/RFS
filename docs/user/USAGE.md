@@ -321,7 +321,7 @@ mirror the generated exact-mode binaries: `0` pass-complete, `1` fail,
 |---|---|---|---|
 | `rfs mc-ref spec.rfs` | `--mode exact` (the default): exhaustive exact reachable-state search. `--max-states N` (default 1000000), `--timeout-sec N`, `--nondet` (fire EVERY enabled transition as its own successor), `--counterexample-format json\|text` (text default) | the unified report: a `model-check summary:` line + statistics, and on failure a counterexample (text trace or a single JSON document) | pass-complete exit 0; fail exit 1; state-limit/timeout exit 2 |
 | `rfs mc-ref spec.rfs --mode fuzz` | seeded random testing with the generated fuzz runtimes' exact draw sequence. `--bound N` (5), `--runs N` (20), `--seed N` (12345), `--violate label:prob:percent%,...`, `--unexpected-prob P` (0.0) | exit 0: no property violation (a summary line); exit 1: a violation found (a per-run report, NO summary line) | exact-only flags under `--mode fuzz` are a usage error, exit 1 |
-| `rfs mc-ref spec.rfs --mode smt-bounded` | k-step SMT unrolling over z3 IN-PROCESS. `--bound N` (10) is the ONLY accepted flag; specs with assumptions or on_error are REJECTED; requires the `smt` cargo feature | exit 0 pass-within-bound / 1 fail / 2 unknown | every flag but `--bound` is a usage error, exit 1; an assumption-bearing spec is rejected, exit 1 |
+| `rfs mc-ref spec.rfs --mode smt-bounded` | k-step SMT unrolling over z3 IN-PROCESS. `--bound N` (10) + `--full-properties` (check the FULL property class - without it those properties are omitted with a per-property warning and a `properties_omitted=M` summary suffix); specs with assumptions or on_error are REJECTED; requires the `smt` cargo feature | exit 0 pass-within-bound / 1 fail / 2 unknown | every flag but `--bound`/`--full-properties` is a usage error, exit 1 (`--full-properties` under other modes too); an assumption-bearing spec is rejected, exit 1 |
 
 `--assumes all\|none\|labels` applies across modes (which safety assumptions are
 active). NOT applicable: `--threads`/`--fast` (ref_mc is single-threaded).
@@ -408,8 +408,9 @@ configuration itself (`state`, `vars`, `depth`) rather than a step-by-step trace
   deciding - raise `--max-states` / `--timeout-sec`, or the spec is too large for
   exact mode (try `--mode fuzz` for a sampled answer).
 - **A usage error** (an exact-only flag under `--mode fuzz`, any flag but
-  `--bound` under `--mode smt-bounded, an assumption-bearing spec under smt-
-  bounded) exits 1 naming the offending flag/spec.
+  `--bound`/`--full-properties` under `--mode smt-bounded`, `--full-properties`
+  under the other modes, an assumption-bearing spec under smt-bounded) exits 1
+  naming the offending flag/spec.
 - **A parse/validation error** exits 1 with the section-4 diagnostics - validate
   the spec first.
 

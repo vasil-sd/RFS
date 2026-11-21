@@ -94,9 +94,29 @@ non-smt build exits with a clear diagnostic).
 
 | Flag | Meaning |
 |---|---|
-| `--bound N` | unrolling depth. Default 10 - the ONLY accepted flag; specs with assumptions or `on_error` blocks are rejected (same as codegen) |
+| `--bound N` | unrolling depth. Default 10. Specs with assumptions or `on_error` blocks are rejected (same as codegen) |
+| `--full-properties` | check the FULL property class (see below). Without it those properties are omitted with a per-property warning |
 
 Exit codes: 0 pass-within-bound / 1 fail / 2 unknown.
+
+**What it checks.** The DEFAULT property class is checked unconditionally:
+top-level `always`, `always[N]`, `eventually` and one-shot
+`bounded_eventually[N]`, with bodies using boolean combinations of expressions
+plus `input_is(...)`, `output_has(...)` and `next (...)` - the same matching
+semantics as exact mode (wildcards/bindings constrain nothing, literal field
+arguments compare). `next` anchors within one step of the horizon are dropped
+(sound: they can only miss a violation, never create a false FAIL). Renamed
+event parameters (`Reply(R(rk))` for declared field `rkey`) work in patterns
+and guards.
+
+The FULL class - `until`, `bounded_eventually[N]` under another temporal
+operator, and temporals nested under temporals (incl. under `next`) - blows up
+the formula at large bounds (O(k*N) growth), so it is opt-in via
+`--full-properties`. Its expansions are horizon-truncated and sound (no false
+FAILs; no completeness claim). Without the flag each FULL property is omitted
+with a stderr warning naming it and the flag, and the summary line gains
+`properties_omitted=M` (only when M > 0). The generated SMT binaries accept the
+same two flags (`--bound`, `--full-properties`).
 
 ### Shared flags and not-applicable flags
 

@@ -1874,11 +1874,14 @@ fn run_smt() -> i32 {
     // Runtime flags.
     let args: Vec<String> = std::env::args().collect();
     let mut bound = DEFAULT_BOUND;
+    let mut full_properties = false;
     let mut ai = 1;
     while ai < args.len() {
         if args[ai] == "--bound" {
             ai += 1;
             bound = args.get(ai).and_then(|x| x.parse().ok()).unwrap_or(DEFAULT_BOUND);
+        } else if args[ai] == "--full-properties" {
+            full_properties = true;
         }
         ai += 1;
     }
@@ -1907,6 +1910,12 @@ fn run_smt() -> i32 {
         let guards = guard_fns();
         let asgns = asgn_fns();
         let mut alive: Vec<Bool> = vec![Bool::from_bool(true)];
+        // Per-step atom storage (explicit, not name-shared constants - see
+        // the ref engine's SfCtx docs): sample s's atoms describe the
+        // transition that PRODUCED config_s, so row 0 is all-false and row
+        // i+1 is built from step i's fires in the loop below.
+        let mut ii_steps: Vec<Vec<Bool>> = vec![vec![Bool::from_bool(false); N_INPUT_ATOMS]];
+        let mut oh_steps: Vec<Vec<Bool>> = vec![vec![Bool::from_bool(false); N_OUTPUT_ATOMS]];
         for i in 0..k - 1 {
             // enabled_t = state match ∧ class match ∧ guard (firing order).
             let mut enableds: Vec<Bool> = Vec::new();
@@ -1935,6 +1944,18 @@ fn run_smt() -> i32 {
                 fires.push(fire);
                 prefix_or = Some(new_prefix);
             }
+            // input_is/output_has atoms for sample i+1 (the transition fired
+            // at step i is that sample's consumed input / emitted outputs).
+            let mut ii_row: Vec<Bool> = Vec::new();
+            for a in 0..N_INPUT_ATOMS {
+                ii_row.push(build_input_atom(a, i, &fires, &fld_vars));
+            }
+            ii_steps.push(ii_row);
+            let mut oh_row: Vec<Bool> = Vec::new();
+            for a in 0..N_OUTPUT_ATOMS {
+                oh_row.push(build_output_atom(a, i, &fires));
+            }
+            oh_steps.push(oh_row);
             let any_fire = if fires.is_empty() {
                 Bool::from_bool(false)
             } else {
@@ -1984,108 +2005,207 @@ fn run_smt() -> i32 {
             }
         }
 
-        // ---- Queries (fixed order: safety, then liveness; declaration order) ----
-        let props = prop_fns();
+
+
+        // ---- Omissions: FULL properties without --full-properties ----
+        let omitted = PROP_FULL.iter().filter(|&&f| f && !full_properties).count();
         for p in 0..PROP_KINDS.len() {
-            if PROP_KINDS[p] != 0 { continue; }
-            // viol_p = ∃i<k: alive_i ∧ ¬phi_p(i).
-            let mut viol: Option<Bool> = None;
-            for i in 0..k {
-                let phi = props[p](i);
-                let bad = b_and(&alive[i], &phi.not());
-                viol = Some(match viol { Some(v) => b_or(&v, &bad), None => bad });
-            }
-            let solver = Solver::new();
-            for b in &base { solver.assert(b); }
-            solver.assert(viol.expect("property formula"));
-            match solver.check() {
-                SatResult::Sat => {
-                    let m = solver.get_model().expect("model");
-                    let mut vstep = 0usize;
-                    for i in 0..k {
-                        if smt_read_bool(&m, &alive[i]) && !smt_read_bool(&m, &props[p](i)) {
-                            vstep = i;
-                            break;
-                        }
-                    }
-                    println!("FAIL");
-                    // Summary format single-sourced in mc_concepts (D-P16-5).
-                    println!("__SMT_SUMMARY_FAIL_PROPERTY_FORMAT__", k, PROP_NAMES[p], vstep);
-                    println!("property violation: {}", PROP_NAMES[p]);
-                    println!("  violation step: {vstep}");
-                    smt_print_trace(k, &m, &s_vars, &v_vars, ev_vars.as_deref(), &fld_vars);
-                    return 1;
-                }
-                SatResult::Unsat => {}
-                SatResult::Unknown => {
-                    println!("UNKNOWN (solver inconclusive within bound {k})");
-                    println!("__SMT_SUMMARY_UNKNOWN_FORMAT__", k);
-                    return 2;
-                }
+            if PROP_FULL[p] && !full_properties {
+                eprintln!("warning: smt-bounded mode omits property '{}' by default - it uses bounded_eventually/until/nested temporal operators, which greatly affect solver time/memory at large bounds (O(k*N) formula growth). Pass --full-properties to include it.", PROP_NAMES[p]);
             }
         }
+        let omit_suffix = if omitted > 0 { format!(" properties_omitted={omitted}") } else { String::new() };
+
+        // ---- Queries (fixed order: safety, then liveness; declaration order) ----
+        let props = prop_fns();
+        let expands = expand_fns();
         for p in 0..PROP_KINDS.len() {
-            if PROP_KINDS[p] != 1 { continue; }
-            // never_p = phi_p holds at no alive step within the bound.
-            let mut never: Option<Bool> = None;
-            for i in 0..k {
-                let phi = props[p](i);
-                let n = b_and(&alive[i], &phi).not();
-                never = Some(match never { Some(v) => b_and(&v, &n), None => n });
-            }
-            // cycle = ∃a<b: identical (state, vars) - an infinite path.
-            let mut cyc: Option<Bool> = None;
-            for a in 0..k {
-                for b in (a + 1)..k {
-                    let mut eq = s_vars[a].eq(&s_vars[b]);
-                    for j in 0..VAR_WIDTHS.len() {
-                        eq = b_and(&eq, &v_vars[a][j].eq(&v_vars[b][j]));
+            if PROP_FULL[p] && !full_properties { continue; }
+            match PROP_KINDS[p] {
+                0 => {
+                    // always / always[N]: viol_p = ∃i<hi: alive_i ∧ ¬phi_p(i).
+                    let hi = k
+                        .min(if PROP_BOUNDS[p] == 0 { k } else { PROP_BOUNDS[p] })
+                        .min(k.saturating_sub(PROP_NEXT_DEPTH[p]));
+                    if hi == 0 { continue; }
+                    let mut viol: Option<Bool> = None;
+                    for i in 0..hi {
+                        let phi = props[p](i, k, &ii_steps, &oh_steps);
+                        let bad = b_and(&alive[i], &phi.not());
+                        viol = Some(match viol { Some(v) => b_or(&v, &bad), None => bad });
                     }
-                    cyc = Some(match cyc { Some(c) => b_or(&c, &eq), None => eq });
+                    let solver = Solver::new();
+                    for b in &base { solver.assert(b); }
+                    solver.assert(viol.expect("property formula"));
+                    match solver.check() {
+                        SatResult::Sat => {
+                            let m = solver.get_model().expect("model");
+                            let mut vstep = 0usize;
+                            for i in 0..hi {
+                                if smt_read_bool(&m, &alive[i])
+                                    && !smt_read_bool(&m, &props[p](i, k, &ii_steps, &oh_steps)) {
+                                    vstep = i;
+                                    break;
+                                }
+                            }
+                            println!("FAIL");
+                            println!("__SMT_SUMMARY_FAIL_PROPERTY_FORMAT__{}", k, PROP_NAMES[p], vstep, omit_suffix);
+                            println!("property violation: {}", PROP_NAMES[p]);
+                            println!("  violation step: {vstep}");
+                            smt_print_trace(k, &m, &s_vars, &v_vars, ev_vars.as_deref(), &fld_vars);
+                            return 1;
+                        }
+                        SatResult::Unsat => {}
+                        SatResult::Unknown => {
+                            println!("UNKNOWN (solver inconclusive within bound {k})");
+                            println!("__SMT_SUMMARY_UNKNOWN_FORMAT__{}", k, omit_suffix);
+                            return 2;
+                        }
+                    }
                 }
-            }
-            if let Some(c) = cyc {
-                let solver = Solver::new();
-                for b in &base { solver.assert(b); }
-                solver.assert(never.expect("liveness formula"));
-                solver.assert(&c);
-                match solver.check() {
-                    SatResult::Sat => {
-                        let m = solver.get_model().expect("model");
-                        // Find the cycle pair from the model (first in order).
-                        let cfgs: Vec<(u64, Vec<u64>)> = (0..k)
-                            .map(|i| {
-                                let s = smt_read_bv(&m, &s_vars[i]);
-                                let vs: Vec<u64> = (0..VAR_WIDTHS.len()).map(|j| smt_read_bv(&m, &v_vars[i][j])).collect();
-                                (s, vs)
-                            })
-                            .collect();
-                        let mut pair = (0usize, 1usize);
-                        'outer: for a in 0..k {
-                            for b in (a + 1)..k {
-                                if cfgs[a] == cfgs[b] { pair = (a, b); break 'outer; }
+                1 => {
+                    // eventually: never_p over the next-clipped horizon + cycle.
+                    let hi = k.saturating_sub(PROP_NEXT_DEPTH[p]);
+                    if hi == 0 { continue; }
+                    let mut never: Option<Bool> = None;
+                    for i in 0..hi {
+                        let phi = props[p](i, k, &ii_steps, &oh_steps);
+                        let n = b_and(&alive[i], &phi).not();
+                        never = Some(match never { Some(v) => b_and(&v, &n), None => n });
+                    }
+                    // cycle = ∃a<b: identical (state, vars) - an infinite path.
+                    let mut cyc: Option<Bool> = None;
+                    for a in 0..k {
+                        for b in (a + 1)..k {
+                            let mut eq = s_vars[a].eq(&s_vars[b]);
+                            for j in 0..VAR_WIDTHS.len() {
+                                eq = b_and(&eq, &v_vars[a][j].eq(&v_vars[b][j]));
+                            }
+                            cyc = Some(match cyc { Some(c) => b_or(&c, &eq), None => eq });
+                        }
+                    }
+                    if let Some(c) = cyc {
+                        let solver = Solver::new();
+                        for b in &base { solver.assert(b); }
+                        solver.assert(never.expect("liveness formula"));
+                        solver.assert(&c);
+                        match solver.check() {
+                            SatResult::Sat => {
+                                let m = solver.get_model().expect("model");
+                                let cfgs: Vec<(u64, Vec<u64>)> = (0..k)
+                                    .map(|i| {
+                                        let s = smt_read_bv(&m, &s_vars[i]);
+                                        let vs: Vec<u64> = (0..VAR_WIDTHS.len()).map(|j| smt_read_bv(&m, &v_vars[i][j])).collect();
+                                        (s, vs)
+                                    })
+                                    .collect();
+                                let mut pair = (0usize, 1usize);
+                                'outer: for a in 0..k {
+                                    for b in (a + 1)..k {
+                                        if cfgs[a] == cfgs[b] { pair = (a, b); break 'outer; }
+                                    }
+                                }
+                                println!("FAIL");
+                                println!("__SMT_SUMMARY_FAIL_LIVENESS_FORMAT__{}", k, PROP_NAMES[p], pair.0, omit_suffix);
+                                println!("liveness violation: {}", PROP_NAMES[p]);
+                                println!("  violation step: {}", pair.0);
+                                println!("  cycle length: {}", pair.1 - pair.0);
+                                smt_print_trace(k, &m, &s_vars, &v_vars, ev_vars.as_deref(), &fld_vars);
+                                return 1;
+                            }
+                            SatResult::Unsat => {}
+                            SatResult::Unknown => {
+                                println!("UNKNOWN (solver inconclusive within bound {k})");
+                                println!("__SMT_SUMMARY_UNKNOWN_FORMAT__{}", k, omit_suffix);
+                                return 2;
                             }
                         }
-                        println!("FAIL");
-                        println!("__SMT_SUMMARY_FAIL_LIVENESS_FORMAT__", k, PROP_NAMES[p], pair.0);
-                        println!("liveness violation: {}", PROP_NAMES[p]);
-                        println!("  violation step: {}", pair.0);
-                        println!("  cycle length: {}", pair.1 - pair.0);
-                        smt_print_trace(k, &m, &s_vars, &v_vars, ev_vars.as_deref(), &fld_vars);
-                        return 1;
                     }
-                    SatResult::Unsat => {}
-                    SatResult::Unknown => {
-                        println!("UNKNOWN (solver inconclusive within bound {k})");
-                        println!("__SMT_SUMMARY_UNKNOWN_FORMAT__", k);
-                        return 2;
+                }
+                2 => {
+                    // bounded_eventually[N] (full class): one-shot from sample 0;
+                    // a window that exceeds the horizon (or is next-clipped
+                    // short of it) is still pending - no violation claim.
+                    if PROP_BE_BOUND[p] > k.saturating_sub(PROP_NEXT_DEPTH[p]) { continue; }
+                    let phi = expands[p](0, k, &ii_steps, &oh_steps);
+                    let solver = Solver::new();
+                    for b in &base { solver.assert(b); }
+                    solver.assert(phi.not());
+                    match solver.check() {
+                        SatResult::Sat => {
+                            let m = solver.get_model().expect("model");
+                            println!("FAIL");
+                            println!("__SMT_SUMMARY_FAIL_PROPERTY_FORMAT__{}", k, PROP_NAMES[p], PROP_BE_BOUND[p] - 1, omit_suffix);
+                            println!("property violation: {}", PROP_NAMES[p]);
+                            println!("  violation step: {}", PROP_BE_BOUND[p] - 1);
+                            smt_print_trace(k, &m, &s_vars, &v_vars, ev_vars.as_deref(), &fld_vars);
+                            return 1;
+                        }
+                        SatResult::Unsat => {}
+                        SatResult::Unknown => {
+                            println!("UNKNOWN (solver inconclusive within bound {k})");
+                            println!("__SMT_SUMMARY_UNKNOWN_FORMAT__{}", k, omit_suffix);
+                            return 2;
+                        }
+                    }
+                }
+                _ => {
+                    // until (full class): weak until over the horizon; a
+                    // violation needs an infinite path (cycle) witness.
+                    let phi = expands[p](0, k, &ii_steps, &oh_steps);
+                    let mut cyc: Option<Bool> = None;
+                    for a in 0..k {
+                        for b in (a + 1)..k {
+                            let mut eq = s_vars[a].eq(&s_vars[b]);
+                            for j in 0..VAR_WIDTHS.len() {
+                                eq = b_and(&eq, &v_vars[a][j].eq(&v_vars[b][j]));
+                            }
+                            cyc = Some(match cyc { Some(c) => b_or(&c, &eq), None => eq });
+                        }
+                    }
+                    if let Some(c) = cyc {
+                        let solver = Solver::new();
+                        for b in &base { solver.assert(b); }
+                        solver.assert(phi.not());
+                        solver.assert(&c);
+                        match solver.check() {
+                            SatResult::Sat => {
+                                let m = solver.get_model().expect("model");
+                                let cfgs: Vec<(u64, Vec<u64>)> = (0..k)
+                                    .map(|i| {
+                                        let s = smt_read_bv(&m, &s_vars[i]);
+                                        let vs: Vec<u64> = (0..VAR_WIDTHS.len()).map(|j| smt_read_bv(&m, &v_vars[i][j])).collect();
+                                        (s, vs)
+                                    })
+                                    .collect();
+                                let mut pair = (0usize, 1usize);
+                                'outer: for a in 0..k {
+                                    for b in (a + 1)..k {
+                                        if cfgs[a] == cfgs[b] { pair = (a, b); break 'outer; }
+                                    }
+                                }
+                                println!("FAIL");
+                                println!("__SMT_SUMMARY_FAIL_LIVENESS_FORMAT__{}", k, PROP_NAMES[p], pair.0, omit_suffix);
+                                println!("liveness violation: {}", PROP_NAMES[p]);
+                                println!("  violation step: {}", pair.0);
+                                println!("  cycle length: {}", pair.1 - pair.0);
+                                smt_print_trace(k, &m, &s_vars, &v_vars, ev_vars.as_deref(), &fld_vars);
+                                return 1;
+                            }
+                            SatResult::Unsat => {}
+                            SatResult::Unknown => {
+                                println!("UNKNOWN (solver inconclusive within bound {k})");
+                                println!("__SMT_SUMMARY_UNKNOWN_FORMAT__{}", k, omit_suffix);
+                                return 2;
+                            }
+                        }
                     }
                 }
             }
         }
         // No violation found within the bound (incomplete - no claim).
         println!("PASS WITHIN BOUND {k} (incomplete - no completeness claim)");
-        println!("__SMT_SUMMARY_PASS_FORMAT__", k);
+        println!("__SMT_SUMMARY_PASS_FORMAT__{}", k, omit_suffix);
         0
     })
 }

@@ -2086,11 +2086,17 @@ pub fn run_fuzz(module: &Module, cfg: &FuzzConfig) -> Result<ref_mc_fuzz::FuzzRe
 
 /// SMT-bounded entry point (D-P16-1): delegates to the in-process z3 executor
 /// in `ref_mc_smt.rs` (feature-gated - codegen of smt artifacts is NOT gated,
-/// in-process execution IS). Returns the outcome (exit code 0/1/2 + full
-/// stdout) - the CLI prints it and maps the exit code.
+/// in-process execution IS). `full_properties` enables the FULL property class
+/// (the generated binaries' --full-properties). Returns the outcome (exit code
+/// 0/1/2 + full stdout + stderr warnings) - the CLI prints it and maps the
+/// exit code.
 #[cfg(feature = "smt")]
-pub fn run_smt(module: &Module, bound: usize) -> Result<ref_mc_smt::SmtOutcome, String> {
-    ref_mc_smt::run(module, bound)
+pub fn run_smt(
+    module: &Module,
+    bound: usize,
+    full_properties: bool,
+) -> Result<ref_mc_smt::SmtOutcome, String> {
+    ref_mc_smt::run(module, bound, full_properties)
 }
 
 // ---------------------------------------------------------------------------

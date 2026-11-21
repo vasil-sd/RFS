@@ -2669,11 +2669,14 @@ static void smt_print_trace(Z3_context c, unsigned k, Z3_model m, const Z3_ast *
 static int run_smt(int argc, char **argv) {
     // Runtime flags.
     unsigned bound = DEFAULT_BOUND;
+    int full_properties = 0;
     for (int ai = 1; ai < argc; ai++) {
         if (strcmp(argv[ai], "--bound") == 0 && ai + 1 < argc) {
             char *end = 0;
             unsigned long v = strtoul(argv[ai + 1], &end, 10);
             if (end != argv[ai + 1] && *end == '\0') bound = (unsigned)v;
+        } else if (strcmp(argv[ai], "--full-properties") == 0) {
+            full_properties = 1;
         }
     }
     unsigned k = bound > 1u ? bound : 1u;
@@ -2688,18 +2691,18 @@ static int run_smt(int argc, char **argv) {
     char name[64];
     for (unsigned i = 0; i < k; i++) {
         snprintf(name, sizeof name, "s_%u", i);
-        s_vars[i] = Z3_mk_fresh_const(c, name, Z3_mk_bv_sort(c, STATE_BITS));
+        s_vars[i] = Z3_mk_const(c, Z3_mk_string_symbol(c, name), Z3_mk_bv_sort(c, STATE_BITS));
         for (unsigned j = 0; j < N_VARS; j++) {
             snprintf(name, sizeof name, "v_%u_%u", i, j);
-            v_vars[(size_t)i * N_VARS + j] = Z3_mk_fresh_const(c, name, Z3_mk_bv_sort(c, VAR_WIDTHS[j]));
+            v_vars[(size_t)i * N_VARS + j] = Z3_mk_const(c, Z3_mk_string_symbol(c, name), Z3_mk_bv_sort(c, VAR_WIDTHS[j]));
         }
         if (N_CLASSES > 1) {
             snprintf(name, sizeof name, "ev_%u", i);
-            ev_vars[i] = Z3_mk_fresh_const(c, name, Z3_mk_bv_sort(c, CLS_BITS));
+            ev_vars[i] = Z3_mk_const(c, Z3_mk_string_symbol(c, name), Z3_mk_bv_sort(c, CLS_BITS));
         }
         for (unsigned g = 0; g < N_FIELDS; g++) {
             snprintf(name, sizeof name, "fld_%u_%u", i, g);
-            fld_vars[(size_t)i * N_FIELDS + g] = Z3_mk_fresh_const(c, name, Z3_mk_bv_sort(c, FIELD_WIDTHS[g]));
+            fld_vars[(size_t)i * N_FIELDS + g] = Z3_mk_const(c, Z3_mk_string_symbol(c, name), Z3_mk_bv_sort(c, FIELD_WIDTHS[g]));
         }
     }
 
@@ -2720,6 +2723,14 @@ static int run_smt(int argc, char **argv) {
     }
 
     Z3_ast *alive = malloc(k * sizeof(Z3_ast));
+    // Per-step atom storage, flattened (k x N_ATOMS) - explicit, not
+    // name-shared constants (z3_mk_fresh_const does not guarantee sharing).
+    // Sample s's atoms describe the transition that PRODUCED config_s, so row
+    // 0 is all-false and row i+1 is filled from step i's fires in the loop.
+    Z3_ast *ii_flat = malloc((size_t)(k * (N_INPUT_ATOMS ? N_INPUT_ATOMS : 1)) * sizeof(Z3_ast));
+    Z3_ast *oh_flat = malloc((size_t)(k * (N_OUTPUT_ATOMS ? N_OUTPUT_ATOMS : 1)) * sizeof(Z3_ast));
+    for (unsigned a = 0; a < N_INPUT_ATOMS; a++) ii_flat[a] = Z3_mk_false(c);
+    for (unsigned a = 0; a < N_OUTPUT_ATOMS; a++) oh_flat[a] = Z3_mk_false(c);
     alive[0] = Z3_mk_true(c);
     int ret = 0;
     for (unsigned i = 0; i + 1 < k; i++) {
@@ -2756,6 +2767,14 @@ static int run_smt(int argc, char **argv) {
                 Z3_ast pair[2] = { enableds[t], Z3_mk_true(c) };
                 prefix = Z3_mk_and(c, 2, pair);
             }
+        }
+        // input_is/output_has atoms for sample i+1 (the transition fired at
+        // step i is that sample's consumed input / emitted outputs).
+        for (unsigned a = 0; a < N_INPUT_ATOMS; a++) {
+            ii_flat[(size_t)(i + 1) * N_INPUT_ATOMS + a] = build_input_atom(c, a, i, fldi, fires);
+        }
+        for (unsigned a = 0; a < N_OUTPUT_ATOMS; a++) {
+            oh_flat[(size_t)(i + 1) * N_OUTPUT_ATOMS + a] = build_output_atom(c, a, i, vi, fldi, fires);
         }
         Z3_ast any_fire;
         if (N_TRANS == 0) {
@@ -2807,62 +2826,97 @@ static int run_smt(int argc, char **argv) {
         free(fires);
     }
 
-    // ---- Queries (fixed order: safety, then liveness; declaration order) ----
+
+
+    // ---- Omissions: FULL properties without --full-properties ----
+    unsigned omitted = 0;
     for (unsigned p = 0; p < N_PROPS; p++) {
-        if (PROP_KINDS[p] != 0) continue;
-        // viol_p = ∃i<k: alive_i ∧ ¬phi_p(i).
-        Z3_ast viol = 0;
-        for (unsigned i = 0; i < k; i++) {
-            Z3_ast phi = PROP_FNS[p](c, s_vars[i], &v_vars[(size_t)i * N_VARS], &fld_vars[(size_t)i * N_FIELDS]);
-            Z3_ast pair[2] = { alive[i], Z3_mk_not(c, phi) };
-            Z3_ast bad = Z3_mk_and(c, 2, pair);
-            if (viol) {
-                Z3_ast opair[2] = { viol, bad };
-                viol = Z3_mk_or(c, 2, opair);
-            } else {
-                viol = bad;
-            }
-        }
-        Z3_solver solver = Z3_mk_solver(c);
-        for (size_t bi = 0; bi < base_n; bi++) Z3_solver_assert(c, solver, base[bi]);
-        Z3_solver_assert(c, solver, viol);
-        Z3_lbool r = Z3_solver_check(c, solver);
-        if (r == Z3_L_TRUE) {
-            Z3_model m = Z3_solver_get_model(c, solver);
-            unsigned vstep = 0;
-            for (unsigned i = 0; i < k; i++) {
-                Z3_ast phi = PROP_FNS[p](c, s_vars[i], &v_vars[(size_t)i * N_VARS], &fld_vars[(size_t)i * N_FIELDS]);
-                if (smt_read_bool(c, m, alive[i]) && !smt_read_bool(c, m, phi)) { vstep = i; break; }
-            }
-            printf("FAIL\n");
-            // Summary format single-sourced in mc_concepts (D-P16-5): the brace
-            // form is rendered to printf's typed form at codegen time.
-            printf("__SMT_SUMMARY_FAIL_PROPERTY_FORMAT_C__\n", k, PROP_NAMES[p], vstep);
-            printf("property violation: %s\n", PROP_NAMES[p]);
-            printf("  violation step: %u\n", vstep);
-            smt_print_trace(c, k, m, s_vars, v_vars, ev_vars, fld_vars);
-            ret = 1; goto done;
-        } else if (r == Z3_L_UNDEF) {
-            printf("UNKNOWN (solver inconclusive within bound %u)\n", k);
-            printf("__SMT_SUMMARY_UNKNOWN_FORMAT_C__\n", k);
-            ret = 2; goto done;
+        if (PROP_FULL[p] && !full_properties) {
+            omitted++;
+            fprintf(stderr, "warning: smt-bounded mode omits property '%s' by default - it uses bounded_eventually/until/nested temporal operators, which greatly affect solver time/memory at large bounds (O(k*N) formula growth). Pass --full-properties to include it.\n", PROP_NAMES[p]);
         }
     }
+    char omit_buf[32];
+    const char *omit_suffix = "";
+    if (omitted > 0) {
+        snprintf(omit_buf, sizeof omit_buf, " properties_omitted=%u", omitted);
+        omit_suffix = omit_buf;
+    }
+
+    // Keep the expansion table referenced even when no FULL property exists
+    // (its entries - incl. expand_dummy - are reachable only through it).
+    (void)EXPAND_FNS;
+
+    // ---- Queries (fixed order: safety, then liveness; declaration order) ----
     for (unsigned p = 0; p < N_PROPS; p++) {
-        if (PROP_KINDS[p] != 1) continue;
-        // never_p = phi_p holds at no alive step within the bound.
-        Z3_ast never = 0;
-        for (unsigned i = 0; i < k; i++) {
-            Z3_ast phi = PROP_FNS[p](c, s_vars[i], &v_vars[(size_t)i * N_VARS], &fld_vars[(size_t)i * N_FIELDS]);
-            Z3_ast pair[2] = { alive[i], phi };
-            Z3_ast n = Z3_mk_not(c, Z3_mk_and(c, 2, pair));
-            if (never) {
-                Z3_ast apair[2] = { never, n };
-                never = Z3_mk_and(c, 2, apair);
-            } else {
-                never = n;
+        if (PROP_FULL[p] && !full_properties) continue;
+        if (PROP_KINDS[p] == 0) {
+            // always / always[N]: viol_p = ∃i<hi: alive_i ∧ ¬phi_p(i).
+            unsigned hi = k;
+            if (PROP_BOUNDS[p] != 0 && PROP_BOUNDS[p] < hi) hi = PROP_BOUNDS[p];
+            hi = (PROP_NEXT_DEPTH[p] < hi) ? hi - PROP_NEXT_DEPTH[p] : 0;
+            if (hi == 0) continue;
+            Z3_ast viol = 0;
+            for (unsigned i = 0; i < hi; i++) {
+                const Z3_ast *vi = &v_vars[(size_t)i * N_VARS];
+                const Z3_ast *fldi = &fld_vars[(size_t)i * N_FIELDS];
+                Z3_ast phi = PROP_FNS[p](c, i, k, s_vars[i], vi, fldi, ii_flat, oh_flat);
+                Z3_ast pair[2] = { alive[i], Z3_mk_not(c, phi) };
+                Z3_ast bad = Z3_mk_and(c, 2, pair);
+                if (viol) {
+                    Z3_ast opair[2] = { viol, bad };
+                    viol = Z3_mk_or(c, 2, opair);
+                } else {
+                    viol = bad;
+                }
             }
-        }
+            Z3_solver solver = Z3_mk_solver(c);
+            for (size_t bi = 0; bi < base_n; bi++) Z3_solver_assert(c, solver, base[bi]);
+            Z3_solver_assert(c, solver, viol);
+            Z3_lbool r = Z3_solver_check(c, solver);
+            if (r == Z3_L_TRUE) {
+                Z3_model m = Z3_solver_get_model(c, solver);
+                unsigned vstep = 0;
+                for (unsigned i = 0; i < hi; i++) {
+                    const Z3_ast *vi = &v_vars[(size_t)i * N_VARS];
+                    const Z3_ast *fldi = &fld_vars[(size_t)i * N_FIELDS];
+                    Z3_ast phi = PROP_FNS[p](c, i, k, s_vars[i], vi, fldi, ii_flat, oh_flat);
+                    if (smt_read_bool(c, m, alive[i]) && !smt_read_bool(c, m, phi)) { vstep = i; break; }
+                }
+                printf("FAIL\n");
+                // Summary format single-sourced in mc_concepts (D-P16-5): the
+                // brace form is rendered to printf's typed form at codegen
+                // time; the omission suffix rides on the same line.
+                printf("__SMT_SUMMARY_FAIL_PROPERTY_FORMAT_C__", k, PROP_NAMES[p], vstep);
+                printf("%s\n", omit_suffix);
+                printf("property violation: %s\n", PROP_NAMES[p]);
+                printf("  violation step: %u\n", vstep);
+                smt_print_trace(c, k, m, s_vars, v_vars, ev_vars, fld_vars);
+                ret = 1; goto done;
+            } else if (r == Z3_L_UNDEF) {
+                printf("UNKNOWN (solver inconclusive within bound %u)\n", k);
+                printf("__SMT_SUMMARY_UNKNOWN_FORMAT_C__", k);
+                printf("%s\n", omit_suffix);
+                ret = 2; goto done;
+            }
+        } else if (PROP_KINDS[p] == 1) {
+            // eventually: never_p over the next-clipped horizon + cycle.
+            unsigned hi = (PROP_NEXT_DEPTH[p] < k) ? k - PROP_NEXT_DEPTH[p] : 0;
+            if (hi == 0) continue;
+            Z3_ast never = 0;
+            for (unsigned i = 0; i < hi; i++) {
+                const Z3_ast *vi = &v_vars[(size_t)i * N_VARS];
+                const Z3_ast *fldi = &fld_vars[(size_t)i * N_FIELDS];
+                Z3_ast phi = PROP_FNS[p](c, i, k, s_vars[i], vi, fldi, ii_flat, oh_flat);
+                Z3_ast pair[2] = { alive[i], phi };
+                Z3_ast n = Z3_mk_not(c, Z3_mk_and(c, 2, pair));
+                if (never) {
+                    Z3_ast apair[2] = { never, n };
+                    never = Z3_mk_and(c, 2, apair);
+                } else {
+                    never = n;
+                }
+            }
         // cycle = ∃a<b: identical (state, vars) - an infinite path.
         Z3_ast cyc = 0;
         for (unsigned a = 0; a < k; a++) {
@@ -2900,7 +2954,8 @@ static int run_smt(int argc, char **argv) {
                     }
                 }
                 printf("FAIL\n");
-                printf("__SMT_SUMMARY_FAIL_LIVENESS_FORMAT_C__\n", k, PROP_NAMES[p], pa);
+                printf("__SMT_SUMMARY_FAIL_LIVENESS_FORMAT_C__", k, PROP_NAMES[p], pa);
+                printf("%s\n", omit_suffix);
                 printf("liveness violation: %s\n", PROP_NAMES[p]);
                 printf("  violation step: %u\n", pa);
                 printf("  cycle length: %u\n", pb - pa);
@@ -2908,14 +2963,101 @@ static int run_smt(int argc, char **argv) {
                 ret = 1; goto done;
             } else if (r == Z3_L_UNDEF) {
                 printf("UNKNOWN (solver inconclusive within bound %u)\n", k);
-                printf("__SMT_SUMMARY_UNKNOWN_FORMAT_C__\n", k);
+                printf("__SMT_SUMMARY_UNKNOWN_FORMAT_C__", k);
+                printf("%s\n", omit_suffix);
                 ret = 2; goto done;
+            }
+        }
+        } else if (PROP_KINDS[p] == 2) {
+            // bounded_eventually[N] (full class): one-shot from sample 0; a
+            // window that exceeds the horizon (or is next-clipped short of it)
+            // is still pending - no violation claim.
+            unsigned clip = (PROP_NEXT_DEPTH[p] < k) ? k - PROP_NEXT_DEPTH[p] : 0;
+            if (PROP_BE_BOUND[p] > clip) continue;
+            const Z3_ast *v0 = &v_vars[0];
+            const Z3_ast *fld0 = &fld_vars[0];
+            Z3_ast phi = EXPAND_FNS[p](c, 0, k, s_vars[0], v0, fld0, ii_flat, oh_flat);
+            Z3_solver solver = Z3_mk_solver(c);
+            for (size_t bi = 0; bi < base_n; bi++) Z3_solver_assert(c, solver, base[bi]);
+            Z3_solver_assert(c, solver, Z3_mk_not(c, phi));
+            Z3_lbool r = Z3_solver_check(c, solver);
+            if (r == Z3_L_TRUE) {
+                Z3_model m = Z3_solver_get_model(c, solver);
+                printf("FAIL\n");
+                printf("__SMT_SUMMARY_FAIL_PROPERTY_FORMAT_C__", k, PROP_NAMES[p], PROP_BE_BOUND[p] - 1);
+                printf("%s\n", omit_suffix);
+                printf("property violation: %s\n", PROP_NAMES[p]);
+                printf("  violation step: %u\n", PROP_BE_BOUND[p] - 1);
+                smt_print_trace(c, k, m, s_vars, v_vars, ev_vars, fld_vars);
+                ret = 1; goto done;
+            } else if (r == Z3_L_UNDEF) {
+                printf("UNKNOWN (solver inconclusive within bound %u)\n", k);
+                printf("__SMT_SUMMARY_UNKNOWN_FORMAT_C__", k);
+                printf("%s\n", omit_suffix);
+                ret = 2; goto done;
+            }
+        } else {
+            // until (full class): weak until over the horizon; a violation
+            // needs an infinite path (cycle) witness.
+            const Z3_ast *v0 = &v_vars[0];
+            const Z3_ast *fld0 = &fld_vars[0];
+            Z3_ast phi = EXPAND_FNS[p](c, 0, k, s_vars[0], v0, fld0, ii_flat, oh_flat);
+            Z3_ast cyc = 0;
+            for (unsigned a = 0; a < k; a++) {
+                for (unsigned b = a + 1; b < k; b++) {
+                    Z3_ast eq = Z3_mk_eq(c, s_vars[a], s_vars[b]);
+                    for (unsigned j = 0; j < N_VARS; j++) {
+                        Z3_ast pair[2] = { eq, Z3_mk_eq(c, v_vars[(size_t)a * N_VARS + j], v_vars[(size_t)b * N_VARS + j]) };
+                        eq = Z3_mk_and(c, 2, pair);
+                    }
+                    if (cyc) {
+                        Z3_ast opair[2] = { cyc, eq };
+                        cyc = Z3_mk_or(c, 2, opair);
+                    } else {
+                        cyc = eq;
+                    }
+                }
+            }
+            if (cyc) {
+                Z3_solver solver = Z3_mk_solver(c);
+                for (size_t bi = 0; bi < base_n; bi++) Z3_solver_assert(c, solver, base[bi]);
+                Z3_solver_assert(c, solver, Z3_mk_not(c, phi));
+                Z3_solver_assert(c, solver, cyc);
+                Z3_lbool r = Z3_solver_check(c, solver);
+                if (r == Z3_L_TRUE) {
+                    Z3_model m = Z3_solver_get_model(c, solver);
+                    // Find the cycle pair from the model (first in order).
+                    unsigned pa = 0, pb = 1; int found = 0;
+                    for (unsigned a = 0; a < k && !found; a++) {
+                        for (unsigned b = a + 1; b < k; b++) {
+                            int same = smt_read_bv(c, m, s_vars[a]) == smt_read_bv(c, m, s_vars[b]);
+                            for (unsigned j = 0; j < N_VARS && same; j++) {
+                                same = smt_read_bv(c, m, v_vars[(size_t)a * N_VARS + j]) == smt_read_bv(c, m, v_vars[(size_t)b * N_VARS + j]);
+                            }
+                            if (same) { pa = a; pb = b; found = 1; break; }
+                        }
+                    }
+                    printf("FAIL\n");
+                    printf("__SMT_SUMMARY_FAIL_LIVENESS_FORMAT_C__", k, PROP_NAMES[p], pa);
+                    printf("%s\n", omit_suffix);
+                    printf("liveness violation: %s\n", PROP_NAMES[p]);
+                    printf("  violation step: %u\n", pa);
+                    printf("  cycle length: %u\n", pb - pa);
+                    smt_print_trace(c, k, m, s_vars, v_vars, ev_vars, fld_vars);
+                    ret = 1; goto done;
+                } else if (r == Z3_L_UNDEF) {
+                    printf("UNKNOWN (solver inconclusive within bound %u)\n", k);
+                    printf("__SMT_SUMMARY_UNKNOWN_FORMAT_C__", k);
+                    printf("%s\n", omit_suffix);
+                    ret = 2; goto done;
+                }
             }
         }
     }
     // No violation found within the bound (incomplete - no claim).
     printf("PASS WITHIN BOUND %u (incomplete - no completeness claim)\n", k);
-    printf("__SMT_SUMMARY_PASS_FORMAT_C__\n", k);
+    printf("__SMT_SUMMARY_PASS_FORMAT_C__", k);
+    printf("%s\n", omit_suffix);
 
 done:
     free(s_vars);
@@ -2924,6 +3066,8 @@ done:
     free(fld_vars);
     free(base);
     free(alive);
+    free(ii_flat);
+    free(oh_flat);
     Z3_del_context(c);
     return ret;
 }

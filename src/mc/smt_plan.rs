@@ -5,9 +5,13 @@
 //!
 //! v1 scope (documented limitations, rejected at codegen with shared errors):
 //! - no assumptions, no on_error blocks;
-//! - properties: top-level `always (phi)` / `eventually (phi)` only, where phi
-//!   is a boolean combination of expressions over state/vars (no input/output
-//!   references, no nested temporal operators);
+//! - properties: top-level `always` / `always[N]` / `eventually` bodies may use
+//!   expr/not/and/or/implies plus `input_is`, `output_has` and `next` (the
+//!   DEFAULT class - checked without any flag); top-level `bounded_eventually[N]`
+//!   / `until` and any temporal operator nested under another temporal operator
+//!   form the FULL class - converted and carried in the spec, but checked only
+//!   when the engine runs with `--full-properties` (omitted with a per-property
+//!   warning otherwise);
 //! - variables: bit<N> and bool only (no enum-typed vars);
 //! - concrete payload fields: bit<N>/bool with N <= 64.
 //!
@@ -74,6 +78,56 @@ pub enum Sf {
     And(Box<Sf>, Box<Sf>),
     Or(Box<Sf>, Box<Sf>),
     Implies(Box<Sf>, Box<Sf>),
+    /// input_is(Pattern): the input consumed at this step matches the pattern.
+    /// Pre-resolved into arms, one per matching input class: (class index,
+    /// literal field constraints as (GLOBAL field index, value, is_bool)). An
+    /// empty arm list means no class can match - the atom is always false. The
+    /// engine evaluates it over the step's fire predicates (the fired
+    /// transition's class IS the consumed input), so it is automatically false
+    /// at the final unrolled step (no input there). `id` indexes
+    /// [`SmtSpec::input_atoms`] (assigned in formula walk order).
+    InputIs {
+        id: usize,
+        arms: Vec<(usize, Vec<(usize, u64, bool)>)>,
+    },
+    /// output_has(Pattern): at least one output emitted by the transition
+    /// firing at this step matches. `constraints` are positionally aligned with
+    /// the matched output declaration's fields: (field position, value,
+    /// is_bool); wildcard and bind pattern fields constrain nothing. Evaluated
+    /// over the step's fire predicates (false at the final unrolled step).
+    /// `id` indexes [`SmtSpec::output_atoms`].
+    OutputHas {
+        id: usize,
+        group: String,
+        variant: Option<String>,
+        constraints: Vec<(usize, u64, bool)>,
+    },
+    /// next(f): f holds one step later. The engine evaluates the body at step
+    /// i+1; properties containing `next` are checked only at steps where the
+    /// shifted horizon exists (trailing anchors dropped - sound, no false
+    /// FAILs).
+    Next(Box<Sf>),
+    /// bounded_eventually[N](f) - FULL class (checked only with
+    /// --full-properties): f must hold within N steps of the anchor.
+    BoundedEventually {
+        bound: usize,
+        inner: Box<Sf>,
+    },
+    /// p until q - FULL class (checked only with --full-properties): weak
+    /// until.
+    Until {
+        left: Box<Sf>,
+        right: Box<Sf>,
+    },
+    /// always[N](f) / eventually(f) nested under another temporal operator -
+    /// FULL class (checked only with --full-properties). Top-level always[N]
+    /// is the DEFAULT class and is carried as [`SmtPropKind::Always`] with a
+    /// bound, not as this node.
+    BoundedAlways {
+        bound: usize,
+        inner: Box<Sf>,
+    },
+    Eventually(Box<Sf>),
 }
 
 #[derive(Debug, Clone)]
@@ -100,6 +154,17 @@ pub struct SmtClass {
     pub fields: Vec<(String, u32, bool)>,
 }
 
+/// One output emitted by a transition: group + variant name + argument
+/// expressions converted in the transition's context (positionally aligned
+/// with the output declaration's fields). Carried so `output_has` properties
+/// can be evaluated over the step's fire predicates.
+#[derive(Debug, Clone)]
+pub struct SmtEmit {
+    pub group: String,
+    pub variant: Option<String>,
+    pub args: Vec<Se>,
+}
+
 #[derive(Debug, Clone)]
 pub struct SmtTrans {
     /// State index into [`SmtSpec::states`] this transition fires from.
@@ -112,18 +177,36 @@ pub struct SmtTrans {
     /// Variable updates: (var index, expression). Vars absent here are
     /// unchanged by the transition.
     pub assignments: Vec<(usize, Se)>,
+    /// Outputs emitted when this transition fires (see [`SmtEmit`]).
+    pub emits: Vec<SmtEmit>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SmtPropKind {
     Always,
     Eventually,
+    /// Top-level bounded_eventually[N] - FULL class.
+    BoundedEventually(usize),
+    /// Top-level until - FULL class.
+    Until,
 }
 
 #[derive(Debug, Clone)]
 pub struct SmtProp {
     pub name: String,
     pub kind: SmtPropKind,
+    /// Anchor-range clip for top-level `always[N]` (the DEFAULT class): the
+    /// property is checked at steps 0..min(N, k). None = unbounded always.
+    pub bound: Option<usize>,
+    /// FULL class: top-level bounded_eventually/until, or a temporal operator
+    /// nested under another temporal operator. Checked only when the engine
+    /// runs with `--full-properties`; omitted with a per-property warning
+    /// otherwise.
+    pub full: bool,
+    /// Maximum nesting depth of `next` in the formula (0 = none). Properties
+    /// are checked only at steps i with i + depth < k (the shifted horizon
+    /// must exist - dropping trailing anchors is sound, no false FAILs).
+    pub next_depth: usize,
     pub formula: Sf,
 }
 
@@ -141,6 +224,12 @@ pub struct SmtSpec {
     /// - the same order the exact engine uses for first-match selection.
     pub transitions: Vec<SmtTrans>,
     pub properties: Vec<SmtProp>,
+    /// input_is atom definitions, indexed by `Sf::InputIs.id` (formula walk
+    /// order over all properties). Each: (class index, literal field
+    /// constraints as (GLOBAL field index, value, is_bool)).
+    pub input_atoms: Vec<Vec<(usize, Vec<(usize, u64, bool)>)>>,
+    /// output_has atom definitions, indexed by `Sf::OutputHas.id`.
+    pub output_atoms: Vec<(String, Option<String>, Vec<(usize, u64, bool)>)>,
 }
 
 /// Context for converting one expression: name resolution follows the
@@ -148,10 +237,20 @@ pub struct SmtSpec {
 /// variants).
 struct ExprCtx {
     var_idx: std::collections::HashMap<String, usize>,
+    /// Renamed event parameter: pattern binding name -> declared payload field
+    /// name (patterns match positionally, exactly as the exact-mode engines
+    /// do). Resolved at the top of expression name lookup, so the width/domain
+    /// lookup below still uses the declared name.
+    bind_alias: std::collections::HashMap<String, String>,
     /// Payload field name -> Some(idx into the class's concrete fields) or
     /// None (abstracted; the caller substitutes the representative literal).
     field: std::collections::HashMap<String, Option<usize>>,
     state_variant_idx: std::collections::HashMap<String, usize>,
+    /// Input-class view for input_is resolution: (class index, group, variant
+    /// name, per-declared-field concrete GLOBAL field index or None, per-
+    /// declared-field representative value as u64 or None). Empty outside
+    /// property conversion.
+    input_classes: Vec<(usize, String, String, Vec<Option<usize>>, Vec<Option<u64>>)>,
 }
 
 /// ceil(log2(n)), minimum 1 (bit width of an index space of size n).
@@ -286,6 +385,33 @@ pub fn build_smt_spec(module: &Module, plan: &McPlan) -> Result<SmtSpec, String>
         state_variant_idx.insert(s.clone(), i);
     }
 
+    // Input-class view for input_is resolution: per class, the group, variant
+    // name, each declared field's concrete GLOBAL index (None if abstracted)
+    // and its representative value (bools as 0/1).
+    let mut input_classes: Vec<(usize, String, String, Vec<Option<usize>>, Vec<Option<u64>>)> =
+        Vec::new();
+    {
+        let mut base = 0usize;
+        for (ci, vi) in plan.abstraction.variants.iter().enumerate() {
+            let mut concrete: Vec<Option<usize>> = Vec::new();
+            let mut reps: Vec<Option<u64>> = Vec::new();
+            for f in &vi.fields {
+                if f.concrete {
+                    concrete.push(Some(base));
+                    base += 1;
+                } else {
+                    concrete.push(None);
+                }
+                reps.push(match &f.representative {
+                    Some(crate::codegen::fsm::RepValue::Bool(b)) => Some(u64::from(*b)),
+                    Some(crate::codegen::fsm::RepValue::Int(v)) => Some(*v),
+                    _ => None,
+                });
+            }
+            input_classes.push((ci, vi.group.clone(), vi.variant.clone(), concrete, reps));
+        }
+    }
+
     // Transitions in firing order (priority desc, stable).
     let mut order: Vec<usize> = (0..module.transitions.len()).collect();
     order.sort_by_key(|&i| std::cmp::Reverse(module.transitions[i].priority.unwrap_or(0)));
@@ -335,7 +461,11 @@ pub fn build_smt_spec(module: &Module, plan: &McPlan) -> Result<SmtSpec, String>
                 .ok_or_else(|| format!("transition {} has no matching input class", t.id))?
         };
 
-        // Conversion context for this transition's payload fields.
+        // Conversion context for this transition's payload fields. Declared
+        // field names resolve directly; the pattern's BINDING names (which may
+        // rename a field, e.g. `R(k)` for declared field `rkey`) are aliased to
+        // the declared name at the same POSITION - patterns match positionally,
+        // exactly as the exact-mode engines do.
         let mut field: std::collections::HashMap<String, Option<usize>> =
             std::collections::HashMap::new();
         for f in &plan.abstraction.variants[class].fields {
@@ -348,10 +478,27 @@ pub fn build_smt_spec(module: &Module, plan: &McPlan) -> Result<SmtSpec, String>
                 },
             );
         }
+        let mut bind_alias: std::collections::HashMap<String, String> =
+            std::collections::HashMap::new();
+        if let Some(crate::lang::ir::PatternVariant::Struct { fields, .. }) = &t.pattern.variant {
+            for (pos, pf) in fields.iter().enumerate() {
+                if let crate::lang::ir::PatternExpr::Bind { name } = &pf.pattern {
+                    if let Some(declared) = plan.abstraction.variants[class]
+                        .fields
+                        .get(pos)
+                        .map(|f| f.name.clone())
+                    {
+                        bind_alias.insert(name.clone(), declared);
+                    }
+                }
+            }
+        }
         let ctx = ExprCtx {
             var_idx: var_idx.clone(),
             field,
             state_variant_idx: state_variant_idx.clone(),
+            bind_alias,
+            input_classes: Vec::new(),
         };
 
         let guard = match &t.guard {
@@ -369,40 +516,91 @@ pub fn build_smt_spec(module: &Module, plan: &McPlan) -> Result<SmtSpec, String>
                 convert_expr(&a.value, &ctx, &plan.abstraction.variants[class])?,
             ));
         }
+        // Emitted outputs: argument expressions converted in this transition's
+        // context (an enum-path argument hits the shared enum rejection).
+        let mut emits: Vec<SmtEmit> = Vec::new();
+        for o in &t.emits {
+            let args = o
+                .args
+                .iter()
+                .map(|a| convert_expr(a, &ctx, &plan.abstraction.variants[class]))
+                .collect::<Result<Vec<_>, _>>()?;
+            emits.push(SmtEmit {
+                group: o.group.clone(),
+                variant: o.variant.clone(),
+                args,
+            });
+        }
         transitions.push(SmtTrans {
             state,
             next_state,
             class,
             guard,
             assignments,
+            emits,
         });
     }
 
-    // Properties: top-level always/eventually only (v1).
+    // Properties: top-level always/always[N]/eventually are the DEFAULT class
+    // (checked without any flag); top-level bounded_eventually/until and any
+    // temporal operator nested under another temporal operator form the FULL
+    // class (converted here, checked only with --full-properties).
     let mut properties: Vec<SmtProp> = Vec::new();
     for p in &module.properties {
-        let (kind, inner) = match &p.formula {
-            Formula::Always { inner } => (SmtPropKind::Always, inner),
-            Formula::Eventually { inner } => (SmtPropKind::Eventually, inner),
+        let (kind, bound) = match &p.formula {
+            Formula::Always { .. } => (SmtPropKind::Always, None),
+            Formula::BoundedAlways { bound, .. } => {
+                (SmtPropKind::Always, Some(*bound as usize))
+            }
+            Formula::Eventually { .. } => (SmtPropKind::Eventually, None),
+            Formula::BoundedEventually { bound, .. } => {
+                (SmtPropKind::BoundedEventually(*bound as usize), None)
+            }
+            Formula::Until { .. } => (SmtPropKind::Until, None),
             other => {
                 return Err(format!(
-                    "smt-bounded mode supports top-level always/eventually properties only (property '{}' is {:?})",
+                    "smt-bounded mode supports top-level always/always[N]/eventually/bounded_eventually/until properties only (property '{}' is {:?})",
                     p.name, formula_tag(other)
                 ))
             }
         };
-        // Property context: no payload bindings.
+        // Property context: no payload bindings (input_is/output_has atoms
+        // carry their own pre-resolved data).
         let ctx = ExprCtx {
             var_idx: var_idx.clone(),
             field: std::collections::HashMap::new(),
             state_variant_idx: state_variant_idx.clone(),
+            bind_alias: std::collections::HashMap::new(),
+            input_classes: input_classes.clone(),
         };
-        let formula = convert_formula(inner, &ctx)?;
+        let formula = match &p.formula {
+            Formula::Always { inner }
+            | Formula::BoundedAlways { inner, .. }
+            | Formula::Eventually { inner }
+            | Formula::BoundedEventually { inner, .. } => convert_formula(inner, &ctx)?,
+            Formula::Until { left, right } => Sf::Until {
+                left: Box::new(convert_formula(left, &ctx)?),
+                right: Box::new(convert_formula(right, &ctx)?),
+            },
+            _ => unreachable!("top form matched above"),
+        };
         properties.push(SmtProp {
             name: p.name.clone(),
             kind,
+            bound,
+            full: classify_full(&p.formula),
+            next_depth: next_depth(&p.formula),
             formula,
         });
+    }
+
+    // Atom ids: walk every property formula in pre-order and number the
+    // input_is/output_has occurrences; collect their definitions for the
+    // engines' per-step precomputation.
+    let mut input_atoms: Vec<Vec<(usize, Vec<(usize, u64, bool)>)>> = Vec::new();
+    let mut output_atoms: Vec<(String, Option<String>, Vec<(usize, u64, bool)>)> = Vec::new();
+    for prop in &mut properties {
+        assign_atom_ids(&mut prop.formula, &mut input_atoms, &mut output_atoms);
     }
 
     let state_bits = ceil_log2(states.len());
@@ -414,6 +612,8 @@ pub fn build_smt_spec(module: &Module, plan: &McPlan) -> Result<SmtSpec, String>
         classes,
         transitions,
         properties,
+        input_atoms,
+        output_atoms,
     })
 }
 
@@ -474,6 +674,10 @@ fn convert_expr(
             if name == "state" {
                 return Ok(Se::State);
             }
+            // Renamed event parameter: the pattern bound this name to a
+            // declared payload field positionally - resolve the alias first so
+            // the width/domain lookup below uses the declared name.
+            let name = ctx.bind_alias.get(name).map(|s| s.as_str()).unwrap_or(name);
             if let Some(f) = ctx.field.get(name) {
                 match f {
                     Some(idx) => {
@@ -587,10 +791,227 @@ fn convert_formula(f: &Formula, ctx: &ExprCtx) -> Result<Sf, String> {
             Box::new(convert_formula(left, ctx)?),
             Box::new(convert_formula(right, ctx)?),
         )),
-        other => Err(format!(
-            "smt-bounded mode property formulas may use expr/not/and/or/implies only (found {})",
-            formula_tag(other)
-        )),
+        Formula::InputIs { pattern } => {
+            // Resolved against the abstraction table: one arm per matching
+            // input class with its literal field constraints in GLOBAL field
+            // indices. Abstracted fields fold against their representative at
+            // conversion time (the abstraction fixes them to that value).
+            let arms = resolve_input_is(pattern, ctx)?;
+            Ok(Sf::InputIs { id: 0, arms })
+        }
+        Formula::OutputHas { pattern } => {
+            let mut constraints: Vec<(usize, u64, bool)> = Vec::new();
+            if let Some(crate::lang::ir::PatternVariant::Struct { fields, .. }) = &pattern.variant {
+                for (pos, pf) in fields.iter().enumerate() {
+                    match &pf.pattern {
+                        crate::lang::ir::PatternExpr::Wildcard
+                        | crate::lang::ir::PatternExpr::Bind { .. } => {}
+                        crate::lang::ir::PatternExpr::Int { value } => {
+                            constraints.push((pos, *value, false))
+                        }
+                        crate::lang::ir::PatternExpr::Bool { value } => {
+                            constraints.push((pos, u64::from(*value), true))
+                        }
+                        crate::lang::ir::PatternExpr::EnumVariant { .. } => return Err(
+                            "smt-bounded mode does not support enum-variant output patterns (v1)"
+                                .into(),
+                        ),
+                    }
+                }
+            }
+            Ok(Sf::OutputHas {
+                id: 0,
+                group: pattern.group.clone(),
+                variant: variant_name(&pattern.variant),
+                constraints,
+            })
+        }
+        Formula::Next { inner } => Ok(Sf::Next(Box::new(convert_formula(inner, ctx)?))),
+        Formula::BoundedEventually { bound, inner } => Ok(Sf::BoundedEventually {
+            bound: *bound as usize,
+            inner: Box::new(convert_formula(inner, ctx)?),
+        }),
+        Formula::Until { left, right } => Ok(Sf::Until {
+            left: Box::new(convert_formula(left, ctx)?),
+            right: Box::new(convert_formula(right, ctx)?),
+        }),
+        // Nested under another temporal operator (top-level forms are handled
+        // by the caller) - FULL class.
+        Formula::Always { inner } => Ok(Sf::BoundedAlways {
+            bound: usize::MAX,
+            inner: Box::new(convert_formula(inner, ctx)?),
+        }),
+        Formula::BoundedAlways { bound, inner } => Ok(Sf::BoundedAlways {
+            bound: *bound as usize,
+            inner: Box::new(convert_formula(inner, ctx)?),
+        }),
+        Formula::Eventually { inner } => Ok(Sf::Eventually(Box::new(convert_formula(inner, ctx)?))),
+    }
+}
+
+/// Resolve an input_is pattern against the abstraction table into per-class
+/// arms. `ctx.input_classes` carries the (class index, group, variant name,
+/// per-declared-field concreteness + representative) view built once per spec.
+fn resolve_input_is(
+    pattern: &crate::lang::ir::EventPattern,
+    ctx: &ExprCtx,
+) -> Result<Vec<(usize, Vec<(usize, u64, bool)>)>, String> {
+    let mut arms: Vec<(usize, Vec<(usize, u64, bool)>)> = Vec::new();
+    for (ci, group, variant, concrete, reps) in &ctx.input_classes {
+        if group != &pattern.group {
+            continue;
+        }
+        let variant_ok = match &pattern.variant {
+            None => true,
+            Some(crate::lang::ir::PatternVariant::Unit { name }) => variant == name,
+            Some(crate::lang::ir::PatternVariant::Struct { name, fields }) => {
+                variant == name && concrete.len() == fields.len()
+            }
+        };
+        if !variant_ok {
+            continue;
+        }
+        let mut constraints: Vec<(usize, u64, bool)> = Vec::new();
+        let mut impossible = false;
+        if let Some(crate::lang::ir::PatternVariant::Struct { fields, .. }) = &pattern.variant {
+            for (pos, pf) in fields.iter().enumerate() {
+                match &pf.pattern {
+                    crate::lang::ir::PatternExpr::Wildcard
+                    | crate::lang::ir::PatternExpr::Bind { .. } => {}
+                    crate::lang::ir::PatternExpr::Int { value } => {
+                        if let Some(g) = concrete[pos] {
+                            constraints.push((g, *value, false));
+                        } else {
+                            // Abstracted field: fold against the representative.
+                            match &reps[pos] {
+                                Some(v) if *v == *value => {}
+                                _ => impossible = true,
+                            }
+                        }
+                    }
+                    crate::lang::ir::PatternExpr::Bool { value } => {
+                        if let Some(g) = concrete[pos] {
+                            constraints.push((g, u64::from(*value), true));
+                        } else {
+                            match &reps[pos] {
+                                Some(v) if *v == u64::from(*value) => {}
+                                _ => impossible = true,
+                            }
+                        }
+                    }
+                    crate::lang::ir::PatternExpr::EnumVariant { .. } => {
+                        return Err(
+                            "smt-bounded mode does not support enum-variant input patterns (v1)"
+                                .into(),
+                        )
+                    }
+                }
+            }
+        }
+        if !impossible {
+            arms.push((*ci, constraints));
+        }
+    }
+    Ok(arms)
+}
+
+/// FULL class iff the top form is bounded_eventually/until, or a temporal
+/// operator (other than `next`) occurs strictly inside another temporal
+/// operator. `next` alone is never full (a pure step shift).
+fn classify_full(top: &Formula) -> bool {
+    match top {
+        // Top-level until is FULL (horizon-truncated expansion). Top-level
+        // bounded_eventually[N] is DEFAULT class: the engine checks it as a
+        // one-shot with the pending rule (no formula blowup).
+        Formula::Until { .. } => true,
+        Formula::BoundedEventually { .. } => false,
+        _ => nested_temporal(top),
+    }
+}
+
+/// True iff a temporal operator (other than `next`) occurs strictly inside
+/// another temporal operator of `f`.
+fn nested_temporal(f: &Formula) -> bool {
+    match f {
+        Formula::Always { inner }
+        | Formula::BoundedAlways { inner, .. }
+        | Formula::Eventually { inner }
+        | Formula::BoundedEventually { inner, .. } => contains_temporal(inner),
+        Formula::Until { left, right } => contains_temporal(left) || contains_temporal(right),
+        // A temporal under `next` is still nested (the shift moves the whole
+        // temporal structure).
+        Formula::Next { inner } => contains_temporal(inner),
+        _ => false,
+    }
+}
+
+fn contains_temporal(f: &Formula) -> bool {
+    match f {
+        Formula::Always { .. }
+        | Formula::BoundedAlways { .. }
+        | Formula::Eventually { .. }
+        | Formula::BoundedEventually { .. }
+        | Formula::Until { .. } => true,
+        Formula::Next { inner } => contains_temporal(inner),
+        Formula::Not { inner } => contains_temporal(inner),
+        Formula::And { left, right }
+        | Formula::Or { left, right }
+        | Formula::Implies { left, right } => contains_temporal(left) || contains_temporal(right),
+        Formula::Expr { .. } | Formula::InputIs { .. } | Formula::OutputHas { .. } => false,
+    }
+}
+
+/// Maximum nesting depth of `next` in the formula (0 = none). Every temporal
+/// wrapper is descended through explicitly - a `next` under `always`/`eventually`
+/// still shifts its evaluation one step and must be clipped at the horizon.
+fn next_depth(f: &Formula) -> usize {
+    match f {
+        Formula::Next { inner } => 1 + next_depth(inner),
+        Formula::Not { inner } => next_depth(inner),
+        Formula::And { left, right }
+        | Formula::Or { left, right }
+        | Formula::Implies { left, right } => next_depth(left).max(next_depth(right)),
+        Formula::Always { inner }
+        | Formula::BoundedAlways { inner, .. }
+        | Formula::BoundedEventually { inner, .. }
+        | Formula::Eventually { inner } => next_depth(inner),
+        Formula::Until { left, right } => next_depth(left).max(next_depth(right)),
+        _ => 0,
+    }
+}
+
+/// Number the input_is/output_has occurrences of a formula in pre-order and
+/// append their definitions to the atom lists (ids are the list indices).
+fn assign_atom_ids(
+    sf: &mut Sf,
+    input_atoms: &mut Vec<Vec<(usize, Vec<(usize, u64, bool)>)>>,
+    output_atoms: &mut Vec<(String, Option<String>, Vec<(usize, u64, bool)>)>,
+) {
+    match sf {
+        Sf::InputIs { id, arms } => {
+            *id = input_atoms.len();
+            input_atoms.push(std::mem::take(arms));
+        }
+        Sf::OutputHas {
+            id,
+            group,
+            variant,
+            constraints,
+        } => {
+            *id = output_atoms.len();
+            output_atoms.push((group.clone(), variant.clone(), std::mem::take(constraints)));
+        }
+        Sf::Not(inner) | Sf::Next(inner) | Sf::Eventually(inner) => {
+            assign_atom_ids(inner, input_atoms, output_atoms)
+        }
+        Sf::BoundedEventually { inner, .. } | Sf::BoundedAlways { inner, .. } => {
+            assign_atom_ids(inner, input_atoms, output_atoms)
+        }
+        Sf::And(l, r) | Sf::Or(l, r) | Sf::Implies(l, r) | Sf::Until { left: l, right: r } => {
+            assign_atom_ids(l, input_atoms, output_atoms);
+            assign_atom_ids(r, input_atoms, output_atoms);
+        }
+        Sf::Se(_) => {}
     }
 }
 

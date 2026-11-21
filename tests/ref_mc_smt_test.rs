@@ -285,6 +285,13 @@ fn build_rust(project: &Path, src_code: &str) -> PathBuf {
 }
 
 fn run_bin(bin: &Path, args: &[&str]) -> (i32, String) {
+    let (code, out, _err) = run_bin_full(bin, args);
+    (code, out)
+}
+
+/// Like `run_bin` but also returns stderr (the omission warnings land there -
+/// task 1A pins them byte-for-byte against the ref engine's warning list).
+fn run_bin_full(bin: &Path, args: &[&str]) -> (i32, String, String) {
     let (z3, _) = resolved_z3().to_owned();
     let existing = std::env::var("LD_LIBRARY_PATH").unwrap_or_default();
     let out = Command::new(bin)
@@ -295,6 +302,7 @@ fn run_bin(bin: &Path, args: &[&str]) -> (i32, String) {
     (
         out.status.code().unwrap_or(-1),
         String::from_utf8_lossy(&out.stdout).into_owned(),
+        String::from_utf8_lossy(&out.stderr).into_owned(),
     )
 }
 
@@ -353,13 +361,16 @@ fn smt_binary(backend: &str, src: &str, tag: &str) -> PathBuf {
 }
 
 /// Run ref-mc's in-process SMT executor on a spec source at one bound.
-fn ref_smt(src: &str, bound: usize) -> (i32, String) {
+/// `full_properties` mirrors the generated binaries' `--full-properties`
+/// flag (task 1A): without it, FULL-class properties are omitted with a
+/// per-property warning (returned as the third tuple element).
+fn ref_smt(src: &str, bound: usize, full_properties: bool) -> (i32, String, Vec<String>) {
     let ir = rfs::parse_source(src).unwrap_or_else(|e| panic!("spec must parse: {e}"));
     assert_eq!(ir.modules.len(), 1);
     let module = &ir.modules[0];
-    let out = rfs::mc::ref_mc::run_smt(module, bound)
+    let out = rfs::mc::ref_mc::run_smt(module, bound, full_properties)
         .unwrap_or_else(|e| panic!("ref-mc smt run failed: {e}"));
-    (out.exit_code, out.output)
+    (out.exit_code, out.output, out.warnings)
 }
 
 /// The solver versions under test, embedded in every assertion message so a
@@ -386,7 +397,7 @@ fn ref_smt_vs_generated_fail_spec() {
     // Violated at the INITIAL configuration: every bound >= 1 fails at step 0.
     let note = version_note();
     for &bound in &BOUNDS {
-        let (ref_code, ref_out) = ref_smt(SMT_FAIL_SRC, bound);
+        let (ref_code, ref_out, _warnings) = ref_smt(SMT_FAIL_SRC, bound, false);
         assert_eq!(ref_code, 1, "ref exit {note}");
         for backend in ["rust", "c"] {
             let bin = smt_binary(backend, SMT_FAIL_SRC, "fail");
@@ -409,7 +420,7 @@ fn ref_smt_vs_generated_liveness_spec() {
     // Bounds >= 2: the stuck-in-A cycle is found -> liveness fail at step 0.
     let note = version_note();
     for &bound in &BOUNDS {
-        let (ref_code, ref_out) = ref_smt(SMT_LIV_SRC, bound);
+        let (ref_code, ref_out, _warnings) = ref_smt(SMT_LIV_SRC, bound, false);
         let expected = if bound == 1 { 0 } else { 1 };
         assert_eq!(ref_code, expected, "ref exit at bound {bound} {note}");
         for backend in ["rust", "c"] {
@@ -431,7 +442,7 @@ fn ref_smt_vs_generated_liveness_spec() {
 fn ref_smt_vs_generated_pass_spec() {
     let note = version_note();
     for &bound in &BOUNDS {
-        let (ref_code, ref_out) = ref_smt(SMT_PASS_SRC, bound);
+        let (ref_code, ref_out, _warnings) = ref_smt(SMT_PASS_SRC, bound, false);
         assert_eq!(ref_code, 0, "ref exit at bound {bound} {note}");
         for backend in ["rust", "c"] {
             let bin = smt_binary(backend, SMT_PASS_SRC, "pass");
@@ -461,7 +472,7 @@ module smt_ref_cli_assume {
 }
 "#;
     let ir = rfs::parse_source(assume_src).expect("parses");
-    let err = rfs::mc::ref_mc::run_smt(&ir.modules[0], 3).expect_err("must reject");
+    let err = rfs::mc::ref_mc::run_smt(&ir.modules[0], 3, false).expect_err("must reject");
     assert!(
         err.starts_with("smt-bounded mode does not support assumptions"),
         "{err}"
@@ -476,6 +487,480 @@ module smt_ref_cli_onerr {
 }
 "#;
     let ir = rfs::parse_source(onerr_src).expect("parses");
-    let err = rfs::mc::ref_mc::run_smt(&ir.modules[0], 3).expect_err("must reject");
+    let err = rfs::mc::ref_mc::run_smt(&ir.modules[0], 3, false).expect_err("must reject");
     assert_eq!(err, "smt-bounded mode does not support on_error blocks");
+}
+
+// ---------------------------------------------------------------------------
+// Task 1A - extended property language: input_is / output_has / next are
+// default-class; the FULL class (until, nested temporals) is behind
+// --full-properties with per-property omission warnings; renamed event
+// parameters encode unconditionally. Every spec below is parity-pinned
+// against BOTH generated backends exactly like the family above.
+// ---------------------------------------------------------------------------
+
+/// input_is PASS: a Go with ok=false can only be consumed from B (A's guard
+/// blocks it), and that transition lands in A - so every sample whose just-
+/// taken transition was such a Go is in state A. Wildcard x and literal
+/// ok=false exercise constraining field patterns in an input_is atom.
+const SMT_II_PASS_SRC: &str = r#"
+module smt_ii_pass {
+  enum State { A, B }
+  initial A
+
+  event Go(F(x: bit<8>, ok: bool))
+  event Noop
+
+  var counter: bit<8> init 0
+
+  transition A on Go(F(x, ok)) where ok {
+    next B;
+    set counter = x;
+  }
+  transition A on Noop {
+    next A;
+    set counter = counter + 1;
+  }
+  transition B on Go(F(x, ok)) {
+    next A;
+    set counter = counter + 1;
+  }
+
+  prop bad_go_lands_in_a : always (input_is(Go(F(_, false))) -> state == A) ;
+}
+"#;
+
+/// input_is FAIL: in state B a Go (any payload) fires, so the implication is
+/// violated at the first such step.
+const SMT_II_FAIL_SRC: &str = r#"
+module smt_ii_fail {
+  enum State { A, B }
+  initial A
+
+  event Go
+
+  var counter: bit<8> init 0
+
+  transition A on Go {
+    next B;
+    set counter = counter + 1;
+  }
+  transition B on Go {
+    next A;
+  }
+
+  prop no_go_in_b : always (state == B -> !input_is(Go)) ;
+}
+"#;
+
+/// output_has PASS: every emitted Ans carries a nonzero value. Emit arguments
+/// read OLD values (SEMANTICS 3.2), so `emit Ans(counter)` in A emits the
+/// pre-assignment counter (init 1); B emits Ans(counter + 1) = 6. Unit event,
+/// no guards: every transition is always enabled, so the unrolled path is
+/// fully forced (no solver freedom in the witness tail).
+const SMT_OH_PASS_SRC: &str = r#"
+module smt_oh_pass {
+  enum State { A, B }
+  initial A
+
+  event Req
+  output Ans(Value(y: bit<8>))
+
+  var counter: bit<8> init 1
+
+  transition A on Req {
+    next B;
+    set counter = 5;
+    emit Ans(Value(counter));
+  }
+  transition B on Req {
+    next A;
+    emit Ans(Value(counter + 1));
+  }
+
+  prop no_zero_ans : always (!output_has(Ans(Value(0)))) ;
+}
+"#;
+
+/// output_has FAIL: the first Req consumed in A emits `Ans(counter)` with the
+/// OLD counter (0) - a literal-argument output_has atom catches it. Unit
+/// event, no guards: the path is fully forced after the violation too.
+const SMT_OH_FAIL_SRC: &str = r#"
+module smt_oh_fail {
+  enum State { A, B }
+  initial A
+
+  event Req
+  output Ans(Value(y: bit<8>))
+
+  var counter: bit<8> init 0
+
+  transition A on Req {
+    next B;
+    set counter = 5;
+    emit Ans(Value(counter));
+  }
+  transition B on Req {
+    next A;
+    emit Ans(Value(counter + 1));
+  }
+
+  prop no_zero_ans : always (!output_has(Ans(Value(0)))) ;
+}
+"#;
+
+/// next PASS - the boundary-skip negative control. The machine only visits
+/// A/B, so `next (state == A || state == B)` holds at every evaluable anchor
+/// (0..k-2). Anchor k-1 would evaluate state(k) - a GHOST constant outside
+/// the unrolling that the solver could set to C (or an out-of-range value);
+/// only the next-depth clip keeps this spec green. Three states make the
+/// ghost detectable (STATE_BITS >= 2).
+const SMT_NEXT_PASS_SRC: &str = r#"
+module smt_next_pass {
+  enum State { A, B, C }
+  initial A
+
+  event Tick
+
+  var counter: bit<8> init 0
+
+  transition A on Tick {
+    next B;
+    set counter = counter + 1;
+  }
+  transition B on Tick {
+    next A;
+    set counter = counter + 1;
+  }
+
+  prop state_valid_next : always (next (state == A || state == B)) ;
+}
+"#;
+
+/// next FAIL: counter(1) = 1 != 0, so the anchor-0 evaluation already fails.
+const SMT_NEXT_FAIL_SRC: &str = r#"
+module smt_next_fail {
+  enum State { A, B }
+  initial A
+
+  event Tick
+
+  var counter: bit<8> init 0
+
+  transition A on Tick {
+    next B;
+    set counter = counter + 1;
+  }
+  transition B on Tick {
+    next A;
+    set counter = counter + 1;
+  }
+
+  prop counter_zero_next : always (next (counter == 0)) ;
+}
+"#;
+
+/// Renamed event parameter: the pattern `Reply(R(rk))` renames declared field
+/// `rkey` to binding `rk`; the guard `rk == key` must resolve through the
+/// alias. A green FAIL pin proves it: if the alias were broken, codegen would
+/// die with "unknown identifier 'rk'" (correction 1a's failure mode), and if
+/// the guard silently matched nothing, key would never grow and the property
+/// would PASS - so only a correct alias yields this pinned violation.
+const SMT_RENAME_SRC: &str = r#"
+module smt_rename {
+  enum State { A, B }
+  initial A
+
+  event Reply(R(rkey: bit<8>))
+
+  var key: bit<8> init 0
+
+  transition A on Reply(R(rk)) where rk == key {
+    next B;
+    set key = key + 1;
+  }
+  transition B on Reply(R(_)) {
+    next A;
+    set key = key + 1;
+  }
+
+  prop key_bounded : always (key < 3) ;
+}
+"#;
+
+/// Top-level bounded_eventually is DEFAULT class (no flag needed): the
+/// machine reaches B at step 1, inside the window.
+const SMT_BE_PASS_SRC: &str = r#"
+module smt_be_pass {
+  enum State { A, B }
+  initial A
+
+  event Tick
+
+  transition A on Tick { next B; }
+  transition B on Tick { next B; }
+
+  prop reach_b : bounded_eventually[3] (state == B) ;
+}
+"#;
+
+/// Top-level bounded_eventually FAIL: B is never reached, so the one-shot
+/// obligation is violated at its deadline (step N-1 = 2).
+const SMT_BE_FAIL_SRC: &str = r#"
+module smt_be_fail {
+  enum State { A, B }
+  initial A
+
+  event Tick
+
+  transition A on Tick { next A; }
+
+  prop reach_b : bounded_eventually[3] (state == B) ;
+}
+"#;
+
+/// FULL class (until): without --full-properties the until property is
+/// OMITTED (pinned warning + properties_omitted=1 suffix) while the default
+/// property is still checked; with the flag the expansion runs and passes.
+const SMT_UNTIL_PASS_SRC: &str = r#"
+module smt_until_pass {
+  enum State { A, B }
+  initial A
+
+  event Tick
+
+  transition A on Tick { next B; }
+  transition B on Tick { next B; }
+
+  prop a_until_b : (state == A) until (state == B) ;
+  prop states_ok : always (state == A || state == B) ;
+}
+"#;
+
+/// FULL class (until) FAIL: the machine cycles A/C forever - `state == A`
+/// fails at every C step and `state == B` never holds, so the weak until is
+/// false on the infinite path (cycle witness, length 2). Checked only WITH
+/// --full-properties; without it the spec passes with the omission suffix.
+const SMT_UNTIL_FAIL_SRC: &str = r#"
+module smt_until_fail {
+  enum State { A, B, C }
+  initial A
+
+  event Tick
+
+  transition A on Tick { next C; }
+  transition C on Tick { next A; }
+
+  prop a_until_b : (state == A) until (state == B) ;
+}
+"#;
+
+/// The pinned per-property omission warning (task 1A contract).
+fn omit_warning(name: &str) -> String {
+    format!(
+        "warning: smt-bounded mode omits property '{name}' by default - it uses bounded_eventually/until/nested temporal operators, which greatly affect solver time/memory at large bounds (O(k*N) formula growth). Pass --full-properties to include it."
+    )
+}
+
+/// Parity helper for the task-1A family: ref vs both generated backends at
+/// every bound, full stdout byte-compare + exit code. `full` selects the
+/// --full-properties contract on all three surfaces; `expect_exit` is
+/// per-bound (a violation deeper than the bound leaves the spec passing -
+/// bounded mode is incomplete by construction).
+fn parity_task1a(src: &str, tag: &str, full: bool, expect_exit: impl Fn(usize) -> i32) {
+    let note = version_note();
+    for &bound in &BOUNDS {
+        let (ref_code, ref_out, _warnings) = ref_smt(src, bound, full);
+        assert_eq!(
+            ref_code,
+            expect_exit(bound),
+            "ref exit at bound {bound} {note}"
+        );
+        for backend in ["rust", "c"] {
+            let bin = smt_binary(backend, src, tag);
+            let bound_s = bound.to_string();
+            let args: Vec<&str> = if full {
+                vec!["--bound", &bound_s, "--full-properties"]
+            } else {
+                vec!["--bound", &bound_s]
+            };
+            let (gen_code, gen_out) = run_bin(&bin, &args);
+            assert_eq!(
+                ref_code, gen_code,
+                "{backend} exit mismatch at bound {bound} (full={full}) {note}"
+            );
+            assert_eq!(
+                ref_out, gen_out,
+                "{backend} stdout mismatch at bound {bound} (full={full}) {note}\n--- ref ---\n{ref_out}\n--- {backend} ---\n{gen_out}"
+            );
+        }
+    }
+}
+
+#[test]
+fn task1a_input_is_pass_and_fail() {
+    parity_task1a(SMT_II_PASS_SRC, "ii_pass", false, |_| 0);
+    // Reaching B needs step 1; a Go consumed IN B lands at sample >= 2.
+    // The violation lands at sample 1 (the first ok-Go consumed in A).
+    parity_task1a(SMT_II_FAIL_SRC, "ii_fail", false, |b| {
+        if b >= 2 {
+            1
+        } else {
+            0
+        }
+    });
+}
+
+#[test]
+fn task1a_output_has_pass_and_fail() {
+    parity_task1a(SMT_OH_PASS_SRC, "oh_pass", false, |_| 0);
+    // The zero-ans emit lands at sample 1 (the first Req consumed in A).
+    parity_task1a(SMT_OH_FAIL_SRC, "oh_fail", false, |b| {
+        if b >= 2 {
+            1
+        } else {
+            0
+        }
+    });
+}
+
+#[test]
+fn task1a_next_pass_boundary_skip_and_fail() {
+    // The PASS spec is the negative control: it stays green at every bound
+    // ONLY because anchor k-1 is clipped (ghost state(k) would fail).
+    parity_task1a(SMT_NEXT_PASS_SRC, "next_pass", false, |_| 0);
+    // Anchor 0 exists only for k >= 2; counter(1) = 1 != 0 fails it.
+    parity_task1a(SMT_NEXT_FAIL_SRC, "next_fail", false, |b| {
+        if b >= 2 {
+            1
+        } else {
+            0
+        }
+    });
+}
+
+#[test]
+fn task1a_renamed_event_parameter() {
+    // key grows by one per matching Reply; reaching 3 needs three increments,
+    // i.e. bound >= 4 - so bounds 1 and 3 pass and bound 5 fails (the pinned
+    // violation proves the alias resolved: a broken guard would never grow
+    // key, an unresolvable binding would die at codegen).
+    let note = version_note();
+    for &bound in &BOUNDS {
+        let expect_exit = if bound >= 4 { 1 } else { 0 };
+        let (ref_code, ref_out, _warnings) = ref_smt(SMT_RENAME_SRC, bound, false);
+        assert_eq!(ref_code, expect_exit, "ref exit at bound {bound} {note}");
+        for backend in ["rust", "c"] {
+            let bin = smt_binary(backend, SMT_RENAME_SRC, "rename");
+            let (gen_code, gen_out) = run_bin(&bin, &["--bound", &bound.to_string()]);
+            assert_eq!(
+                ref_code, gen_code,
+                "{backend} exit mismatch at bound {bound} {note}"
+            );
+            assert_eq!(
+                ref_out, gen_out,
+                "{backend} stdout mismatch at bound {bound} {note}\n--- ref ---\n{ref_out}\n--- {backend} ---\n{gen_out}"
+            );
+        }
+    }
+}
+
+#[test]
+fn task1a_top_level_bounded_eventually_default_class() {
+    parity_task1a(SMT_BE_PASS_SRC, "be_pass", false, |_| 0);
+    // The window [0,3) exceeds the horizon for k < 3: pending, no claim.
+    parity_task1a(SMT_BE_FAIL_SRC, "be_fail", false, |b| {
+        if b >= 3 {
+            1
+        } else {
+            0
+        }
+    });
+}
+
+#[test]
+fn task1a_full_class_omission_and_flag() {
+    let note = version_note();
+    for &bound in &BOUNDS {
+        // WITHOUT the flag: the until property is omitted with the pinned
+        // warning; the default property is still checked; the summary line
+        // carries properties_omitted=1.
+        for (src, tag, expect_exit) in [
+            (SMT_UNTIL_PASS_SRC, "until_pass", 0),
+            (SMT_UNTIL_FAIL_SRC, "until_fail", 0),
+        ] {
+            let (ref_code, ref_out, warnings) = ref_smt(src, bound, false);
+            assert_eq!(ref_code, expect_exit, "ref exit at bound {bound} {note}");
+            assert_eq!(
+                warnings,
+                vec![omit_warning("a_until_b")],
+                "ref omission warning at bound {bound} {note}"
+            );
+            assert!(
+                ref_out.contains(&format!(
+                    "model-check summary: status=pass-within-bound mode=smt-bounded bound={bound} properties_omitted=1"
+                )),
+                "missing omission suffix in ref output at bound {bound}:\n{ref_out}"
+            );
+            for backend in ["rust", "c"] {
+                let bin = smt_binary(backend, src, tag);
+                let (gen_code, gen_out, gen_err) =
+                    run_bin_full(&bin, &["--bound", &bound.to_string()]);
+                assert_eq!(
+                    ref_code, gen_code,
+                    "{backend} exit mismatch at bound {bound} {note}"
+                );
+                assert_eq!(
+                    ref_out, gen_out,
+                    "{backend} stdout mismatch at bound {bound} {note}\n--- ref ---\n{ref_out}\n--- {backend} ---\n{gen_out}"
+                );
+                assert_eq!(
+                    gen_err,
+                    format!("{}\n", omit_warning("a_until_b")),
+                    "{backend} stderr (omission warning) mismatch at bound {bound} {note}"
+                );
+            }
+        }
+        // WITH the flag: no warnings, no suffix; the expansion runs and its
+        // verdict is pinned (pass spec passes, fail spec fails on the cycle -
+        // except at bound 1 where no a<b pair exists and the cycle query is
+        // vacuous, mirroring the liveness family's pin).
+        for (src, tag) in [
+            (SMT_UNTIL_PASS_SRC, "until_pass"),
+            (SMT_UNTIL_FAIL_SRC, "until_fail"),
+        ] {
+            let expect_exit = match (src == SMT_UNTIL_FAIL_SRC, bound) {
+                (true, 1) => 0, // vacuous cycle query at bound 1
+                (true, _) => 1,
+                (false, _) => 0,
+            };
+            let (ref_code, ref_out, warnings) = ref_smt(src, bound, true);
+            assert_eq!(
+                ref_code, expect_exit,
+                "ref exit at bound {bound} (full) {note}"
+            );
+            assert!(
+                warnings.is_empty(),
+                "no warnings with the flag: {warnings:?}"
+            );
+            assert!(
+                !ref_out.contains("properties_omitted"),
+                "no omission suffix with the flag:\n{ref_out}"
+            );
+            for backend in ["rust", "c"] {
+                let bin = smt_binary(backend, src, tag);
+                let (gen_code, gen_out, gen_err) =
+                    run_bin_full(&bin, &["--bound", &bound.to_string(), "--full-properties"]);
+                assert_eq!(
+                    ref_code, gen_code,
+                    "{backend} exit mismatch at bound {bound} (full) {note}"
+                );
+                assert_eq!(
+                    ref_out, gen_out,
+                    "{backend} stdout mismatch at bound {bound} (full) {note}\n--- ref ---\n{ref_out}\n--- {backend} ---\n{gen_out}"
+                );
+                assert_eq!(gen_err, "", "{backend} stderr must be empty (full)");
+            }
+        }
+    }
 }

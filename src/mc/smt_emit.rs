@@ -51,6 +51,49 @@ fn sf_uses_step(sf: &Sf) -> bool {
         Sf::Se(e) => se_uses_step(e),
         Sf::Not(i) => sf_uses_step(i),
         Sf::And(l, r) | Sf::Or(l, r) | Sf::Implies(l, r) => sf_uses_step(l) || sf_uses_step(r),
+        // Atoms reference step-indexed named constants (ii_/oh_); every
+        // temporal node shifts or expands over steps.
+        Sf::InputIs { .. } | Sf::OutputHas { .. } => true,
+        Sf::Next(i)
+        | Sf::BoundedEventually { inner: i, .. }
+        | Sf::BoundedAlways { inner: i, .. }
+        | Sf::Eventually(i) => sf_uses_step(i),
+        Sf::Until { left, right } => sf_uses_step(left) || sf_uses_step(right),
+    }
+}
+
+/// True iff the formula references an input_is atom (the property fn must
+/// name its `ii_steps` parameter without the underscore prefix).
+fn sf_uses_input_atoms(sf: &Sf) -> bool {
+    match sf {
+        Sf::InputIs { .. } => true,
+        Sf::Not(i) => sf_uses_input_atoms(i),
+        Sf::And(l, r) | Sf::Or(l, r) | Sf::Implies(l, r) => {
+            sf_uses_input_atoms(l) || sf_uses_input_atoms(r)
+        }
+        Sf::Next(i)
+        | Sf::BoundedEventually { inner: i, .. }
+        | Sf::BoundedAlways { inner: i, .. }
+        | Sf::Eventually(i) => sf_uses_input_atoms(i),
+        Sf::Until { left, right } => sf_uses_input_atoms(left) || sf_uses_input_atoms(right),
+        _ => false,
+    }
+}
+
+/// True iff the formula references an output_has atom.
+fn sf_uses_output_atoms(sf: &Sf) -> bool {
+    match sf {
+        Sf::OutputHas { .. } => true,
+        Sf::Not(i) => sf_uses_output_atoms(i),
+        Sf::And(l, r) | Sf::Or(l, r) | Sf::Implies(l, r) => {
+            sf_uses_output_atoms(l) || sf_uses_output_atoms(r)
+        }
+        Sf::Next(i)
+        | Sf::BoundedEventually { inner: i, .. }
+        | Sf::BoundedAlways { inner: i, .. }
+        | Sf::Eventually(i) => sf_uses_output_atoms(i),
+        Sf::Until { left, right } => sf_uses_output_atoms(left) || sf_uses_output_atoms(right),
+        _ => false,
     }
 }
 
@@ -89,14 +132,46 @@ impl RustRender {
 /// lifting rules); `class` resolves field indices; `bool_as_bv` selects the
 /// representation of Bool-typed results: false = z3 Bool ast, true = BV(1)
 /// ast (needed only at assignment top level, where the target var is a BV).
+/// Render an [`Se`] tree to sequential let-bindings. `expected` is the parent
+/// context's bit width (lifts integer literals per the validator's rules);
+/// `class` is the transition class for field resolution (None in properties,
+/// where fields cannot occur). `step` is the Rust expression evaluating to the
+/// current step index: "i" renders the byte-identical inline form
+/// (`format!("s_{i}")`); any other expression ("i + 1", "i + j") renders the
+/// spaced form (`format!("s_{}", i + 1)`) - z3 hash-conses both to the same
+/// step constants.
 fn render_se_rust(
     se: &Se,
     spec: &SmtSpec,
     expected: Option<u32>,
     class: Option<usize>,
     bool_as_bv: bool,
+    step: &str,
     r: &mut RustRender,
 ) -> String {
+    // Step-leaf renderers: inline form for the base step (byte-identity),
+    // spaced form for shifted steps.
+    let state_leaf = |step: &str| -> String {
+        if step == "i" {
+            "BV::new_const(format!(\"s_{i}\"), STATE_BITS)".to_string()
+        } else {
+            format!("BV::new_const(format!(\"s_{{}}\", {step}), STATE_BITS)")
+        }
+    };
+    let var_leaf = |j: usize, step: &str| -> String {
+        if step == "i" {
+            format!("BV::new_const(format!(\"v_{{i}}_{j}\"), VAR_WIDTHS[{j}])")
+        } else {
+            format!("BV::new_const(format!(\"v_{{}}_{j}\", {step}), VAR_WIDTHS[{j}])")
+        }
+    };
+    let field_leaf = |g: usize, step: &str| -> String {
+        if step == "i" {
+            format!("BV::new_const(format!(\"fld_{{i}}_{g}\"), FIELD_WIDTHS[{g}])")
+        } else {
+            format!("BV::new_const(format!(\"fld_{{}}_{g}\", {step}), FIELD_WIDTHS[{g}])")
+        }
+    };
     match se {
         Se::Lit { value, is_bool } => {
             if *is_bool && !bool_as_bv {
@@ -110,12 +185,9 @@ fn render_se_rust(
                 r.push(format!("let e{}: BV = BV::from_u64({value}u64, {w});", r.n))
             }
         }
-        Se::State => r.push(format!(
-            "let e{}: BV = BV::new_const(format!(\"s_{{i}}\"), STATE_BITS);",
-            r.n
-        )),
+        Se::State => r.push(format!("let e{}: BV = {};", r.n, state_leaf(step))),
         Se::Var(j) => {
-            let leaf = format!("BV::new_const(format!(\"v_{{i}}_{j}\"), VAR_WIDTHS[{j}])");
+            let leaf = var_leaf(*j, step);
             if spec.vars[*j].is_bool && !bool_as_bv {
                 let l = r.push(format!("let e{}: BV = {leaf};", r.n));
                 r.push(format!(
@@ -128,7 +200,7 @@ fn render_se_rust(
         }
         Se::Field { idx, is_bool, .. } => {
             let g = global_field_index(spec, class.expect("field outside transition"), *idx);
-            let leaf = format!("BV::new_const(format!(\"fld_{{i}}_{g}\"), FIELD_WIDTHS[{g}])");
+            let leaf = field_leaf(g, step);
             if *is_bool && !bool_as_bv {
                 let l = r.push(format!("let e{}: BV = {leaf};", r.n));
                 r.push(format!(
@@ -140,13 +212,13 @@ fn render_se_rust(
             }
         }
         Se::Not(inner) => {
-            let c = render_se_rust(inner, spec, Some(1), class, false, r);
+            let c = render_se_rust(inner, spec, Some(1), class, false, step, r);
             let b = r.push(format!("let e{}: Bool = {c}.not();", r.n));
             finish_bool_rust(&b, bool_as_bv, r)
         }
         Se::BitNot(inner) | Se::Neg(inner) => {
             let w = se_type(inner, spec).width();
-            let c = render_se_rust(inner, spec, Some(w), class, false, r);
+            let c = render_se_rust(inner, spec, Some(w), class, false, step, r);
             let m = if matches!(se, Se::BitNot(_)) {
                 "bvnot"
             } else {
@@ -158,10 +230,10 @@ fn render_se_rust(
             let lt = se_type(l, spec);
             let rt = se_type(rr, spec);
             if produces_bool(*op, lt, rt) {
-                let b = render_bool_bin_rust(*op, l, rr, spec, class, r);
+                let b = render_bool_bin_rust(*op, l, rr, spec, class, step, r);
                 finish_bool_rust(&b, bool_as_bv, r)
             } else {
-                render_bit_bin_rust(*op, l, rr, spec, class, r)
+                render_bit_bin_rust(*op, l, rr, spec, class, step, r)
             }
         }
     }
@@ -264,21 +336,22 @@ fn render_bool_bin_rust(
     rr: &Se,
     spec: &SmtSpec,
     class: Option<usize>,
+    step: &str,
     r: &mut RustRender,
 ) -> String {
     let lt = se_type(l, spec);
     let rt = se_type(rr, spec);
     match op {
         Sb::LogicAnd | Sb::LogicOr => {
-            let a = render_se_rust(l, spec, Some(1), class, false, r);
-            let b = render_se_rust(rr, spec, Some(1), class, false, r);
+            let a = render_se_rust(l, spec, Some(1), class, false, step, r);
+            let b = render_se_rust(rr, spec, Some(1), class, false, step, r);
             let m = if op == Sb::LogicAnd { "and" } else { "or" };
             r.push(format!("let e{}: Bool = b_{m}(&{a}, &{b});", r.n))
         }
         Sb::Eq | Sb::NotEq | Sb::Lt | Sb::Le | Sb::Gt | Sb::Ge => {
             let (wl, wr, ext_l, ext_r) = cmp_widths_full(l, rr, spec);
-            let a0 = render_se_rust(l, spec, Some(wl), class, false, r);
-            let b0 = render_se_rust(rr, spec, Some(wr), class, false, r);
+            let a0 = render_se_rust(l, spec, Some(wl), class, false, step, r);
+            let b0 = render_se_rust(rr, spec, Some(wr), class, false, step, r);
             let a = widen_rust(&a0, ext_l, r);
             let b = widen_rust(&b0, ext_r, r);
             if lt == SeType::Bool && rt == SeType::Bool {
@@ -327,8 +400,8 @@ fn render_bool_bin_rust(
         }
         Sb::BitAnd | Sb::BitOr => {
             // Both operands are Bool (checked by produces_bool): logical ops.
-            let a = render_se_rust(l, spec, Some(1), class, false, r);
-            let b = render_se_rust(rr, spec, Some(1), class, false, r);
+            let a = render_se_rust(l, spec, Some(1), class, false, step, r);
+            let b = render_se_rust(rr, spec, Some(1), class, false, step, r);
             let m = if op == Sb::BitAnd { "and" } else { "or" };
             r.push(format!("let e{}: Bool = b_{m}(&{a}, &{b});", r.n))
         }
@@ -343,6 +416,7 @@ fn render_bit_bin_rust(
     rr: &Se,
     spec: &SmtSpec,
     class: Option<usize>,
+    step: &str,
     r: &mut RustRender,
 ) -> String {
     let lt = se_type(l, spec);
@@ -357,8 +431,8 @@ fn render_bit_bin_rust(
                 (SeType::IntLit, t) | (t, SeType::IntLit) => t.width(),
                 _ => 8,
             };
-            let a = render_se_rust(l, spec, Some(w), class, false, r);
-            let b = render_se_rust(rr, spec, Some(w), class, false, r);
+            let a = render_se_rust(l, spec, Some(w), class, false, step, r);
+            let b = render_se_rust(rr, spec, Some(w), class, false, step, r);
             let m = match op {
                 Sb::Plus => "bvadd",
                 Sb::Minus => "bvsub",
@@ -369,32 +443,132 @@ fn render_bit_bin_rust(
             };
             r.push(format!("let e{}: BV = {a}.{m}(&{b});", r.n))
         }
-        Sb::ShiftLeft | Sb::ShiftRight => render_shift_rust(op, l, rr, spec, class, r),
+        Sb::ShiftLeft | Sb::ShiftRight => render_shift_rust(op, l, rr, spec, class, step, r),
         _ => unreachable!("bit-producing op only"),
     }
 }
 
-fn render_sf_rust(sf: &Sf, spec: &SmtSpec, r: &mut RustRender) -> String {
+/// Render a property formula at the step named by `step` (a Rust expression:
+/// "i" for the base step, "i + 1" under next, "i + j" inside FULL-class
+/// expansion loops). Temporal nodes emit their quantifier-free expansions with
+/// horizon clipping (`k` is in scope in every property/expansion function).
+fn render_sf_rust(sf: &Sf, spec: &SmtSpec, step: &str, r: &mut RustRender) -> String {
+    let shifted = |step: &str| -> String {
+        if step == "i" {
+            "i + 1".to_string()
+        } else {
+            format!("({step}) + 1")
+        }
+    };
     match sf {
-        Sf::Se(inner) => render_se_rust(inner, spec, Some(1), None, false, r),
+        Sf::Se(inner) => render_se_rust(inner, spec, Some(1), None, false, step, r),
         Sf::Not(inner) => {
-            let c = render_sf_rust(inner, spec, r);
+            let c = render_sf_rust(inner, spec, step, r);
             r.push(format!("let e{}: Bool = {c}.not();", r.n))
         }
         Sf::And(l, rr) => {
-            let a = render_sf_rust(l, spec, r);
-            let b = render_sf_rust(rr, spec, r);
+            let a = render_sf_rust(l, spec, step, r);
+            let b = render_sf_rust(rr, spec, step, r);
             r.push(format!("let e{}: Bool = b_and(&{a}, &{b});", r.n))
         }
         Sf::Or(l, rr) => {
-            let a = render_sf_rust(l, spec, r);
-            let b = render_sf_rust(rr, spec, r);
+            let a = render_sf_rust(l, spec, step, r);
+            let b = render_sf_rust(rr, spec, step, r);
             r.push(format!("let e{}: Bool = b_or(&{a}, &{b});", r.n))
         }
         Sf::Implies(l, rr) => {
-            let a = render_sf_rust(l, spec, r);
-            let b = render_sf_rust(rr, spec, r);
+            let a = render_sf_rust(l, spec, step, r);
+            let b = render_sf_rust(rr, spec, step, r);
             r.push(format!("let e{}: Bool = {a}.implies(&{b});", r.n))
+        }
+        // Atoms: the engine passes the per-step atom storage (k x N_ATOMS);
+        // step i's row is false at the final unrolled step (no input/output
+        // consumed there). Explicit indexing - NOT name-shared constants, which
+        // z3_mk_fresh_const does not guarantee to share across solver versions.
+        Sf::InputIs { id, .. } => r.push(format!(
+            "let e{}: Bool = ii_steps[{step}][{id}].clone();",
+            r.n
+        )),
+        Sf::OutputHas { id, .. } => r.push(format!(
+            "let e{}: Bool = oh_steps[{step}][{id}].clone();",
+            r.n
+        )),
+        // next: the body holds one step later.
+        Sf::Next(inner) => render_sf_rust(inner, spec, &shifted(step), r),
+        // FULL class: bounded_eventually[N] - f within N steps of the anchor
+        // (horizon-clipped; clipping drops anchors, never creates false FAILs).
+        Sf::BoundedEventually { bound, inner } => {
+            let acc = r.push(format!("let mut e{}: Bool = Bool::from_bool(false);", r.n));
+            let jv = format!("j{}", r.n);
+            r.n += 1;
+            r.push(format!(
+                "for {jv} in 0..{bound}.min(k.saturating_sub({step})) {{"
+            ));
+            let body_step = if step == "i" {
+                format!("i + {jv}")
+            } else {
+                format!("({step}) + {jv}")
+            };
+            let b = render_sf_rust(inner, spec, &body_step, r);
+            r.push(format!("{acc} = b_or(&{acc}, &{b});"));
+            r.push("}".into());
+            acc
+        }
+        // FULL class: weak until - (some j: right(j) with left before it) OR
+        // (left forever - horizon-truncated, sound).
+        Sf::Until { left, right } => {
+            let rh = r.push(format!("let mut e{}: Bool = Bool::from_bool(false);", r.n));
+            let jv = format!("j{}", r.n);
+            r.n += 1;
+            let iv = format!("i{}", r.n);
+            r.n += 1;
+            r.push(format!("for {jv} in {step}..k {{"));
+            let pf = r.push(format!("let mut e{}: Bool = Bool::from_bool(true);", r.n));
+            // Weak until: p only strictly before the first q (SEMANTICS 6.1).
+            r.push(format!("for {iv} in {step}..{jv} {{"));
+            let lb = render_sf_rust(left, spec, &iv, r);
+            r.push(format!("{pf} = b_and(&{pf}, &{lb});"));
+            r.push("}".into());
+            let rb = render_sf_rust(right, spec, &jv, r);
+            r.push(format!("{rh} = b_or(&{rh}, &b_and(&{rb}, &{pf}));"));
+            r.push("}".into());
+            let lf = r.push(format!("let mut e{}: Bool = Bool::from_bool(true);", r.n));
+            let iv2 = format!("i{}", r.n);
+            r.n += 1;
+            r.push(format!("for {iv2} in {step}..k {{"));
+            let lb2 = render_sf_rust(left, spec, &iv2, r);
+            r.push(format!("{lf} = b_and(&{lf}, &{lb2});"));
+            r.push("}".into());
+            r.push(format!("let e{}: Bool = b_or(&{rh}, &{lf});", r.n))
+        }
+        // FULL class: nested always[N] (unbounded nesting uses bound = MAX).
+        Sf::BoundedAlways { bound, inner } => {
+            let acc = r.push(format!("let mut e{}: Bool = Bool::from_bool(true);", r.n));
+            let jv = format!("j{}", r.n);
+            r.n += 1;
+            r.push(format!(
+                "for {jv} in 0..{bound}.min(k.saturating_sub({step})) {{"
+            ));
+            let body_step = if step == "i" {
+                format!("i + {jv}")
+            } else {
+                format!("({step}) + {jv}")
+            };
+            let b = render_sf_rust(inner, spec, &body_step, r);
+            r.push(format!("{acc} = b_and(&{acc}, &{b});"));
+            r.push("}".into());
+            acc
+        }
+        // FULL class: nested eventually - f at some later step.
+        Sf::Eventually(inner) => {
+            let acc = r.push(format!("let mut e{}: Bool = Bool::from_bool(false);", r.n));
+            let jv = format!("j{}", r.n);
+            r.n += 1;
+            r.push(format!("for {jv} in {step}..k {{"));
+            let b = render_sf_rust(inner, spec, &jv, r);
+            r.push(format!("{acc} = b_or(&{acc}, &{b});"));
+            r.push("}".into());
+            acc
         }
     }
 }
@@ -495,11 +669,49 @@ pub fn emit_rust_spec(spec: &SmtSpec) -> String {
         rust_str_list(&pnames)
     ));
     s.push_str(&format!(
-        "/// 0 = always (safety), 1 = eventually (liveness).\nconst PROP_KINDS: &[u8] = &{:?};\n",
+        "/// 0 = always (safety), 1 = eventually (liveness), 2 = bounded_\n/// eventually (full class), 3 = until (full class).\nconst PROP_KINDS: &[u8] = &{:?};\n",
         spec.properties
             .iter()
-            .map(|p| u8::from(p.kind == crate::mc::smt_plan::SmtPropKind::Eventually))
+            .map(|p| match p.kind {
+                crate::mc::smt_plan::SmtPropKind::Always => 0u8,
+                crate::mc::smt_plan::SmtPropKind::Eventually => 1,
+                crate::mc::smt_plan::SmtPropKind::BoundedEventually(_) => 2,
+                crate::mc::smt_plan::SmtPropKind::Until => 3,
+            })
             .collect::<Vec<_>>()
+    ));
+    s.push_str(&format!(
+        "/// always[N] anchor clip (0 = unbounded).\nconst PROP_BOUNDS: &[usize] = &{:?};\n",
+        spec.properties
+            .iter()
+            .map(|p| p.bound.unwrap_or(0))
+            .collect::<Vec<_>>()
+    ));
+    s.push_str(&format!(
+        "/// Maximum `next` nesting depth (properties are checked only at\n/// steps i with i + depth < k).\nconst PROP_NEXT_DEPTH: &[usize] = &{:?};\n",
+        spec.properties
+            .iter()
+            .map(|p| p.next_depth)
+            .collect::<Vec<_>>()
+    ));
+    s.push_str(&format!(
+        "/// FULL class (checked only with --full-properties).\nconst PROP_FULL: &[bool] = &{:?};\n",
+        spec.properties.iter().map(|p| p.full).collect::<Vec<_>>()
+    ));
+    s.push_str(&format!(
+        "/// bounded_eventually[N] horizon N (0 = not a bounded_eventually).\nconst PROP_BE_BOUND: &[usize] = &{:?};\n",
+        spec.properties
+            .iter()
+            .map(|p| match p.kind {
+                crate::mc::smt_plan::SmtPropKind::BoundedEventually(n) => n,
+                _ => 0,
+            })
+            .collect::<Vec<_>>()
+    ));
+    s.push_str(&format!(
+        "const N_INPUT_ATOMS: usize = {};\nconst N_OUTPUT_ATOMS: usize = {};\n",
+        spec.input_atoms.len(),
+        spec.output_atoms.len()
     ));
 
     s.push_str("\nuse z3::ast::{BV, Bool};\n\n");
@@ -510,7 +722,7 @@ pub fn emit_rust_spec(spec: &SmtSpec) -> String {
         let mut r = RustRender::new();
         let uses_i = tr.guard.as_ref().is_some_and(se_uses_step);
         match &tr.guard {
-            Some(g) => render_se_rust(g, spec, Some(1), Some(tr.class), false, &mut r),
+            Some(g) => render_se_rust(g, spec, Some(1), Some(tr.class), false, "i", &mut r),
             None => r.push("let e0: Bool = Bool::from_bool(true);".into()),
         };
         s.push_str(&format!(
@@ -541,6 +753,7 @@ pub fn emit_rust_spec(spec: &SmtSpec) -> String {
                     Some(spec.vars[j].width),
                     Some(tr.class),
                     true,
+                    "i",
                     &mut r,
                 );
                 s.push_str(&format!(
@@ -552,17 +765,242 @@ pub fn emit_rust_spec(spec: &SmtSpec) -> String {
             }
         }
     }
-    // Property formulas.
+    // Property formulas. Every property fn takes (step, horizon) so FULL-class
+    // expansions can reference `k`; default-class bodies never do. Properties
+    // the engine routes to expand_p{p} (FULL class + top-level
+    // bounded_eventually, whose check IS the expansion) get a dummy body here.
     for (p, prop) in spec.properties.iter().enumerate() {
+        let routed = prop.full
+            || matches!(
+                prop.kind,
+                crate::mc::smt_plan::SmtPropKind::BoundedEventually(_)
+            );
+        if routed {
+            s.push_str(&format!(
+                "fn expr_p{p}(_i: usize, _k: usize, _ii_steps: &[Vec<Bool>], _oh_steps: &[Vec<Bool>]) -> Bool {{ Bool::from_bool(true) }}\n\n"
+            ));
+            continue;
+        }
         let mut r = RustRender::new();
         let uses_i = sf_uses_step(&prop.formula);
-        render_sf_rust(&prop.formula, spec, &mut r);
+        render_sf_rust(&prop.formula, spec, "i", &mut r);
+        // Atom parameters are named (no underscore) only when the body
+        // references them - unused names would warn.
+        let ii_name = if sf_uses_input_atoms(&prop.formula) {
+            "ii_steps"
+        } else {
+            "_ii_steps"
+        };
+        let oh_name = if sf_uses_output_atoms(&prop.formula) {
+            "oh_steps"
+        } else {
+            "_oh_steps"
+        };
         s.push_str(&format!(
-            "fn expr_p{p}({q}: usize) -> Bool {{\n    {}\n    e{}\n}}\n\n",
+            "fn expr_p{p}({q}: usize, _k: usize, {ii_name}: &[Vec<Bool>], {oh_name}: &[Vec<Bool>]) -> Bool {{\n    {}\n    e{}\n}}\n\n",
             r.lines.join("\n    "),
             r.n - 1,
             q = if uses_i { "i" } else { "_i" }
         ));
+    }
+    // Expansions for routed properties (FULL class + top-level
+    // bounded_eventually): the whole formula rendered with the horizon `k`
+    // in scope (temporal nodes emit horizon-truncated loops). Top-level BE
+    // stores only its body in `formula` (the operator lives in `kind`), so
+    // wrap it in a synthetic node to get the clipped OR loop.
+    for (p, prop) in spec.properties.iter().enumerate() {
+        let routed = prop.full
+            || matches!(
+                prop.kind,
+                crate::mc::smt_plan::SmtPropKind::BoundedEventually(_)
+            );
+        if !routed {
+            continue;
+        }
+        let formula = match &prop.kind {
+            crate::mc::smt_plan::SmtPropKind::BoundedEventually(n) => Sf::BoundedEventually {
+                bound: *n,
+                inner: Box::new(prop.formula.clone()),
+            },
+            _ => prop.formula.clone(),
+        };
+        let mut r = RustRender::new();
+        // The renderer returns the final binding's name - loop-closing nodes
+        // (BE/until) end with `}`, so r.n-1 would not be a binding.
+        let fin = render_sf_rust(&formula, spec, "i", &mut r);
+        let ii_name = if sf_uses_input_atoms(&formula) {
+            "ii_steps"
+        } else {
+            "_ii_steps"
+        };
+        let oh_name = if sf_uses_output_atoms(&formula) {
+            "oh_steps"
+        } else {
+            "_oh_steps"
+        };
+        s.push_str(&format!(
+            "fn expand_p{p}(i: usize, k: usize, {ii_name}: &[Vec<Bool>], {oh_name}: &[Vec<Bool>]) -> Bool {{\n    {}\n    {fin}\n}}\n\n",
+            r.lines.join("\n    ")
+        ));
+    }
+    // input_is/output_has atom builders (called from the unrolling loop to
+    // define the ii_/oh_ named constants). Specs without atoms get trivial
+    // dummies - the engine's loops are compiled out by the N_*_ATOMS == 0
+    // guards, but the functions must exist for the loop bodies to type-check.
+    if spec.input_atoms.is_empty() {
+        s.push_str(
+            "fn build_input_atom(_a: usize, _i: usize, _fires: &[Bool], _fld_vars: &[Vec<BV>]) -> Bool {\n    Bool::from_bool(false)\n}\n\n",
+        );
+    } else {
+        s.push_str(
+            "fn build_input_atom(a: usize, i: usize, fires: &[Bool], fld_vars: &[Vec<BV>]) -> Bool {\n",
+        );
+        for (a, arms) in spec.input_atoms.iter().enumerate() {
+            // if / else-if chain: an if-without-else in statement position
+            // must return (), so the dispatch is one expression.
+            s.push_str(&format!(
+                "    {} a == {a} {{\n",
+                if a == 0 { "if" } else { "} else if" }
+            ));
+            s.push_str("        let mut val = Bool::from_bool(false);\n");
+            for (ci, constraints) in arms {
+                s.push_str("        {\n");
+                s.push_str("            let mut cls_fire = Bool::from_bool(false);\n");
+                s.push_str(&format!(
+                    "            for t in 0..TRANS.len() {{ if TRANS[t].2 == {ci} {{ cls_fire = b_or(&cls_fire, &fires[t]); }} }}\n"
+                ));
+                let mut arm = "cls_fire".to_string();
+                for (pos, (g, v, _isb)) in constraints.iter().enumerate() {
+                    s.push_str(&format!(
+                        "            let c{pos}: Bool = fld_vars[i][{g}].eq(&BV::from_u64({v}u64, FIELD_WIDTHS[{g}]));\n"
+                    ));
+                    arm = format!("b_and(&{arm}, &c{pos})");
+                }
+                s.push_str(&format!("            val = b_or(&val, &{arm});\n"));
+                s.push_str("        }\n");
+            }
+            s.push_str("        val\n");
+        }
+        s.push_str("    } else {\n        Bool::from_bool(false)\n    }\n}\n\n");
+    }
+    if spec.output_atoms.is_empty() {
+        s.push_str(
+            "fn build_output_atom(_a: usize, _i: usize, _fires: &[Bool]) -> Bool {\n    Bool::from_bool(false)\n}\n\n",
+        );
+    } else {
+        // Flatten every (transition, emit) pair into tables; each pair's
+        // argument expressions become one step function returning a Vec<BV>,
+        // dispatched through a function-pointer table.
+        let mut pair_t: Vec<usize> = Vec::new();
+        let mut pair_group: Vec<String> = Vec::new();
+        let mut pair_variant: Vec<String> = Vec::new();
+        let mut pair_argw: Vec<Vec<u32>> = Vec::new();
+        for (t, tr) in spec.transitions.iter().enumerate() {
+            for o in &tr.emits {
+                pair_t.push(t);
+                pair_group.push(o.group.clone());
+                pair_variant.push(match &o.variant {
+                    Some(v) => format!("Some(\"{v}\")"),
+                    None => "None".to_string(),
+                });
+                pair_argw.push(o.args.iter().map(|a| se_type(a, spec).width()).collect());
+            }
+        }
+        s.push_str(&format!("const EMIT_PAIR_T: &[usize] = &{:?};\n", pair_t));
+        s.push_str(&format!(
+            "const EMIT_PAIR_GROUP: &[&str] = &{};\n",
+            rust_str_list(&pair_group)
+        ));
+        s.push_str(&format!(
+            "const EMIT_PAIR_VARIANT: &[Option<&str>] = &[{}];\n",
+            pair_variant.join(", ")
+        ));
+        s.push_str(&format!(
+            "const EMIT_ARGW: &[&[u32]] = &[{}];\n",
+            pair_argw
+                .iter()
+                .map(|row| format!("&{:?}", row))
+                .collect::<Vec<_>>()
+                .join(", ")
+        ));
+        let mut arg_fns = String::new();
+        let mut fn_names: Vec<String> = Vec::new();
+        for (pi, tr) in spec.transitions.iter().enumerate() {
+            for (oi, o) in tr.emits.iter().enumerate() {
+                if o.args.is_empty() {
+                    arg_fns.push_str("fn emit_args_dummy(_i: usize) -> Vec<BV> { Vec::new() }\n\n");
+                    fn_names.push("emit_args_dummy".to_string());
+                    continue;
+                }
+                let mut body = String::new();
+                for arg in &o.args {
+                    // Each argument renders with a FRESH renderer (bindings
+                    // restart at e0), so the statements must be block-scoped
+                    // or multi-argument emits would redefine e0.
+                    let mut r = RustRender::new();
+                    render_se_rust(
+                        arg,
+                        spec,
+                        Some(se_type(arg, spec).width()),
+                        Some(tr.class),
+                        true,
+                        "i",
+                        &mut r,
+                    );
+                    body.push_str(&format!(
+                        "    v.push({{{lines}    e{n}\n    }});\n",
+                        lines = r.lines.join("\n    "),
+                        n = r.n - 1
+                    ));
+                }
+                arg_fns.push_str(&format!(
+                    "fn emit_args_{pi}_{oi}(i: usize) -> Vec<BV> {{\n    let mut v: Vec<BV> = Vec::new();\n{body}    v\n}}\n\n",
+                ));
+                fn_names.push(format!("emit_args_{pi}_{oi}"));
+            }
+        }
+        s.push_str(&arg_fns);
+        s.push_str(&format!(
+            "const EMIT_ARGS_FNS: &[fn(usize) -> Vec<BV>] = &[{}];\n",
+            fn_names.join(", ")
+        ));
+        // Transition-outer structure mirrors the ref engine's operation order
+        // exactly (fires[t] AND OR-over-emits match) - parity-critical: a
+        // flattened pair loop would build an equivalent-but-differently-shaped
+        // formula and could diverge on multi-emit transitions.
+        s.push_str("fn build_output_atom(a: usize, i: usize, fires: &[Bool]) -> Bool {\n");
+        for (a, (group, variant, constraints)) in spec.output_atoms.iter().enumerate() {
+            // if / else-if chain (see build_input_atom).
+            s.push_str(&format!(
+                "    {} a == {a} {{\n",
+                if a == 0 { "if" } else { "} else if" }
+            ));
+            s.push_str("        let mut val = Bool::from_bool(false);\n");
+            s.push_str("        for t in 0..TRANS.len() {\n");
+            s.push_str("            let mut emit_match = Bool::from_bool(false);\n");
+            s.push_str("            for pi in 0..EMIT_PAIR_T.len() {\n");
+            s.push_str("                if EMIT_PAIR_T[pi] != t { continue; }\n");
+            s.push_str(&format!(
+                "                if EMIT_PAIR_GROUP[pi] == \"{group}\" && EMIT_PAIR_VARIANT[pi] == {} {{\n",
+                match variant {
+                    Some(v) => format!("Some(\"{v}\")"),
+                    None => "None".to_string(),
+                }
+            ));
+            s.push_str("                    let args = EMIT_ARGS_FNS[pi](i);\n");
+            s.push_str("                    let mut m = Bool::from_bool(true);\n");
+            for (pos, v, _isb) in constraints {
+                s.push_str(&format!(
+                    "                    m = b_and(&m, &args[{pos}].eq(&BV::from_u64({v}u64, EMIT_ARGW[pi][{pos}])));\n"
+                ));
+            }
+            s.push_str("                    emit_match = b_or(&emit_match, &m);\n");
+            s.push_str("                }\n            }\n");
+            s.push_str("            val = b_or(&val, &b_and(&fires[t], &emit_match));\n");
+            s.push_str("        }\n");
+            s.push_str("        val\n");
+        }
+        s.push_str("    } else {\n        Bool::from_bool(false)\n    }\n}\n\n");
     }
     // ASGN_MAP[t][j]: does transition t assign var j?
     let mut map_rows = Vec::new();
@@ -615,8 +1053,36 @@ pub fn emit_rust_spec(spec: &SmtSpec) -> String {
         .map(|p| format!("expr_p{p}"))
         .collect();
     s.push_str(&format!(
-        "fn prop_fns() -> Vec<fn(usize) -> Bool> {{ vec![{}] }}\n",
+        "fn prop_fns() -> Vec<fn(usize, usize, &[Vec<Bool>], &[Vec<Bool>]) -> Bool> {{ vec![{}] }}\n",
         props.join(", ")
+    ));
+    // Expansion table: routed properties (FULL class + top-level
+    // bounded_eventually) point at expand_p{p}; the rest are dummies (never
+    // called - the engine dispatches on PROP_KINDS).
+    let expands: Vec<String> = spec
+        .properties
+        .iter()
+        .enumerate()
+        .map(|(p, prop)| {
+            if prop.full
+                || matches!(
+                    prop.kind,
+                    crate::mc::smt_plan::SmtPropKind::BoundedEventually(_)
+                )
+            {
+                format!("expand_p{p}")
+            } else {
+                "expand_dummy".to_string()
+            }
+        })
+        .collect();
+    // The dummy is emitted only when some slot needs it (warning-free code).
+    if expands.iter().any(|e| e == "expand_dummy") {
+        s.push_str("fn expand_dummy(_i: usize, _k: usize, _ii_steps: &[Vec<Bool>], _oh_steps: &[Vec<Bool>]) -> Bool { Bool::from_bool(true) }\n\n");
+    }
+    s.push_str(&format!(
+        "fn expand_fns() -> Vec<fn(usize, usize, &[Vec<Bool>], &[Vec<Bool>]) -> Bool> {{ vec![{}] }}\n",
+        expands.join(", ")
     ));
     s
 }
@@ -674,13 +1140,14 @@ fn render_shift_rust(
     rr: &Se,
     spec: &SmtSpec,
     class: Option<usize>,
+    step: &str,
     r: &mut RustRender,
 ) -> String {
     let wl = se_type(l, spec).width();
     let w_r = shift_amt_width(rr, spec, wl);
     let w_c = w_r.max(wl);
-    let a = render_se_rust(l, spec, None, class, false, r);
-    let b = render_se_rust(rr, spec, Some(w_r), class, false, r);
+    let a = render_se_rust(l, spec, None, class, false, step, r);
+    let b = render_se_rust(rr, spec, Some(w_r), class, false, step, r);
     let b_c = if w_c == w_r {
         b.clone()
     } else {
@@ -721,13 +1188,14 @@ fn render_shift_c(
     rr: &Se,
     spec: &SmtSpec,
     class: Option<usize>,
+    step: &str,
     r: &mut CRender,
 ) -> String {
     let wl = se_type(l, spec).width();
     let w_r = shift_amt_width(rr, spec, wl);
     let w_c = w_r.max(wl);
-    let a = render_se_c(l, spec, None, class, false, r);
-    let b = render_se_c(rr, spec, Some(w_r), class, false, r);
+    let a = render_se_c(l, spec, None, class, false, step, r);
+    let b = render_se_c(rr, spec, Some(w_r), class, false, step, r);
     let b_c = if w_c == w_r {
         b.clone()
     } else {
@@ -764,8 +1232,12 @@ fn render_se_c(
     expected: Option<u32>,
     class: Option<usize>,
     bool_as_bv: bool,
+    step: &str,
     r: &mut CRender,
 ) -> String {
+    // Base step ("i") uses the caller's arrays; any other expression renders
+    // name-based fresh constants at that (runtime) step.
+    let base = step == "i";
     match se {
         Se::Lit { value, is_bool } => {
             if *is_bool && !bool_as_bv {
@@ -779,9 +1251,26 @@ fn render_se_c(
                 r.push(format!("Z3_ast e{} = z3_num(c, {w}, {value}ull);", r.n))
             }
         }
-        Se::State => r.push(format!("Z3_ast e{} = s;", r.n)),
+        Se::State => {
+            if base {
+                r.push(format!("Z3_ast e{} = s;", r.n))
+            } else {
+                r.push(format!(
+                    "char nm{}[32]; snprintf(nm{}, sizeof nm{}, \"s_%u\", {step}); Z3_ast e{} = Z3_mk_const(c, Z3_mk_string_symbol(c, nm{}), Z3_mk_bv_sort(c, STATE_BITS));",
+                    r.n, r.n, r.n, r.n, r.n
+                ))
+            }
+        }
         Se::Var(j) => {
-            let leaf = format!("v[{j}]");
+            let leaf = if base {
+                format!("v[{j}]")
+            } else {
+                let idx = r.n;
+                r.push(format!(
+                    "char nm{idx}[32]; snprintf(nm{idx}, sizeof nm{idx}, \"v_%u_{j}\", {step});"
+                ));
+                format!("Z3_mk_const(c, Z3_mk_string_symbol(c, nm{idx}), Z3_mk_bv_sort(c, VAR_WIDTHS[{j}]))")
+            };
             if spec.vars[*j].is_bool && !bool_as_bv {
                 let l = r.push(format!("Z3_ast e{} = {leaf};", r.n));
                 r.push(format!(
@@ -794,7 +1283,15 @@ fn render_se_c(
         }
         Se::Field { idx, is_bool, .. } => {
             let g = global_field_index(spec, class.expect("field outside transition"), *idx);
-            let leaf = format!("fld[{g}]");
+            let leaf = if base {
+                format!("fld[{g}]")
+            } else {
+                let idx = r.n;
+                r.push(format!(
+                    "char nm{idx}[32]; snprintf(nm{idx}, sizeof nm{idx}, \"fld_%u_{g}\", {step});"
+                ));
+                format!("Z3_mk_const(c, Z3_mk_string_symbol(c, nm{idx}), Z3_mk_bv_sort(c, FIELD_WIDTHS[{g}]))")
+            };
             if *is_bool && !bool_as_bv {
                 let l = r.push(format!("Z3_ast e{} = {leaf};", r.n));
                 r.push(format!(
@@ -806,13 +1303,13 @@ fn render_se_c(
             }
         }
         Se::Not(inner) => {
-            let c_ = render_se_c(inner, spec, Some(1), class, false, r);
+            let c_ = render_se_c(inner, spec, Some(1), class, false, step, r);
             let b = r.push(format!("Z3_ast e{} = Z3_mk_not(c, {c_});", r.n));
             finish_bool_c(&b, bool_as_bv, r)
         }
         Se::BitNot(inner) | Se::Neg(inner) => {
             let w = se_type(inner, spec).width();
-            let c_ = render_se_c(inner, spec, Some(w), class, false, r);
+            let c_ = render_se_c(inner, spec, Some(w), class, false, step, r);
             let m = if matches!(se, Se::BitNot(_)) {
                 "bvnot"
             } else {
@@ -824,10 +1321,10 @@ fn render_se_c(
             let lt = se_type(l, spec);
             let rt = se_type(rr, spec);
             if produces_bool(*op, lt, rt) {
-                let b = render_bool_bin_c(*op, l, rr, spec, class, r);
+                let b = render_bool_bin_c(*op, l, rr, spec, class, step, r);
                 finish_bool_c(&b, bool_as_bv, r)
             } else {
-                render_bit_bin_c(*op, l, rr, spec, class, r)
+                render_bit_bin_c(*op, l, rr, spec, class, step, r)
             }
         }
     }
@@ -853,14 +1350,15 @@ fn render_bool_bin_c(
     rr: &Se,
     spec: &SmtSpec,
     class: Option<usize>,
+    step: &str,
     r: &mut CRender,
 ) -> String {
     let lt = se_type(l, spec);
     let rt = se_type(rr, spec);
     match op {
         Sb::LogicAnd | Sb::LogicOr => {
-            let a = render_se_c(l, spec, Some(1), class, false, r);
-            let b = render_se_c(rr, spec, Some(1), class, false, r);
+            let a = render_se_c(l, spec, Some(1), class, false, step, r);
+            let b = render_se_c(rr, spec, Some(1), class, false, step, r);
             let m = if op == Sb::LogicAnd { "and" } else { "or" };
             let an = format!("ab{}", r.n);
             r.push(format!("Z3_ast {an}[2] = {{ {a}, {b} }};"));
@@ -868,8 +1366,8 @@ fn render_bool_bin_c(
         }
         Sb::Eq | Sb::NotEq | Sb::Lt | Sb::Le | Sb::Gt | Sb::Ge => {
             let (wl, wr, ext_l, ext_r) = cmp_widths_full(l, rr, spec);
-            let a0 = render_se_c(l, spec, Some(wl), class, false, r);
-            let b0 = render_se_c(rr, spec, Some(wr), class, false, r);
+            let a0 = render_se_c(l, spec, Some(wl), class, false, step, r);
+            let b0 = render_se_c(rr, spec, Some(wr), class, false, step, r);
             let a = widen_c(&a0, ext_l, r);
             let b = widen_c(&b0, ext_r, r);
             if lt == SeType::Bool && rt == SeType::Bool {
@@ -923,8 +1421,8 @@ fn render_bool_bin_c(
             }
         }
         Sb::BitAnd | Sb::BitOr => {
-            let a = render_se_c(l, spec, Some(1), class, false, r);
-            let b = render_se_c(rr, spec, Some(1), class, false, r);
+            let a = render_se_c(l, spec, Some(1), class, false, step, r);
+            let b = render_se_c(rr, spec, Some(1), class, false, step, r);
             let m = if op == Sb::BitAnd { "and" } else { "or" };
             let an = format!("ab{}", r.n);
             r.push(format!("Z3_ast {an}[2] = {{ {a}, {b} }};"));
@@ -941,6 +1439,7 @@ fn render_bit_bin_c(
     rr: &Se,
     spec: &SmtSpec,
     class: Option<usize>,
+    step: &str,
     r: &mut CRender,
 ) -> String {
     let lt = se_type(l, spec);
@@ -955,8 +1454,8 @@ fn render_bit_bin_c(
                 (SeType::IntLit, t) | (t, SeType::IntLit) => t.width(),
                 _ => 8,
             };
-            let a = render_se_c(l, spec, Some(w), class, false, r);
-            let b = render_se_c(rr, spec, Some(w), class, false, r);
+            let a = render_se_c(l, spec, Some(w), class, false, step, r);
+            let b = render_se_c(rr, spec, Some(w), class, false, step, r);
             let m = match op {
                 Sb::Plus => "bvadd",
                 Sb::Minus => "bvsub",
@@ -967,38 +1466,143 @@ fn render_bit_bin_c(
             };
             r.push(format!("Z3_ast e{} = Z3_mk_{m}(c, {a}, {b});", r.n))
         }
-        Sb::ShiftLeft | Sb::ShiftRight => render_shift_c(op, l, rr, spec, class, r),
+        Sb::ShiftLeft | Sb::ShiftRight => render_shift_c(op, l, rr, spec, class, step, r),
         _ => unreachable!("bit-producing op only"),
     }
 }
 
-fn render_sf_c(sf: &Sf, spec: &SmtSpec, r: &mut CRender) -> String {
+fn render_sf_c(sf: &Sf, spec: &SmtSpec, step: &str, r: &mut CRender) -> String {
     match sf {
-        Sf::Se(inner) => render_se_c(inner, spec, Some(1), None, false, r),
+        Sf::Se(inner) => render_se_c(inner, spec, Some(1), None, false, step, r),
         Sf::Not(inner) => {
-            let c_ = render_sf_c(inner, spec, r);
+            let c_ = render_sf_c(inner, spec, step, r);
             r.push(format!("Z3_ast e{} = Z3_mk_not(c, {c_});", r.n))
         }
         Sf::And(l, rr) => {
-            let a = render_sf_c(l, spec, r);
-            let b = render_sf_c(rr, spec, r);
+            let a = render_sf_c(l, spec, step, r);
+            let b = render_sf_c(rr, spec, step, r);
             r.push(format!(
                 "Z3_ast e{} = Z3_mk_and(c, 2, (Z3_ast[]){{{a}, {b}}});",
                 r.n
             ))
         }
         Sf::Or(l, rr) => {
-            let a = render_sf_c(l, spec, r);
-            let b = render_sf_c(rr, spec, r);
+            let a = render_sf_c(l, spec, step, r);
+            let b = render_sf_c(rr, spec, step, r);
             r.push(format!(
                 "Z3_ast e{} = Z3_mk_or(c, 2, (Z3_ast[]){{{a}, {b}}});",
                 r.n
             ))
         }
         Sf::Implies(l, rr) => {
-            let a = render_sf_c(l, spec, r);
-            let b = render_sf_c(rr, spec, r);
+            let a = render_sf_c(l, spec, step, r);
+            let b = render_sf_c(rr, spec, step, r);
             r.push(format!("Z3_ast e{} = Z3_mk_implies(c, {a}, {b});", r.n))
+        }
+        // Atoms: the engine passes the per-step atom storage flattened
+        // (k x N_ATOMS); explicit indexing - NOT name-shared constants, which
+        // z3_mk_fresh_const does not guarantee to share across solver versions.
+        Sf::InputIs { id, .. } => r.push(format!(
+            "Z3_ast e{} = ii[({step}) * N_INPUT_ATOMS + {id}];",
+            r.n
+        )),
+        Sf::OutputHas { id, .. } => r.push(format!(
+            "Z3_ast e{} = oh[({step}) * N_OUTPUT_ATOMS + {id}];",
+            r.n
+        )),
+        // next: the body holds one step later.
+        Sf::Next(inner) => {
+            let ns = if step == "i" {
+                "i + 1".to_string()
+            } else {
+                format!("({step}) + 1")
+            };
+            render_sf_c(inner, spec, &ns, r)
+        }
+        // FULL-class expansions (quantifier-free, horizon-truncated). The step
+        // expression `step` is the anchor; loop variables are unique per node.
+        Sf::BoundedEventually { bound, inner } => {
+            let acc = r.push(format!("Z3_ast e{} = Z3_mk_false(c);", r.n));
+            let jv = format!("j{}", r.n);
+            r.n += 1;
+            let body_step = if step == "i" {
+                format!("i + {jv}")
+            } else {
+                format!("({step}) + {jv}")
+            };
+            r.push(format!(
+                "for (unsigned {jv} = 0; {jv} < {bound} && ({step}) + {jv} < k; {jv}++) {{"
+            ));
+            let b = render_sf_c(inner, spec, &body_step, r);
+            r.push(format!("{acc} = Z3_mk_or(c, 2, (Z3_ast[]){{{acc}, {b}}});"));
+            r.push("}".into());
+            acc
+        }
+        Sf::BoundedAlways { bound, inner } => {
+            let acc = r.push(format!("Z3_ast e{} = Z3_mk_true(c);", r.n));
+            let jv = format!("j{}", r.n);
+            r.n += 1;
+            let body_step = if step == "i" {
+                format!("i + {jv}")
+            } else {
+                format!("({step}) + {jv}")
+            };
+            r.push(format!(
+                "for (unsigned {jv} = 0; {jv} < {bound} && ({step}) + {jv} < k; {jv}++) {{"
+            ));
+            let b = render_sf_c(inner, spec, &body_step, r);
+            r.push(format!(
+                "{acc} = Z3_mk_and(c, 2, (Z3_ast[]){{{acc}, {b}}});"
+            ));
+            r.push("}".into());
+            acc
+        }
+        Sf::Eventually(inner) => {
+            let acc = r.push(format!("Z3_ast e{} = Z3_mk_false(c);", r.n));
+            let jv = format!("j{}", r.n);
+            r.n += 1;
+            r.push(format!("for (unsigned {jv} = {step}; {jv} < k; {jv}++) {{"));
+            let b = render_sf_c(inner, spec, &jv, r);
+            r.push(format!("{acc} = Z3_mk_or(c, 2, (Z3_ast[]){{{acc}, {b}}});"));
+            r.push("}".into());
+            acc
+        }
+        Sf::Until { left, right } => {
+            let rh = r.push(format!("Z3_ast e{} = Z3_mk_false(c);", r.n));
+            let jv = format!("j{}", r.n);
+            r.n += 1;
+            let iv = format!("i{}", r.n);
+            r.n += 1;
+            r.push(format!("for (unsigned {jv} = {step}; {jv} < k; {jv}++) {{"));
+            let pf = r.push(format!("Z3_ast e{} = Z3_mk_true(c);", r.n));
+            r.push(format!(
+                // Weak until: p only strictly before the first q.
+                "for (unsigned {iv} = {step}; {iv} < {jv}; {iv}++) {{"
+            ));
+            let lb = render_sf_c(left, spec, &iv, r);
+            r.push(format!("{pf} = Z3_mk_and(c, 2, (Z3_ast[]){{{pf}, {lb}}});"));
+            r.push("}".into());
+            let rb = render_sf_c(right, spec, &jv, r);
+            r.push(format!(
+                "{rh} = Z3_mk_or(c, 2, (Z3_ast[]){{{rh}, Z3_mk_and(c, 2, (Z3_ast[]){{{rb}, {pf}}})}});"
+            ));
+            r.push("}".into());
+            let lf = r.push(format!("Z3_ast e{} = Z3_mk_true(c);", r.n));
+            let iv2 = format!("i{}", r.n);
+            r.n += 1;
+            r.push(format!(
+                "for (unsigned {iv2} = {step}; {iv2} < k; {iv2}++) {{"
+            ));
+            let lb2 = render_sf_c(left, spec, &iv2, r);
+            r.push(format!(
+                "{lf} = Z3_mk_and(c, 2, (Z3_ast[]){{{lf}, {lb2}}});"
+            ));
+            r.push("}".into());
+            let fin = r.push(format!(
+                "Z3_ast e{} = Z3_mk_or(c, 2, (Z3_ast[]){{{rh}, {lf}}});",
+                r.n
+            ));
+            fin
         }
     }
 }
@@ -1148,18 +1752,59 @@ pub fn emit_c_spec(spec: &SmtSpec) -> String {
         .properties
         .iter()
         .map(|p| {
-            (if p.kind == crate::mc::smt_plan::SmtPropKind::Eventually {
-                1
-            } else {
-                0
-            })
+            match p.kind {
+                crate::mc::smt_plan::SmtPropKind::Always => "0",
+                crate::mc::smt_plan::SmtPropKind::Eventually => "1",
+                crate::mc::smt_plan::SmtPropKind::BoundedEventually(_) => "2",
+                crate::mc::smt_plan::SmtPropKind::Until => "3",
+            }
             .to_string()
         })
         .collect();
     s.push_str(&format!(
-        "/* 0 = always (safety), 1 = eventually (liveness). */\nstatic const unsigned char PROP_KINDS[] = {{{}}};\n#define N_PROPS {1}u\n",
+        "/* 0 = always (safety), 1 = eventually (liveness), 2 = bounded_eventually (full class), 3 = until (full class). */\nstatic const unsigned char PROP_KINDS[] = {{{}}};\n#define N_PROPS {1}u\n",
         kinds.join(", "),
         spec.properties.len()
+    ));
+    s.push_str(&format!(
+        "/* always[N] anchor clip (0 = unbounded). */\nstatic const unsigned int PROP_BOUNDS[] = {{{}}};\n",
+        spec.properties
+            .iter()
+            .map(|p| p.bound.unwrap_or(0).to_string())
+            .collect::<Vec<_>>()
+            .join(", ")
+    ));
+    s.push_str(&format!(
+        "/* Maximum `next` nesting depth (properties are checked only at steps i with i + depth < k). */\nstatic const unsigned int PROP_NEXT_DEPTH[] = {{{}}};\n",
+        spec.properties
+            .iter()
+            .map(|p| p.next_depth.to_string())
+            .collect::<Vec<_>>()
+            .join(", ")
+    ));
+    s.push_str(&format!(
+        "/* FULL class (checked only with --full-properties). */\nstatic const unsigned char PROP_FULL[] = {{{}}};\n",
+        spec.properties
+            .iter()
+            .map(|p| p.full.to_string())
+            .collect::<Vec<_>>()
+            .join(", ")
+    ));
+    s.push_str(&format!(
+        "/* bounded_eventually[N] horizon N (0 = not a bounded_eventually). */\nstatic const unsigned int PROP_BE_BOUND[] = {{{}}};\n",
+        spec.properties
+            .iter()
+            .map(|p| match p.kind {
+                crate::mc::smt_plan::SmtPropKind::BoundedEventually(n) => n.to_string(),
+                _ => "0".to_string(),
+            })
+            .collect::<Vec<_>>()
+            .join(", ")
+    ));
+    s.push_str(&format!(
+        "#define N_INPUT_ATOMS {}u\n#define N_OUTPUT_ATOMS {}u\n",
+        spec.input_atoms.len(),
+        spec.output_atoms.len()
     ));
 
     s.push_str("\nstatic Z3_ast z3_num(Z3_context c, unsigned w, uint64_t v) {\n");
@@ -1169,7 +1814,7 @@ pub fn emit_c_spec(spec: &SmtSpec) -> String {
     for (t, tr) in spec.transitions.iter().enumerate() {
         let mut r = CRender::new();
         match &tr.guard {
-            Some(g) => render_se_c(g, spec, Some(1), Some(tr.class), false, &mut r),
+            Some(g) => render_se_c(g, spec, Some(1), Some(tr.class), false, "i", &mut r),
             None => r.push("Z3_ast e0 = Z3_mk_true(c);".into()),
         };
         s.push_str(&format!(
@@ -1199,6 +1844,7 @@ pub fn emit_c_spec(spec: &SmtSpec) -> String {
                     Some(spec.vars[j].width),
                     Some(tr.class),
                     true,
+                    "i",
                     &mut r,
                 );
                 s.push_str(&format!(
@@ -1209,15 +1855,286 @@ pub fn emit_c_spec(spec: &SmtSpec) -> String {
             }
         }
     }
-    // Property formulas.
+    // Property formulas. Every property fn takes (step, horizon) so FULL-class
+    // expansions can reference `k`; default-class bodies never do. FULL-class
+    // properties get a dummy body here (never called - the engine routes them
+    // to expand_p{p}, emitted below).
     for (p, prop) in spec.properties.iter().enumerate() {
+        let routed = prop.full
+            || matches!(
+                prop.kind,
+                crate::mc::smt_plan::SmtPropKind::BoundedEventually(_)
+            );
+        if routed {
+            s.push_str(&format!(
+                "static Z3_ast expr_p{p}(Z3_context c, unsigned i, unsigned k, Z3_ast s, const Z3_ast *v, const Z3_ast *fld, const Z3_ast *ii, const Z3_ast *oh) {{\n    (void)c; (void)i; (void)k; (void)s; (void)v; (void)fld; (void)ii; (void)oh;\n    return Z3_mk_true(c);\n}}\n\n"
+            ));
+            continue;
+        }
         let mut r = CRender::new();
-        render_sf_c(&prop.formula, spec, &mut r);
+        render_sf_c(&prop.formula, spec, "i", &mut r);
+        // Atom parameters are named (no void-cast) only when the body
+        // references them.
+        let ii_name = if sf_uses_input_atoms(&prop.formula) {
+            "ii"
+        } else {
+            "_ii"
+        };
+        let oh_name = if sf_uses_output_atoms(&prop.formula) {
+            "oh"
+        } else {
+            "_oh"
+        };
+        let voids = format!(
+            "(void)s; (void)v; (void)fld; (void)k;{}{}",
+            if ii_name == "_ii" { " (void)_ii;" } else { "" },
+            if oh_name == "_oh" { " (void)_oh;" } else { "" }
+        );
+        let void_i = if sf_uses_step(&prop.formula) {
+            String::new()
+        } else {
+            "\n    (void)i;".to_string()
+        };
         s.push_str(&format!(
-            "static Z3_ast expr_p{p}(Z3_context c, Z3_ast s, const Z3_ast *v, const Z3_ast *fld) {{\n    (void)s; (void)v; (void)fld;\n    {}\n    return e{};\n}}\n\n",
-            r.lines.join("\n    "),
-            r.n - 1
+            "static Z3_ast expr_p{p}(Z3_context c, unsigned i, unsigned k, Z3_ast s, const Z3_ast *v, const Z3_ast *fld, const Z3_ast *{ii_name}, const Z3_ast *{oh_name}) {{\n    {voids}{void_i}\n    {lines}\n    return e{n};\n}}\n\n",
+            lines = r.lines.join("\n    "),
+            n = r.n - 1
         ));
+    }
+    // Expansions for routed properties (FULL class + top-level
+    // bounded_eventually): the whole formula rendered with the horizon `k`
+    // in scope (temporal nodes emit horizon-truncated loops). Top-level BE
+    // stores only its body in `formula` (the operator lives in `kind`), so
+    // wrap it in a synthetic node to get the clipped OR loop.
+    for (p, prop) in spec.properties.iter().enumerate() {
+        let routed = prop.full
+            || matches!(
+                prop.kind,
+                crate::mc::smt_plan::SmtPropKind::BoundedEventually(_)
+            );
+        if !routed {
+            continue;
+        }
+        let formula = match &prop.kind {
+            crate::mc::smt_plan::SmtPropKind::BoundedEventually(n) => Sf::BoundedEventually {
+                bound: *n,
+                inner: Box::new(prop.formula.clone()),
+            },
+            _ => prop.formula.clone(),
+        };
+        let mut r = CRender::new();
+        // The renderer returns the final binding's name (see the Rust side).
+        let fin = render_sf_c(&formula, spec, "i", &mut r);
+        let ii_name = if sf_uses_input_atoms(&formula) {
+            "ii"
+        } else {
+            "_ii"
+        };
+        let oh_name = if sf_uses_output_atoms(&formula) {
+            "oh"
+        } else {
+            "_oh"
+        };
+        let voids = format!(
+            "(void)s; (void)v; (void)fld;{}{}",
+            if ii_name == "_ii" { " (void)_ii;" } else { "" },
+            if oh_name == "_oh" { " (void)_oh;" } else { "" }
+        );
+        let void_i = if sf_uses_step(&formula) {
+            String::new()
+        } else {
+            "\n    (void)i;".to_string()
+        };
+        s.push_str(&format!(
+            "static Z3_ast expand_p{p}(Z3_context c, unsigned i, unsigned k, Z3_ast s, const Z3_ast *v, const Z3_ast *fld, const Z3_ast *{ii_name}, const Z3_ast *{oh_name}) {{\n    {voids}{void_i}\n    {lines}\n    return {fin};\n}}\n\n",
+            lines = r.lines.join("\n    ")
+        ));
+    }
+    // input_is/output_has atom builders (called from the unrolling loop to
+    // define the ii_/oh_ named constants). Specs without atoms get trivial
+    // dummies - the engine's loops are compiled out by the N_*_ATOMS == 0
+    // guards, but the functions must exist for the loop bodies to compile.
+    if spec.input_atoms.is_empty() {
+        s.push_str(
+            "static Z3_ast build_input_atom(Z3_context c, unsigned a, unsigned i, const Z3_ast *fld, const Z3_ast *fires) {\n    (void)c; (void)a; (void)i; (void)fld; (void)fires;\n    return Z3_mk_false(c);\n}\n\n",
+        );
+    } else {
+        s.push_str(
+            "static Z3_ast build_input_atom(Z3_context c, unsigned a, unsigned i, const Z3_ast *fld, const Z3_ast *fires) {\n",
+        );
+        for (a, arms) in spec.input_atoms.iter().enumerate() {
+            s.push_str(&format!("    if (a == {a}) {{\n"));
+            s.push_str("        Z3_ast val = Z3_mk_false(c);\n");
+            for (ci, constraints) in arms {
+                s.push_str("        {\n");
+                s.push_str("            Z3_ast cls_fire = Z3_mk_false(c);\n");
+                s.push_str(&format!(
+                    "            for (unsigned t = 0; t < N_TRANS; t++) {{ if (TRANS[t].cls == {ci}u) {{ Z3_ast pair[2] = {{ cls_fire, fires[t] }}; cls_fire = Z3_mk_or(c, 2, pair); }} }}\n"
+                ));
+                let mut arm = "cls_fire".to_string();
+                for (pos, (g, v, _isb)) in constraints.iter().enumerate() {
+                    s.push_str(&format!(
+                        "            Z3_ast c{pos} = Z3_mk_eq(c, fld[{g}], z3_num(c, FIELD_WIDTHS[{g}], {v}ull));\n"
+                    ));
+                    arm = format!("Z3_mk_and(c, 2, (Z3_ast[]){{ {arm}, c{pos} }})");
+                }
+                s.push_str(&format!(
+                    "            val = Z3_mk_or(c, 2, (Z3_ast[]){{ val, {arm} }});\n"
+                ));
+                s.push_str("        }\n");
+            }
+            s.push_str("        return val;\n    }");
+        }
+        s.push_str("    return Z3_mk_false(c);\n}\n\n");
+    }
+    if spec.output_atoms.is_empty() {
+        s.push_str(
+            "static Z3_ast build_output_atom(Z3_context c, unsigned a, unsigned i, const Z3_ast *v, const Z3_ast *fld, const Z3_ast *fires) {\n    (void)c; (void)a; (void)i; (void)v; (void)fld; (void)fires;\n    return Z3_mk_false(c);\n}\n\n",
+        );
+    } else {
+        // Flatten every (transition, emit) pair into tables; each pair's
+        // argument expressions become one step function filling an out array,
+        // dispatched through a function-pointer table.
+        let mut pair_t: Vec<usize> = Vec::new();
+        let mut pair_group: Vec<String> = Vec::new();
+        let mut pair_variant: Vec<Option<String>> = Vec::new();
+        for (t, tr) in spec.transitions.iter().enumerate() {
+            for o in &tr.emits {
+                pair_t.push(t);
+                pair_group.push(o.group.clone());
+                pair_variant.push(o.variant.clone());
+            }
+        }
+        s.push_str(&format!(
+            "static const unsigned char EMIT_PAIR_T[] = {{{}}};\n#define N_EMIT_PAIRS {1}u\n",
+            pair_t
+                .iter()
+                .map(|t| format!("{t}u"))
+                .collect::<Vec<_>>()
+                .join(", "),
+            pair_t.len()
+        ));
+        s.push_str(&format!(
+            "static const char *EMIT_PAIR_GROUP[] = {};\n",
+            c_str_list(&pair_group)
+        ));
+        let variants: Vec<String> = pair_variant
+            .iter()
+            .map(|v| match v {
+                Some(s) => format!("{s:?}"),
+                None => "0".to_string(),
+            })
+            .collect();
+        s.push_str(&format!(
+            "/* NULL = any variant of the group. */\nstatic const char *EMIT_PAIR_VARIANT[] = {{{}}};\n",
+            variants.join(", ")
+        ));
+        let mut argw_rows: Vec<String> = Vec::new();
+        for (pi, tr) in spec.transitions.iter().enumerate() {
+            for o in &tr.emits {
+                s.push_str(&format!(
+                    "static const unsigned int EMIT_ARGW_{pi}[] = {{{}}};\n",
+                    o.args
+                        .iter()
+                        .map(|a| format!("{}u", se_type(a, spec).width()))
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                ));
+                argw_rows.push(format!("EMIT_ARGW_{pi}"));
+            }
+        }
+        s.push_str(&format!(
+            "static const unsigned int *EMIT_ARGW[] = {{{}}};\n",
+            argw_rows.join(", ")
+        ));
+        let mut fn_names: Vec<String> = Vec::new();
+        for (pi, tr) in spec.transitions.iter().enumerate() {
+            for (oi, o) in tr.emits.iter().enumerate() {
+                if o.args.is_empty() {
+                    s.push_str(
+                        "static void emit_args_dummy(Z3_context c, unsigned i, const Z3_ast *v, const Z3_ast *fld, Z3_ast *out) {\n    (void)c; (void)i; (void)v; (void)fld; (void)out;\n}\n\n",
+                    );
+                    fn_names.push("emit_args_dummy".to_string());
+                    continue;
+                }
+                let mut body = String::new();
+                for (ai, arg) in o.args.iter().enumerate() {
+                    let mut r = CRender::new();
+                    render_se_c(
+                        arg,
+                        spec,
+                        Some(se_type(arg, spec).width()),
+                        Some(tr.class),
+                        true,
+                        "i",
+                        &mut r,
+                    );
+                    body.push_str(&format!(
+                        "    {{\n{}        out[{ai}] = e{};\n    }}\n",
+                        r.lines.join("\n        "),
+                        r.n - 1
+                    ));
+                }
+                let voids = format!("(void)i; (void)v; (void)fld;");
+                s.push_str(&format!(
+                    "static void emit_args_{pi}_{oi}(Z3_context c, unsigned i, const Z3_ast *v, const Z3_ast *fld, Z3_ast *out) {{\n    {voids}\n{body}}}\n\n"
+                ));
+                fn_names.push(format!("emit_args_{pi}_{oi}"));
+            }
+        }
+        s.push_str(&format!(
+            "static void (*EMIT_ARGS_FNS[N_EMIT_PAIRS])(Z3_context, unsigned, const Z3_ast *, const Z3_ast *, Z3_ast *) = {{{}}};\n",
+            fn_names.join(", ")
+        ));
+        let max_args = spec
+            .transitions
+            .iter()
+            .flat_map(|t| t.emits.iter())
+            .map(|o| o.args.len())
+            .max()
+            .unwrap_or(0)
+            .max(1);
+        // Transition-outer structure mirrors the ref engine's operation order
+        // exactly (fires[t] AND OR-over-emits match) - parity-critical.
+        s.push_str("static Z3_ast build_output_atom(Z3_context c, unsigned a, unsigned i, const Z3_ast *v, const Z3_ast *fld, const Z3_ast *fires) {\n");
+        for (a, (group, variant, constraints)) in spec.output_atoms.iter().enumerate() {
+            s.push_str(&format!("    if (a == {a}) {{\n"));
+            s.push_str("        Z3_ast val = Z3_mk_false(c);\n");
+            s.push_str("        for (unsigned t = 0; t < N_TRANS; t++) {\n");
+            s.push_str("            Z3_ast emit_match = Z3_mk_false(c);\n");
+            s.push_str("            for (unsigned pi = 0; pi < N_EMIT_PAIRS; pi++) {\n");
+            s.push_str("                if (EMIT_PAIR_T[pi] != t) continue;\n");
+            s.push_str(&format!(
+                "                if (strcmp(EMIT_PAIR_GROUP[pi], \"{group}\") == 0 && {} ) {{\n",
+                match variant {
+                    Some(v) => format!("strcmp(EMIT_PAIR_VARIANT[pi], \"{v}\") == 0"),
+                    None => "EMIT_PAIR_VARIANT[pi] == 0".to_string(),
+                }
+            ));
+            s.push_str(&format!("                    Z3_ast args[{max_args}];\n"));
+            s.push_str(&format!(
+                "                    EMIT_ARGS_FNS[pi](c, i, v, fld, args);\n"
+            ));
+            s.push_str("                    Z3_ast m = Z3_mk_true(c);\n");
+            for (pos, v, _isb) in constraints {
+                s.push_str(&format!(
+                    "                    Z3_ast c{pos} = Z3_mk_eq(c, args[{pos}], z3_num(c, EMIT_ARGW[pi][{pos}], {v}ull));\n"
+                ));
+                s.push_str(&format!(
+                    "                    m = Z3_mk_and(c, 2, (Z3_ast[]){{ m, c{pos} }});\n"
+                ));
+            }
+            s.push_str(&format!(
+                "                    emit_match = Z3_mk_or(c, 2, (Z3_ast[]){{ emit_match, m }});\n"
+            ));
+            s.push_str("                }\n            }\n");
+            s.push_str(&format!(
+                "            val = Z3_mk_or(c, 2, (Z3_ast[]){{ val, Z3_mk_and(c, 2, (Z3_ast[]){{ fires[t], emit_match }}) }});\n"
+            ));
+            s.push_str("        }\n");
+            s.push_str("        return val;\n    }");
+        }
+        s.push_str("    return Z3_mk_false(c);\n}\n\n");
     }
     // ASGN_MAP[t][j]: does transition t assign var j?
     let mut map_rows = Vec::new();
@@ -1276,8 +2193,36 @@ pub fn emit_c_spec(spec: &SmtSpec) -> String {
         .map(|p| format!("expr_p{p}"))
         .collect();
     s.push_str(&format!(
-        "static Z3_ast (*PROP_FNS[N_PROPS])(Z3_context, Z3_ast, const Z3_ast *, const Z3_ast *) = {{{}}};\n",
+        "static Z3_ast (*PROP_FNS[N_PROPS])(Z3_context, unsigned, unsigned, Z3_ast, const Z3_ast *, const Z3_ast *, const Z3_ast *, const Z3_ast *) = {{{}}};\n",
         props.join(", ")
+    ));
+    // Expansion table: routed properties (FULL class + top-level
+    // bounded_eventually) point at expand_p{p}; the rest are dummies (never
+    // called - the engine dispatches on PROP_KINDS).
+    let expands: Vec<String> = spec
+        .properties
+        .iter()
+        .enumerate()
+        .map(|(p, prop)| {
+            if prop.full
+                || matches!(
+                    prop.kind,
+                    crate::mc::smt_plan::SmtPropKind::BoundedEventually(_)
+                )
+            {
+                format!("expand_p{p}")
+            } else {
+                "expand_dummy".to_string()
+            }
+        })
+        .collect();
+    // The dummy is emitted only when some slot needs it (warning-free code).
+    if expands.iter().any(|e| e == "expand_dummy") {
+        s.push_str("static Z3_ast expand_dummy(Z3_context c, unsigned i, unsigned k, Z3_ast s, const Z3_ast *v, const Z3_ast *fld, const Z3_ast *ii, const Z3_ast *oh) {\n    (void)c; (void)i; (void)k; (void)s; (void)v; (void)fld; (void)ii; (void)oh;\n    return Z3_mk_true(c);\n}\n\n");
+    }
+    s.push_str(&format!(
+        "static Z3_ast (*EXPAND_FNS[N_PROPS])(Z3_context, unsigned, unsigned, Z3_ast, const Z3_ast *, const Z3_ast *, const Z3_ast *, const Z3_ast *) = {{{}}};\n",
+        expands.join(", ")
     ));
     s
 }
@@ -1375,6 +2320,7 @@ mod tests {
                             },
                         ),
                     ],
+                    emits: Vec::new(),
                 },
                 // t1: A->A on Noop where counter < 4; counter <<= 2; big >>= 1.
                 SmtTrans {
@@ -1413,6 +2359,7 @@ mod tests {
                             ),
                         ),
                     ],
+                    emits: Vec::new(),
                 },
                 // t2: B->B on Go_F; big <<= x (narrow amount); counter >>= y (wide amount).
                 SmtTrans {
@@ -1446,6 +2393,7 @@ mod tests {
                             ),
                         ),
                     ],
+                    emits: Vec::new(),
                 },
                 // t3: B->A on Noop; big -= 300 (oversized literal, arithmetic truncates).
                 SmtTrans {
@@ -1464,6 +2412,7 @@ mod tests {
                             }),
                         ),
                     )],
+                    emits: Vec::new(),
                 },
             ],
             properties: vec![
@@ -1471,6 +2420,9 @@ mod tests {
                 SmtProp {
                     name: "counter_bounded".into(),
                     kind: SmtPropKind::Always,
+                    bound: None,
+                    full: false,
+                    next_depth: 0,
                     formula: Sf::Se(Se::Bin(
                         Sb::Lt,
                         Box::new(Se::Var(0)),
@@ -1484,6 +2436,9 @@ mod tests {
                 SmtProp {
                     name: "big_nonneg".into(),
                     kind: SmtPropKind::Eventually,
+                    bound: None,
+                    full: false,
+                    next_depth: 0,
                     formula: Sf::Se(Se::Bin(
                         Sb::Ge,
                         Box::new(Se::Var(2)),
@@ -1494,6 +2449,8 @@ mod tests {
                     )),
                 },
             ],
+            input_atoms: Vec::new(),
+            output_atoms: Vec::new(),
         }
     }
 

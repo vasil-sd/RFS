@@ -13,17 +13,16 @@ module dns_resolver {
   output ServeAnswer
   var key: bit<16> init 0
   var ttl: bit<8> init 0
-  # Plain-boolean encoding of "no stale answer" (smt-bounded accepts only expr/not/and/or/implies,
-  # so output_has is unavailable): served flips to 1 on the first ServeAnswer and last_serve_ttl
-  # snapshots the TTL at that moment. Because a serve is guarded by ttl > 0, the snapshot can
-  # never be 0 - hence the invariant holds for every k-step path on this large spec.
-  var served: bit<1> init 0
-  var last_serve_ttl: bit<8> init 0
-  prop no_stale_serve : always (served == 0 || last_serve_ttl > 0) ;
+  # Native property (Phase 18 task 1B): smt-bounded now supports output_has directly,
+  # so the witness-variable encoding is retired. A ServeAnswer is only ever emitted by
+  # the guarded serve transition (ttl > 0), which leaves ttl unchanged - so at every
+  # serving sample the post-step TTL is positive. Renamed event parameter: R(rk) aliases
+  # the declared field rkey positionally, and the guard references the binding name.
+  prop no_stale_serve : always (output_has(ServeAnswer) -> ttl > 0) ;
   transition Idle on Lookup(Q(qkey)) { next Querying; emit SendQuery; set key = qkey; }
-  transition Querying on Reply(R(rkey)) where rkey == key { next Cached; set ttl = 250; }
+  transition Querying on Reply(R(rk)) where rk == key { next Cached; set ttl = 250; }
   transition Querying on Tick { next Idle; }
-  transition Cached on Lookup(Q(qkey)) where qkey == key && ttl > 0 { priority 1; next Cached; emit ServeAnswer; set served = 1; set last_serve_ttl = ttl; }
+  transition Cached on Lookup(Q(qkey)) where qkey == key && ttl > 0 { priority 1; next Cached; emit ServeAnswer; }
   transition Cached on Lookup(Q(qkey)) where qkey != key || ttl == 0 { priority 2; next Querying; emit SendQuery; set key = qkey; }
   transition Cached on Tick where ttl > 0 { next Cached; set ttl = ttl - 1; }
 }

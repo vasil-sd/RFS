@@ -44,11 +44,16 @@ compiles to shippable code in both backends.
 ### Model checking - large state space (`full.rfs`: smt-bounded + fuzz)
 The faithful model holds a 16-bit query key and an 8-bit TTL - the cache content IS the
 state, so no meaningful abstraction lowers the state space and exact MC is infeasible. It
-is instead checked with `rfs mc-ref --mode smt-bounded --bound 12`, which proves the plain
-invariant `no_stale_serve` for every 12-step path (**PASS WITHIN BOUND**, incomplete - no
-completeness claim), and `--mode fuzz --runs 200` (random query/expiry sequences, no
-violations). Rationale: even very large specifications can be analyzed and checked with
-RFS where adequate simplification is impossible.
+is instead checked with `rfs mc-ref --mode smt-bounded --bound 12`, which proves the
+native property `no_stale_serve : always (output_has(ServeAnswer) -> ttl > 0)` for every
+12-step path (**PASS WITHIN BOUND**, incomplete - no completeness claim), and
+`--mode fuzz --runs 200` (random query/expiry sequences, no violations). The twin also
+demonstrates the two Phase 18 task-1A smt-bounded extensions end to end: `output_has`
+is checked directly (the earlier plain-boolean witness encoding - `served`/
+`last_serve_ttl` snapshot vars - is retired), and the reply pattern renames its event
+parameter (`Reply(R(rk))` for declared field `rkey`) with the guard referencing the
+binding name. Rationale: even very large specifications can be analyzed and checked
+with RFS where adequate simplification is impossible.
 
 ## Files layout
 | File | Role |

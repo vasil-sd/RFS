@@ -1,0 +1,23 @@
+module tcp_full_states
+  initial state: Listen
+  enums:
+    State: Listen, SynSent, Established, FinWait1, FinWait2, CloseWait, LastAck, Closing, TimeWait, Closed
+  events:
+    RecvSyn: RecvSyn
+    RecvAck: RecvAck
+    RecvFin: RecvFin
+    LocalClose: LocalClose
+    Tick: Tick
+  outputs:
+    SendSyn: SendSyn
+    SendAck: SendAck
+    SendFin: SendFin
+  variables:
+    tw: bit<3> = 0
+  transitions: 25
+  properties:
+    closed_terminal: always ((state == Closed) -> next ((state == Closed))) - monitored
+    time_wait_expires: always ((state == TimeWait) -> bounded_eventually[10] ((state == Closed))) - monitored
+  assumptions:
+    env_tick: always (bounded_eventually[3] (input_is(Tick))) - monitored
+

@@ -1,0 +1,43 @@
+# rfs 1.0
+# stp_port_states (Phase 18 A7): a single port's Spanning Tree Protocol machine
+# (IEEE 802.1D). The port walks DISCOVERING -> LISTENING -> LEARNING and then either
+# FORWARDING (if it is the designated port for its segment) or BLOCKING (if a superior
+# BPDU makes it a backup). Safety: the loop-free invariant - a port is FORWARDING only
+# when it is designated (role == 0); a backup port must stay BLOCKING.
+module stp_port_states {
+  enum State { Discovering, Listening, Learning, Forwarding, Blocking }
+  initial Discovering
+
+  event BpduRecv(B(better: bit<1>))   # better=1: a superior BPDU (we become backup)
+  event TimerTick                     # forward-delay timer expires
+
+  output SendBpdu
+
+  var role: bit<1> init 0             # 0 = designated (may forward), 1 = backup (must block)
+
+  # Loop-free invariant: only a designated port may be FORWARDING.
+  prop loop_free : always (state == Forwarding -> role == 0) ;
+
+  transition Discovering on BpduRecv(B(b)) { next Listening; set role = b; emit SendBpdu; }
+  transition Discovering on TimerTick { next Listening; set role = 0; emit SendBpdu; }
+  transition Listening on BpduRecv(B(b)) { next Listening; set role = b; emit SendBpdu; }
+  transition Listening on TimerTick { next Learning; emit SendBpdu; }
+  # Designated ports advance to FORWARDING...
+  transition Learning on TimerTick where role == 0 {
+    priority 1;
+    next Forwarding;
+    emit SendBpdu;
+  }
+  # ...backup ports must hold at BLOCKING (this is the fix).
+  transition Learning on TimerTick where role == 1 {
+    priority 2;
+    next Blocking;
+    emit SendBpdu;
+  }
+  transition Forwarding on BpduRecv(B(1)) { next Listening; set role = 1; emit SendBpdu; }
+  transition Forwarding on BpduRecv(B(0)) { next Forwarding; emit SendBpdu; }
+  transition Forwarding on TimerTick { next Forwarding; emit SendBpdu; }
+  transition Blocking on BpduRecv(B(0)) { next Learning; set role = 0; emit SendBpdu; }
+  transition Blocking on BpduRecv(B(1)) { next Blocking; emit SendBpdu; }
+  transition Blocking on TimerTick { next Blocking; emit SendBpdu; }
+}

@@ -1,0 +1,20 @@
+module tls13_handshake
+  initial state: Start
+  enums:
+    State: Start, AwaitServerHello, SendClientFinished, Established, Aborted
+  events:
+    Initiate: Initiate
+    RecvServerHello: RecvServerHello
+    RecvServerFinished: RecvServerFinished
+    AppData: AppData
+    Alert: Alert
+  outputs:
+    SendClientHello: SendClientHello
+    SendClientFinished: SendClientFinished
+    SendAppData: SendAppData
+  variables: (none)
+  transitions: 13
+  properties:
+    no_app_data_before_finished: always ((state != Established) -> !output_has(SendAppData)) - monitored
+  assumptions: (none)
+

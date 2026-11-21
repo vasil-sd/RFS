@@ -1,0 +1,47 @@
+# rfs 1.0
+# quic_loss_recovery (Phase 18 A3): QUIC (RFC 9000) loss recovery - a packet in flight,
+# the PTO timer, and retransmission with exponential backoff. The liveness invariant:
+# the recovery process always terminates (the packet is acknowledged, or we give up
+# after the backoff reaches its cap). The faithful model (full packet-number space +
+# congestion state) lives in full.rfs, checked via smt-bounded + fuzz.
+module quic_loss_recovery {
+  enum State { InFlight, Retransmit, Done }
+  initial InFlight
+
+  event RecvAck
+  event Tick
+
+  output TransmitPkt
+  output RetransmitPkt
+
+  var backoff: bit<3> init 1
+
+  # Liveness: the loss-recovery process always terminates (acked or gave up at max backoff).
+  prop terminates : eventually (state == Done) ;
+
+  transition InFlight on RecvAck { next Done; }
+  # PTO timeout: retransmit and grow the backoff.
+  transition InFlight on Tick where backoff < 4 {
+    priority 1;
+    next Retransmit;
+    emit RetransmitPkt;
+    set backoff = backoff + 1;
+  }
+  transition InFlight on Tick where backoff == 4 {
+    priority 2;
+    next Done;
+  }
+  transition Retransmit on RecvAck { next Done; }
+  transition Retransmit on Tick where backoff < 4 {
+    priority 1;
+    next Retransmit;
+    emit RetransmitPkt;
+    set backoff = backoff + 1;
+  }
+  transition Retransmit on Tick where backoff == 4 {
+    priority 2;
+    next Done;
+  }
+  transition Done on RecvAck { next Done; }
+  transition Done on Tick { next Done; }
+}

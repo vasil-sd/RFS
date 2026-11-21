@@ -2841,3 +2841,28 @@ PHASE 8 IS NOW COMPLETE.
 - Synced state records: CURRENT_STATE.md phase-17 row (COMPLETE) + header date 2026-11-07 -> 2026-11-20; START.md docs/user/ doc-map row gains USAGE.md; BUILD.md root 538->584, workspace 666->720, smt 540->594, generated-code 1683/192->1720/194, example-projects 3->14 (root sub-count + dedicated row), training 138/128/267->140/128/271 (command table + alias re-verification + known-good baseline paragraph).
 - Finding: BUILD.md's root/workspace/smt count lines were STALE from Phases 15-16 (read 538/666/540, below the true Phase 16 baseline 573/701/583) - they were never synced then. Corrected to the measured values in this close-out.
 - Phase 17 deliverables recap: USAGE.md (exhaustive CLI reference), 10 new example projects (3 negative-MC, 3 cargo-member, 4 plain-dir) + 5 upgraded READMEs + c_sync_handler `make CC=clang`, all mc-ref staleness fixed across user/dev/LLM/KB/usage-text/training surfaces, training set aligned (3 rewrites + 4 new entries). Committed.
+
+## 2026-11-21 01:49 — Phase 18 task 1 (complete): the 10 Group-A protocol FSM example projects + pinned test legs + inventory rows
+
+### Interpretation & plan
+
+- Requested: "Execute task 1" = Phase 18 task 1 (`docs/roadmap/phase_18/tasks/PHASE_18_TASK_1.md`) - create the 10 transport/routing/signaling protocol FSM example projects (A1-A10), each a real FSM spec that model-checks to PASS, a one-defect variant failing with a PINNED counterexample, the fix, a run script, pinned captures, and a template README - plus one test leg per FSM.
+- State on arrival: 5 of the 10 were already built in a prior (uncommitted) session (`tcp_full_states`, `tls13_handshake`, `quic_loss_recovery`, `dhcp_client` fully wired; `dns_resolver` had specs/captures/run.sh/README but was missing its test leg + inventory row, and its twin capture held an smt-bounded error). The remaining 5 (`arp_resolution`, `stp_port_states`, `bgp_fsm`, `ospf_neighbor`, `sip_call_signaling`) were absent.
+- Plan: finish dns_resolver (fix the twin, add leg + row), then build the other 5 end-to-end (specs -> verify PASS/FAIL -> run.sh captures -> README -> test leg -> inventory row), then run the full verification checklist.
+
+### Report
+
+- `dns_resolver` twin fixed: the committed `full-smt.txt` held `error: unknown identifier 'k'` because the twin renamed its event param in the pattern (`R(k)` for field `v`) and used `output_has(...)` in the property - both unsupported by smt-bounded. Rewrote `full.rfs` to use field-name params (`qkey`/`rkey`) and a plain-boolean snapshot invariant (`served`/`last_serve_ttl` encode "no stale answer"); regenerated `full-smt.txt` (PASS WITHIN BOUND 12) + `full-fuzz.txt` (runs=200, clean). Added its test leg + TEST_STRUCTURE row.
+- Built the other 5 FSMs end-to-end: `arp_resolution` (liveness CE - infinite retransmit loop, cycle length 8), `stp_port_states` (loop_free violation - backup port role==1 reaches FORWARDING), `bgp_fsm` (no_update_before_established - SendUpdate echoed in OpenConfirm), `ospf_neighbor` (single_master - both sides master after the tie-break is dropped), `sip_call_signaling` (no_established_after_cancel - ignored CANCEL still reaches Established). Each: pass.rfs PASS complete, fail.rfs pinned CE, fixed.rfs re-PASS, run.sh drives validate/info + mc-ref exact + both-backend generated MC + both-backend production codegen, template README with mermaid stateDiagram + per-mode subsections.
+- Discovered (task correction 1a): RFS event params must be nested record constructors (`Reply(R(mac: bit<8>))`), not bare fields (`Reply(mac: bit<8>)` -> "trailing input after RFS source"); and in a property `state` is the TARGET state of the step (shaped the bgp_fsm defect).
+- Pre-existing fixes to unblock the required gates: two `<fsm_title>` placeholder links in PHASE_18.md / PHASE_18_TASK_8.md broke docs_md_test's link resolver - rendered as inline code spans. Noted (not fixed) mc_walkthrough's `peak_rss_kb` capture drift (non-deterministic RSS; its leg doesn't assert that field).
+- Verification: `cargo test --test example_projects_test` 24/24 (all 10 FSM legs green); `docs_md_test` 5/5; `dev_docs_test` 9/9 (sync gate confirms the 10 inventory rows match the real fns); full root `cargo test` all binaries green; `cargo clippy --all-targets` no errors (warnings at the pre-phase dead-code baseline); `cargo fmt --check` clean.
+- Bookkeeping: PHASE_18_TASK_1.md exit criteria checked off + Task-corrections table (1a); PHASE_18_TASK_1_STATUS.md written.
+
+### Files
+
+- 10 new example dirs under `crates/examples/` (pass/fail/fixed[+full].rfs, run.sh, captures/, README.md each)
+- `tests/example_projects_test.rs` (10 new test legs)
+- `docs/llm/TEST_STRUCTURE.md` (10 new rows)
+- `docs/roadmap/phase_18/{PHASE_18.md,tasks/PHASE_18_TASK_8.md}` (placeholder-link fix)
+- `docs/roadmap/phase_18/tasks/PHASE_18_TASK_1.md` (exit criteria + corrections), `PHASE_18_TASK_1_STATUS.md` (new)

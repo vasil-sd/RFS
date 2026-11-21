@@ -1,0 +1,21 @@
+FAIL
+model-check summary: status=fail states=136 transitions=264 max_depth=23 reason=liveness-violation label=resolves_or_gives_up step=0
+  unexpected terminations: 144
+  first unexpected: config 0 input index 2
+  monitor size: 0 bits
+  memory estimate: 4624 bytes
+liveness violation: resolves_or_gives_up
+  formula: eventually (state != Incomplete)
+  violation step: 0
+  cycle length: 8
+  note: eventually body never holds on the path
+counterexample trace:
+  initial state=State::Incomplete vars=Vars { retries: 0, age: 0 }
+  step 0 input=Input::Tick outputs=[Output::SendRequest] from=State::Incomplete to=State::Incomplete vars=Vars { retries: 1, age: 0 }
+  step 1 input=Input::Tick outputs=[Output::SendRequest] from=State::Incomplete to=State::Incomplete vars=Vars { retries: 2, age: 0 }
+  step 2 input=Input::Tick outputs=[Output::SendRequest] from=State::Incomplete to=State::Incomplete vars=Vars { retries: 3, age: 0 }
+  step 3 input=Input::Tick outputs=[Output::SendRequest] from=State::Incomplete to=State::Incomplete vars=Vars { retries: 4, age: 0 }
+  step 4 input=Input::Tick outputs=[Output::SendRequest] from=State::Incomplete to=State::Incomplete vars=Vars { retries: 5, age: 0 }
+  step 5 input=Input::Tick outputs=[Output::SendRequest] from=State::Incomplete to=State::Incomplete vars=Vars { retries: 6, age: 0 }
+  step 6 input=Input::Tick outputs=[Output::SendRequest] from=State::Incomplete to=State::Incomplete vars=Vars { retries: 7, age: 0 }
+  step 7 input=Input::Tick outputs=[Output::SendRequest] from=State::Incomplete to=State::Incomplete vars=Vars { retries: 0, age: 0 }

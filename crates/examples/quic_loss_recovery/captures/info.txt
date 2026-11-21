@@ -1,0 +1,17 @@
+module quic_loss_recovery
+  initial state: InFlight
+  enums:
+    State: InFlight, Retransmit, Done
+  events:
+    RecvAck: RecvAck
+    Tick: Tick
+  outputs:
+    TransmitPkt: TransmitPkt
+    RetransmitPkt: RetransmitPkt
+  variables:
+    backoff: bit<3> = 1
+  transitions: 8
+  properties:
+    terminates: eventually ((state == Done)) - skipped: liveness operators (eventually/until) are outside the monitor subset
+  assumptions: (none)
+

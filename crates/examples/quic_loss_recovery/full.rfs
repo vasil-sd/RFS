@@ -1,0 +1,51 @@
+# rfs 1.0
+# quic_loss_recovery - LARGE-STATE-SPACE TWIN (Phase 18 A3). The faithful model is a
+# continuously-streaming QUIC sender: a real 16-bit packet number that advances on every
+# transmit (so the reachable state space is unbounded for exact MC), plus loss recovery
+# with PTO backoff. It is checked with `rfs mc-ref --mode smt-bounded` (proves the plain
+# invariant for every k-step path) and `--mode fuzz` (random loss patterns). The
+# simplified, exact-MC-able version is pass.rfs.
+module quic_loss_recovery {
+  enum State { Streaming, Retransmit }
+  initial Streaming
+
+  event RecvAck
+  event Loss
+  event Tick
+
+  output TransmitPkt(Pkt(num: bit<16>))
+  output RetransmitPkt(Pkt(num: bit<16>))
+
+  var pkt_num: bit<16> init 0
+  var backoff: bit<3> init 1
+
+  # Plain safety invariant (no temporal operator - smt-bounded can prove it on this
+  # large spec where exact MC is infeasible): the PTO backoff stays within [1, 4].
+  prop backoff_in_range : always (backoff >= 1 && backoff <= 4) ;
+
+  # Continuous streaming: every tick sends the next packet, advancing pkt_num forever.
+  transition Streaming on Tick {
+    next Streaming;
+    emit TransmitPkt(Pkt(pkt_num));
+    set pkt_num = pkt_num + 1;
+  }
+  transition Streaming on RecvAck { next Streaming; }
+  # A loss triggers retransmission with backoff.
+  transition Streaming on Loss {
+    next Retransmit;
+    set backoff = 1;
+  }
+  transition Retransmit on Tick where backoff < 4 {
+    priority 1;
+    next Retransmit;
+    emit RetransmitPkt(Pkt(pkt_num));
+    set pkt_num = pkt_num + 1;
+    set backoff = backoff + 1;
+  }
+  # Give up after max backoff and resume streaming.
+  transition Retransmit on Tick where backoff == 4 {
+    priority 2;
+    next Streaming;
+  }
+  transition Retransmit on RecvAck { next Streaming; }
+}

@@ -1,0 +1,25 @@
+module bgp_fsm
+  initial state: Idle
+  enums:
+    State: Idle, Connect, Active, OpenSent, OpenConfirm, Established
+  events:
+    Start: Start
+    TcpEstablished: TcpEstablished
+    TcpFailed: TcpFailed
+    RecvOpen: RecvOpen
+    RecvKeepalive: RecvKeepalive
+    RecvUpdate: RecvUpdate
+    RecvNotification: RecvNotification
+    HoldTimerExpired: HoldTimerExpired
+  outputs:
+    SendOpen: SendOpen
+    SendKeepalive: SendKeepalive
+    SendUpdate: SendUpdate
+    SendNotification: SendNotification
+  variables:
+    hold_timer: bit<4> = 0
+  transitions: 15
+  properties:
+    no_update_before_established: always (output_has(SendUpdate) -> (state == Established)) - monitored
+  assumptions: (none)
+

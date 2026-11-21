@@ -1,0 +1,49 @@
+# rfs 1.0
+# tls13_handshake (Phase 18 A2): the TLS 1.3 handshake state machine (RFC 8446) from
+# one endpoint's view - ClientHello -> ServerHello -> Finished -> application data,
+# with a fatal-alert abort path. The safety invariant: no application data is sent
+# before the handshake completes (before Finished).
+module tls13_handshake {
+  enum State { Start, AwaitServerHello, SendClientFinished, Established, Aborted }
+  initial Start
+
+  event Initiate
+  event RecvServerHello
+  event RecvServerFinished
+  event AppData
+  event Alert
+
+  output SendClientHello
+  output SendClientFinished
+  output SendAppData
+
+  # Safety: no application data before the handshake completes (before Finished).
+  prop no_app_data_before_finished : always (state != Established -> !output_has(SendAppData)) ;
+
+  transition Start on Initiate {
+    next AwaitServerHello;
+    emit SendClientHello;
+  }
+  transition AwaitServerHello on RecvServerHello {
+    next SendClientFinished;
+    emit SendClientFinished;
+  }
+  transition SendClientFinished on RecvServerFinished {
+    next Established;
+  }
+  transition Established on AppData {
+    next Established;
+    emit SendAppData;
+  }
+  # A fatal alert aborts the handshake from any pre-established state.
+  transition Start on Alert { next Aborted; }
+  transition AwaitServerHello on Alert { next Aborted; }
+  transition SendClientFinished on Alert { next Aborted; }
+  transition Established on Alert { next Aborted; }
+  # Aborted is terminal: absorb every event.
+  transition Aborted on Initiate { next Aborted; }
+  transition Aborted on RecvServerHello { next Aborted; }
+  transition Aborted on RecvServerFinished { next Aborted; }
+  transition Aborted on AppData { next Aborted; }
+  transition Aborted on Alert { next Aborted; }
+}

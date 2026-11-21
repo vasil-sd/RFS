@@ -1,0 +1,20 @@
+module arp_resolution
+  initial state: Incomplete
+  enums:
+    State: Incomplete, Resolved, Deleted
+  events:
+    Reply: R(mac: bit<8>)
+    Tick: Tick
+    Forward: Forward
+  outputs:
+    SendRequest: SendRequest
+    ForwardPacket: ForwardPacket
+  variables:
+    retries: bit<3> = 0
+    age: bit<4> = 0
+  transitions: 9
+  properties:
+    no_forward_unresolved: always (output_has(ForwardPacket) -> (state == Resolved)) - monitored
+    resolves_or_gives_up: eventually ((state != Incomplete)) - skipped: liveness operators (eventually/until) are outside the monitor subset
+  assumptions: (none)
+

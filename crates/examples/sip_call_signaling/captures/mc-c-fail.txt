@@ -1,0 +1,15 @@
+FAIL
+model-check summary: status=fail states=7 transitions=15 max_depth=4 reason=property-violation label=no_established_after_cancel step=4
+  unexpected terminations: 19
+  first unexpected: config 0 input index 1
+  monitor size: 0 bits
+  memory estimate: 231 bytes
+property violation: no_established_after_cancel
+  violation step: 4
+  vars at violation step: Vars { cancelled: 1 }
+counterexample trace:
+  initial state=State::Idle vars=Vars { cancelled: 0 }
+  step 0 input=Input::Invite outputs=[Output::SendInvite] from=State::Idle to=State::Invited vars=Vars { cancelled: 0 }
+  step 1 input=Input::Recv1xx outputs=[] from=State::Invited to=State::Ringing vars=Vars { cancelled: 0 }
+  step 2 input=Input::RecvCancel outputs=[] from=State::Ringing to=State::Ringing vars=Vars { cancelled: 1 }
+  step 3 input=Input::AckSent outputs=[Output::SendAck] from=State::Ringing to=State::Established vars=Vars { cancelled: 1 }

@@ -1,0 +1,45 @@
+# rfs 1.0
+# bgp_fsm (Phase 18 A8): a BGP peer's finite state machine (RFC 4271). The session
+# walks Idle -> Connect -> Active -> OpenSent -> OpenConfirm -> Established, with
+# NOTIFICATION returning it to Active/Idle. Safety: no UPDATE is processed before the
+# session is ESTABLISHED - an UPDATE is only handled (and echoed) in that state.
+module bgp_fsm {
+  enum State { Idle, Connect, Active, OpenSent, OpenConfirm, Established }
+  initial Idle
+
+  event Start
+  event TcpEstablished
+  event TcpFailed
+  event RecvOpen
+  event RecvKeepalive
+  event RecvUpdate
+  event RecvNotification
+  event HoldTimerExpired
+
+  output SendOpen
+  output SendKeepalive
+  output SendUpdate
+  output SendNotification
+
+  var hold_timer: bit<4> init 0
+
+  # Ordering safety: an UPDATE is only handled once the session is ESTABLISHED.
+  prop no_update_before_established : always (output_has(SendUpdate) -> state == Established) ;
+
+  transition Idle on Start { next Connect; }
+  transition Connect on TcpEstablished { next OpenSent; emit SendOpen; set hold_timer = 9; }
+  transition Connect on TcpFailed { next Active; }
+  transition Active on TcpEstablished { next OpenSent; emit SendOpen; set hold_timer = 9; }
+  transition Active on HoldTimerExpired { next Connect; }
+  transition OpenSent on RecvOpen { next OpenConfirm; emit SendKeepalive; }
+  transition OpenSent on RecvNotification { next Active; emit SendNotification; }
+  transition OpenSent on TcpFailed { next Active; }
+  transition OpenConfirm on RecvKeepalive { next Established; }
+  transition OpenConfirm on RecvNotification { next Idle; emit SendNotification; }
+  transition OpenConfirm on TcpFailed { next Active; }
+  # An UPDATE is handled ONLY in ESTABLISHED (this guard is the fix).
+  transition Established on RecvUpdate { next Established; emit SendUpdate; }
+  transition Established on RecvKeepalive { next Established; emit SendKeepalive; set hold_timer = 9; }
+  transition Established on HoldTimerExpired { next Idle; emit SendNotification; }
+  transition Established on RecvNotification { next Idle; emit SendNotification; }
+}

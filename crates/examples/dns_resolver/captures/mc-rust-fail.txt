@@ -1,0 +1,22 @@
+FAIL
+model-check summary: status=fail states=12 transitions=22 max_depth=10 reason=property-violation label=no_stale_serve step=11
+  unexpected terminations: 12
+  first unexpected: config 0 input index 1
+  monitor size: 0 bits
+  memory estimate: 396 bytes
+property violation: no_stale_serve
+  violation step: 11
+  vars at violation step: Vars { ttl: 0 }
+counterexample trace:
+  initial state=State::Idle vars=Vars { ttl: 0 }
+  step 0 input=Input::Lookup outputs=[Output::SendQuery] from=State::Idle to=State::Querying vars=Vars { ttl: 0 }
+  step 1 input=Input::Reply outputs=[] from=State::Querying to=State::Cached vars=Vars { ttl: 8 }
+  step 2 input=Input::Tick outputs=[] from=State::Cached to=State::Cached vars=Vars { ttl: 7 }
+  step 3 input=Input::Tick outputs=[] from=State::Cached to=State::Cached vars=Vars { ttl: 6 }
+  step 4 input=Input::Tick outputs=[] from=State::Cached to=State::Cached vars=Vars { ttl: 5 }
+  step 5 input=Input::Tick outputs=[] from=State::Cached to=State::Cached vars=Vars { ttl: 4 }
+  step 6 input=Input::Tick outputs=[] from=State::Cached to=State::Cached vars=Vars { ttl: 3 }
+  step 7 input=Input::Tick outputs=[] from=State::Cached to=State::Cached vars=Vars { ttl: 2 }
+  step 8 input=Input::Tick outputs=[] from=State::Cached to=State::Cached vars=Vars { ttl: 1 }
+  step 9 input=Input::Tick outputs=[] from=State::Cached to=State::Cached vars=Vars { ttl: 0 }
+  step 10 input=Input::Lookup outputs=[Output::ServeAnswer] from=State::Cached to=State::Cached vars=Vars { ttl: 0 }

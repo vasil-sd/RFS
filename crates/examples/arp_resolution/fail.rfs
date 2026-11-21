@@ -1,0 +1,44 @@
+# rfs 1.0
+# arp_resolution (Phase 18 A6) - FAILING VARIANT: the retry limit is dropped, so an
+# unresolvable entry retransmits forever and never leaves INCOMPLETE - a liveness
+# violation of resolves_or_gives_up. The fix (fixed.rfs) restores the give-up transition.
+module arp_resolution {
+  enum State { Incomplete, Resolved, Deleted }
+  initial Incomplete
+
+  event Reply(R(mac: bit<8>))
+  event Tick
+  event Forward
+
+  output SendRequest
+  output ForwardPacket
+
+  var retries: bit<3> init 0
+  var age: bit<4> init 0
+
+  prop no_forward_unresolved : always (output_has(ForwardPacket) -> state == Resolved) ;
+  prop resolves_or_gives_up : eventually (state != Incomplete) ;
+
+  transition Incomplete on Reply(R(m)) { next Resolved; set age = 15; }
+  // DEFECT: no retry limit - retransmit unconditionally, looping in INCOMPLETE forever.
+  transition Incomplete on Tick {
+    next Incomplete;
+    emit SendRequest;
+    set retries = retries + 1;
+  }
+  transition Resolved on Forward where age > 0 { next Resolved; emit ForwardPacket; }
+  transition Resolved on Tick where age > 0 {
+    priority 1;
+    next Resolved;
+    set age = age - 1;
+  }
+  transition Resolved on Tick where age == 0 {
+    priority 2;
+    next Incomplete;
+    set retries = 0;
+  }
+  # Deleted is a true terminal (the entry is gone): absorb every event.
+  transition Deleted on Reply(R(m)) { next Deleted; }
+  transition Deleted on Tick { next Deleted; }
+  transition Deleted on Forward { next Deleted; }
+}

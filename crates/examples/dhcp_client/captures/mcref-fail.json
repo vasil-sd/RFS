@@ -1,0 +1,1 @@
+{"status":"fail","metrics":{"states":12,"transitions":12,"max_depth":11},"reason":"deadlock","label":"-","step":11,"statistics":{"unexpected_terminations":48,"monitor_size_bits":0,"memory_estimate_bytes":396,"peak_rss_kb":0},"counterexample":{"kind":"deadlock-config","depth":11,"state":"State::Bound","vars":{"lease":0},"ce_steps":11}}

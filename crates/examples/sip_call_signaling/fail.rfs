@@ -1,0 +1,36 @@
+# rfs 1.0
+# sip_call_signaling (Phase 18 A10) - FAILING VARIANT: CANCEL handling is dropped, so a
+# cancelled INVITE is ignored and the dialog still proceeds to ESTABLISHED - violating
+# no_established_after_cancel. The fix (fixed.rfs) adds the CANCEL -> Terminated transition.
+module sip_call_signaling {
+  enum State { Idle, Invited, Ringing, Established, Terminated }
+  initial Idle
+
+  event Invite
+  event Recv1xx
+  event Recv200Ok
+  event AckSent
+  event RecvBye
+  event RecvCancel
+
+  output SendInvite
+  output SendAck
+  output SendBye
+
+  var cancelled: bit<1> init 0
+
+  prop no_established_after_cancel : always (state == Established -> cancelled == 0) ;
+
+  transition Idle on Invite { next Invited; emit SendInvite; }
+  transition Invited on Recv1xx { next Ringing; }
+  transition Invited on Recv200Ok { next Ringing; }
+  // DEFECT: CANCEL is ignored (the dialog keeps going) instead of terminating.
+  transition Invited on RecvCancel { next Invited; set cancelled = 1; }
+  transition Ringing on Recv1xx { next Ringing; }
+  transition Ringing on Recv200Ok { next Ringing; }
+  transition Ringing on AckSent { next Established; emit SendAck; }
+  // DEFECT: CANCEL is ignored here too.
+  transition Ringing on RecvCancel { next Ringing; set cancelled = 1; }
+  transition Established on RecvBye { next Terminated; emit SendBye; }
+  transition Terminated on Invite { next Invited; emit SendInvite; set cancelled = 0; }
+}

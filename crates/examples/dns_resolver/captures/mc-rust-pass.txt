@@ -1,0 +1,6 @@
+PASS (complete)
+model-check summary: status=pass-complete states=12 transitions=22 max_depth=10
+  unexpected terminations: 14
+  first unexpected: config 0 input index 1
+  monitor size: 0 bits
+  memory estimate: 396 bytes

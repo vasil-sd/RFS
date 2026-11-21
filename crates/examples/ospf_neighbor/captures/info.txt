@@ -1,0 +1,19 @@
+module ospf_neighbor
+  initial state: Down
+  enums:
+    State: Down, Init, TwoWay, ExStart, Exchange, Loading, Full
+  events:
+    RecvHello: RecvHello
+    RecvDD: D(seq: bit<4>, master: bit<1>)
+    TimerTick: TimerTick
+  outputs:
+    SendHello: SendHello
+    SendDD: SendDD
+  variables:
+    we_master: bit<1> = 0
+    peer_master: bit<1> = 0
+  transitions: 10
+  properties:
+    single_master: always (!(we_master == 1) && (peer_master == 1)) - monitored
+  assumptions: (none)
+

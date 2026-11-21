@@ -1,0 +1,15 @@
+FAIL
+model-check summary: status=fail states=5 transitions=5 max_depth=4 reason=property-violation label=single_master step=4
+  unexpected terminations: 10
+  first unexpected: config 0 input index 1
+  monitor size: 0 bits
+  memory estimate: 165 bytes
+property violation: single_master
+  violation step: 4
+  vars at violation step: Vars { we_master: 1, peer_master: 1 }
+counterexample trace:
+  initial state=State::Down vars=Vars { we_master: 0, peer_master: 0 }
+  step 0 input=Input::RecvHello outputs=[Output::SendHello] from=State::Down to=State::Init vars=Vars { we_master: 0, peer_master: 0 }
+  step 1 input=Input::RecvHello outputs=[Output::SendHello] from=State::Init to=State::TwoWay vars=Vars { we_master: 0, peer_master: 0 }
+  step 2 input=Input::TimerTick outputs=[Output::SendDD] from=State::TwoWay to=State::ExStart vars=Vars { we_master: 1, peer_master: 0 }
+  step 3 input=Input::RecvDD_D { seq: 0, master: 1 } outputs=[Output::SendDD] from=State::ExStart to=State::Exchange vars=Vars { we_master: 1, peer_master: 1 }

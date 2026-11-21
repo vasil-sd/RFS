@@ -1,0 +1,96 @@
+# rfs 1.0
+# tcp_full_states (Phase 18 A1): the FULL TCP connection state machine (RFC 793 /
+# RFC 9293) - LISTEN through ESTABLISHED and the complete teardown half
+# (FIN_WAIT_1/2, CLOSE_WAIT, CLOSING, LAST_ACK, TIME_WAIT -> CLOSED). Distinct from
+# the existing 3-state examples/valid/04_tcp_handshake_like.rfs: this models the
+# teardown + retransmission-timer states. The sequence number is abstracted to a
+# small bit<4> counter so exact model checking is feasible; the faithful 32-bit
+# version lives in full.rfs (checked via smt-bounded + fuzz, not exact MC).
+module tcp_full_states {
+  enum State { Listen, SynSent, Established, FinWait1, FinWait2, CloseWait, LastAck, Closing, TimeWait, Closed }
+  initial Listen
+
+  event RecvSyn
+  event RecvAck
+  event RecvFin
+  event LocalClose
+  event Tick
+
+  output SendSyn
+  output SendAck
+  output SendFin
+
+  var tw: bit<3> init 0
+
+  # Safety: CLOSED is terminal - no transition leaves it.
+  prop closed_terminal : always (state == Closed -> next (state == Closed)) ;
+  # Liveness: TIME_WAIT always expires to CLOSED - the timer counts down on Tick.
+  prop time_wait_expires : always (state == TimeWait -> bounded_eventually[10] (state == Closed)) ;
+
+  # The environment keeps time: a Tick arrives within every 3 samples. Every state
+  # handles Tick (a self-loop, except TIME_WAIT which counts down) so this assumption
+  # is always satisfiable and never deadlocks the search.
+  assume env_tick : always (bounded_eventually[3] (input_is(Tick))) ;
+
+  transition Listen on RecvSyn {
+    next SynSent;
+    emit SendSyn;
+  }
+  transition Listen on Tick { next Listen; }
+  transition SynSent on RecvAck {
+    next Established;
+  }
+  transition SynSent on Tick { next SynSent; }
+  transition Established on LocalClose {
+    next FinWait1;
+    emit SendFin;
+  }
+  transition Established on RecvFin {
+    next CloseWait;
+    emit SendAck;
+  }
+  transition Established on Tick { next Established; }
+  transition FinWait1 on RecvAck {
+    next FinWait2;
+  }
+  transition FinWait1 on RecvFin {
+    next Closing;
+    emit SendAck;
+  }
+  transition FinWait1 on Tick { next FinWait1; }
+  transition FinWait2 on RecvFin {
+    next TimeWait;
+    emit SendAck;
+    set tw = 2;
+  }
+  transition FinWait2 on Tick { next FinWait2; }
+  transition CloseWait on LocalClose {
+    next LastAck;
+    emit SendFin;
+  }
+  transition CloseWait on Tick { next CloseWait; }
+  transition LastAck on RecvAck {
+    next Closed;
+  }
+  transition LastAck on Tick { next LastAck; }
+  transition Closing on RecvAck {
+    next TimeWait;
+    set tw = 2;
+  }
+  transition Closing on Tick { next Closing; }
+  transition TimeWait on Tick where tw > 0 {
+    priority 1;
+    next TimeWait;
+    set tw = tw - 1;
+  }
+  transition TimeWait on Tick where tw == 0 {
+    priority 2;
+    next Closed;
+  }
+  # CLOSED is terminal: absorb every event (the convention from specs 43/47).
+  transition Closed on RecvSyn { next Listen; }  // DEFECT: CLOSED is no longer terminal - a stray SYN resurrects the connection
+  transition Closed on RecvAck { next Closed; }
+  transition Closed on RecvFin { next Closed; }
+  transition Closed on LocalClose { next Closed; }
+  transition Closed on Tick { next Closed; }
+}

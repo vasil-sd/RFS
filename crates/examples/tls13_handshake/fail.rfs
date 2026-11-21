@@ -1,0 +1,49 @@
+# rfs 1.0
+# tls13_handshake - FAILING VARIANT (Phase 18 A2): application data is allowed before
+# the handshake completes (a SendAppData transition in AwaitServerHello), breaking the
+# no_app_data_before_finished safety invariant. One-transition defect from pass.rfs.
+module tls13_handshake {
+  enum State { Start, AwaitServerHello, SendClientFinished, Established, Aborted }
+  initial Start
+
+  event Initiate
+  event RecvServerHello
+  event RecvServerFinished
+  event AppData
+  event Alert
+
+  output SendClientHello
+  output SendClientFinished
+  output SendAppData
+
+  prop no_app_data_before_finished : always (state != Established -> !output_has(SendAppData)) ;
+
+  transition Start on Initiate {
+    next AwaitServerHello;
+    emit SendClientHello;
+  }
+  transition AwaitServerHello on RecvServerHello {
+    next SendClientFinished;
+    emit SendClientFinished;
+  }
+  transition AwaitServerHello on AppData {
+    next AwaitServerHello;
+    emit SendAppData;  // DEFECT: application data sent before Finished
+  }
+  transition SendClientFinished on RecvServerFinished {
+    next Established;
+  }
+  transition Established on AppData {
+    next Established;
+    emit SendAppData;
+  }
+  transition Start on Alert { next Aborted; }
+  transition AwaitServerHello on Alert { next Aborted; }
+  transition SendClientFinished on Alert { next Aborted; }
+  transition Established on Alert { next Aborted; }
+  transition Aborted on Initiate { next Aborted; }
+  transition Aborted on RecvServerHello { next Aborted; }
+  transition Aborted on RecvServerFinished { next Aborted; }
+  transition Aborted on AppData { next Aborted; }
+  transition Aborted on Alert { next Aborted; }
+}

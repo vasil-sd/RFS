@@ -1,0 +1,22 @@
+module sip_call_signaling
+  initial state: Idle
+  enums:
+    State: Idle, Invited, Ringing, Established, Terminated
+  events:
+    Invite: Invite
+    Recv1xx: Recv1xx
+    Recv200Ok: Recv200Ok
+    AckSent: AckSent
+    RecvBye: RecvBye
+    RecvCancel: RecvCancel
+  outputs:
+    SendInvite: SendInvite
+    SendAck: SendAck
+    SendBye: SendBye
+  variables:
+    cancelled: bit<1> = 0
+  transitions: 10
+  properties:
+    no_established_after_cancel: always ((state == Established) -> (cancelled == 0)) - monitored
+  assumptions: (none)
+

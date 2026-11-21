@@ -1,0 +1,18 @@
+module dns_resolver
+  initial state: Idle
+  enums:
+    State: Idle, Querying, Retrying, Cached
+  events:
+    Lookup: Lookup
+    Reply: Reply
+    Tick: Tick
+  outputs:
+    SendQuery: SendQuery
+    ServeAnswer: ServeAnswer
+  variables:
+    ttl: bit<4> = 0
+  transitions: 8
+  properties:
+    no_stale_serve: always (output_has(ServeAnswer) -> (ttl > 0)) - monitored
+  assumptions: (none)
+

@@ -1,0 +1,32 @@
+# rfs 1.0
+# ospf_neighbor (Phase 18 A9) - FAILING VARIANT: the master/slave tie-break is removed,
+# so if both routers claim to be master in ExStart neither backs down - we end up
+# believing BOTH sides are master, violating single_master. The fix (fixed.rfs) adds the
+# tie-break that makes one side back down.
+module ospf_neighbor {
+  enum State { Down, Init, TwoWay, ExStart, Exchange, Loading, Full }
+  initial Down
+
+  event RecvHello
+  event RecvDD(D(seq: bit<4>, master: bit<1>))
+  event TimerTick
+
+  output SendHello
+  output SendDD
+
+  var we_master: bit<1> init 0
+  var peer_master: bit<1> init 0
+
+  prop single_master : always (!(we_master == 1 && peer_master == 1)) ;
+
+  transition Down on RecvHello { next Init; emit SendHello; }
+  transition Init on RecvHello { next TwoWay; emit SendHello; }
+  transition TwoWay on TimerTick { next ExStart; set we_master = 1; set peer_master = 0; emit SendDD; }
+  // DEFECT: no tie-break - if the peer also claims master, we keep our claim too.
+  transition ExStart on RecvDD(D(s, m)) { next Exchange; set peer_master = m; emit SendDD; }
+  transition Exchange on TimerTick { next Loading; emit SendDD; }
+  transition Loading on TimerTick { next Full; }
+  transition Full on RecvHello { next Full; }
+  transition Full on RecvDD(D(s, m)) { next Full; }
+  transition Full on TimerTick { next Full; }
+}

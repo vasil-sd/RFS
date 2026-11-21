@@ -1,0 +1,54 @@
+# rfs 1.0
+# arp_resolution (Phase 18 A6): per-entry ARP resolution (RFC 826). An entry starts
+# INCOMPLETE and retransmits the request until it is answered (RESOLVED) or the retry
+# limit is hit (DELETED). Resolved entries age out and must be re-resolved. Safety: a
+# packet is forwarded only on a resolved entry. Liveness: every incomplete entry either
+# resolves or gives up - it never loops retransmitting forever.
+module arp_resolution {
+  enum State { Incomplete, Resolved, Deleted }
+  initial Incomplete
+
+  event Reply(R(mac: bit<8>))
+  event Tick
+  event Forward
+
+  output SendRequest
+  output ForwardPacket
+
+  var retries: bit<3> init 0
+  var age: bit<4> init 0
+
+  # Safety: never forward on an unresolved entry.
+  prop no_forward_unresolved : always (output_has(ForwardPacket) -> state == Resolved) ;
+  # Liveness: an incomplete entry resolves or is deleted - it does not retransmit forever.
+  prop resolves_or_gives_up : eventually (state != Incomplete) ;
+
+  transition Incomplete on Reply(R(m)) { next Resolved; set age = 15; }
+  transition Incomplete on Tick where retries < 7 {
+    priority 1;
+    next Incomplete;
+    emit SendRequest;
+    set retries = retries + 1;
+  }
+  # Give up after the retry limit: delete the entry.
+  transition Incomplete on Tick where retries >= 7 {
+    priority 2;
+    next Deleted;
+  }
+  transition Resolved on Forward where age > 0 { next Resolved; emit ForwardPacket; }
+  transition Resolved on Tick where age > 0 {
+    priority 1;
+    next Resolved;
+    set age = age - 1;
+  }
+  # Aged out: the entry is stale again and must be re-resolved.
+  transition Resolved on Tick where age == 0 {
+    priority 2;
+    next Incomplete;
+    set retries = 0;
+  }
+  # Deleted is a true terminal (the entry is gone): absorb every event.
+  transition Deleted on Reply(R(m)) { next Deleted; }
+  transition Deleted on Tick { next Deleted; }
+  transition Deleted on Forward { next Deleted; }
+}

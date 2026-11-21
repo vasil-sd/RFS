@@ -1,0 +1,14 @@
+FAIL
+model-check summary: status=fail states=6 transitions=11 max_depth=3 reason=property-violation label=loop_free step=3
+  unexpected terminations: 4
+  first unexpected: config 3 input index 0
+  monitor size: 0 bits
+  memory estimate: 198 bytes
+property violation: loop_free
+  violation step: 3
+  vars at violation step: Vars { role: 1 }
+counterexample trace:
+  initial state=State::Discovering vars=Vars { role: 0 }
+  step 0 input=Input::BpduRecv_B { better: 1 } outputs=[Output::SendBpdu] from=State::Discovering to=State::Listening vars=Vars { role: 1 }
+  step 1 input=Input::TimerTick outputs=[Output::SendBpdu] from=State::Listening to=State::Learning vars=Vars { role: 1 }
+  step 2 input=Input::TimerTick outputs=[Output::SendBpdu] from=State::Learning to=State::Forwarding vars=Vars { role: 1 }

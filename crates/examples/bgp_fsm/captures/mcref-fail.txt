@@ -1,0 +1,15 @@
+FAIL
+model-check summary: status=fail states=8 transitions=13 max_depth=4 reason=property-violation label=no_update_before_established step=4
+  unexpected terminations: 33
+  first unexpected: config 0 input index 1
+  monitor size: 0 bits
+  memory estimate: 264 bytes
+property violation: no_update_before_established
+  violation step: 4
+  vars at violation step: Vars { hold_timer: 9 }
+counterexample trace:
+  initial state=State::Idle vars=Vars { hold_timer: 0 }
+  step 0 input=Input::Start outputs=[] from=State::Idle to=State::Connect vars=Vars { hold_timer: 0 }
+  step 1 input=Input::TcpEstablished outputs=[Output::SendOpen] from=State::Connect to=State::OpenSent vars=Vars { hold_timer: 9 }
+  step 2 input=Input::RecvOpen outputs=[Output::SendKeepalive] from=State::OpenSent to=State::OpenConfirm vars=Vars { hold_timer: 9 }
+  step 3 input=Input::RecvUpdate outputs=[Output::SendUpdate] from=State::OpenConfirm to=State::OpenConfirm vars=Vars { hold_timer: 9 }

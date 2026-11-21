@@ -1,0 +1,23 @@
+# rfs 1.0
+module dhcp_client {
+  enum State { Init, Selecting, Requesting, Bound, Renewing, Rebinding }
+  initial Init
+  event Discover
+  event Offer
+  event Ack
+  event Nak
+  event Tick
+  output SendDiscover
+  output SendRequest
+  var lease: bit<4> init 0
+  prop no_request_before_offer : always (state == Init -> !output_has(SendRequest)) ;
+  transition Init on Discover { next Selecting; emit SendDiscover; }
+  transition Selecting on Offer { next Requesting; emit SendRequest; }
+  transition Requesting on Ack { next Bound; set lease = 8; }
+  transition Requesting on Nak { next Init; }
+  transition Bound on Tick where lease > 0 { priority 1; next Bound; set lease = lease - 1; }
+  transition Bound on Tick where lease == 0 { priority 2; next Renewing; }
+  transition Renewing on Ack { next Bound; set lease = 8; }
+  transition Renewing on Tick { next Rebinding; }
+  transition Rebinding on Ack { next Bound; set lease = 8; }
+}

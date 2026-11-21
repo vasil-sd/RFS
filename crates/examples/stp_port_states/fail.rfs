@@ -1,0 +1,31 @@
+# rfs 1.0
+# stp_port_states (Phase 18 A7) - FAILING VARIANT: the role guard on the LEARNING ->
+# FORWARDING step is removed, so a BACKUP port (role == 1) also advances to FORWARDING
+# while the designated port forwards - a loop, violating the loop_free invariant. The
+# fix (fixed.rfs) keeps backup ports BLOCKING.
+module stp_port_states {
+  enum State { Discovering, Listening, Learning, Forwarding, Blocking }
+  initial Discovering
+
+  event BpduRecv(B(better: bit<1>))
+  event TimerTick
+
+  output SendBpdu
+
+  var role: bit<1> init 0
+
+  prop loop_free : always (state == Forwarding -> role == 0) ;
+
+  transition Discovering on BpduRecv(B(b)) { next Listening; set role = b; emit SendBpdu; }
+  transition Discovering on TimerTick { next Listening; set role = 0; emit SendBpdu; }
+  transition Listening on BpduRecv(B(b)) { next Listening; set role = b; emit SendBpdu; }
+  transition Listening on TimerTick { next Learning; emit SendBpdu; }
+  // DEFECT: no role guard - every port (designated AND backup) advances to FORWARDING.
+  transition Learning on TimerTick { next Forwarding; emit SendBpdu; }
+  transition Forwarding on BpduRecv(B(1)) { next Listening; set role = 1; emit SendBpdu; }
+  transition Forwarding on BpduRecv(B(0)) { next Forwarding; emit SendBpdu; }
+  transition Forwarding on TimerTick { next Forwarding; emit SendBpdu; }
+  transition Blocking on BpduRecv(B(0)) { next Learning; set role = 0; emit SendBpdu; }
+  transition Blocking on BpduRecv(B(1)) { next Blocking; emit SendBpdu; }
+  transition Blocking on TimerTick { next Blocking; emit SendBpdu; }
+}

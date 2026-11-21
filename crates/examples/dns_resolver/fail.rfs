@@ -1,0 +1,19 @@
+# rfs 1.0
+module dns_resolver {
+  enum State { Idle, Querying, Retrying, Cached }
+  initial Idle
+  event Lookup
+  event Reply
+  event Tick
+  output SendQuery
+  output ServeAnswer
+  var ttl: bit<4> init 0
+  prop no_stale_serve : always (output_has(ServeAnswer) -> ttl > 0) ;
+  transition Idle on Lookup { next Querying; emit SendQuery; }
+  transition Querying on Reply { next Cached; set ttl = 8; }
+  transition Querying on Tick { next Retrying; emit SendQuery; }
+  transition Retrying on Reply { next Cached; set ttl = 8; }
+  transition Retrying on Tick { next Idle; }
+  transition Cached on Lookup { next Cached; emit ServeAnswer; }  // DEFECT: serves regardless of TTL
+  transition Cached on Tick where ttl > 0 { next Cached; set ttl = ttl - 1; }
+}

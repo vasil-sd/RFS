@@ -1,0 +1,43 @@
+# rfs 1.0
+# quic_loss_recovery - FAILING VARIANT (Phase 18 A3): the PTO backoff is never
+# incremented on retransmission, so the timer never grows and the machine retransmits
+# forever - a liveness violation (an infinite retransmit loop that never reaches Done).
+module quic_loss_recovery {
+  enum State { InFlight, Retransmit, Done }
+  initial InFlight
+
+  event RecvAck
+  event Tick
+
+  output TransmitPkt
+  output RetransmitPkt
+
+  var backoff: bit<3> init 1
+
+  prop terminates : eventually (state == Done) ;
+
+  transition InFlight on RecvAck { next Done; }
+  transition InFlight on Tick where backoff < 4 {
+    priority 1;
+    next Retransmit;
+    emit RetransmitPkt;
+    // DEFECT: backoff is not incremented - the timer never grows
+  }
+  transition InFlight on Tick where backoff == 4 {
+    priority 2;
+    next Done;
+  }
+  transition Retransmit on RecvAck { next Done; }
+  transition Retransmit on Tick where backoff < 4 {
+    priority 1;
+    next Retransmit;
+    emit RetransmitPkt;
+    // DEFECT: backoff is not incremented
+  }
+  transition Retransmit on Tick where backoff == 4 {
+    priority 2;
+    next Done;
+  }
+  transition Done on RecvAck { next Done; }
+  transition Done on Tick { next Done; }
+}

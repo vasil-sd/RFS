@@ -1,0 +1,94 @@
+# rfs 1.0
+# tcp_full_states - LARGE-STATE-SPACE TWIN (Phase 18 A1). The faithful model of the
+# full TCP connection machine: a real 16-bit send sequence number that advances with
+# the clock (retransmission ISN window), a payload-carrying RecvAck whose ack_seq must
+# match seq to advance, and an 8-bit TIME_WAIT timer. The reachable state space is far
+# too large for exact model checking (it reports unknown-state-limit), so this twin is
+# analyzed with `rfs mc-ref --mode smt-bounded` (a k-step safety proof) and `--mode fuzz`
+# (random testing) - NOT exact MC. The simplified, exact-MC-able version is pass.rfs.
+module tcp_full_states {
+  enum State { Listen, SynSent, Established, FinWait1, FinWait2, CloseWait, LastAck, Closing, TimeWait, Closed }
+  initial Listen
+
+  event RecvSyn
+  event RecvAck(Ack(ack_seq: bit<16>))
+  event RecvFin
+  event LocalClose
+  event Tick
+
+  output SendSyn
+  output SendAck
+  output SendFin
+
+  var seq: bit<16> init 0
+  var tw: bit<8> init 0
+
+  # Safety invariant (plain boolean - no temporal operator, so smt-bounded can prove it
+  # for every k-step path on this large spec where exact MC is infeasible): the TIME_WAIT
+  # timer is non-zero ONLY while the connection is in TIME_WAIT. tw is set to 250 solely on
+  # entering TimeWait and decremented there; every other state keeps it at 0.
+  prop timer_only_in_timewait : always (state != TimeWait -> tw == 0) ;
+
+  transition Listen on RecvSyn {
+    next SynSent;
+    emit SendSyn;
+    set seq = 1;
+  }
+  transition Listen on Tick { next Listen; set seq = seq + 1; }
+  transition SynSent on RecvAck(Ack(ack_seq)) where ack_seq == seq {
+    next Established;
+  }
+  transition SynSent on Tick { next SynSent; set seq = seq + 1; }
+  transition Established on LocalClose {
+    next FinWait1;
+    emit SendFin;
+  }
+  transition Established on RecvFin {
+    next CloseWait;
+    emit SendAck;
+  }
+  transition Established on Tick { next Established; set seq = seq + 1; }
+  transition FinWait1 on RecvAck(Ack(_)) {
+    next FinWait2;
+  }
+  transition FinWait1 on RecvFin {
+    next Closing;
+    emit SendAck;
+  }
+  transition FinWait1 on Tick { next FinWait1; set seq = seq + 1; }
+  transition FinWait2 on RecvFin {
+    next TimeWait;
+    emit SendAck;
+    set tw = 250;
+  }
+  transition FinWait2 on Tick { next FinWait2; set seq = seq + 1; }
+  transition CloseWait on LocalClose {
+    next LastAck;
+    emit SendFin;
+  }
+  transition CloseWait on Tick { next CloseWait; set seq = seq + 1; }
+  transition LastAck on RecvAck(Ack(_)) {
+    next Closed;
+  }
+  transition LastAck on Tick { next LastAck; set seq = seq + 1; }
+  transition Closing on RecvAck(Ack(_)) {
+    next TimeWait;
+    set tw = 250;
+  }
+  transition Closing on Tick { next Closing; set seq = seq + 1; }
+  transition TimeWait on Tick where tw > 0 {
+    priority 1;
+    next TimeWait;
+    set tw = tw - 1;
+    set seq = seq + 1;
+  }
+  transition TimeWait on Tick where tw == 0 {
+    priority 2;
+    next Closed;
+  }
+  transition Closed on RecvSyn { next Closed; }
+  transition Closed on RecvAck(Ack(_)) { next Closed; }
+  transition Closed on RecvFin { next Closed; }
+  transition Closed on LocalClose { next Closed; }
+  transition Closed on Tick { next Closed; set seq = seq + 1; }
+}

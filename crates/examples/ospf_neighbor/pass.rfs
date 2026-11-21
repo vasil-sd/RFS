@@ -1,0 +1,48 @@
+# rfs 1.0
+# ospf_neighbor (Phase 18 A9): an OSPF neighbor's adjacency machine (RFC 2328). The
+# neighbor walks Down -> Init -> TwoWay -> ExStart -> Exchange -> Loading -> Full over
+# the Database-Description (DD) sequence-number handshake. In ExStart the two routers
+# elect a master/slave role; the tie-break guarantees that if BOTH claim to be master,
+# one backs down. Safety: single_master - we never believe both sides are master at once.
+module ospf_neighbor {
+  enum State { Down, Init, TwoWay, ExStart, Exchange, Loading, Full }
+  initial Down
+
+  event RecvHello
+  event RecvDD(D(seq: bit<4>, master: bit<1>))   # master=1: the peer claims to be master
+  event TimerTick
+
+  output SendHello
+  output SendDD
+
+  var we_master: bit<1> init 0     # 1 = we claim to be master
+  var peer_master: bit<1> init 0   # 1 = the peer claims to be master
+
+  # Single-master invariant: both sides never believe they are master simultaneously.
+  prop single_master : always (!(we_master == 1 && peer_master == 1)) ;
+
+  transition Down on RecvHello { next Init; emit SendHello; }
+  transition Init on RecvHello { next TwoWay; emit SendHello; }
+  # Enter the DD exchange claiming master (the tie-break below resolves any conflict).
+  transition TwoWay on TimerTick { next ExStart; set we_master = 1; set peer_master = 0; emit SendDD; }
+  # TIE-BREAK (the fix): if the peer also claims master, we back down to slave.
+  transition ExStart on RecvDD(D(s, m)) where we_master == 1 && m == 1 {
+    priority 1;
+    next Exchange;
+    set we_master = 0;
+    set peer_master = 1;
+    emit SendDD;
+  }
+  transition ExStart on RecvDD(D(s, m)) where !(we_master == 1 && m == 1) {
+    priority 2;
+    next Exchange;
+    set peer_master = m;
+    emit SendDD;
+  }
+  transition Exchange on TimerTick { next Loading; emit SendDD; }
+  transition Loading on TimerTick { next Full; }
+  # Full is a stable terminal: absorb every event.
+  transition Full on RecvHello { next Full; }
+  transition Full on RecvDD(D(s, m)) { next Full; }
+  transition Full on TimerTick { next Full; }
+}

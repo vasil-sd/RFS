@@ -1,0 +1,13 @@
+FAIL
+model-check summary: status=fail states=4 transitions=4 max_depth=2 reason=property-violation label=no_app_data_before_finished step=2
+  unexpected terminations: 5
+  first unexpected: config 0 input index 1
+  monitor size: 0 bits
+  memory estimate: 132 bytes
+property violation: no_app_data_before_finished
+  violation step: 2
+  vars at violation step: Vars
+counterexample trace:
+  initial state=State::Start vars=Vars
+  step 0 input=Input::Initiate outputs=[Output::SendClientHello] from=State::Start to=State::AwaitServerHello vars=Vars
+  step 1 input=Input::AppData outputs=[Output::SendAppData] from=State::AwaitServerHello to=State::AwaitServerHello vars=Vars

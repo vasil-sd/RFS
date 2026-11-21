@@ -1,0 +1,16 @@
+module stp_port_states
+  initial state: Discovering
+  enums:
+    State: Discovering, Listening, Learning, Forwarding, Blocking
+  events:
+    BpduRecv: B(better: bit<1>)
+    TimerTick: TimerTick
+  outputs:
+    SendBpdu: SendBpdu
+  variables:
+    role: bit<1> = 0
+  transitions: 12
+  properties:
+    loop_free: always ((state == Forwarding) -> (role == 0)) - monitored
+  assumptions: (none)
+

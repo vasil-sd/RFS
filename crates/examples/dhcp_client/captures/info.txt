@@ -1,0 +1,20 @@
+module dhcp_client
+  initial state: Init
+  enums:
+    State: Init, Selecting, Requesting, Bound, Renewing, Rebinding
+  events:
+    Discover: Discover
+    Offer: Offer
+    Ack: Ack
+    Nak: Nak
+    Tick: Tick
+  outputs:
+    SendDiscover: SendDiscover
+    SendRequest: SendRequest
+  variables:
+    lease: bit<4> = 0
+  transitions: 9
+  properties:
+    no_request_before_offer: always ((state == Init) -> !output_has(SendRequest)) - monitored
+  assumptions: (none)
+

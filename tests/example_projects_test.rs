@@ -662,3 +662,502 @@ fn tool_resolution_proves_precedence_and_builds_under_both_compilers() {
         .arg("clean")
         .output();
 }
+
+#[test]
+fn tcp_full_states_checks_all_modes_and_the_large_twin() {
+    if !common::toolchain::available_named("gcc")
+        || !(common::toolchain::available_named("rustc") || project_local_rustc_exists())
+    {
+        eprintln!("note: gcc/rustc not available - tcp_full_states check skipped");
+        return;
+    }
+    let dir = repo_root().join("crates/examples/tcp_full_states");
+    let (code, out) = run_script(&dir, "run.sh");
+    assert_eq!(code, 0, "run.sh failed:\n{out}");
+    // The passing spec: PASS complete with the pinned state count.
+    assert!(
+        out.contains("PASS (complete)"),
+        "pinned PASS missing:\n{out}"
+    );
+    assert!(
+        out.contains("status=pass-complete states=30 transitions=71 max_depth=9"),
+        "pinned PASS summary missing:\n{out}"
+    );
+    // The failing variant: CLOSED made non-terminal -> property violation on closed_terminal.
+    assert!(
+        out.contains("reason=property-violation label=closed_terminal step=9"),
+        "pinned FAIL summary missing:\n{out}"
+    );
+    assert!(
+        out.contains("from=State::Closed to=State::Listen"),
+        "pinned CE defect step (CLOSED resurrected) missing:\n{out}"
+    );
+    assert!(
+        out.contains("\"label\":\"closed_terminal\""),
+        "pinned JSON label missing:\n{out}"
+    );
+    // The fix re-runs to PASS; both generated backends agree (byte-identical reports).
+    assert!(
+        out.matches("status=pass-complete states=30").count() >= 3,
+        "expected pass + both-backend parity (3x states=30), got:\n{out}"
+    );
+    // Production codegen compiles in both backends.
+    assert!(
+        out.contains("rust production: compiles clean"),
+        "rust production compile proof missing:\n{out}"
+    );
+    assert!(
+        out.contains("c production: compiles warning-free"),
+        "c production compile proof missing:\n{out}"
+    );
+    // The large-state-space twin: smt-bounded proves the invariant within bound (the
+    // committed capture is always cat'ed by run.sh, so this holds with or without z3),
+    // and fuzz runs 200 iterations.
+    assert!(
+        out.contains("PASS WITHIN BOUND 12"),
+        "pinned smt-bounded verdict missing:\n{out}"
+    );
+    assert!(
+        out.contains("runs=200 bound=5 completed=200"),
+        "pinned fuzz transcript missing:\n{out}"
+    );
+}
+
+#[test]
+fn tls13_handshake_no_app_data_before_finished() {
+    if !common::toolchain::available_named("gcc")
+        || !(common::toolchain::available_named("rustc") || project_local_rustc_exists())
+    {
+        eprintln!("note: gcc/rustc not available - tls13_handshake check skipped");
+        return;
+    }
+    let dir = repo_root().join("crates/examples/tls13_handshake");
+    let (code, out) = run_script(&dir, "run.sh");
+    assert_eq!(code, 0, "run.sh failed:\n{out}");
+    assert!(
+        out.contains("status=pass-complete states=5 transitions=13 max_depth=3"),
+        "pinned PASS summary missing:\n{out}"
+    );
+    assert!(
+        out.contains("reason=property-violation label=no_app_data_before_finished step=2"),
+        "pinned FAIL summary missing:\n{out}"
+    );
+    assert!(
+        out.contains("from=State::AwaitServerHello to=State::AwaitServerHello"),
+        "pinned CE defect step (app data pre-Finished) missing:\n{out}"
+    );
+    assert!(
+        out.contains("\"label\":\"no_app_data_before_finished\""),
+        "pinned JSON label missing:\n{out}"
+    );
+    assert!(
+        out.matches("status=pass-complete states=5").count() >= 3,
+        "expected pass + both-backend parity (3x states=5), got:\n{out}"
+    );
+    assert!(
+        out.contains("rust production: compiles clean"),
+        "rust proof missing:\n{out}"
+    );
+    assert!(
+        out.contains("c production: compiles warning-free"),
+        "c proof missing:\n{out}"
+    );
+}
+
+#[test]
+fn quic_loss_recovery_terminates_and_the_large_twin() {
+    if !common::toolchain::available_named("gcc")
+        || !(common::toolchain::available_named("rustc") || project_local_rustc_exists())
+    {
+        eprintln!("note: gcc/rustc not available - quic_loss_recovery check skipped");
+        return;
+    }
+    let dir = repo_root().join("crates/examples/quic_loss_recovery");
+    let (code, out) = run_script(&dir, "run.sh");
+    assert_eq!(code, 0, "run.sh failed:\n{out}");
+    assert!(
+        out.contains("status=pass-complete states=8 transitions=16 max_depth=4"),
+        "pinned PASS summary missing:\n{out}"
+    );
+    assert!(
+        out.contains("reason=liveness-violation label=terminates step=1"),
+        "pinned liveness-violation summary missing:\n{out}"
+    );
+    assert!(
+        out.contains("from=State::Retransmit to=State::Retransmit"),
+        "pinned CE retransmit-loop step missing:\n{out}"
+    );
+    assert!(
+        out.matches("status=pass-complete states=8").count() >= 3,
+        "expected pass + both-backend parity (3x states=8), got:\n{out}"
+    );
+    assert!(
+        out.contains("rust production: compiles clean"),
+        "rust proof missing:\n{out}"
+    );
+    assert!(
+        out.contains("c production: compiles warning-free"),
+        "c proof missing:\n{out}"
+    );
+    // The large-state-space twin: smt-bounded proves the invariant within bound; fuzz runs.
+    assert!(
+        out.contains("PASS WITHIN BOUND 12"),
+        "pinned smt-bounded verdict missing:\n{out}"
+    );
+    assert!(
+        out.contains("runs=200 bound=5 completed=200"),
+        "pinned fuzz transcript missing:\n{out}"
+    );
+}
+
+#[test]
+fn dhcp_client_lease_renewal_and_deadlock_on_expiry() {
+    if !common::toolchain::available_named("gcc")
+        || !(common::toolchain::available_named("rustc") || project_local_rustc_exists())
+    {
+        eprintln!("note: gcc/rustc not available - dhcp_client check skipped");
+        return;
+    }
+    let dir = repo_root().join("crates/examples/dhcp_client");
+    let (code, out) = run_script(&dir, "run.sh");
+    assert_eq!(code, 0, "run.sh failed:\n{out}");
+    assert!(
+        out.contains("PASS (complete)"),
+        "pinned PASS missing:\n{out}"
+    );
+    assert!(
+        out.contains("reason=deadlock label=- step=11"),
+        "pinned deadlock summary missing:\n{out}"
+    );
+    assert!(
+        out.contains("to=State::Bound vars=Vars { lease: 0 }"),
+        "pinned CE stuck-at-BOUND(lease=0) missing:\n{out}"
+    );
+    assert!(
+        out.matches("PASS (complete)").count() >= 3,
+        "expected pass + both-backend parity, got:\n{out}"
+    );
+    assert!(
+        out.contains("rust production: compiles clean"),
+        "rust proof missing:\n{out}"
+    );
+    assert!(
+        out.contains("c production: compiles warning-free"),
+        "c proof missing:\n{out}"
+    );
+}
+
+#[test]
+fn dns_resolver_no_stale_serve_and_the_large_twin() {
+    if !common::toolchain::available_named("gcc")
+        || !(common::toolchain::available_named("rustc") || project_local_rustc_exists())
+    {
+        eprintln!("note: gcc/rustc not available - dns_resolver check skipped");
+        return;
+    }
+    let dir = repo_root().join("crates/examples/dns_resolver");
+    let (code, out) = run_script(&dir, "run.sh");
+    assert_eq!(code, 0, "run.sh failed:\n{out}");
+    // The passing spec: PASS complete with the pinned state count.
+    assert!(
+        out.contains("PASS (complete)"),
+        "pinned PASS missing:\n{out}"
+    );
+    assert!(
+        out.contains("status=pass-complete states=12 transitions=22 max_depth=10"),
+        "pinned PASS summary missing:\n{out}"
+    );
+    // The failing variant: TTL-expiry guard removed -> a stale entry (ttl==0) is served,
+    // a property violation on no_stale_serve.
+    assert!(
+        out.contains("reason=property-violation label=no_stale_serve step=11"),
+        "pinned FAIL summary missing:\n{out}"
+    );
+    assert!(
+        out.contains("outputs=[Output::ServeAnswer] from=State::Cached to=State::Cached vars=Vars { ttl: 0 }"),
+        "pinned CE stale-serve step (ServeAnswer at ttl==0) missing:\n{out}"
+    );
+    assert!(
+        out.contains("\"label\":\"no_stale_serve\""),
+        "pinned JSON label missing:\n{out}"
+    );
+    // The fix re-runs to PASS; both generated backends agree (byte-identical reports).
+    assert!(
+        out.matches("status=pass-complete states=12").count() >= 3,
+        "expected pass + both-backend parity (3x states=12), got:\n{out}"
+    );
+    // Production codegen compiles in both backends.
+    assert!(
+        out.contains("rust production: compiles clean"),
+        "rust production compile proof missing:\n{out}"
+    );
+    assert!(
+        out.contains("c production: compiles warning-free"),
+        "c production compile proof missing:\n{out}"
+    );
+    // The large-state-space twin: smt-bounded proves no_stale_serve within bound (the
+    // committed capture is always cat'ed by run.sh, so this holds with or without z3),
+    // and fuzz runs 200 iterations.
+    assert!(
+        out.contains("PASS WITHIN BOUND 12"),
+        "pinned smt-bounded verdict missing:\n{out}"
+    );
+    assert!(
+        out.contains("runs=200 bound=5 completed=200"),
+        "pinned fuzz transcript missing:\n{out}"
+    );
+}
+
+#[test]
+fn arp_resolution_resolves_or_gives_up_and_the_retransmit_loop() {
+    if !common::toolchain::available_named("gcc")
+        || !(common::toolchain::available_named("rustc") || project_local_rustc_exists())
+    {
+        eprintln!("note: gcc/rustc not available - arp_resolution check skipped");
+        return;
+    }
+    let dir = repo_root().join("crates/examples/arp_resolution");
+    let (code, out) = run_script(&dir, "run.sh");
+    assert_eq!(code, 0, "run.sh failed:\n{out}");
+    // The passing spec: PASS complete with the pinned state count.
+    assert!(
+        out.contains("PASS (complete)"),
+        "pinned PASS missing:\n{out}"
+    );
+    assert!(
+        out.contains("status=pass-complete states=137 transitions=267 max_depth=23"),
+        "pinned PASS summary missing:\n{out}"
+    );
+    // The failing variant: retry limit dropped -> an unresolvable entry retransmits
+    // forever, a liveness violation of resolves_or_gives_up (a cycle in INCOMPLETE).
+    assert!(
+        out.contains("reason=liveness-violation label=resolves_or_gives_up step=0"),
+        "pinned FAIL summary missing:\n{out}"
+    );
+    assert!(
+        out.contains(
+            "from=State::Incomplete to=State::Incomplete vars=Vars { retries: 1, age: 0 }"
+        ),
+        "pinned CE retransmit-loop step (INCOMPLETE self-loop) missing:\n{out}"
+    );
+    assert!(
+        out.contains("\"label\":\"resolves_or_gives_up\""),
+        "pinned JSON label missing:\n{out}"
+    );
+    // The fix re-runs to PASS; both generated backends agree (byte-identical reports).
+    assert!(
+        out.matches("status=pass-complete states=137").count() >= 3,
+        "expected pass + both-backend parity (3x states=137), got:\n{out}"
+    );
+    // Production codegen compiles in both backends.
+    assert!(
+        out.contains("rust production: compiles clean"),
+        "rust production compile proof missing:\n{out}"
+    );
+    assert!(
+        out.contains("c production: compiles warning-free"),
+        "c production compile proof missing:\n{out}"
+    );
+}
+
+#[test]
+fn stp_port_states_loop_free_and_the_backup_forward_defect() {
+    if !common::toolchain::available_named("gcc")
+        || !(common::toolchain::available_named("rustc") || project_local_rustc_exists())
+    {
+        eprintln!("note: gcc/rustc not available - stp_port_states check skipped");
+        return;
+    }
+    let dir = repo_root().join("crates/examples/stp_port_states");
+    let (code, out) = run_script(&dir, "run.sh");
+    assert_eq!(code, 0, "run.sh failed:\n{out}");
+    // The passing spec: PASS complete with the pinned state count.
+    assert!(
+        out.contains("PASS (complete)"),
+        "pinned PASS missing:\n{out}"
+    );
+    assert!(
+        out.contains("status=pass-complete states=7 transitions=17 max_depth=3"),
+        "pinned PASS summary missing:\n{out}"
+    );
+    // The failing variant: role guard removed -> a backup port (role==1) reaches
+    // FORWARDING, violating the loop_free invariant.
+    assert!(
+        out.contains("reason=property-violation label=loop_free step=3"),
+        "pinned FAIL summary missing:\n{out}"
+    );
+    assert!(
+        out.contains("from=State::Learning to=State::Forwarding vars=Vars { role: 1 }"),
+        "pinned CE backup-forward defect step (Learning->Forwarding at role==1) missing:\n{out}"
+    );
+    assert!(
+        out.contains("\"label\":\"loop_free\""),
+        "pinned JSON label missing:\n{out}"
+    );
+    // The fix re-runs to PASS; both generated backends agree (byte-identical reports).
+    assert!(
+        out.matches("status=pass-complete states=7").count() >= 3,
+        "expected pass + both-backend parity (3x states=7), got:\n{out}"
+    );
+    // Production codegen compiles in both backends.
+    assert!(
+        out.contains("rust production: compiles clean"),
+        "rust production compile proof missing:\n{out}"
+    );
+    assert!(
+        out.contains("c production: compiles warning-free"),
+        "c production compile proof missing:\n{out}"
+    );
+}
+
+#[test]
+fn bgp_fsm_no_update_before_established_and_the_openconfirm_defect() {
+    if !common::toolchain::available_named("gcc")
+        || !(common::toolchain::available_named("rustc") || project_local_rustc_exists())
+    {
+        eprintln!("note: gcc/rustc not available - bgp_fsm check skipped");
+        return;
+    }
+    let dir = repo_root().join("crates/examples/bgp_fsm");
+    let (code, out) = run_script(&dir, "run.sh");
+    assert_eq!(code, 0, "run.sh failed:\n{out}");
+    // The passing spec: PASS complete with the pinned state count.
+    assert!(
+        out.contains("PASS (complete)"),
+        "pinned PASS missing:\n{out}"
+    );
+    assert!(
+        out.contains("status=pass-complete states=9 transitions=20 max_depth=4"),
+        "pinned PASS summary missing:\n{out}"
+    );
+    // The failing variant: the ESTABLISHED guard on UPDATE handling is removed, so a
+    // SendUpdate is emitted while still in OPENCONFIRM - an ordering violation.
+    assert!(
+        out.contains("reason=property-violation label=no_update_before_established step=4"),
+        "pinned FAIL summary missing:\n{out}"
+    );
+    assert!(
+        out.contains("outputs=[Output::SendUpdate] from=State::OpenConfirm to=State::OpenConfirm"),
+        "pinned CE premature-UPDATE defect step (SendUpdate in OpenConfirm) missing:\n{out}"
+    );
+    assert!(
+        out.contains("\"label\":\"no_update_before_established\""),
+        "pinned JSON label missing:\n{out}"
+    );
+    // The fix re-runs to PASS; both generated backends agree (byte-identical reports).
+    assert!(
+        out.matches("status=pass-complete states=9").count() >= 3,
+        "expected pass + both-backend parity (3x states=9), got:\n{out}"
+    );
+    // Production codegen compiles in both backends.
+    assert!(
+        out.contains("rust production: compiles clean"),
+        "rust production compile proof missing:\n{out}"
+    );
+    assert!(
+        out.contains("c production: compiles warning-free"),
+        "c production compile proof missing:\n{out}"
+    );
+}
+
+#[test]
+fn ospf_neighbor_single_master_and_the_tie_break_defect() {
+    if !common::toolchain::available_named("gcc")
+        || !(common::toolchain::available_named("rustc") || project_local_rustc_exists())
+    {
+        eprintln!("note: gcc/rustc not available - ospf_neighbor check skipped");
+        return;
+    }
+    let dir = repo_root().join("crates/examples/ospf_neighbor");
+    let (code, out) = run_script(&dir, "run.sh");
+    assert_eq!(code, 0, "run.sh failed:\n{out}");
+    // The passing spec: PASS complete with the pinned state count.
+    assert!(
+        out.contains("PASS (complete)"),
+        "pinned PASS missing:\n{out}"
+    );
+    assert!(
+        out.contains("status=pass-complete states=10 transitions=17 max_depth=6"),
+        "pinned PASS summary missing:\n{out}"
+    );
+    // The failing variant: the master/slave tie-break is removed, so both sides believe
+    // they are master - a violation of single_master.
+    assert!(
+        out.contains("reason=property-violation label=single_master step=4"),
+        "pinned FAIL summary missing:\n{out}"
+    );
+    assert!(
+        out.contains(
+            "from=State::ExStart to=State::Exchange vars=Vars { we_master: 1, peer_master: 1 }"
+        ),
+        "pinned CE both-master defect step (ExStart->Exchange) missing:\n{out}"
+    );
+    assert!(
+        out.contains("\"label\":\"single_master\""),
+        "pinned JSON label missing:\n{out}"
+    );
+    // The fix re-runs to PASS; both generated backends agree (byte-identical reports).
+    assert!(
+        out.matches("status=pass-complete states=10").count() >= 3,
+        "expected pass + both-backend parity (3x states=10), got:\n{out}"
+    );
+    // Production codegen compiles in both backends.
+    assert!(
+        out.contains("rust production: compiles clean"),
+        "rust production compile proof missing:\n{out}"
+    );
+    assert!(
+        out.contains("c production: compiles warning-free"),
+        "c production compile proof missing:\n{out}"
+    );
+}
+
+#[test]
+fn sip_call_signaling_no_established_after_cancel_and_the_ignore_defect() {
+    if !common::toolchain::available_named("gcc")
+        || !(common::toolchain::available_named("rustc") || project_local_rustc_exists())
+    {
+        eprintln!("note: gcc/rustc not available - sip_call_signaling check skipped");
+        return;
+    }
+    let dir = repo_root().join("crates/examples/sip_call_signaling");
+    let (code, out) = run_script(&dir, "run.sh");
+    assert_eq!(code, 0, "run.sh failed:\n{out}");
+    // The passing spec: PASS complete with the pinned state count.
+    assert!(
+        out.contains("PASS (complete)"),
+        "pinned PASS missing:\n{out}"
+    );
+    assert!(
+        out.contains("status=pass-complete states=6 transitions=11 max_depth=4"),
+        "pinned PASS summary missing:\n{out}"
+    );
+    // The failing variant: CANCEL handling is dropped, so a cancelled invite still
+    // reaches ESTABLISHED - a violation of no_established_after_cancel.
+    assert!(
+        out.contains("reason=property-violation label=no_established_after_cancel step=4"),
+        "pinned FAIL summary missing:\n{out}"
+    );
+    assert!(
+        out.contains("from=State::Ringing to=State::Established vars=Vars { cancelled: 1 }"),
+        "pinned CE ignored-CANCEL defect step (Ringing->Established at cancelled==1) missing:\n{out}"
+    );
+    assert!(
+        out.contains("\"label\":\"no_established_after_cancel\""),
+        "pinned JSON label missing:\n{out}"
+    );
+    // The fix re-runs to PASS; both generated backends agree (byte-identical reports).
+    assert!(
+        out.matches("status=pass-complete states=6").count() >= 3,
+        "expected pass + both-backend parity (3x states=6), got:\n{out}"
+    );
+    // Production codegen compiles in both backends.
+    assert!(
+        out.contains("rust production: compiles clean"),
+        "rust production compile proof missing:\n{out}"
+    );
+    assert!(
+        out.contains("c production: compiles warning-free"),
+        "c production compile proof missing:\n{out}"
+    );
+}

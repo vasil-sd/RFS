@@ -1,0 +1,14 @@
+FAIL
+model-check summary: status=fail states=3 transitions=6 max_depth=1 reason=liveness-violation label=terminates step=1
+  unexpected terminations: 0
+  monitor size: 0 bits
+  memory estimate: 99 bytes
+liveness violation: terminates
+  formula: eventually (state == Done)
+  violation step: 1
+  cycle length: 1
+  note: eventually body never holds on the path
+counterexample trace:
+  initial state=State::InFlight vars=Vars { backoff: 1 }
+  step 0 input=Input::Tick outputs=[Output::RetransmitPkt] from=State::InFlight to=State::Retransmit vars=Vars { backoff: 1 }
+  step 1 input=Input::Tick outputs=[Output::RetransmitPkt] from=State::Retransmit to=State::Retransmit vars=Vars { backoff: 1 }

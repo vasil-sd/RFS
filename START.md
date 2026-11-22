@@ -285,6 +285,10 @@ Canonical toolchain (cargo/rustc 1.99.0):
 Activate in every shell command that needs cargo (env does not persist between calls):
 
 ```sh
+# Heal /dev/null if the sandbox turned it into a regular file (TOOLCHAIN.md section 4):
+# a corrupted /dev/null makes the rustc target-probe read it as source -> E0762 on every
+# cargo command. No-op when /dev/null is already a char device.
+[ -c /dev/null ] || { rm -f /dev/null; mknod /dev/null c 1 3; }
 export RUSTUP_HOME=/workspace/host/rustup
 export CARGO_HOME=/workspace/host/.cargo
 export PATH="$CARGO_HOME/bin:$PATH"

@@ -22,6 +22,10 @@ Shell environment does **not** persist between tool calls, so prepend this to ev
 command that needs cargo/rustc:
 
 ```sh
+# Heal /dev/null if the sandbox turned it into a regular file (see section 4): a
+# corrupted /dev/null makes the rustc target-probe read it as source -> E0762 on
+# every cargo build/test/clippy. No-op when /dev/null is already a char device.
+[ -c /dev/null ] || { rm -f /dev/null; mknod /dev/null c 1 3; }
 export RUSTUP_HOME=/workspace/host/rustup
 export CARGO_HOME=/workspace/host/.cargo
 export PATH="$CARGO_HOME/bin:$PATH"
@@ -67,6 +71,7 @@ fails offline, use the direct toolchain path from §1 if it still exists.
 - If cargo fails with a lock-file version error, the active toolchain is too old or missing: reinstall per §3 before debugging code.
 - System tools may be old (see §1); prefer the project-local toolchain.
 - Use `tail -n 120` or `grep` on long cargo output to keep tool results readable.
+- **`/dev/null` corruption (unsloth-studio sandbox):** in this sandbox `/dev/null` is sometimes a *regular file* (holding stray output such as git-status text) instead of the character device. The rustc target-probe (`rustc - ...`, whose source stdin is redirected off `/dev/null`) then parses that text as Rust and dies with `error[E0762]: unterminated character literal` on EVERY cargo build/test/clippy. Diagnose with `file /dev/null` (healthy = "character special"; corrupted = "ASCII text" / "empty"). Fix: `rm /dev/null; mknod /dev/null c 1 3` (major 1, minor 3 = `/dev/null`; needs root, which this sandbox runs as). The section-2 activation prefix now heals it automatically (`[ -c /dev/null ] || { rm -f /dev/null; mknod /dev/null c 1 3; }`), so a corrupted device is repaired before any cargo command runs. If the E0762 error persists after healing `/dev/null`, a stale `target/.rustc_info.json` probe cache may hold the bad result - delete it (`rm -f target/.rustc_info.json`) and retry.
 
 ## 5. z3 (SMT solver) — Phase 4 SMT mode (optional)
 

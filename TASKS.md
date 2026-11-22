@@ -2897,3 +2897,19 @@ PHASE 8 IS NOW COMPLETE.
 - `docs/llm/TEST_STRUCTURE.md`: +8 rows via `rfs-dev inventory add --doc TEST`, llm-budget 1432 -> 1440; audit EXACT (SRC 1023 fns / 215 types, TEST 1092 fns / 35 types).
 - Key findings: smt-bounded models unhandled inputs as self-loops while exact MC kills the path - specs demoing smt-bounded must avoid `next`/bounded_eventually property forms (hit on B6); bit<8> subtraction underflow wraps (B5 setpoint band arithmetic - range-guarded); a terminal state with no outgoing transitions is reason=deadlock (B8 Done needed a Reset); overlapping-guard shadowing by source order made B8's first fail.rfs draft pass (the defect must remove the sibling transition, not just unguard); the full-width vending_machine model OOM'd under the sandbox's ~1 GB RSS cap (rescaled to bit<6>/bit<2> per the plan's simplify-and-note rule); /dev/null was again transiently overwritten with an ELF binary, breaking clippy's target probe until truncated.
 - Verification: `cargo test --test example_projects_test` 42/0; `docs_md_test` 5/5 (8 new READMEs in its file set); `dev_docs_test` 9/9; root `cargo test` 612/0 (594 post-task-2 + 8 legs); clippy 0 errors at the exact 71-line baseline; fmt clean. Status: `PHASE_18_TASK_3_STATUS.md`; task corrections recorded in the task file.
+
+## 2026-11-22 21:36 — Phase 18 task 3A: smt-bounded trace-death soundness (fix D1 next + D2 bounded_eventually)
+
+### Interpretation & plan
+
+- Requested: execute scheduled task 3A - close the two soundness-relevant divergences from exact mode in `--mode smt-bounded` (D1: unhandled inputs freeze the config and a `next`/shifted body is checked against that artifact -> false FAILs; D2: a top-level `bounded_eventually[N]` deadline past path death is evaluated over frozen configs -> false FAIL).
+- Plan: thread the existing `alive[]` into property-formula evaluation so `Sf::Next` renders `NOT alive[step+1] OR inner` (weak at trace death, SEMANTICS 8.3); unify all three engines on the top-level BE violation `alive[hi-1] AND NOT(OR_j f(j))` (SEMANTICS 5.5); mirror in both emitters + both generated runtimes; add negative-control tests reproducing the B6 false FAIL; sync SEMANTICS/MODEL_CHECKING.
+
+### Report
+
+- Changed: `src/mc/ref_mc_smt.rs` (SfCtx.alive + gated Next arm + BE deadline conjunction), `src/mc/smt_emit.rs` (new sf_uses_next walker, both renderers' Next gate, alive param on every emitted property/expansion fn + table types + both expand_dummies), `src/codegen/backends/rust/mc.rs` + `backends/c/mc.rs` (call sites pass alive; BE check asserts the deadline conjunction).
+- Added test `task3a_trace_death_negative_and_positive_controls` (4 specs): D1/D2 death variants PASS (false FAILs gone), their alive-path twins still FAIL (nothing masked) - ref vs both generated backends byte-parity.
+- Docs: SEMANTICS.md 9.9 normative closure of D1/D2; MODEL_CHECKING.md trace-death note; +2 inventory rows (TEST_STRUCTURE budget 1440->1441).
+- Finding: closed a latent parity bug - in-process BE gated each disjunct by alive[j] but the generated runtimes gated none; now all three identical.
+- Verification: cargo test --features smt 382/0, default 378/0; clippy no new warnings (net -1); fmt clean; inventory audit EXACT (SRC 1024/215, TEST 1093/35); dev_docs_test + docs_md_test green.
+- Environment: /dev/null was again a regular file holding git-status text, breaking the rustc target-probe (E0762); fixed by truncating it + RUSTC_WRAPPER=/tmp/rustc-wrap.sh + deleting corrupted target/.rustc_info.json.

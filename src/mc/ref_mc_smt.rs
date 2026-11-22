@@ -77,6 +77,11 @@ struct SfCtx<'a> {
     fld_vars: &'a [Vec<BV>],
     ii_steps: &'a [Vec<Bool>],
     oh_steps: &'a [Vec<Bool>],
+    /// Per-step path liveness (alive[i] = a transition fired at every step
+    /// 0..i). Threaded so `Sf::Next` can be gated WEAK at trace death (D1 fix,
+    /// SEMANTICS 8.3): a next-obligation whose successor config is frozen by an
+    /// unhandled input is vacuously satisfied.
+    alive: &'a [Bool],
     k: usize,
 }
 
@@ -404,8 +409,15 @@ fn sf_to_z3(sf: &Sf, spec: &SmtSpec, ctx: &SfCtx, step: usize) -> Bool {
         // z3_mk_fresh_const does not guarantee name-sharing across versions.
         Sf::InputIs { id, .. } => ctx.ii_steps[step][*id].clone(),
         Sf::OutputHas { id, .. } => ctx.oh_steps[step][*id].clone(),
-        // next: the body holds one step later.
-        Sf::Next(inner) => sf_to_z3(inner, spec, ctx, step + 1),
+        // next: the body holds one step later - WEAK at trace death (D1 fix):
+        // if the path died at step+1 (an unhandled input froze the config into a
+        // self-loop), the obligation is vacuously satisfied, matching exact mode
+        // SEMANTICS 8.3 (a terminated path has no successor to check). Without
+        // this gate the body was evaluated against the frozen artifact -> false FAILs.
+        Sf::Next(inner) => b_or(
+            &ctx.alive[step + 1].not(),
+            &sf_to_z3(inner, spec, ctx, step + 1),
+        ),
         // FULL class: bounded_eventually[N] - f within N steps of the anchor.
         Sf::BoundedEventually { bound, inner } => {
             let mut d = Bool::from_bool(false);
@@ -809,6 +821,7 @@ fn run_unrolled(spec: &SmtSpec, k: usize, full_properties: bool) -> Result<SmtOu
         fld_vars: &fld_vars,
         ii_steps: &ii_steps,
         oh_steps: &oh_steps,
+        alive: &alive,
         k,
     };
 
@@ -1030,23 +1043,33 @@ fn run_unrolled(spec: &SmtSpec, k: usize, full_properties: bool) -> Result<SmtOu
                 // One-shot from sample 0: f within [0, n-1]. A window that
                 // exceeds the horizon (or is next-clipped short of it) is still
                 // pending - no violation claim. `prop.formula` IS the body f
-                // (the top-level temporal operator lives in `kind`).
+                // (the top-level temporal operator lives in `kind`). D2 fix: a
+                // violation requires the path to SURVIVE to the deadline
+                // (alive[hi-1]) - if it died earlier the deadline sample does not
+                // exist and the obligation is unconfirmable (SEMANTICS 5.5). alive
+                // is monotone-decreasing, so alive[hi-1] implies every earlier
+                // alive[j]; the disjunction needs no per-disjunct gate. This also
+                // makes the in-process encoding IDENTICAL to the generated one
+                // (which previously gated no disjunct at all - a parity gap).
                 let hi = n.min(k.saturating_sub(prop.next_depth));
                 if hi < n {
                     continue; // pending within the bound
                 }
                 let mut sat = Bool::from_bool(false);
                 for j in 0..hi {
-                    sat = b_or(
-                        &sat,
-                        &b_and(&alive[j], &sf_to_z3(&prop.formula, spec, &ctx, j)),
-                    );
+                    sat = b_or(&sat, &sf_to_z3(&prop.formula, spec, &ctx, j));
                 }
                 let solver = Solver::new();
                 for b in &base {
                     solver.assert(b);
                 }
-                solver.assert(sat.not());
+                // hi == 0 (bounded_eventually[0], an empty window) keeps the
+                // pre-existing NOT-sat assertion; hi >= 1 adds the deadline gate.
+                let mut viol = sat.not();
+                if hi >= 1 {
+                    viol = b_and(&alive[hi - 1], &viol);
+                }
+                solver.assert(viol);
                 match solver.check() {
                     SatResult::Sat => {
                         let m = solver.get_model().expect("model");

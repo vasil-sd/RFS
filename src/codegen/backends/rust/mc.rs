@@ -2030,7 +2030,7 @@ fn run_smt() -> i32 {
                     if hi == 0 { continue; }
                     let mut viol: Option<Bool> = None;
                     for i in 0..hi {
-                        let phi = props[p](i, k, &ii_steps, &oh_steps);
+                        let phi = props[p](i, k, &alive, &ii_steps, &oh_steps);
                         let bad = b_and(&alive[i], &phi.not());
                         viol = Some(match viol { Some(v) => b_or(&v, &bad), None => bad });
                     }
@@ -2043,7 +2043,7 @@ fn run_smt() -> i32 {
                             let mut vstep = 0usize;
                             for i in 0..hi {
                                 if smt_read_bool(&m, &alive[i])
-                                    && !smt_read_bool(&m, &props[p](i, k, &ii_steps, &oh_steps)) {
+                                    && !smt_read_bool(&m, &props[p](i, k, &alive, &ii_steps, &oh_steps)) {
                                     vstep = i;
                                     break;
                                 }
@@ -2069,7 +2069,7 @@ fn run_smt() -> i32 {
                     if hi == 0 { continue; }
                     let mut never: Option<Bool> = None;
                     for i in 0..hi {
-                        let phi = props[p](i, k, &ii_steps, &oh_steps);
+                        let phi = props[p](i, k, &alive, &ii_steps, &oh_steps);
                         let n = b_and(&alive[i], &phi).not();
                         never = Some(match never { Some(v) => b_and(&v, &n), None => n });
                     }
@@ -2127,10 +2127,17 @@ fn run_smt() -> i32 {
                     // a window that exceeds the horizon (or is next-clipped
                     // short of it) is still pending - no violation claim.
                     if PROP_BE_BOUND[p] > k.saturating_sub(PROP_NEXT_DEPTH[p]) { continue; }
-                    let phi = expands[p](0, k, &ii_steps, &oh_steps);
+                    let phi = expands[p](0, k, &alive, &ii_steps, &oh_steps);
                     let solver = Solver::new();
                     for b in &base { solver.assert(b); }
-                    solver.assert(phi.not());
+                    // D2 fix: a violation requires the path to survive to the
+                    // deadline (alive[n-1]); if it died earlier the obligation is
+                    // unconfirmable (SEMANTICS 5.5). n == 0 keeps NOT-phi.
+                    let mut viol = phi.not();
+                    if PROP_BE_BOUND[p] >= 1 {
+                        viol = b_and(&alive[PROP_BE_BOUND[p] - 1], &viol);
+                    }
+                    solver.assert(viol);
                     match solver.check() {
                         SatResult::Sat => {
                             let m = solver.get_model().expect("model");
@@ -2152,7 +2159,7 @@ fn run_smt() -> i32 {
                 _ => {
                     // until (full class): weak until over the horizon; a
                     // violation needs an infinite path (cycle) witness.
-                    let phi = expands[p](0, k, &ii_steps, &oh_steps);
+                    let phi = expands[p](0, k, &alive, &ii_steps, &oh_steps);
                     let mut cyc: Option<Bool> = None;
                     for a in 0..k {
                         for b in (a + 1)..k {

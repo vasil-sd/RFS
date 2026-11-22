@@ -105,7 +105,12 @@ top-level `always`, `always[N]`, `eventually` and one-shot
 plus `input_is(...)`, `output_has(...)` and `next (...)` - the same matching
 semantics as exact mode (wildcards/bindings constrain nothing, literal field
 arguments compare). `next` anchors within one step of the horizon are dropped
-(sound: they can only miss a violation, never create a false FAIL). Renamed
+(sound: they can only miss a violation, never create a false FAIL), and a
+`next` obligation is weak when the path has died - if an unhandled input
+freezes the configuration before the successor sample, the body is not
+checked against that frozen artifact (matching exact mode's terminated-path
+semantics). A top-level `bounded_eventually[N]` is likewise unconfirmable if
+the path dies before its deadline. Renamed
 event parameters (`Reply(R(rk))` for declared field `rkey`) work in patterns
 and guards.
 

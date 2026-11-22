@@ -2860,7 +2860,7 @@ static int run_smt(int argc, char **argv) {
             for (unsigned i = 0; i < hi; i++) {
                 const Z3_ast *vi = &v_vars[(size_t)i * N_VARS];
                 const Z3_ast *fldi = &fld_vars[(size_t)i * N_FIELDS];
-                Z3_ast phi = PROP_FNS[p](c, i, k, s_vars[i], vi, fldi, ii_flat, oh_flat);
+                Z3_ast phi = PROP_FNS[p](c, i, k, s_vars[i], vi, fldi, alive, ii_flat, oh_flat);
                 Z3_ast pair[2] = { alive[i], Z3_mk_not(c, phi) };
                 Z3_ast bad = Z3_mk_and(c, 2, pair);
                 if (viol) {
@@ -2880,7 +2880,7 @@ static int run_smt(int argc, char **argv) {
                 for (unsigned i = 0; i < hi; i++) {
                     const Z3_ast *vi = &v_vars[(size_t)i * N_VARS];
                     const Z3_ast *fldi = &fld_vars[(size_t)i * N_FIELDS];
-                    Z3_ast phi = PROP_FNS[p](c, i, k, s_vars[i], vi, fldi, ii_flat, oh_flat);
+                    Z3_ast phi = PROP_FNS[p](c, i, k, s_vars[i], vi, fldi, alive, ii_flat, oh_flat);
                     if (smt_read_bool(c, m, alive[i]) && !smt_read_bool(c, m, phi)) { vstep = i; break; }
                 }
                 printf("FAIL\n");
@@ -2907,7 +2907,7 @@ static int run_smt(int argc, char **argv) {
             for (unsigned i = 0; i < hi; i++) {
                 const Z3_ast *vi = &v_vars[(size_t)i * N_VARS];
                 const Z3_ast *fldi = &fld_vars[(size_t)i * N_FIELDS];
-                Z3_ast phi = PROP_FNS[p](c, i, k, s_vars[i], vi, fldi, ii_flat, oh_flat);
+                Z3_ast phi = PROP_FNS[p](c, i, k, s_vars[i], vi, fldi, alive, ii_flat, oh_flat);
                 Z3_ast pair[2] = { alive[i], phi };
                 Z3_ast n = Z3_mk_not(c, Z3_mk_and(c, 2, pair));
                 if (never) {
@@ -2976,10 +2976,18 @@ static int run_smt(int argc, char **argv) {
             if (PROP_BE_BOUND[p] > clip) continue;
             const Z3_ast *v0 = &v_vars[0];
             const Z3_ast *fld0 = &fld_vars[0];
-            Z3_ast phi = EXPAND_FNS[p](c, 0, k, s_vars[0], v0, fld0, ii_flat, oh_flat);
+            Z3_ast phi = EXPAND_FNS[p](c, 0, k, s_vars[0], v0, fld0, alive, ii_flat, oh_flat);
             Z3_solver solver = Z3_mk_solver(c);
             for (size_t bi = 0; bi < base_n; bi++) Z3_solver_assert(c, solver, base[bi]);
-            Z3_solver_assert(c, solver, Z3_mk_not(c, phi));
+            // D2 fix: a violation requires the path to survive to the deadline
+            // (alive[n-1]); if it died earlier the obligation is unconfirmable
+            // (SEMANTICS 5.5). n == 0 keeps NOT-phi.
+            Z3_ast viol = Z3_mk_not(c, phi);
+            if (PROP_BE_BOUND[p] >= 1) {
+                Z3_ast pair[2] = { alive[PROP_BE_BOUND[p] - 1], viol };
+                viol = Z3_mk_and(c, 2, pair);
+            }
+            Z3_solver_assert(c, solver, viol);
             Z3_lbool r = Z3_solver_check(c, solver);
             if (r == Z3_L_TRUE) {
                 Z3_model m = Z3_solver_get_model(c, solver);
@@ -3001,7 +3009,7 @@ static int run_smt(int argc, char **argv) {
             // needs an infinite path (cycle) witness.
             const Z3_ast *v0 = &v_vars[0];
             const Z3_ast *fld0 = &fld_vars[0];
-            Z3_ast phi = EXPAND_FNS[p](c, 0, k, s_vars[0], v0, fld0, ii_flat, oh_flat);
+            Z3_ast phi = EXPAND_FNS[p](c, 0, k, s_vars[0], v0, fld0, alive, ii_flat, oh_flat);
             Z3_ast cyc = 0;
             for (unsigned a = 0; a < k; a++) {
                 for (unsigned b = a + 1; b < k; b++) {

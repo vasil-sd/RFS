@@ -719,6 +719,88 @@ module smt_be_fail {
 }
 "#;
 
+// ---------------------------------------------------------------------------
+// Task 3A - trace-death soundness controls (D1 next / D2 bounded_eventually).
+// Each NEGATIVE control is a spec that FALSE-FAILED before the liveness gate:
+// the path dies (an unhandled input freezes the config) before the temporal
+// obligation's deadline, so exact mode would leave it weak/vacuous. After 3A
+// they PASS. Each POSITIVE control is its alive-path twin: the same obligation
+// on a path that survives to the deadline and genuinely misses the target - it
+// must STILL FAIL (the gate masks nothing).
+// ---------------------------------------------------------------------------
+
+/// D1 negative: `next` body checked at a successor the path never reaches. A
+/// consumes Go into B (x=true); B handles NO input, so any step-1 input is
+/// unhandled and freezes sample 2 (alive[2]=false). Before 3A the body
+/// x(2)==false was checked against the frozen artifact -> false FAIL; after 3A
+/// the next-obligation is vacuous (NOT alive[2]) -> PASS at every bound.
+const SMT_D1_NEXT_DEATH_SRC: &str = r#"
+module d1_next_death {
+  enum State { A, B }
+  initial A
+
+  event Go
+
+  var x: bool init false
+
+  transition A on Go { next B; set x = true; }
+  # B handles no input: every step-1 input is unhandled (frozen self-loop).
+
+  prop p : always (input_is(Go) -> next (x == false)) ;
+}
+"#;
+
+/// D1 positive: the alive-path twin. B now handles Go (self-loop), so sample 2
+/// is a REAL successor with x still true - a genuine violation of next(x==false)
+/// at anchor 1. Must FAIL for bound >= 2 (anchor 1 needs k >= 2).
+const SMT_D1_NEXT_ALIVE_SRC: &str = r#"
+module d1_next_alive {
+  enum State { A, B }
+  initial A
+
+  event Go
+
+  var x: bool init false
+
+  transition A on Go { next B; set x = true; }
+  transition B on Go { next B; }
+
+  prop p : always (input_is(Go) -> next (x == false)) ;
+}
+"#;
+
+/// D2 negative: a top-level bounded_eventually[3] whose deadline (sample 2) is
+/// past path death. No transition handles any input, so the path dies at sample
+/// 1 (alive[1]=false). Before 3A the disjunction was evaluated over the frozen
+/// tail -> false FAIL; after 3A the violation requires alive[2] (false) -> PASS.
+const SMT_D2_BE_DEATH_SRC: &str = r#"
+module d2_be_death {
+  enum State { A, B }
+  initial A
+
+  event Kill
+  # No transition handles Kill: the path dies at sample 1.
+
+  prop p : bounded_eventually[3] (state == B) ;
+}
+"#;
+
+/// D2 positive: the alive-path twin. A Tick self-loop keeps the path alive to
+/// the deadline, but B is never reached - a genuine bounded_eventually[3]
+/// violation. Must FAIL for bound >= 3 (the deadline sample 2 needs k >= 3).
+const SMT_D2_BE_ALIVE_SRC: &str = r#"
+module d2_be_alive {
+  enum State { A, B }
+  initial A
+
+  event Tick
+
+  transition A on Tick { next A; }
+
+  prop p : bounded_eventually[3] (state == B) ;
+}
+"#;
+
 /// FULL class (until): without --full-properties the until property is
 /// OMITTED (pinned warning + properties_omitted=1 suffix) while the default
 /// property is still checked; with the flag the expansion runs and passes.
@@ -870,6 +952,33 @@ fn task1a_top_level_bounded_eventually_default_class() {
     parity_task1a(SMT_BE_PASS_SRC, "be_pass", false, |_| 0);
     // The window [0,3) exceeds the horizon for k < 3: pending, no claim.
     parity_task1a(SMT_BE_FAIL_SRC, "be_fail", false, |b| {
+        if b >= 3 {
+            1
+        } else {
+            0
+        }
+    });
+}
+
+#[test]
+fn task3a_trace_death_negative_and_positive_controls() {
+    // D1: the next-obligation is weak at trace death. The death variant PASSES
+    // at every bound (before 3A it false-failed on the frozen successor); the
+    // alive twin still FAILS for bound >= 2 (a genuine violation is not masked).
+    parity_task1a(SMT_D1_NEXT_DEATH_SRC, "d1_next_death", false, |_| 0);
+    parity_task1a(SMT_D1_NEXT_ALIVE_SRC, "d1_next_alive", false, |b| {
+        if b >= 2 {
+            1
+        } else {
+            0
+        }
+    });
+    // D2: a top-level bounded_eventually is unconfirmable past path death. The
+    // death variant PASSES at every bound (before 3A it false-failed over the
+    // frozen tail); the alive twin still FAILS for bound >= 3 (the deadline is
+    // reached and B is genuinely never entered).
+    parity_task1a(SMT_D2_BE_DEATH_SRC, "d2_be_death", false, |_| 0);
+    parity_task1a(SMT_D2_BE_ALIVE_SRC, "d2_be_alive", false, |b| {
         if b >= 3 {
             1
         } else {

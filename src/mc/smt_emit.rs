@@ -97,6 +97,22 @@ fn sf_uses_output_atoms(sf: &Sf) -> bool {
     }
 }
 
+/// True iff the formula contains a `next` node (the property fn must name its
+/// `alive` parameter without the underscore prefix - the D1 liveness gate
+/// references `alive[step+1]`).
+fn sf_uses_next(sf: &Sf) -> bool {
+    match sf {
+        Sf::Next(_) => true,
+        Sf::Not(i) => sf_uses_next(i),
+        Sf::And(l, r) | Sf::Or(l, r) | Sf::Implies(l, r) => sf_uses_next(l) || sf_uses_next(r),
+        Sf::BoundedEventually { inner: i, .. }
+        | Sf::BoundedAlways { inner: i, .. }
+        | Sf::Eventually(i) => sf_uses_next(i),
+        Sf::Until { left, right } => sf_uses_next(left) || sf_uses_next(right),
+        _ => false,
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Rust emission
 // ---------------------------------------------------------------------------
@@ -493,8 +509,22 @@ fn render_sf_rust(sf: &Sf, spec: &SmtSpec, step: &str, r: &mut RustRender) -> St
             "let e{}: Bool = oh_steps[{step}][{id}].clone();",
             r.n
         )),
-        // next: the body holds one step later.
-        Sf::Next(inner) => render_sf_rust(inner, spec, &shifted(step), r),
+        // next: the body holds one step later - WEAK at trace death (D1 fix):
+        // if the path died at step+1 (an unhandled input froze the config), the
+        // obligation is vacuously satisfied (alive[step+1] false -> true). The
+        // `alive` parameter is in scope in every property/expansion fn.
+        Sf::Next(inner) => {
+            let b = render_sf_rust(inner, spec, &shifted(step), r);
+            let ns = if step == "i" {
+                "i + 1".to_string()
+            } else {
+                format!("({step}) + 1")
+            };
+            r.push(format!(
+                "let e{}: Bool = b_or(&alive[{ns}].not(), &{b});",
+                r.n
+            ))
+        }
         // FULL class: bounded_eventually[N] - f within N steps of the anchor
         // (horizon-clipped; clipping drops anchors, never creates false FAILs).
         Sf::BoundedEventually { bound, inner } => {
@@ -777,7 +807,7 @@ pub fn emit_rust_spec(spec: &SmtSpec) -> String {
             );
         if routed {
             s.push_str(&format!(
-                "fn expr_p{p}(_i: usize, _k: usize, _ii_steps: &[Vec<Bool>], _oh_steps: &[Vec<Bool>]) -> Bool {{ Bool::from_bool(true) }}\n\n"
+                "fn expr_p{p}(_i: usize, _k: usize, _alive: &[Bool], _ii_steps: &[Vec<Bool>], _oh_steps: &[Vec<Bool>]) -> Bool {{ Bool::from_bool(true) }}\n\n"
             ));
             continue;
         }
@@ -796,8 +826,15 @@ pub fn emit_rust_spec(spec: &SmtSpec) -> String {
         } else {
             "_oh_steps"
         };
+        // The alive parameter is named (no underscore) only when the body has a
+        // next node (the D1 gate references it) - unused names would warn.
+        let alive_name = if sf_uses_next(&prop.formula) {
+            "alive"
+        } else {
+            "_alive"
+        };
         s.push_str(&format!(
-            "fn expr_p{p}({q}: usize, _k: usize, {ii_name}: &[Vec<Bool>], {oh_name}: &[Vec<Bool>]) -> Bool {{\n    {}\n    e{}\n}}\n\n",
+            "fn expr_p{p}({q}: usize, _k: usize, {alive_name}: &[Bool], {ii_name}: &[Vec<Bool>], {oh_name}: &[Vec<Bool>]) -> Bool {{\n    {}\n    e{}\n}}\n\n",
             r.lines.join("\n    "),
             r.n - 1,
             q = if uses_i { "i" } else { "_i" }
@@ -838,8 +875,13 @@ pub fn emit_rust_spec(spec: &SmtSpec) -> String {
         } else {
             "_oh_steps"
         };
+        let alive_name = if sf_uses_next(&formula) {
+            "alive"
+        } else {
+            "_alive"
+        };
         s.push_str(&format!(
-            "fn expand_p{p}(i: usize, k: usize, {ii_name}: &[Vec<Bool>], {oh_name}: &[Vec<Bool>]) -> Bool {{\n    {}\n    {fin}\n}}\n\n",
+            "fn expand_p{p}(i: usize, k: usize, {alive_name}: &[Bool], {ii_name}: &[Vec<Bool>], {oh_name}: &[Vec<Bool>]) -> Bool {{\n    {}\n    {fin}\n}}\n\n",
             r.lines.join("\n    ")
         ));
     }
@@ -1053,7 +1095,7 @@ pub fn emit_rust_spec(spec: &SmtSpec) -> String {
         .map(|p| format!("expr_p{p}"))
         .collect();
     s.push_str(&format!(
-        "fn prop_fns() -> Vec<fn(usize, usize, &[Vec<Bool>], &[Vec<Bool>]) -> Bool> {{ vec![{}] }}\n",
+        "fn prop_fns() -> Vec<fn(usize, usize, &[Bool], &[Vec<Bool>], &[Vec<Bool>]) -> Bool> {{ vec![{}] }}\n",
         props.join(", ")
     ));
     // Expansion table: routed properties (FULL class + top-level
@@ -1078,10 +1120,10 @@ pub fn emit_rust_spec(spec: &SmtSpec) -> String {
         .collect();
     // The dummy is emitted only when some slot needs it (warning-free code).
     if expands.iter().any(|e| e == "expand_dummy") {
-        s.push_str("fn expand_dummy(_i: usize, _k: usize, _ii_steps: &[Vec<Bool>], _oh_steps: &[Vec<Bool>]) -> Bool { Bool::from_bool(true) }\n\n");
+        s.push_str("fn expand_dummy(_i: usize, _k: usize, _alive: &[Bool], _ii_steps: &[Vec<Bool>], _oh_steps: &[Vec<Bool>]) -> Bool { Bool::from_bool(true) }\n\n");
     }
     s.push_str(&format!(
-        "fn expand_fns() -> Vec<fn(usize, usize, &[Vec<Bool>], &[Vec<Bool>]) -> Bool> {{ vec![{}] }}\n",
+        "fn expand_fns() -> Vec<fn(usize, usize, &[Bool], &[Vec<Bool>], &[Vec<Bool>]) -> Bool> {{ vec![{}] }}\n",
         expands.join(", ")
     ));
     s
@@ -1510,14 +1552,21 @@ fn render_sf_c(sf: &Sf, spec: &SmtSpec, step: &str, r: &mut CRender) -> String {
             "Z3_ast e{} = oh[({step}) * N_OUTPUT_ATOMS + {id}];",
             r.n
         )),
-        // next: the body holds one step later.
+        // next: the body holds one step later - WEAK at trace death (D1 fix):
+        // if the path died at step+1 (an unhandled input froze the config), the
+        // obligation is vacuously satisfied (alive[step+1] false -> true). The
+        // `alive` parameter is in scope in every property/expansion fn.
         Sf::Next(inner) => {
             let ns = if step == "i" {
                 "i + 1".to_string()
             } else {
                 format!("({step}) + 1")
             };
-            render_sf_c(inner, spec, &ns, r)
+            let b = render_sf_c(inner, spec, &ns, r);
+            r.push(format!(
+                "Z3_ast e{} = Z3_mk_or(c, 2, (Z3_ast[]){{ Z3_mk_not(c, alive[{ns}]), {b} }});",
+                r.n
+            ))
         }
         // FULL-class expansions (quantifier-free, horizon-truncated). The step
         // expression `step` is the anchor; loop variables are unique per node.
@@ -1867,7 +1916,7 @@ pub fn emit_c_spec(spec: &SmtSpec) -> String {
             );
         if routed {
             s.push_str(&format!(
-                "static Z3_ast expr_p{p}(Z3_context c, unsigned i, unsigned k, Z3_ast s, const Z3_ast *v, const Z3_ast *fld, const Z3_ast *ii, const Z3_ast *oh) {{\n    (void)c; (void)i; (void)k; (void)s; (void)v; (void)fld; (void)ii; (void)oh;\n    return Z3_mk_true(c);\n}}\n\n"
+                "static Z3_ast expr_p{p}(Z3_context c, unsigned i, unsigned k, Z3_ast s, const Z3_ast *v, const Z3_ast *fld, const Z3_ast *alive, const Z3_ast *ii, const Z3_ast *oh) {{\n    (void)c; (void)i; (void)k; (void)s; (void)v; (void)fld; (void)alive; (void)ii; (void)oh;\n    return Z3_mk_true(c);\n}}\n\n"
             ));
             continue;
         }
@@ -1885,10 +1934,22 @@ pub fn emit_c_spec(spec: &SmtSpec) -> String {
         } else {
             "_oh"
         };
+        // The alive parameter is named (no void-cast) only when the body has a
+        // next node (the D1 gate references it).
+        let alive_name = if sf_uses_next(&prop.formula) {
+            "alive"
+        } else {
+            "_alive"
+        };
         let voids = format!(
-            "(void)s; (void)v; (void)fld; (void)k;{}{}",
+            "(void)s; (void)v; (void)fld; (void)k;{}{}{}",
             if ii_name == "_ii" { " (void)_ii;" } else { "" },
-            if oh_name == "_oh" { " (void)_oh;" } else { "" }
+            if oh_name == "_oh" { " (void)_oh;" } else { "" },
+            if alive_name == "_alive" {
+                " (void)_alive;"
+            } else {
+                ""
+            }
         );
         let void_i = if sf_uses_step(&prop.formula) {
             String::new()
@@ -1896,7 +1957,7 @@ pub fn emit_c_spec(spec: &SmtSpec) -> String {
             "\n    (void)i;".to_string()
         };
         s.push_str(&format!(
-            "static Z3_ast expr_p{p}(Z3_context c, unsigned i, unsigned k, Z3_ast s, const Z3_ast *v, const Z3_ast *fld, const Z3_ast *{ii_name}, const Z3_ast *{oh_name}) {{\n    {voids}{void_i}\n    {lines}\n    return e{n};\n}}\n\n",
+            "static Z3_ast expr_p{p}(Z3_context c, unsigned i, unsigned k, Z3_ast s, const Z3_ast *v, const Z3_ast *fld, const Z3_ast *{alive_name}, const Z3_ast *{ii_name}, const Z3_ast *{oh_name}) {{\n    {voids}{void_i}\n    {lines}\n    return e{n};\n}}\n\n",
             lines = r.lines.join("\n    "),
             n = r.n - 1
         ));
@@ -1935,10 +1996,20 @@ pub fn emit_c_spec(spec: &SmtSpec) -> String {
         } else {
             "_oh"
         };
+        let alive_name = if sf_uses_next(&formula) {
+            "alive"
+        } else {
+            "_alive"
+        };
         let voids = format!(
-            "(void)s; (void)v; (void)fld;{}{}",
+            "(void)s; (void)v; (void)fld;{}{}{}",
             if ii_name == "_ii" { " (void)_ii;" } else { "" },
-            if oh_name == "_oh" { " (void)_oh;" } else { "" }
+            if oh_name == "_oh" { " (void)_oh;" } else { "" },
+            if alive_name == "_alive" {
+                " (void)_alive;"
+            } else {
+                ""
+            }
         );
         let void_i = if sf_uses_step(&formula) {
             String::new()
@@ -1946,7 +2017,7 @@ pub fn emit_c_spec(spec: &SmtSpec) -> String {
             "\n    (void)i;".to_string()
         };
         s.push_str(&format!(
-            "static Z3_ast expand_p{p}(Z3_context c, unsigned i, unsigned k, Z3_ast s, const Z3_ast *v, const Z3_ast *fld, const Z3_ast *{ii_name}, const Z3_ast *{oh_name}) {{\n    {voids}{void_i}\n    {lines}\n    return {fin};\n}}\n\n",
+            "static Z3_ast expand_p{p}(Z3_context c, unsigned i, unsigned k, Z3_ast s, const Z3_ast *v, const Z3_ast *fld, const Z3_ast *{alive_name}, const Z3_ast *{ii_name}, const Z3_ast *{oh_name}) {{\n    {voids}{void_i}\n    {lines}\n    return {fin};\n}}\n\n",
             lines = r.lines.join("\n    ")
         ));
     }
@@ -2193,7 +2264,7 @@ pub fn emit_c_spec(spec: &SmtSpec) -> String {
         .map(|p| format!("expr_p{p}"))
         .collect();
     s.push_str(&format!(
-        "static Z3_ast (*PROP_FNS[N_PROPS])(Z3_context, unsigned, unsigned, Z3_ast, const Z3_ast *, const Z3_ast *, const Z3_ast *, const Z3_ast *) = {{{}}};\n",
+        "static Z3_ast (*PROP_FNS[N_PROPS])(Z3_context, unsigned, unsigned, Z3_ast, const Z3_ast *, const Z3_ast *, const Z3_ast *, const Z3_ast *, const Z3_ast *) = {{{}}};\n",
         props.join(", ")
     ));
     // Expansion table: routed properties (FULL class + top-level
@@ -2218,10 +2289,10 @@ pub fn emit_c_spec(spec: &SmtSpec) -> String {
         .collect();
     // The dummy is emitted only when some slot needs it (warning-free code).
     if expands.iter().any(|e| e == "expand_dummy") {
-        s.push_str("static Z3_ast expand_dummy(Z3_context c, unsigned i, unsigned k, Z3_ast s, const Z3_ast *v, const Z3_ast *fld, const Z3_ast *ii, const Z3_ast *oh) {\n    (void)c; (void)i; (void)k; (void)s; (void)v; (void)fld; (void)ii; (void)oh;\n    return Z3_mk_true(c);\n}\n\n");
+        s.push_str("static Z3_ast expand_dummy(Z3_context c, unsigned i, unsigned k, Z3_ast s, const Z3_ast *v, const Z3_ast *fld, const Z3_ast *alive, const Z3_ast *ii, const Z3_ast *oh) {\n    (void)c; (void)i; (void)k; (void)s; (void)v; (void)fld; (void)alive; (void)ii; (void)oh;\n    return Z3_mk_true(c);\n}\n\n");
     }
     s.push_str(&format!(
-        "static Z3_ast (*EXPAND_FNS[N_PROPS])(Z3_context, unsigned, unsigned, Z3_ast, const Z3_ast *, const Z3_ast *, const Z3_ast *, const Z3_ast *) = {{{}}};\n",
+        "static Z3_ast (*EXPAND_FNS[N_PROPS])(Z3_context, unsigned, unsigned, Z3_ast, const Z3_ast *, const Z3_ast *, const Z3_ast *, const Z3_ast *, const Z3_ast *) = {{{}}};\n",
         expands.join(", ")
     ));
     s

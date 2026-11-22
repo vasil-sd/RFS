@@ -889,14 +889,24 @@ codes 0/1/2; PASS results are ALWAYS labeled INCOMPLETE (`PASS WITHIN BOUND k
 top-level `always`, `always[N]`, `eventually`, and one-shot
 `bounded_eventually[N]`, whose bodies may use boolean combinations of
 expressions plus the cheap step operators `input_is(...)`, `output_has(...)`
-and `next (...)`. `input_is`/`output_has` match exactly as in section 5.3
+and `next (...)`. A top-level one-shot `bounded_eventually[N] (f)` is
+violated only if the path SURVIVES to its deadline sample N-1 and f holds at
+no sample in 0..N; if the path dies earlier (an unhandled input freezes the
+configuration before the deadline), the deadline sample does not exist and
+the obligation is unconfirmable - no violation claim (task 3A, matching
+section 5.5). `input_is`/`output_has` match exactly as in section 5.3
 (pattern matching per 3.1; wildcards and bindings constrain nothing, literal
 field arguments compare against the consumed input's / emitted output's
 payload); they are false at sample 0 (no transition just taken). `next (p)`
 holds at anchor i iff p holds at step i+1; anchors within one step of the
 horizon (i + depth >= k for the property's maximum `next` nesting depth)
 are DROPPED - sound (a dropped anchor can only miss a violation, never create
-a false FAIL). Renamed event parameters (`Reply(R(rk))` for declared field
+a false FAIL). A `next` obligation is ALSO weak at trace death (task 3A,
+matching section 8.3): if no transition fires at step i (an unhandled input
+freezes the configuration into a self-loop), the successor sample does not
+exist as an execution, so `next (p)` at anchor i is satisfied vacuously -
+the body is never checked against the frozen artifact. Renamed event
+parameters (`Reply(R(rk))` for declared field
 `rkey`) are supported unconditionally: pattern bindings alias to the
 declared field positionally, so guards may reference the binding name.
 

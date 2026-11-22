@@ -1,0 +1,18 @@
+FAIL
+model-check summary: status=fail states=289 transitions=4482 max_depth=7 reason=property-violation label=no_backfeed step=7
+  unexpected terminations: 9483
+  first unexpected: config 0 input index 1
+  monitor size: 0 bits
+  memory estimate: 9826 bytes
+property violation: no_backfeed
+  violation step: 7
+  vars at violation step: Vars { grid_v: 32, relay_closed: false, grid_ok: false, loss_seen: false, confirmed: true }
+counterexample trace:
+  initial state=State::Off vars=Vars { grid_v: 0, relay_closed: false, grid_ok: false, loss_seen: false, confirmed: false }
+  step 0 input=Input::PowerOn outputs=[] from=State::Off to=State::Standby vars=Vars { grid_v: 0, relay_closed: false, grid_ok: false, loss_seen: false, confirmed: false }
+  step 1 input=Input::GridSense_G { v: 32 } outputs=[] from=State::Standby to=State::Standby vars=Vars { grid_v: 32, relay_closed: false, grid_ok: false, loss_seen: false, confirmed: false }
+  step 2 input=Input::GridDetected outputs=[Output::RelayClose] from=State::Standby to=State::Mppt vars=Vars { grid_v: 32, relay_closed: true, grid_ok: true, loss_seen: false, confirmed: false }
+  step 3 input=Input::MppReached outputs=[Output::InverterEnable] from=State::Mppt to=State::GridTied vars=Vars { grid_v: 32, relay_closed: true, grid_ok: true, loss_seen: false, confirmed: false }
+  step 4 input=Input::GridLoss outputs=[] from=State::GridTied to=State::GridTied vars=Vars { grid_v: 32, relay_closed: true, grid_ok: true, loss_seen: true, confirmed: false }
+  step 5 input=Input::GridLoss outputs=[Output::RelayOpen] from=State::GridTied to=State::Islanded vars=Vars { grid_v: 32, relay_closed: false, grid_ok: false, loss_seen: false, confirmed: true }
+  step 6 input=Input::Tick outputs=[Output::InverterEnable] from=State::Islanded to=State::Islanded vars=Vars { grid_v: 32, relay_closed: false, grid_ok: false, loss_seen: false, confirmed: true }

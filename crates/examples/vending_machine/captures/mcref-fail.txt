@@ -1,0 +1,14 @@
+FAIL
+model-check summary: status=fail states=129 transitions=4226 max_depth=2 reason=property-violation label=no_dispense_underpaid step=3
+  unexpected terminations: 455
+  first unexpected: config 0 input index 64
+  monitor size: 0 bits
+  memory estimate: 4644 bytes
+property violation: no_dispense_underpaid
+  violation step: 3
+  vars at violation step: Vars { money: 0, price: 50, stock: 3, owed: 14, change_out: 14 }
+counterexample trace:
+  initial state=State::Idle vars=Vars { money: 0, price: 50, stock: 3, owed: 0, change_out: 0 }
+  step 0 input=Input::Coin_C { amt: 0 } outputs=[] from=State::Idle to=State::CoinInserted vars=Vars { money: 0, price: 50, stock: 3, owed: 0, change_out: 0 }
+  step 1 input=Input::Select outputs=[] from=State::CoinInserted to=State::ProductSelected vars=Vars { money: 0, price: 50, stock: 3, owed: 0, change_out: 0 }
+  step 2 input=Input::DispenseCmd outputs=[Output::Dispense] from=State::ProductSelected to=State::Dispensing vars=Vars { money: 0, price: 50, stock: 3, owed: 14, change_out: 14 }

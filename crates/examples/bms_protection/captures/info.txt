@@ -1,0 +1,29 @@
+module bms_protection
+  initial state: Idle
+  enums:
+    State: Idle, Charging, Full, Discharging, Balancing, Protection
+  events:
+    ChargeCmd: ChargeCmd
+    Tick: Tick
+    DischargeCmd: DischargeCmd
+    BalanceCmd: BalanceCmd
+    DeltaUpdate: D(d: bit<4>)
+    BalanceDone: BalanceDone
+    OverTemp: OverTemp
+    CoolDown: CoolDown
+  outputs:
+    ChargeFet: ChargeFet
+    DischargeFet: DischargeFet
+    BalanceEnable: BalanceEnable
+  variables:
+    soc: bit<5> = 16
+    cell_v: bit<8> = 35
+    cell_delta: bit<4> = 0
+  transitions: 17
+  properties:
+    never_above_vmax: always ((state == Charging) -> (cell_v <= 42)) - monitored
+    never_below_vmin: always ((state == Discharging) -> (cell_v >= 30)) - monitored
+    thermal_latch: always ((state == Protection) -> next (input_is(CoolDown) || (state == Protection))) - monitored
+    balancing_window: always ((state == Balancing) -> (cell_delta <= 10)) - monitored
+  assumptions: (none)
+

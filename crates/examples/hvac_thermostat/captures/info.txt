@@ -1,0 +1,31 @@
+module hvac_thermostat
+  initial state: Idle
+  enums:
+    State: Idle, Heating, Cooling, FanOnly, Defrost, Fault
+  events:
+    Tick: Tick
+    HeaterOff: HeaterOff
+    Setpoint: S(p: bit<8>)
+    FanCmd: FanCmd
+    FanOff: FanOff
+    FrostDetect: FrostDetect
+    DefrostDone: DefrostDone
+    FaultEvent: FaultEvent
+    Reset: Reset
+  outputs:
+    HeaterOn: HeaterOn
+    CompressorOn: CompressorOn
+    FanOn: FanOn
+  variables:
+    room_temp: bit<8> = 200
+    setpoint: bit<8> = 200
+    heater_on: bool = false
+    compressor_on: bool = false
+  transitions: 21
+  properties:
+    no_simultaneous_heat_cool: always (!heater_on && compressor_on) - monitored
+    heat_stays_below_setpoint: always ((state == Heating) -> (room_temp < setpoint)) - monitored
+    cool_stays_above_setpoint: always ((state == Cooling) -> (room_temp > setpoint)) - monitored
+    defrost_gated: always ((state == Defrost) -> input_is(FrostDetect)) - monitored
+  assumptions: (none)
+

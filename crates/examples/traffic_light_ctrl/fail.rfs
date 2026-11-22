@@ -1,0 +1,73 @@
+# rfs 1.0
+# traffic_light_ctrl - FAILING VARIANT (Phase 18 B6): the all-red clearance is
+# removed, so the N-S yellow hands straight over to E-W green with the N-S lamp still
+# on - two conflicting greens overlap. The original spec is pass.rfs.
+# a signal controller for two conflicting approaches
+# (N-S and E-W) with an all-red clearance interval between every phase change,
+# pedestrian request handling, emergency-vehicle preemption, and a flasher fault mode.
+# The lamp states are witness vars (ns_green / ew_green); the ALL-RED interval is where
+# the departing approach's lamp is cleared, so two conflicting greens can never overlap.
+# A pedestrian request is remembered and honoured with a PedWalk output on the next
+# all-red clearance; an Emergency preempts from any phase into the flasher mode with
+# every lamp cleared (the safe gap). Rationale: a rich mutual-exclusion + sequencing
+# example - the key safety invariant of any signal plan.
+module traffic_light_ctrl {
+  enum State { NSGreen, NSYellow, AllRed, EWGreen, EWYellow, Flasher }
+  initial NSGreen
+
+  event TimerDone
+  event PedRequest
+  event Emergency
+  event Reset
+
+  output PedWalk
+
+  var timer: bit<4> init 0
+  var ped_request: bool init false
+  # Lamp-state witnesses (the mutual-exclusion guard inputs).
+  var ns_green: bool init true
+  var ew_green: bool init false
+  # Which approach the next all-red hands over to.
+  var next_ew: bool init false
+
+  # The key safety invariant: never two conflicting approaches green at once.
+  prop no_conflicting_greens : always (!(ns_green && ew_green)) ;
+  # Preemption yields a safe gap: an Emergency lands in Flasher with all lamps cleared.
+  prop preemption_safe : always (input_is(Emergency) -> state == Flasher && !ns_green && !ew_green) ;
+  # An all-red interval is inserted before every phase change: the lamps can only be
+  # cleared and re-set THROUGH AllRed (clearance_cleared + no_conflicting_greens pin
+  # this jointly - a green handover that skipped the clearance would leave both lamps
+  # on). The cycle time is bounded by construction: fixed phase lengths of 8/3/2 ticks.
+  prop allred_is_the_only_clearance : always (state == AllRed -> !ns_green && !ew_green) ;
+
+  # N-S green phase (8 ticks), then yellow (3).
+  transition NSGreen on TimerDone where timer < 8 { next NSGreen; set timer = timer + 1; }
+  transition NSGreen on TimerDone where timer >= 8 { next NSYellow; set timer = 0; }
+  transition NSYellow on TimerDone where timer < 3 { next NSYellow; set timer = timer + 1; }
+  // DEFECT: the all-red clearance is gone - N-S hands straight to E-W, lamp still on.
+  transition NSYellow on TimerDone where timer >= 3 { next EWGreen; set ew_green = true; set timer = 0; set next_ew = true; }
+  # All-red holds for 2 ticks, then hands over to the next approach. A pending
+  # pedestrian request is honoured with a PedWalk on the clearance.
+  transition AllRed on TimerDone where timer < 2 { next AllRed; set timer = timer + 1; }
+  transition AllRed on TimerDone where timer >= 2 && next_ew && !ped_request { next EWGreen; set ew_green = true; set timer = 0; }
+  transition AllRed on TimerDone where timer >= 2 && next_ew && ped_request { next EWGreen; set ew_green = true; set timer = 0; emit PedWalk; set ped_request = false; }
+  transition AllRed on TimerDone where timer >= 2 && !next_ew && !ped_request { next NSGreen; set ns_green = true; set timer = 0; }
+  transition AllRed on TimerDone where timer >= 2 && !next_ew && ped_request { next NSGreen; set ns_green = true; set timer = 0; emit PedWalk; set ped_request = false; }
+  # E-W green phase (8 ticks), then yellow (3), then back through all-red.
+  transition EWGreen on TimerDone where timer < 8 { next EWGreen; set timer = timer + 1; }
+  transition EWGreen on TimerDone where timer >= 8 { next EWYellow; set timer = 0; }
+  transition EWYellow on TimerDone where timer < 3 { next EWYellow; set timer = timer + 1; }
+  transition EWYellow on TimerDone where timer >= 3 { next AllRed; set ew_green = false; set timer = 0; set next_ew = false; }
+  # Pedestrian requests are remembered (honoured at the next all-red clearance).
+  transition NSGreen on PedRequest { next NSGreen; set ped_request = true; }
+  transition EWGreen on PedRequest { next EWGreen; set ped_request = true; }
+  transition AllRed on PedRequest { next AllRed; set ped_request = true; }
+  # Emergency preemption from any phase: every lamp cleared, flasher mode.
+  transition NSGreen on Emergency { next Flasher; set ns_green = false; set ew_green = false; }
+  transition NSYellow on Emergency { next Flasher; set ns_green = false; set ew_green = false; }
+  transition AllRed on Emergency { next Flasher; set ns_green = false; set ew_green = false; }
+  transition EWGreen on Emergency { next Flasher; set ns_green = false; set ew_green = false; }
+  transition EWYellow on Emergency { next Flasher; set ns_green = false; set ew_green = false; }
+  # A reset returns to the N-S green phase.
+  transition Flasher on Reset { next NSGreen; set ns_green = true; set timer = 0; set ped_request = false; }
+}

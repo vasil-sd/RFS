@@ -1,0 +1,68 @@
+# rfs 1.0
+# blc_motor_foc - FAILING VARIANT (Phase 18 B1): the overcurrent fault flag is
+# cleared by time passing instead of latching until an explicit Reset, so the
+# safe-stop can be lost by a transient reading. The original spec is pass.rfs.
+# the mode layer of a brushless-DC field-oriented
+# controller - standstill -> precharge -> rotor alignment -> field-oriented
+# running -> braking -> fault. The analog current loops are abstracted to
+# threshold guards: the electrical-angle estimate sweeps during alignment and
+# the AlignDone command is only honoured once it has passed a quarter turn, and
+# the overcurrent / overtemperature detections arrive as fault events (the loop
+# that compares the current magnitude against its limit lives inside the
+# abstraction). Faults LATCH: once set, a fault flag stays set until an explicit
+# Reset - the safe-stop cannot be lost by a transient sensor reading.
+module blc_motor_foc {
+  enum State { Standstill, Precharge, Alignment, Running, Braking, Fault }
+  initial Standstill
+
+  event Start
+  event PrechargeDone
+  event AlignDone
+  event Overcurrent
+  event OverTemp
+  event BrakeCmd
+  event BrakeDone
+  event Reset
+  event Tick
+
+  output PwmEnable
+  output PhaseCmd
+  output SafeStop
+
+  var angle: bit<6> init 0
+  var current: bit<5> init 0
+  # Latched fault flags (the safe-stop memory).
+  var oc_fault: bool init false
+  # Witness: alignment has completed (set on the only edge into Running).
+  var align_done: bool init false
+  var ot_fault: bool init false
+
+  # Safe-stop latches: once a fault flag is set it stays set until an explicit
+  # Reset clears it - a transient reading cannot release the stop.
+  prop safe_stop_latches : always ((oc_fault || ot_fault) -> next ((oc_fault || ot_fault) || input_is(Reset))) ;
+  # No phase drive while in fault (the PWM bridge is disabled).
+  prop no_drive_in_fault : always (state == Fault -> !output_has(PhaseCmd)) ;
+  # Ordering: the running mode is entered only after alignment has completed
+  # (the witness var is set on the single edge into Running).
+  prop alignment_before_running : always (state == Running -> align_done) ;
+
+  transition Standstill on Start { next Precharge; emit PwmEnable; }
+  transition Precharge on PrechargeDone { next Alignment; }
+  # Alignment sweeps the electrical-angle estimate (the current loop holds the
+  # rotor to zero torque while it does).
+  transition Alignment on Tick { next Alignment; set angle = angle + 1; }
+  # The alignment is complete only after a quarter turn of estimated angle.
+  transition Alignment on AlignDone where angle >= 32 { next Running; emit PhaseCmd; set align_done = true; }
+  # Running: the angle keeps advancing and the (abstracted) current magnitude
+  # drifts with load.
+  transition Running on Tick { next Running; set angle = angle + 1; set current = current + 1; }
+  # Fault inputs latch their flag and drive the safe stop.
+  transition Running on Overcurrent { next Fault; emit SafeStop; set oc_fault = true; }
+  transition Running on OverTemp { next Fault; emit SafeStop; set ot_fault = true; }
+  transition Running on BrakeCmd { next Braking; }
+  transition Braking on BrakeDone { next Standstill; }
+  // DEFECT: the overcurrent flag is cleared by time passing instead of latching.
+  transition Fault on Tick { next Fault; set oc_fault = false; }
+  # Only an explicit reset releases the latched faults.
+  transition Fault on Reset { next Standstill; set oc_fault = false; set ot_fault = false; }
+}

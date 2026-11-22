@@ -179,3 +179,16 @@ TEST_STRUCTURE.md row per new fn in the same commit.
 - No changes to `examples/valid/` or `examples/invalid/` (the corpus stays as is).
 - No new workspace members (task 7 promotes the three chosen FSMs).
 - No training-set changes (task 9) and no EXAMPLES.md changes (task 8).
+
+## Task corrections
+
+| Correction | Description + rationale |
+|------------|-------------------------|
+| B1 ordering property via witness var | The planned "alignment completes before running" ordering was first written as `always (state == Running -> input_is(AlignDone))`, which is too strong: the Running Tick self-loop also targets Running, so the property fails on a healthy trace. Re-formulated with the established witness-var technique: `align_done` is set on the single edge into Running and the property is `always (state == Running -> align_done)` - still pins that no shortcut can enter the running mode before alignment completes. |
+| B5 setpoint range guard | The band-edge arithmetic (`setpoint - 10`) wraps in bit<8> for setpoints < 10, letting the machine chase a bogus band and violating the hysteresis invariant. Added a payload range guard on the Setpoint event (`where p >= 20 && p <= 240`, as a real thermostat rejects out-of-band setpoints) - keeps the arithmetic wraparound-free; noted in the README. |
+| B6 property set: no temporal forms | The planned bounded-liveness cycle property failed under exact MC (a stalled trace never sends TimerDone - liveness needs an assumption, which smt-bounded rejects for this demo spec), and its `next`-form replacement was "violated" by the SMT engine because smt-bounded models unhandled inputs as self-loops while exact MC kills the path. Replaced with pure invariants / input-anchored implications only (`no_conflicting_greens`, `allred_is_the_only_clearance`, `preemption_safe` - no `next`, no bounded_eventually), robust under both engines' semantics; the all-red insertion is pinned jointly by the first two, and the bounded cycle time is stated by construction (fixed 8/3/2 phase lengths) in the README. |
+| B7 bit-width rescale | The full-width model (bit<8> money/owed/change_out) exceeded the sandbox's ~1 GB RSS cap under exact MC ("memory allocation of 12288 bytes failed"). Rescaled to bit<6> money/price/owed/change_out and bit<2> stock per the plan's simplify-and-note rule; noted in the README. |
+| B8 deadlock + defect shadowing fixes | Two authoring corrections: (1) the Done state initially had no outgoing transitions, which exact MC reports as reason=deadlock (exit 1) - added `Done on Reset { next DoorLocked }`; (2) the first fail.rfs draft kept the guarded drain self-loop alongside the unguarded unlock, and the drain shadowed the unlock by source order whenever water > 0, so the variant PASSED - the defect removes the sibling transition as well (the overlapping-guard pitfall recorded in task 2's coap finding). |
+
+### Changes in design decisions
+- None (no comparison tables were altered; the corrections above are property-formulation and modelling-scope adjustments within the planned actions).

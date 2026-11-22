@@ -1,0 +1,31 @@
+module solar_inverter
+  initial state: Off
+  enums:
+    State: Off, Standby, Mppt, GridTied, Islanded, Fault
+  events:
+    PowerOn: PowerOn
+    GridSense: G(v: bit<6>)
+    GridDetected: GridDetected
+    MppReached: MppReached
+    GridLoss: GridLoss
+    Tick: Tick
+    Redetect: Redetect
+    FaultEvent: FaultEvent
+    FaultClear: FaultClear
+  outputs:
+    RelayClose: RelayClose
+    RelayOpen: RelayOpen
+    InverterEnable: InverterEnable
+  variables:
+    grid_v: bit<6> = 0
+    relay_closed: bool = false
+    grid_ok: bool = false
+    loss_seen: bool = false
+    confirmed: bool = false
+  transitions: 14
+  properties:
+    no_backfeed: always (output_has(InverterEnable) -> grid_ok && relay_closed) - monitored
+    island_after_confirm: always ((state == Islanded) -> confirmed) - monitored
+    relay_open_when_islanded: always ((state == Islanded) -> !relay_closed) - monitored
+  assumptions: (none)
+

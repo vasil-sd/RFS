@@ -1,0 +1,48 @@
+FAIL
+model-check summary: status=fail states=44 transitions=44 max_depth=37 reason=property-violation label=safe_stop_latches step=37
+  unexpected terminations: 298
+  first unexpected: config 0 input index 1
+  monitor size: 1 bits
+  memory estimate: 1540 bytes
+property violation: safe_stop_latches
+  violation step: 37
+  vars at violation step: Vars { angle: 32, current: 0, oc_fault: false, align_done: true, ot_fault: false }
+counterexample trace:
+  initial state=State::Standstill vars=Vars { angle: 0, current: 0, oc_fault: false, align_done: false, ot_fault: false }
+  step 0 input=Input::Start outputs=[Output::PwmEnable] from=State::Standstill to=State::Precharge vars=Vars { angle: 0, current: 0, oc_fault: false, align_done: false, ot_fault: false }
+  step 1 input=Input::PrechargeDone outputs=[] from=State::Precharge to=State::Alignment vars=Vars { angle: 0, current: 0, oc_fault: false, align_done: false, ot_fault: false }
+  step 2 input=Input::Tick outputs=[] from=State::Alignment to=State::Alignment vars=Vars { angle: 1, current: 0, oc_fault: false, align_done: false, ot_fault: false }
+  step 3 input=Input::Tick outputs=[] from=State::Alignment to=State::Alignment vars=Vars { angle: 2, current: 0, oc_fault: false, align_done: false, ot_fault: false }
+  step 4 input=Input::Tick outputs=[] from=State::Alignment to=State::Alignment vars=Vars { angle: 3, current: 0, oc_fault: false, align_done: false, ot_fault: false }
+  step 5 input=Input::Tick outputs=[] from=State::Alignment to=State::Alignment vars=Vars { angle: 4, current: 0, oc_fault: false, align_done: false, ot_fault: false }
+  step 6 input=Input::Tick outputs=[] from=State::Alignment to=State::Alignment vars=Vars { angle: 5, current: 0, oc_fault: false, align_done: false, ot_fault: false }
+  step 7 input=Input::Tick outputs=[] from=State::Alignment to=State::Alignment vars=Vars { angle: 6, current: 0, oc_fault: false, align_done: false, ot_fault: false }
+  step 8 input=Input::Tick outputs=[] from=State::Alignment to=State::Alignment vars=Vars { angle: 7, current: 0, oc_fault: false, align_done: false, ot_fault: false }
+  step 9 input=Input::Tick outputs=[] from=State::Alignment to=State::Alignment vars=Vars { angle: 8, current: 0, oc_fault: false, align_done: false, ot_fault: false }
+  step 10 input=Input::Tick outputs=[] from=State::Alignment to=State::Alignment vars=Vars { angle: 9, current: 0, oc_fault: false, align_done: false, ot_fault: false }
+  step 11 input=Input::Tick outputs=[] from=State::Alignment to=State::Alignment vars=Vars { angle: 10, current: 0, oc_fault: false, align_done: false, ot_fault: false }
+  step 12 input=Input::Tick outputs=[] from=State::Alignment to=State::Alignment vars=Vars { angle: 11, current: 0, oc_fault: false, align_done: false, ot_fault: false }
+  step 13 input=Input::Tick outputs=[] from=State::Alignment to=State::Alignment vars=Vars { angle: 12, current: 0, oc_fault: false, align_done: false, ot_fault: false }
+  step 14 input=Input::Tick outputs=[] from=State::Alignment to=State::Alignment vars=Vars { angle: 13, current: 0, oc_fault: false, align_done: false, ot_fault: false }
+  step 15 input=Input::Tick outputs=[] from=State::Alignment to=State::Alignment vars=Vars { angle: 14, current: 0, oc_fault: false, align_done: false, ot_fault: false }
+  step 16 input=Input::Tick outputs=[] from=State::Alignment to=State::Alignment vars=Vars { angle: 15, current: 0, oc_fault: false, align_done: false, ot_fault: false }
+  step 17 input=Input::Tick outputs=[] from=State::Alignment to=State::Alignment vars=Vars { angle: 16, current: 0, oc_fault: false, align_done: false, ot_fault: false }
+  step 18 input=Input::Tick outputs=[] from=State::Alignment to=State::Alignment vars=Vars { angle: 17, current: 0, oc_fault: false, align_done: false, ot_fault: false }
+  step 19 input=Input::Tick outputs=[] from=State::Alignment to=State::Alignment vars=Vars { angle: 18, current: 0, oc_fault: false, align_done: false, ot_fault: false }
+  step 20 input=Input::Tick outputs=[] from=State::Alignment to=State::Alignment vars=Vars { angle: 19, current: 0, oc_fault: false, align_done: false, ot_fault: false }
+  step 21 input=Input::Tick outputs=[] from=State::Alignment to=State::Alignment vars=Vars { angle: 20, current: 0, oc_fault: false, align_done: false, ot_fault: false }
+  step 22 input=Input::Tick outputs=[] from=State::Alignment to=State::Alignment vars=Vars { angle: 21, current: 0, oc_fault: false, align_done: false, ot_fault: false }
+  step 23 input=Input::Tick outputs=[] from=State::Alignment to=State::Alignment vars=Vars { angle: 22, current: 0, oc_fault: false, align_done: false, ot_fault: false }
+  step 24 input=Input::Tick outputs=[] from=State::Alignment to=State::Alignment vars=Vars { angle: 23, current: 0, oc_fault: false, align_done: false, ot_fault: false }
+  step 25 input=Input::Tick outputs=[] from=State::Alignment to=State::Alignment vars=Vars { angle: 24, current: 0, oc_fault: false, align_done: false, ot_fault: false }
+  step 26 input=Input::Tick outputs=[] from=State::Alignment to=State::Alignment vars=Vars { angle: 25, current: 0, oc_fault: false, align_done: false, ot_fault: false }
+  step 27 input=Input::Tick outputs=[] from=State::Alignment to=State::Alignment vars=Vars { angle: 26, current: 0, oc_fault: false, align_done: false, ot_fault: false }
+  step 28 input=Input::Tick outputs=[] from=State::Alignment to=State::Alignment vars=Vars { angle: 27, current: 0, oc_fault: false, align_done: false, ot_fault: false }
+  step 29 input=Input::Tick outputs=[] from=State::Alignment to=State::Alignment vars=Vars { angle: 28, current: 0, oc_fault: false, align_done: false, ot_fault: false }
+  step 30 input=Input::Tick outputs=[] from=State::Alignment to=State::Alignment vars=Vars { angle: 29, current: 0, oc_fault: false, align_done: false, ot_fault: false }
+  step 31 input=Input::Tick outputs=[] from=State::Alignment to=State::Alignment vars=Vars { angle: 30, current: 0, oc_fault: false, align_done: false, ot_fault: false }
+  step 32 input=Input::Tick outputs=[] from=State::Alignment to=State::Alignment vars=Vars { angle: 31, current: 0, oc_fault: false, align_done: false, ot_fault: false }
+  step 33 input=Input::Tick outputs=[] from=State::Alignment to=State::Alignment vars=Vars { angle: 32, current: 0, oc_fault: false, align_done: false, ot_fault: false }
+  step 34 input=Input::AlignDone outputs=[Output::PhaseCmd] from=State::Alignment to=State::Running vars=Vars { angle: 32, current: 0, oc_fault: false, align_done: true, ot_fault: false }
+  step 35 input=Input::Overcurrent outputs=[Output::SafeStop] from=State::Running to=State::Fault vars=Vars { angle: 32, current: 0, oc_fault: true, align_done: true, ot_fault: false }
+  step 36 input=Input::Tick outputs=[] from=State::Fault to=State::Fault vars=Vars { angle: 32, current: 0, oc_fault: false, align_done: true, ot_fault: false }

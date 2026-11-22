@@ -1,0 +1,28 @@
+FAIL
+model-check summary: status=fail states=73 transitions=103 max_depth=16 reason=property-violation label=never_above_rated_rpm step=17
+  unexpected terminations: 265
+  first unexpected: config 0 input index 2
+  monitor size: 1 bits
+  memory estimate: 2628 bytes
+property violation: never_above_rated_rpm
+  violation step: 17
+  vars at violation step: Vars { rotor_rpm: 24, pitch: 0, wind: 16 }
+counterexample trace:
+  initial state=State::Parked vars=Vars { rotor_rpm: 0, pitch: 0, wind: 0 }
+  step 0 input=Input::Start outputs=[Output::YawCmd] from=State::Parked to=State::Starting vars=Vars { rotor_rpm: 0, pitch: 0, wind: 0 }
+  step 1 input=Input::WindUp outputs=[] from=State::Starting to=State::Starting vars=Vars { rotor_rpm: 0, pitch: 0, wind: 1 }
+  step 2 input=Input::WindUp outputs=[] from=State::Starting to=State::Starting vars=Vars { rotor_rpm: 0, pitch: 0, wind: 2 }
+  step 3 input=Input::WindUp outputs=[] from=State::Starting to=State::Starting vars=Vars { rotor_rpm: 0, pitch: 0, wind: 3 }
+  step 4 input=Input::WindUp outputs=[] from=State::Starting to=State::Starting vars=Vars { rotor_rpm: 0, pitch: 0, wind: 4 }
+  step 5 input=Input::WindUp outputs=[] from=State::Starting to=State::Starting vars=Vars { rotor_rpm: 0, pitch: 0, wind: 5 }
+  step 6 input=Input::WindUp outputs=[] from=State::Starting to=State::Starting vars=Vars { rotor_rpm: 0, pitch: 0, wind: 6 }
+  step 7 input=Input::WindUp outputs=[] from=State::Starting to=State::Starting vars=Vars { rotor_rpm: 0, pitch: 0, wind: 7 }
+  step 8 input=Input::WindUp outputs=[] from=State::Starting to=State::Starting vars=Vars { rotor_rpm: 0, pitch: 0, wind: 8 }
+  step 9 input=Input::WindUp outputs=[] from=State::Starting to=State::Starting vars=Vars { rotor_rpm: 0, pitch: 0, wind: 9 }
+  step 10 input=Input::WindUp outputs=[] from=State::Starting to=State::Starting vars=Vars { rotor_rpm: 0, pitch: 0, wind: 10 }
+  step 11 input=Input::WindUp outputs=[] from=State::Starting to=State::RampUp vars=Vars { rotor_rpm: 4, pitch: 0, wind: 11 }
+  step 12 input=Input::WindUp outputs=[] from=State::RampUp to=State::RampUp vars=Vars { rotor_rpm: 8, pitch: 0, wind: 12 }
+  step 13 input=Input::WindUp outputs=[] from=State::RampUp to=State::RampUp vars=Vars { rotor_rpm: 12, pitch: 0, wind: 13 }
+  step 14 input=Input::WindUp outputs=[] from=State::RampUp to=State::RampUp vars=Vars { rotor_rpm: 16, pitch: 0, wind: 14 }
+  step 15 input=Input::WindUp outputs=[] from=State::RampUp to=State::RampUp vars=Vars { rotor_rpm: 20, pitch: 0, wind: 15 }
+  step 16 input=Input::WindUp outputs=[] from=State::RampUp to=State::RampUp vars=Vars { rotor_rpm: 24, pitch: 0, wind: 16 }

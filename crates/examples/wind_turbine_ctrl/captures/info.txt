@@ -1,0 +1,26 @@
+module wind_turbine_ctrl
+  initial state: Parked
+  enums:
+    State: Parked, Starting, RampUp, Rated, PitchControl, CutOut, EStop
+  events:
+    Start: Start
+    WindUp: WindUp
+    FeatherDone: FeatherDone
+    Repermit: Repermit
+    EmergencyStop: EmergencyStop
+    Reset: Reset
+  outputs:
+    YawCmd: YawCmd
+    PitchCmd: PitchCmd
+    Brake: Brake
+  variables:
+    rotor_rpm: bit<8> = 0
+    pitch: bit<8> = 0
+    wind: bit<6> = 0
+  transitions: 18
+  properties:
+    never_above_rated_rpm: always ((rotor_rpm <= 20)) - monitored
+    bounded_feather: always ((state == PitchControl) -> output_has(PitchCmd)) - monitored
+    cutout_irreversible: always ((state == CutOut) -> next (input_is(Repermit) || (state == CutOut))) - monitored
+  assumptions: (none)
+

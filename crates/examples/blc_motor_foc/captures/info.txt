@@ -1,0 +1,31 @@
+module blc_motor_foc
+  initial state: Standstill
+  enums:
+    State: Standstill, Precharge, Alignment, Running, Braking, Fault
+  events:
+    Start: Start
+    PrechargeDone: PrechargeDone
+    AlignDone: AlignDone
+    Overcurrent: Overcurrent
+    OverTemp: OverTemp
+    BrakeCmd: BrakeCmd
+    BrakeDone: BrakeDone
+    Reset: Reset
+    Tick: Tick
+  outputs:
+    PwmEnable: PwmEnable
+    PhaseCmd: PhaseCmd
+    SafeStop: SafeStop
+  variables:
+    angle: bit<6> = 0
+    current: bit<5> = 0
+    oc_fault: bool = false
+    align_done: bool = false
+    ot_fault: bool = false
+  transitions: 11
+  properties:
+    safe_stop_latches: always (oc_fault || ot_fault -> next (oc_fault || ot_fault || input_is(Reset))) - monitored
+    no_drive_in_fault: always ((state == Fault) -> !output_has(PhaseCmd)) - monitored
+    alignment_before_running: always ((state == Running) -> align_done) - monitored
+  assumptions: (none)
+

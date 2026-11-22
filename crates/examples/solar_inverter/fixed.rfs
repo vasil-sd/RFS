@@ -1,0 +1,65 @@
+# rfs 1.0
+# solar_inverter (Phase 18 B3): a grid-tied inverter - off -> standby -> MPPT tracking
+# -> grid-tied -> islanded -> fault, with anti-islanding detection on grid loss. The
+# grid voltage is sensed in scaled units (threshold 32 = nominal); the relay interlock
+# and the inverter enable are the two safety outputs. Anti-islanding is CONFIRMED: a
+# single GridLoss sighting is recorded (glitch tolerance) and feeding continues; a
+# second consecutive sighting trips - the relay opens and the inverter disables, so a
+# de-energized grid is never backfed. Re-synchronisation requires a re-sensed healthy
+# grid. The DC bus level and MPPT operating point live inside the abstracted power
+# stage - at the mode layer they matter only as the MppReached command.
+module solar_inverter {
+  enum State { Off, Standby, Mppt, GridTied, Islanded, Fault }
+  initial Off
+
+  event PowerOn
+  event GridSense(G(v: bit<6>))
+  event GridDetected
+  event MppReached
+  event GridLoss
+  event Tick
+  event Redetect
+  event FaultEvent
+  event FaultClear
+
+  output RelayClose
+  output RelayOpen
+  output InverterEnable
+
+  var grid_v: bit<6> init 0
+  # Relay interlock + grid-health witnesses (the backfeed guard inputs).
+  var relay_closed: bool init false
+  var grid_ok: bool init false
+  # Anti-islanding confirmation: a loss must be seen twice in a row.
+  var loss_seen: bool init false
+  var confirmed: bool init false
+
+  # No backfeed: the inverter is enabled only with a healthy grid AND a closed relay.
+  prop no_backfeed : always (output_has(InverterEnable) -> grid_ok && relay_closed) ;
+  # Islanding engages only after a CONFIRMED grid fault (the witness is set on the trip).
+  prop island_after_confirm : always (state == Islanded -> confirmed) ;
+  # The relay is open whenever the inverter is islanded.
+  prop relay_open_when_islanded : always (state == Islanded -> !relay_closed) ;
+
+  transition Off on PowerOn { next Standby; }
+  # Grid detection: sense the voltage, then close the relay only at/above threshold.
+  transition Standby on GridSense(G(v)) { next Standby; set grid_v = v; }
+  transition Standby on GridDetected where grid_v >= 32 { next Mppt; emit RelayClose; set relay_closed = true; set grid_ok = true; }
+  # MPPT tracking found its operating point: start feeding the grid.
+  transition Mppt on MppReached { next GridTied; emit InverterEnable; }
+  # Feeding while healthy; a healthy tick clears any pending loss sighting.
+  transition GridTied on Tick { next GridTied; emit InverterEnable; set loss_seen = false; }
+  # First loss sighting: record it (glitch tolerance), keep feeding.
+  transition GridTied on GridLoss where !loss_seen { next GridTied; set loss_seen = true; }
+  # Confirmed loss: the anti-islanding trip - open the relay, disable the inverter.
+  transition GridTied on GridLoss where loss_seen { next Islanded; emit RelayOpen; set relay_closed = false; set grid_ok = false; set loss_seen = false; set confirmed = true; }
+  # Islanded: no feed, re-sense the grid for a possible re-synchronisation.
+  transition Islanded on GridSense(G(v)) { next Islanded; set grid_v = v; }
+  transition Islanded on Redetect where grid_v >= 32 { next Mppt; emit RelayClose; set relay_closed = true; set grid_ok = true; set confirmed = false; }
+  transition Islanded on Tick { next Islanded; }
+  # Faults from any active mode; a clear returns to standby (re-detect the grid).
+  transition Mppt on FaultEvent { next Fault; }
+  transition GridTied on FaultEvent { next Fault; }
+  transition Islanded on FaultEvent { next Fault; }
+  transition Fault on FaultClear { next Standby; set relay_closed = false; set grid_ok = false; set loss_seen = false; set confirmed = false; }
+}

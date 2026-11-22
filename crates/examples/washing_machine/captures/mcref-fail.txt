@@ -1,0 +1,30 @@
+FAIL
+model-check summary: status=fail states=29 transitions=47 max_depth=18 reason=property-violation label=safe_unlock step=19
+  unexpected terminations: 179
+  first unexpected: config 0 input index 1
+  monitor size: 0 bits
+  memory estimate: 986 bytes
+property violation: safe_unlock
+  violation step: 19
+  vars at violation step: Vars { water: 4, spin: 0, door_locked: false }
+counterexample trace:
+  initial state=State::DoorLocked vars=Vars { water: 0, spin: 0, door_locked: true }
+  step 0 input=Input::Start outputs=[Output::ValveOpen] from=State::DoorLocked to=State::Filling vars=Vars { water: 2, spin: 0, door_locked: true }
+  step 1 input=Input::Tick outputs=[] from=State::Filling to=State::Filling vars=Vars { water: 4, spin: 0, door_locked: true }
+  step 2 input=Input::Tick outputs=[] from=State::Filling to=State::Filling vars=Vars { water: 6, spin: 0, door_locked: true }
+  step 3 input=Input::Tick outputs=[] from=State::Filling to=State::Filling vars=Vars { water: 8, spin: 0, door_locked: true }
+  step 4 input=Input::Tick outputs=[Output::MotorOn] from=State::Filling to=State::Agitating vars=Vars { water: 8, spin: 0, door_locked: true }
+  step 5 input=Input::AgitateDone outputs=[] from=State::Agitating to=State::Draining vars=Vars { water: 8, spin: 0, door_locked: true }
+  step 6 input=Input::Tick outputs=[] from=State::Draining to=State::Draining vars=Vars { water: 6, spin: 0, door_locked: true }
+  step 7 input=Input::Tick outputs=[] from=State::Draining to=State::Draining vars=Vars { water: 4, spin: 0, door_locked: true }
+  step 8 input=Input::Tick outputs=[] from=State::Draining to=State::Draining vars=Vars { water: 2, spin: 0, door_locked: true }
+  step 9 input=Input::Tick outputs=[] from=State::Draining to=State::Draining vars=Vars { water: 0, spin: 0, door_locked: true }
+  step 10 input=Input::Tick outputs=[] from=State::Draining to=State::Spinning vars=Vars { water: 0, spin: 0, door_locked: true }
+  step 11 input=Input::SpinRamp outputs=[] from=State::Spinning to=State::Spinning vars=Vars { water: 0, spin: 20, door_locked: true }
+  step 12 input=Input::SpinRamp outputs=[] from=State::Spinning to=State::Spinning vars=Vars { water: 0, spin: 40, door_locked: true }
+  step 13 input=Input::SpinRamp outputs=[] from=State::Spinning to=State::Spinning vars=Vars { water: 0, spin: 60, door_locked: true }
+  step 14 input=Input::SpinRamp outputs=[] from=State::Spinning to=State::Spinning vars=Vars { water: 0, spin: 80, door_locked: true }
+  step 15 input=Input::SpinRamp outputs=[] from=State::Spinning to=State::Spinning vars=Vars { water: 0, spin: 100, door_locked: true }
+  step 16 input=Input::SpinDone outputs=[] from=State::Spinning to=State::Rinsing vars=Vars { water: 0, spin: 0, door_locked: true }
+  step 17 input=Input::RinseStart outputs=[Output::ValveOpen] from=State::Rinsing to=State::Rinsing vars=Vars { water: 4, spin: 0, door_locked: true }
+  step 18 input=Input::Tick outputs=[Output::DoorUnlock] from=State::Rinsing to=State::Done vars=Vars { water: 4, spin: 0, door_locked: false }

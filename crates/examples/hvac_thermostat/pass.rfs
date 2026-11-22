@@ -1,0 +1,76 @@
+# rfs 1.0
+# hvac_thermostat (Phase 18 B5): a thermostat control machine - idle -> heating ->
+# cooling -> fan-only -> defrost -> fault, with hysteresis bands around the setpoint.
+# The actuator responds with a delay modelled as a per-tick step (+5 heating / -5
+# cooling), so each mode holds its side of the setpoint: heating never overshoots it and
+# cooling never undershoots it. The MODE-EXCLUSION guards are the safety core: the
+# compressor cannot start while the heater is still energised (and vice versa) - the
+# heater stays on until an explicit HeaterOff, so a setpoint change that flips the band
+# while the heater runs must wait, never open both valves. Defrost engages only from
+# cooling on a FrostDetect (a frozen evaporator). Rationale: a classic hysteresis-
+# control teaching example whose key invariant is mutual exclusion of opposing actuators.
+module hvac_thermostat {
+  enum State { Idle, Heating, Cooling, FanOnly, Defrost, Fault }
+  initial Idle
+
+  event Tick
+  event HeaterOff
+  event Setpoint(S(p: bit<8>))
+  event FanCmd
+  event FanOff
+  event FrostDetect
+  event DefrostDone
+  event FaultEvent
+  event Reset
+
+  output HeaterOn
+  output CompressorOn
+  output FanOn
+
+  var room_temp: bit<8> init 200
+  var setpoint: bit<8> init 200
+  # Actuator witnesses (the mutual-exclusion guard inputs).
+  var heater_on: bool init false
+  var compressor_on: bool init false
+
+  # Mutual exclusion: the heating and cooling valves never open together.
+  prop no_simultaneous_heat_cool : always (!(heater_on && compressor_on)) ;
+  # Hysteresis discipline: heating holds its side of the setpoint (no overshoot).
+  prop heat_stays_below_setpoint : always (state == Heating -> room_temp < setpoint) ;
+  # Hysteresis discipline: cooling holds its side of the setpoint (no undershoot).
+  prop cool_stays_above_setpoint : always (state == Cooling -> room_temp > setpoint) ;
+  # Defrost engages only when frozen (the sole entry is the FrostDetect from cooling).
+  prop defrost_gated : always (state == Defrost -> input_is(FrostDetect)) ;
+
+  # Band edges: heat below setpoint-10, cool above setpoint+10. The exclusion guards
+  # (!compressor_on / !heater_on) block a mode start while the opposing actuator runs.
+  transition Idle on Tick where room_temp < setpoint - 10 && !compressor_on { next Heating; emit HeaterOn; set heater_on = true; }
+  transition Idle on Tick where room_temp > setpoint + 10 && !heater_on { next Cooling; emit CompressorOn; set compressor_on = true; }
+  transition Idle on Tick where !(room_temp < setpoint - 10) && !(room_temp > setpoint + 10) { next Idle; }
+  # Blocked starts: wait for the opposing actuator to release (never open both).
+  transition Idle on Tick where room_temp < setpoint - 10 && compressor_on { next Idle; }
+  transition Idle on Tick where room_temp > setpoint + 10 && heater_on { next Idle; }
+  # The heater stays energised until explicitly switched off.
+  transition Idle on HeaterOff { next Idle; set heater_on = false; }
+  # Out-of-band setpoints are ignored (a real thermostat rejects them) - this also
+  # keeps the band-edge arithmetic wraparound-free.
+  transition Idle on Setpoint(S(p)) where p >= 20 && p <= 240 { next Idle; set setpoint = p; }
+  transition Idle on FanCmd { next FanOnly; emit FanOn; }
+  # Heating: the per-tick actuator step raises the temperature until the band edge.
+  transition Heating on Tick where room_temp >= setpoint - 10 { next Idle; }
+  transition Heating on Tick where room_temp < setpoint - 10 { next Heating; emit HeaterOn; set room_temp = room_temp + 5; }
+  # Cooling: the per-tick actuator step lowers the temperature until the band edge.
+  transition Cooling on Tick where room_temp <= setpoint + 10 { next Idle; set compressor_on = false; }
+  transition Cooling on Tick where room_temp > setpoint + 10 { next Cooling; emit CompressorOn; set room_temp = room_temp - 5; }
+  # A frozen evaporator (cooling mode only) goes to defrost.
+  transition Cooling on FrostDetect { next Defrost; set compressor_on = false; }
+  transition Defrost on DefrostDone { next Idle; }
+  transition FanOnly on FanOff { next Idle; }
+  # Faults from any mode; a reset releases both actuators.
+  transition Idle on FaultEvent { next Fault; }
+  transition Heating on FaultEvent { next Fault; }
+  transition Cooling on FaultEvent { next Fault; }
+  transition FanOnly on FaultEvent { next Fault; }
+  transition Defrost on FaultEvent { next Fault; }
+  transition Fault on Reset { next Idle; set heater_on = false; set compressor_on = false; }
+}

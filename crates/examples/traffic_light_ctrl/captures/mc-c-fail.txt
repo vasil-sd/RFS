@@ -1,0 +1,24 @@
+FAIL
+model-check summary: status=fail states=43 transitions=83 max_depth=12 reason=property-violation label=no_conflicting_greens step=13
+  unexpected terminations: 82
+  first unexpected: config 0 input index 3
+  monitor size: 0 bits
+  memory estimate: 1462 bytes
+property violation: no_conflicting_greens
+  violation step: 13
+  vars at violation step: Vars { timer: 0, ped_request: false, ns_green: true, ew_green: true, next_ew: true }
+counterexample trace:
+  initial state=State::NSGreen vars=Vars { timer: 0, ped_request: false, ns_green: true, ew_green: false, next_ew: false }
+  step 0 input=Input::TimerDone outputs=[] from=State::NSGreen to=State::NSGreen vars=Vars { timer: 1, ped_request: false, ns_green: true, ew_green: false, next_ew: false }
+  step 1 input=Input::TimerDone outputs=[] from=State::NSGreen to=State::NSGreen vars=Vars { timer: 2, ped_request: false, ns_green: true, ew_green: false, next_ew: false }
+  step 2 input=Input::TimerDone outputs=[] from=State::NSGreen to=State::NSGreen vars=Vars { timer: 3, ped_request: false, ns_green: true, ew_green: false, next_ew: false }
+  step 3 input=Input::TimerDone outputs=[] from=State::NSGreen to=State::NSGreen vars=Vars { timer: 4, ped_request: false, ns_green: true, ew_green: false, next_ew: false }
+  step 4 input=Input::TimerDone outputs=[] from=State::NSGreen to=State::NSGreen vars=Vars { timer: 5, ped_request: false, ns_green: true, ew_green: false, next_ew: false }
+  step 5 input=Input::TimerDone outputs=[] from=State::NSGreen to=State::NSGreen vars=Vars { timer: 6, ped_request: false, ns_green: true, ew_green: false, next_ew: false }
+  step 6 input=Input::TimerDone outputs=[] from=State::NSGreen to=State::NSGreen vars=Vars { timer: 7, ped_request: false, ns_green: true, ew_green: false, next_ew: false }
+  step 7 input=Input::TimerDone outputs=[] from=State::NSGreen to=State::NSGreen vars=Vars { timer: 8, ped_request: false, ns_green: true, ew_green: false, next_ew: false }
+  step 8 input=Input::TimerDone outputs=[] from=State::NSGreen to=State::NSYellow vars=Vars { timer: 0, ped_request: false, ns_green: true, ew_green: false, next_ew: false }
+  step 9 input=Input::TimerDone outputs=[] from=State::NSYellow to=State::NSYellow vars=Vars { timer: 1, ped_request: false, ns_green: true, ew_green: false, next_ew: false }
+  step 10 input=Input::TimerDone outputs=[] from=State::NSYellow to=State::NSYellow vars=Vars { timer: 2, ped_request: false, ns_green: true, ew_green: false, next_ew: false }
+  step 11 input=Input::TimerDone outputs=[] from=State::NSYellow to=State::NSYellow vars=Vars { timer: 3, ped_request: false, ns_green: true, ew_green: false, next_ew: false }
+  step 12 input=Input::TimerDone outputs=[] from=State::NSYellow to=State::EWGreen vars=Vars { timer: 0, ped_request: false, ns_green: true, ew_green: true, next_ew: true }

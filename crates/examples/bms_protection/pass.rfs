@@ -1,0 +1,67 @@
+# rfs 1.0
+# bms_protection (Phase 18 B2): a battery-pack manager - idle -> charging -> full ->
+# discharging -> balancing -> protection. Cell voltage is scaled to 100 mV units
+# (nominal 35 = 3.5 V, the hard limits are VMAX 42 = 4.2 V and VMIN 30 = 3.0 V); the
+# state-of-charge estimate tracks the charge/discharge ticks, and the per-cell delta
+# (the spread between the highest and lowest cell) gates balancing. Pack temperature
+# is watched by the abstracted thermal controller, which raises OverTemp when the
+# limit is crossed - the same abstraction as blc_motor_foc's current loop. The hard
+# safety bounds are enforced by transition guards: charging stops at VMAX,
+# discharging stops at VMIN, and a thermal shutdown LATCHES in Protection until an
+# explicit CoolDown (no re-entry while hot).
+module bms_protection {
+  enum State { Idle, Charging, Full, Discharging, Balancing, Protection }
+  initial Idle
+
+  event ChargeCmd
+  event Tick
+  event DischargeCmd
+  event BalanceCmd
+  event DeltaUpdate(D(d: bit<4>))
+  event BalanceDone
+  event OverTemp
+  event CoolDown
+
+  output ChargeFet
+  output DischargeFet
+  output BalanceEnable
+
+  var soc: bit<5> init 16
+  var cell_v: bit<8> init 35
+  # Per-cell voltage spread (highest minus lowest, in 10 mV units).
+  var cell_delta: bit<4> init 0
+
+  # Hard safety: the pack never charges above VMAX (42 = 4.2 V).
+  prop never_above_vmax : always (state == Charging -> cell_v <= 42) ;
+  # Hard safety: the pack never discharges below VMIN (30 = 3.0 V).
+  prop never_below_vmin : always (state == Discharging -> cell_v >= 30) ;
+  # Thermal shutdown latches: from Protection the only exit is an explicit CoolDown.
+  prop thermal_latch : always (state == Protection -> next (input_is(CoolDown) || state == Protection)) ;
+  # Balancing runs only while the cells are within the delta window (10 = 100 mV).
+  prop balancing_window : always (state == Balancing -> cell_delta <= 10) ;
+
+  transition Idle on ChargeCmd { next Charging; emit ChargeFet; }
+  # Charge: the over-voltage guard stops the FET drive at VMAX.
+  transition Charging on Tick where cell_v < 42 { next Charging; set cell_v = cell_v + 1; set soc = soc + 1; }
+  transition Charging on Tick where cell_v >= 42 { next Full; }
+  transition Full on DischargeCmd { next Discharging; emit DischargeFet; }
+  # Discharge: the under-voltage guard stops at VMIN.
+  transition Discharging on Tick where cell_v > 30 { next Discharging; set cell_v = cell_v - 1; set soc = soc - 1; }
+  transition Discharging on Tick where cell_v <= 30 { next Idle; }
+  # The cell-spread sensor updates in Full and Balancing.
+  transition Full on DeltaUpdate(D(d)) { next Full; set cell_delta = d; }
+  transition Balancing on DeltaUpdate(D(d)) where d <= 10 { next Balancing; set cell_delta = d; }
+  # A spread outside the window aborts balancing back to Full.
+  transition Balancing on DeltaUpdate(D(d)) where d > 10 { next Full; }
+  # Balance only when the cells are within the delta window.
+  transition Full on BalanceCmd where cell_delta <= 10 { next Balancing; emit BalanceEnable; }
+  transition Balancing on BalanceDone { next Full; }
+  # Thermal shutdown from any active mode (the abstracted thermal controller).
+  transition Charging on OverTemp { next Protection; }
+  transition Full on OverTemp { next Protection; }
+  transition Discharging on OverTemp { next Protection; }
+  transition Balancing on OverTemp { next Protection; }
+  # In protection the pack sits (time passes); only CoolDown releases it.
+  transition Protection on Tick { next Protection; }
+  transition Protection on CoolDown { next Idle; }
+}

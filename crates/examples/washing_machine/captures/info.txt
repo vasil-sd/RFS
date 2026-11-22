@@ -1,0 +1,28 @@
+module washing_machine
+  initial state: DoorLocked
+  enums:
+    State: DoorLocked, Filling, Agitating, Draining, Spinning, Rinsing, Done, Fault
+  events:
+    Start: Start
+    Tick: Tick
+    AgitateDone: AgitateDone
+    SpinRamp: SpinRamp
+    SpinDone: SpinDone
+    RinseStart: RinseStart
+    MotorFault: MotorFault
+    Reset: Reset
+  outputs:
+    ValveOpen: ValveOpen
+    MotorOn: MotorOn
+    DoorUnlock: DoorUnlock
+  variables:
+    water: bit<4> = 0
+    spin: bit<7> = 0
+    door_locked: bool = true
+  transitions: 18
+  properties:
+    safe_unlock: always (output_has(DoorUnlock) -> (spin == 0) && (water == 0)) - monitored
+    no_spin_door_open: always ((spin > 0) -> door_locked) - monitored
+    spin_bounded: always ((spin <= 100)) - monitored
+  assumptions: (none)
+

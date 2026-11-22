@@ -1,0 +1,64 @@
+# rfs 1.0
+# washing_machine (Phase 18 B8): a washer control FSM - door-locked -> filling ->
+# agitating -> draining -> spinning -> rinsing -> done, with a fault branch. The water
+# level fills to 8 and drains to 0; the spin speed RAMPs in steps of 20 up to the bound
+# of 100 (never above it). The COMPOUND UNLOCK GUARD is the safety core: the door unlocks
+# only when the drum is stopped (spin == 0) AND the water is drained (water == 0) - both
+# conditions are checked at the unlock step, so neither a spinning drum nor standing
+# water can be opened onto. Rationale: compound-guard + interlock semantics - the classic
+# appliance safety case.
+module washing_machine {
+  enum State { DoorLocked, Filling, Agitating, Draining, Spinning, Rinsing, Done, Fault }
+  initial DoorLocked
+
+  event Start
+  event Tick
+  event AgitateDone
+  event SpinRamp
+  event SpinDone
+  event RinseStart
+  event MotorFault
+  event Reset
+
+  output ValveOpen
+  output MotorOn
+  output DoorUnlock
+
+  var water: bit<4> init 0
+  var spin: bit<7> init 0
+  var door_locked: bool init true
+
+  # Compound safety: the door unlocks only when the drum is stopped AND drained.
+  prop safe_unlock : always (output_has(DoorUnlock) -> spin == 0 && water == 0) ;
+  # Interlock: no spin occurs with the door open.
+  prop no_spin_door_open : always (spin > 0 -> door_locked) ;
+  # The spin speed ramps within bounds (never above 100).
+  prop spin_bounded : always (spin <= 100) ;
+
+  transition DoorLocked on Start { next Filling; emit ValveOpen; set water = 2; }
+  # Fill to level 8, then agitate.
+  transition Filling on Tick where water < 8 { next Filling; set water = water + 2; }
+  transition Filling on Tick where water >= 8 { next Agitating; emit MotorOn; }
+  transition Agitating on AgitateDone { next Draining; }
+  # Drain to level 0, then spin.
+  transition Draining on Tick where water > 0 { next Draining; set water = water - 2; }
+  transition Draining on Tick where water == 0 { next Spinning; }
+  # The spin speed ramps in steps of 20, bounded at 100.
+  transition Spinning on SpinRamp where spin < 100 { next Spinning; set spin = spin + 20; }
+  # At full speed the drum is stopped and the cycle moves to rinsing.
+  transition Spinning on SpinDone where spin >= 100 { next Rinsing; set spin = 0; }
+  # Rinse: take in rinse water, drain it, then unlock (stopped AND drained).
+  transition Rinsing on RinseStart { next Rinsing; emit ValveOpen; set water = 4; }
+  transition Rinsing on Tick where water > 0 { next Rinsing; set water = water - 2; }
+  # The compound unlock guard: spin == 0 (set at SpinDone) AND water == 0 (drained).
+  transition Rinsing on Tick where water == 0 { next Done; emit DoorUnlock; set door_locked = false; }
+  # A motor fault stops the drum and waits for a reset.
+  transition Filling on MotorFault { next Fault; set spin = 0; }
+  transition Agitating on MotorFault { next Fault; set spin = 0; }
+  transition Draining on MotorFault { next Fault; set spin = 0; }
+  transition Spinning on MotorFault { next Fault; set spin = 0; }
+  transition Rinsing on MotorFault { next Fault; set spin = 0; }
+  # A reset from done closes the door and arms the machine for the next cycle.
+  transition Done on Reset { next DoorLocked; set door_locked = true; }
+  transition Fault on Reset { next DoorLocked; }
+}

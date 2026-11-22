@@ -1,0 +1,24 @@
+module traffic_light_ctrl
+  initial state: NSGreen
+  enums:
+    State: NSGreen, NSYellow, AllRed, EWGreen, EWYellow, Flasher
+  events:
+    TimerDone: TimerDone
+    PedRequest: PedRequest
+    Emergency: Emergency
+    Reset: Reset
+  outputs:
+    PedWalk: PedWalk
+  variables:
+    timer: bit<4> = 0
+    ped_request: bool = false
+    ns_green: bool = true
+    ew_green: bool = false
+    next_ew: bool = false
+  transitions: 22
+  properties:
+    no_conflicting_greens: always (!ns_green && ew_green) - monitored
+    preemption_safe: always (input_is(Emergency) -> (state == Flasher) && !ns_green && !ew_green) - monitored
+    allred_is_the_only_clearance: always ((state == AllRed) -> !ns_green && !ew_green) - monitored
+  assumptions: (none)
+

@@ -1,0 +1,17 @@
+FAIL
+model-check summary: status=fail states=4551 transitions=106509 max_depth=6 reason=property-violation label=no_simultaneous_heat_cool step=6
+  unexpected terminations: 656452
+  first unexpected: config 0 input index 2
+  monitor size: 0 bits
+  memory estimate: 159285 bytes
+property violation: no_simultaneous_heat_cool
+  violation step: 6
+  vars at violation step: Vars { room_temp: 205, setpoint: 20, heater_on: true, compressor_on: true }
+counterexample trace:
+  initial state=State::Idle vars=Vars { room_temp: 200, setpoint: 200, heater_on: false, compressor_on: false }
+  step 0 input=Input::Setpoint_S { p: 211 } outputs=[] from=State::Idle to=State::Idle vars=Vars { room_temp: 200, setpoint: 211, heater_on: false, compressor_on: false }
+  step 1 input=Input::Tick outputs=[Output::HeaterOn] from=State::Idle to=State::Heating vars=Vars { room_temp: 200, setpoint: 211, heater_on: true, compressor_on: false }
+  step 2 input=Input::Tick outputs=[Output::HeaterOn] from=State::Heating to=State::Heating vars=Vars { room_temp: 205, setpoint: 211, heater_on: true, compressor_on: false }
+  step 3 input=Input::Tick outputs=[] from=State::Heating to=State::Idle vars=Vars { room_temp: 205, setpoint: 211, heater_on: true, compressor_on: false }
+  step 4 input=Input::Setpoint_S { p: 20 } outputs=[] from=State::Idle to=State::Idle vars=Vars { room_temp: 205, setpoint: 20, heater_on: true, compressor_on: false }
+  step 5 input=Input::Tick outputs=[Output::CompressorOn] from=State::Idle to=State::Cooling vars=Vars { room_temp: 205, setpoint: 20, heater_on: true, compressor_on: true }

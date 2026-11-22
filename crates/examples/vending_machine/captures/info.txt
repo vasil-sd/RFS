@@ -1,0 +1,31 @@
+module vending_machine
+  initial state: Idle
+  enums:
+    State: Idle, CoinInserted, ProductSelected, Dispensing, ChangeDue, OutOfStock, Jam
+  events:
+    Coin: C(amt: bit<6>)
+    Select: Select
+    DispenseCmd: DispenseCmd
+    DispenseDone: DispenseDone
+    CollectChange: CollectChange
+    Jam: Jam
+    Restock: Restock
+    Reset: Reset
+  outputs:
+    Dispense: Dispense
+    ReturnChange: ReturnChange
+    Refund: Refund
+  variables:
+    money: bit<6> = 0
+    price: bit<6> = 50
+    stock: bit<2> = 3
+    owed: bit<6> = 0
+    change_out: bit<6> = 0
+  transitions: 13
+  properties:
+    no_dispense_underpaid: always (output_has(Dispense) -> (money >= price)) - monitored
+    correct_change: always (output_has(ReturnChange) -> (change_out == owed)) - monitored
+    no_loss_on_refund: always (output_has(Refund) -> (money == 0)) - monitored
+    no_dispense_out_of_stock: always (output_has(Dispense) -> (stock > 0)) - monitored
+  assumptions: (none)
+

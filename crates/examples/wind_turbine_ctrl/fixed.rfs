@@ -1,0 +1,61 @@
+# rfs 1.0
+# wind_turbine_ctrl (Phase 18 B4): a wind turbine controller mode machine - parked ->
+# starting -> ramp-up -> rated -> pitch-control -> cut-out -> emergency-stop, driven by
+# wind-speed thresholds. The rotor speed rises in steps of 4 per gust while ramping and
+# is capped at the rated value (20) by the pitch-response guard: once the cap is
+# reached, further gusts move the machine into pitch control, where feathering (pitch
+# += 30 per FeatherDone) sheds load until the speed is back below the re-entry band.
+# Cut-out at wind >= 30 is IRREVERSIBLE until an explicit Repermit, and the emergency
+# stop brakes from any active mode. Rationale: threshold hysteresis plus a strong
+# overspeed invariant - the classic turbine-safety shape.
+module wind_turbine_ctrl {
+  enum State { Parked, Starting, RampUp, Rated, PitchControl, CutOut, EStop }
+  initial Parked
+
+  event Start
+  event WindUp
+  event FeatherDone
+  event Repermit
+  event EmergencyStop
+  event Reset
+
+  output YawCmd
+  output PitchCmd
+  output Brake
+
+  var rotor_rpm: bit<8> init 0
+  var pitch: bit<8> init 0
+  var wind: bit<6> init 0
+
+  # Hard safety: the rotor never exceeds rated RPM (20).
+  prop never_above_rated_rpm : always (rotor_rpm <= 20) ;
+  # Bounded reaction: every step into pitch control emits the feather command at once.
+  prop bounded_feather : always (state == PitchControl -> output_has(PitchCmd)) ;
+  # Cut-out is irreversible until an explicit re-permission.
+  prop cutout_irreversible : always (state == CutOut -> next (input_is(Repermit) || state == CutOut)) ;
+
+  transition Parked on Start { next Starting; emit YawCmd; }
+  transition Parked on WindUp { next Parked; set wind = wind + 1; }
+  # Starting waits for enough wind to spin up.
+  transition Starting on WindUp where wind < 10 { next Starting; set wind = wind + 1; }
+  transition Starting on WindUp where wind >= 10 { next RampUp; set rotor_rpm = 4; set wind = wind + 1; }
+  # Ramp-up: the pitch-response guard caps the speed at rated (20). Cut-out outranks.
+  transition RampUp on WindUp where wind >= 30 { priority 2; next CutOut; emit Brake; set wind = wind + 1; }
+  transition RampUp on WindUp where rotor_rpm < 20 { next RampUp; set rotor_rpm = rotor_rpm + 4; set wind = wind + 1; }
+  transition RampUp on WindUp where rotor_rpm >= 20 { next Rated; emit PitchCmd; set wind = wind + 1; }
+  # At rated, a gust triggers pitch control (feather to shed load). Cut-out outranks.
+  transition Rated on WindUp where wind >= 30 { priority 2; next CutOut; emit Brake; set wind = wind + 1; }
+  transition Rated on WindUp { next PitchControl; emit PitchCmd; set wind = wind + 1; }
+  # Pitch control feathers until the speed is back below the re-entry band (12).
+  transition PitchControl on WindUp where wind >= 30 { priority 2; next CutOut; emit Brake; set wind = wind + 1; }
+  transition PitchControl on FeatherDone where rotor_rpm >= 12 { next PitchControl; emit PitchCmd; set rotor_rpm = rotor_rpm - 4; set pitch = pitch + 30; }
+  transition PitchControl on FeatherDone where rotor_rpm < 12 { next Rated; set pitch = 0; }
+  # Cut-out holds until re-permitted (the brake stays applied).
+  transition CutOut on Repermit { next Parked; set rotor_rpm = 0; set pitch = 0; set wind = 0; }
+  # Emergency stop brakes from any active mode.
+  transition Starting on EmergencyStop { next EStop; emit Brake; }
+  transition RampUp on EmergencyStop { next EStop; emit Brake; }
+  transition Rated on EmergencyStop { next EStop; emit Brake; }
+  transition PitchControl on EmergencyStop { next EStop; emit Brake; }
+  transition EStop on Reset { next Parked; set rotor_rpm = 0; set pitch = 0; }
+}

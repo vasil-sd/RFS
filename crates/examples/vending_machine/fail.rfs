@@ -1,0 +1,64 @@
+# rfs 1.0
+# vending_machine - FAILING VARIANT (Phase 18 B7): the full-payment guard is removed,
+# so a product is dispensed on partial payment. The original spec is pass.rfs.
+# a vending machine control FSM - idle -> coin-inserted ->
+# product-selected -> dispensing -> change-due, with out-of-stock and jam branches. Money
+# is accumulated in cents scaled to bit<6> (the machine takes up to 63 cents - the price
+# of 50 fits with change to spare), the product price is fixed at 50, and stock counts
+# items (bit<2>, restocked to 3). The FULL-PAYMENT guard is the safety core: a product is
+# dispensed only when money >= price - underpaid selections are refunded instead. The
+# change arithmetic (owed = money - price, computed in bit-vector subtraction at dispense)
+# is pinned by an invariant on the ReturnChange output, and every refund zeroes the held
+# money (no loss: a jam or an out-of-stock selection returns everything). Rationale:
+# money-accounting guards are a great bit-vector arithmetic exercise.
+module vending_machine {
+  enum State { Idle, CoinInserted, ProductSelected, Dispensing, ChangeDue, OutOfStock, Jam }
+  initial Idle
+
+  event Coin(C(amt: bit<6>))
+  event Select
+  event DispenseCmd
+  event DispenseDone
+  event CollectChange
+  event Jam
+  event Restock
+  event Reset
+
+  output Dispense
+  output ReturnChange
+  output Refund
+
+  var money: bit<6> init 0
+  var price: bit<6> init 50
+  var stock: bit<2> init 3
+  # Change arithmetic witnesses (set at dispense, checked at return).
+  var owed: bit<6> init 0
+  var change_out: bit<6> init 0
+
+  # Safety: no product is dispensed without full payment.
+  prop no_dispense_underpaid : always (output_has(Dispense) -> money >= price) ;
+  # Arithmetic invariant: the returned change equals what was owed at dispense.
+  prop correct_change : always (output_has(ReturnChange) -> change_out == owed) ;
+  # No loss: every refund zeroes the held money (jam / out-of-stock / underpaid).
+  prop no_loss_on_refund : always (output_has(Refund) -> money == 0) ;
+  # Safety: nothing is dispensed from an empty machine.
+  prop no_dispense_out_of_stock : always (output_has(Dispense) -> stock > 0) ;
+
+  transition Idle on Coin(C(amt)) { next CoinInserted; set money = money + amt; }
+  transition CoinInserted on Coin(C(amt)) { next CoinInserted; set money = money + amt; }
+  # Selection: an empty machine refunds instead of selecting.
+  transition CoinInserted on Select where stock > 0 { next ProductSelected; }
+  transition CoinInserted on Select where stock == 0 { next OutOfStock; emit Refund; set money = 0; }
+  // DEFECT: the full-payment guard is gone - a product is dispensed on partial payment.
+  transition ProductSelected on DispenseCmd { next Dispensing; emit Dispense; set owed = money - price; set change_out = money - price; }
+  # Delivery: the stock is decremented when the product actually comes out.
+  transition Dispensing on DispenseDone where owed > 0 { next ChangeDue; set stock = stock - 1; }
+  transition Dispensing on DispenseDone where owed == 0 { next Idle; set stock = stock - 1; set money = 0; }
+  transition ChangeDue on CollectChange { next Idle; emit ReturnChange; set money = 0; }
+  # A jam refunds the held money (no loss) and waits for a reset.
+  transition Dispensing on Jam { next Jam; emit Refund; set money = 0; }
+  transition Jam on Reset { next Idle; }
+  transition OutOfStock on Reset { next Idle; }
+  # Restocking refills the machine.
+  transition Idle on Restock { next Idle; set stock = 3; }
+}

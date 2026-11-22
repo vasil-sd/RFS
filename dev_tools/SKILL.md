@@ -16,14 +16,120 @@ TOOLCHAIN.md). Verify it is present before relying on it:
 export RUSTUP_HOME=/workspace/host/rustup CARGO_HOME=/workspace/host/.cargo PATH="$CARGO_HOME/bin:$PATH"
 cd /workspace/host/RFS
 cargo build -p rfs-dev          # builds the binary (fast; deps: syn + pulldown-cmark + regex)
-./target/debug/rfs-dev --help   # or: cargo run -q -p rfs-dev -- <tool>
+./target/debug/rfs-dev --help   # full self-contained CLI reference (exit 0)
 ```
 
 CLI conventions for every tool: compact structured stdout (tables/JSON, never raw
 file dumps); exit `0` success / `1` operational failure / `2` usage error; `--root`
-defaults to the repo root; mutating tools print the exact edit plan first and accept
-`--dry-run`. Invoke via `cargo run -q -p rfs-dev -- <tool> ...` (no build step needed
-if already built) or the built binary directly.
+defaults to the repo root (walked up from the cwd to `tests/dev_docs_manifest.txt`);
+mutating tools print the exact edit plan first and accept `--dry-run`. Invoke via
+`cargo run -q -p rfs-dev -- <tool> ...` (no build step needed if already built) or
+the built binary directly. `-h`/`--help` works at top level and after any
+subcommand/subverb; the CLI reference below is complete, so you never need to read
+the `rfs-dev` sources to learn its usage.
+
+## CLI reference (complete)
+
+### `sync-check`
+```
+usage: rfs-dev sync-check [--root DIR]
+```
+Read-only. Cross-checks every manifest-listed source file's `//! Docs:` pointer line
+against the fragment definitions under docs/dev/ + docs/llm/ and prints one line per
+stale/missing/orphan reference. Exit 0 when clean, 1 if any problem is listed.
+
+### `sync-fix`
+```
+usage: rfs-dev sync-fix [--map OLD=NEW ...] [--dry-run] [--root DIR]
+```
+Rewrites stale doc references per the given mappings (repeatable `OLD=NEW` pairs)
+across docs/dev/ + docs/llm/. Prints the exact edit plan first; `--dry-run` writes
+nothing. After applying, re-runs the check and prints any remaining problems. Exit 0
+only when nothing remains stale, 1 otherwise.
+
+### `context`
+```
+usage: rfs-dev context <name> [--file F] [--depth N] [--root DIR]
+```
+One-command impact context for a fn/type: its inventory row, its bounded Depends
+closure, the doc fragments that describe it, and related design decisions.
+- `<name>` - bare item name (letters/digits/underscore), never a full identifier.
+- `--file F` - restrict the search to one file (disambiguates same-named items).
+- `--depth N` - widen the dependency closure (positive integer, default 1).
+Read-only; the rendered template goes to stdout. Exit 1 on no match or ambiguity.
+
+### `edit-rename`
+```
+usage: rfs-dev edit-rename <old> <new> [--dry-run] [--root DIR]
+```
+syn-parsed rename of a fn/type across all Rust files. String literals and comments
+that merely contain the old name survive untouched (the "phantom" failure class).
+Both arguments must be bare item names. Plan-first; `--dry-run` writes nothing.
+Exit 1 if the symbol is missing or ambiguous.
+
+### `edit-move`
+```
+usage: rfs-dev edit-move <from> <to> [--dry-run] [--root DIR]
+```
+Moves a module file and rewrites every import site to the new path. Plan-first;
+`--dry-run` writes nothing. Exit 1 if the source file or its imports are not found.
+
+### `edit-replace-item`
+```
+usage: rfs-dev edit-replace-item <file> <item> --new-from FILE [--dry-run] [--root DIR]
+```
+Replaces one item (fn/type) in `<file>` by name with the content of FILE. `<item>`
+must be a bare item name; `--new-from` is required and given once. Plan-first;
+`--dry-run` writes nothing. Exit 1 if the item is missing or ambiguous in `<file>`.
+
+### `doc-section`
+```
+usage: rfs-dev doc-section <file|all> <heading...> [--root DIR]
+```
+Prints the content of the section addressed by the heading path. Each positional
+after the file is ONE heading element (quote multi-word headings); the path walks
+from a top-level match into strictly deeper children. `all` searches every docs file
+and prefixes each hit with its file name. Read-only; exit 1 if no section matches.
+
+### `inventory add|update|remove|audit`
+```
+usage: rfs-dev inventory audit [--root DIR]
+       rfs-dev inventory add --doc SRC|TEST --kind fn|type --id <file.rs::name>
+                             [--depends D] [--component C] [--functionality F]
+                             [--description T] [--documented D] [--dry-run] [--root DIR]
+       rfs-dev inventory update --doc SRC|TEST --kind fn|type --id <file.rs::name>
+                                --set COLUMN=VALUE [--dry-run] [--root DIR]
+       rfs-dev inventory remove --doc SRC|TEST --kind fn|type --id <file.rs::name>
+                                [--dry-run] [--root DIR]
+```
+Maintains the `docs/llm/SRC_STRUCTURE.md` / `TEST_STRUCTURE.md` rows (never
+hand-edit the tables).
+- `audit` - read-only completeness check: extracts every fn/type identifier from
+  source (strings masked) and diffs against the inventory rows per file. Prints
+  `EXACT: ...` and exits 0 when clean; one line per file's missing/stale items and
+  exit 1 otherwise. Takes no row arguments.
+- `add` - inserts a new row, keeping file grouping (after the last row of the same
+  file, else at the end of the table). `--id` is the full `<file>.rs::<name>`
+  identifier; the optional columns fill the remaining cells, missing ones stay
+  empty. Exit 1 if the row already exists or the target table is not found.
+- `update` - replaces one cell of an existing row. COLUMN is one of
+  depends|component|functionality|description|documented (the identifier column is
+  immutable - a rename is a remove+add). Exit 1 if the row is absent or the column
+  is unknown.
+- `remove` - deletes the row with the given identifier. Exit 1 if absent.
+The row ops are plan-first; `--dry-run` prints the plan and writes nothing.
+
+### `calls extract` / `calls classify`
+```
+usage: rfs-dev calls extract <commands.md> --out FILE
+       rfs-dev calls classify <calls.jsonl> --kind terminal|edit_file|python|misc [--out FILE]
+```
+The Rust ports of the python oracle scripts (must stay byte-identical to them).
+`extract` parses the recorded tool-call log and writes one JSON row per call plus
+the reconciliation summary to `--out` (required); read-only over the input.
+`classify` categorizes the extracted calls and writes one TSV per kind; default
+output is `<kind>_categories.tsv` in the current directory, `--out` overrides it.
+Neither takes `--root`.
 
 ## The six tools - when to use each
 
@@ -85,9 +191,9 @@ The `docs/llm/SRC_STRUCTURE.md` / `TEST_STRUCTURE.md` Depends maps must stay
 mechanically valid. Use the row operations (never hand-edit the tables) and the audit:
 
 ```sh
-rfs-dev inventory add --doc SRC --file src/x.rs --item 'fn foo' ...   # add a row
-rfs-dev inventory update --doc TEST --file tests/y.rs --item 'fn bar' ... 
-rfs-dev inventory remove --doc SRC --file src/x.rs --item 'fn gone'
+rfs-dev inventory add --doc SRC --kind fn --id src/x.rs::foo --description '...'   # add a row
+rfs-dev inventory update --doc TEST --kind fn --id tests/y.rs::bar --set documented='dev:example'
+rfs-dev inventory remove --doc SRC --kind fn --id src/x.rs::gone
 rfs-dev inventory audit          # string-masked completeness check; exit 1 on any source/inventory diff
 ```
 `audit` is the Phase 10/11 completeness method: it extracts every fn/type identifier

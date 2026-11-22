@@ -31,6 +31,185 @@ fn usage() -> String {
         + "calls <extract|classify>>"
 }
 
+/// Top-level `--help` / `-h` reference (stdout, exit 0). The compact error-path
+/// `usage()` line stays pinned for the exit-2 diagnostics; this is the rich form
+/// that makes reading the sources unnecessary to learn the surface.
+fn top_help() -> &'static str {
+    r#"rfs-dev - deterministic, plan-first maintenance tools for the RFS repo.
+
+usage: rfs-dev <subcommand> [args] [--root DIR]
+
+  sync-check                            read-only: list stale/missing/orphan doc<->source pointers (exit 1 if any)
+  sync-fix [--map OLD=NEW ...]          rewrite stale references per the mappings; plan-first, --dry-run
+  context <name> [--file F] [--depth N] one-command impact context for a fn/type (row + Depends closure + docs)
+  edit-rename <old> <new>               syn-parsed rename of a fn/type across all .rs files; strings/comments untouched
+  edit-move <from> <to>                 move a module file + rewrite every import site to the new path
+  edit-replace-item <file> <item> --new-from FILE   replace one item by name with the content of a file
+  doc-section <file|all> <heading...>   print a doc section by heading path (walks real headings, not line numbers)
+  inventory add|update|remove|audit     structure-inventory row ops + the string-masked completeness audit
+  calls extract <commands.md> --out F   port of extract_calls.py: one JSON row per call + reconciliation summary
+  calls classify <calls.jsonl> --kind K [--out F]   port of classify_calls.py: one TSV per call kind
+
+common flags:
+  --root DIR    repo root; default walks up from the cwd to tests/dev_docs_manifest.txt
+                (every subcommand except `calls extract` / `calls classify`)
+  -h, --help    this reference at top level; after a subcommand, that tool's detailed usage
+
+mutating tools additionally accept:
+  --dry-run     print the exact edit plan and write nothing
+
+exit codes: 0 success / 1 operational failure (audit diffs, stale pointers remain) / 2 usage error"#
+}
+
+/// Detailed per-subcommand help, keyed by the full name (`inventory add`,
+/// `calls classify`, ...). Printed by `<subcommand> --help` (stdout, exit 0).
+fn sub_help(full: &str) -> Option<&'static str> {
+    Some(match full {
+        "sync-check" => {
+            r#"usage: rfs-dev sync-check [--root DIR]
+
+Read-only. Cross-checks every manifest-listed source file's `//! Docs:` pointer
+line against the fragment definitions under docs/dev/ + docs/llm/ and prints one
+line per stale/missing/orphan reference. Exit 0 when clean, 1 if any problem is
+listed. Run it whenever `cargo test --test dev_docs_test` fails - the output
+names exactly what to repair."#
+        }
+        "sync-fix" => {
+            r#"usage: rfs-dev sync-fix [--map OLD=NEW ...] [--dry-run] [--root DIR]
+
+Rewrites stale doc references per the given mappings (repeatable OLD=NEW pairs)
+across docs/dev/ + docs/llm/. Prints the exact edit plan first; with --dry-run
+nothing is written. After applying, re-runs the check and prints any remaining
+problems. Exit 0 only when nothing remains stale, 1 otherwise."#
+        }
+        "context" => {
+            r#"usage: rfs-dev context <name> [--file F] [--depth N] [--root DIR]
+
+One-command impact context for a fn/type: its inventory row, its bounded Depends
+closure, the doc fragments that describe it, and related design decisions.
+  <name>    bare item name (letters/digits/underscore) - never a full identifier
+  --file F  restrict the search to one file (disambiguates same-named items)
+  --depth N widen the dependency closure (positive integer, default 1)
+Read-only; the rendered template goes to stdout. Exit 1 on no match or ambiguity."#
+        }
+        "edit-rename" => {
+            r#"usage: rfs-dev edit-rename <old> <new> [--dry-run] [--root DIR]
+
+syn-parsed rename of a fn/type across all Rust files. String literals and
+comments that merely contain the old name survive untouched (the "phantom"
+failure class). Both arguments must be bare item names. Prints the plan first;
+--dry-run writes nothing. Exit 1 if the symbol is missing or ambiguous."#
+        }
+        "edit-move" => {
+            r#"usage: rfs-dev edit-move <from> <to> [--dry-run] [--root DIR]
+
+Moves a module file and rewrites every import site to the new path. Plan-first;
+--dry-run writes nothing. Exit 1 if the source file or its imports are not found."#
+        }
+        "edit-replace-item" => {
+            r#"usage: rfs-dev edit-replace-item <file> <item> --new-from FILE [--dry-run] [--root DIR]
+
+Replaces one item (fn/type) in <file> by name with the content of FILE. <item>
+must be a bare item name; --new-from is required and given once. Plan-first;
+--dry-run writes nothing. Exit 1 if the item is missing or ambiguous in <file>."#
+        }
+        "doc-section" => {
+            r#"usage: rfs-dev doc-section <file|all> <heading...> [--root DIR]
+
+Prints the content of the section addressed by the heading path. Each positional
+after the file is ONE heading element (quote multi-word headings); the path walks
+from a top-level match into strictly deeper children. `all` searches every docs
+file and prefixes each hit with its file name. Read-only; exit 1 if no section
+matches."#
+        }
+        "inventory add" => {
+            r#"usage: rfs-dev inventory add --doc SRC|TEST --kind fn|type --id <file.rs::name>
+                             [--depends D] [--component C] [--functionality F]
+                             [--description T] [--documented D]
+                             [--dry-run] [--root DIR]
+
+Adds one row to the structure inventory, keeping file grouping (inserted after
+the last row of the same file, else at the end of the table). --id is the full
+`<file>.rs::<name>` identifier; the optional columns fill the remaining cells,
+missing ones stay empty. Plan-first; --dry-run writes nothing. Exit 1 if the row
+already exists or the target table is not found."#
+        }
+        "inventory update" => {
+            r#"usage: rfs-dev inventory update --doc SRC|TEST --kind fn|type --id <file.rs::name>
+                                --set COLUMN=VALUE [--dry-run] [--root DIR]
+
+Replaces one cell of an existing row. COLUMN is one of depends|component|
+functionality|description|documented (the identifier column is immutable - a
+rename is a remove+add). Plan-first; --dry-run writes nothing. Exit 1 if the row
+is absent or the column is unknown."#
+        }
+        "inventory remove" => {
+            r#"usage: rfs-dev inventory remove --doc SRC|TEST --kind fn|type --id <file.rs::name>
+                                [--dry-run] [--root DIR]
+
+Deletes the row with the given identifier. Plan-first; --dry-run writes nothing.
+Exit 1 if the row is absent."#
+        }
+        "inventory audit" => {
+            r#"usage: rfs-dev inventory audit [--root DIR]
+
+Read-only completeness check (the Phase 10/11 method): extracts every fn/type
+identifier from source with strings masked and diffs against the inventory rows
+per file. Prints `EXACT: ...` and exits 0 when clean; otherwise one line per
+file's missing/stale items and exit 1. Takes no row arguments."#
+        }
+        "calls extract" => {
+            r#"usage: rfs-dev calls extract <commands.md> --out FILE
+
+The Rust port of extract_calls.py: parses the recorded tool-call log and writes
+one JSON row per call plus the reconciliation summary to FILE (--out required).
+Read-only over the input; writes only --out. Must stay byte-identical to the
+python oracle."#
+        }
+        "calls classify" => {
+            r#"usage: rfs-dev calls classify <calls.jsonl> --kind terminal|edit_file|python|misc [--out FILE]
+
+The Rust port of classify_calls.py: categorizes the extracted calls and writes
+one TSV per kind. Default output is <kind>_categories.tsv in the current
+directory; --out overrides it. Read-only over the inventory."#
+        }
+        _ => return None,
+    })
+}
+
+/// Group overview for `inventory --help` / `calls --help` (before a subverb).
+fn group_help(group: &str) -> Option<&'static str> {
+    Some(match group {
+        "inventory" => {
+            r#"usage: rfs-dev inventory <add|update|remove|audit> [args] [--root DIR]
+
+Maintains the docs/llm/SRC_STRUCTURE.md / TEST_STRUCTURE.md rows (never hand-edit
+the tables) and runs the string-masked completeness audit.
+
+  audit    read-only; prints per-file missing/stale diffs, exit 1 on any
+  add      --doc SRC|TEST --kind fn|type --id <file.rs::name> [--depends D]
+           [--component C] [--functionality F] [--description T]
+           [--documented D] [--dry-run]
+  update   as add, plus the required --set COLUMN=VALUE (one column per call)
+  remove   --doc SRC|TEST --kind fn|type --id <file.rs::name> [--dry-run]
+
+The row ops are plan-first; --dry-run prints the plan and writes nothing.
+`rfs-dev inventory <subverb> --help` shows one subverb in full."#
+        }
+        "calls" => {
+            r#"usage: rfs-dev calls <extract|classify> [args]
+
+The Rust ports of the python oracle scripts (must stay byte-identical to them).
+
+  extract   <commands.md> --out FILE            one JSON row per recorded call + reconciliation summary
+  classify  <calls.jsonl> --kind K [--out F]    one TSV per call kind (K = terminal|edit_file|python|misc)
+
+Neither takes --root. `rfs-dev calls <subverb> --help` shows one subverb in full."#
+        }
+        _ => return None,
+    })
+}
+
 fn main() {
     let args: Vec<String> = std::env::args().skip(1).collect();
     std::process::exit(dispatch(&args));
@@ -40,35 +219,59 @@ fn main() {
 /// Writes its diagnostics to stderr and returns the exit code.
 fn dispatch(args: &[String]) -> i32 {
     let Some(sub) = args.first() else {
-        eprintln!("{}`", usage());
+        eprintln!("{}", usage());
         return 2;
     };
+    // `--help`/`-h` before any subcommand: the rich top-level reference.
+    if sub == "--help" || sub == "-h" {
+        println!("{}", top_help());
+        return 0;
+    }
     if !SUBCOMMANDS.contains(&sub.as_str()) {
         eprintln!("rfs-dev: unknown subcommand `{sub}`");
-        eprintln!("{}`", usage());
+        eprintln!("{}", usage());
         return 2;
     }
-    // Grouped subcommands require a valid subverb; the stub message then names
-    // the full `group subverb` pair.
+    // Grouped subcommands require a valid subverb; `--help` before the subverb
+    // prints the group overview instead of a usage error.
     let full = match sub.as_str() {
         "inventory" => match args.get(1) {
+            Some(v) if v == "--help" || v == "-h" => {
+                println!("{}", group_help("inventory").unwrap_or(top_help()));
+                return 0;
+            }
             Some(v) if INVENTORY_SUBVERBS.contains(&v.as_str()) => format!("inventory {v}"),
             _ => {
                 eprintln!("rfs-dev: `inventory` requires one of: add | update | remove | audit");
-                eprintln!("{}`", usage());
+                eprintln!("{}", usage());
                 return 2;
             }
         },
         "calls" => match args.get(1) {
+            Some(v) if v == "--help" || v == "-h" => {
+                println!("{}", group_help("calls").unwrap_or(top_help()));
+                return 0;
+            }
             Some(v) if CALLS_SUBVERBS.contains(&v.as_str()) => format!("calls {v}"),
             _ => {
                 eprintln!("rfs-dev: `calls` requires one of: extract | classify");
-                eprintln!("{}`", usage());
+                eprintln!("{}", usage());
                 return 2;
             }
         },
         other => other.to_string(),
     };
+    // `--help`/`-h` anywhere after the subcommand (and subverb): that tool's
+    // detailed usage, before any argument validation.
+    let rest = if matches!(sub.as_str(), "inventory" | "calls") {
+        &args[2..]
+    } else {
+        &args[1..]
+    };
+    if rest.iter().any(|a| a == "--help" || a == "-h") {
+        println!("{}", sub_help(&full).unwrap_or(top_help()));
+        return 0;
+    }
     match full.as_str() {
         "sync-check" | "sync-fix" => run_sync(&full, &args[1..]),
         "context" => run_context(&args[1..]),
@@ -919,5 +1122,19 @@ mod tests {
         // --kind), not stubs - exit 2 either way, but for a different reason.
         assert_eq!(dispatch(&args("calls extract")), 2);
         assert_eq!(dispatch(&args("calls classify")), 2);
+    }
+
+    #[test]
+    fn help_flags_exit_0_at_every_level() {
+        // Top level, group level (before the subverb), and per-subcommand -
+        // including --help after other arguments.
+        assert_eq!(dispatch(&args("--help")), 0);
+        assert_eq!(dispatch(&args("-h")), 0);
+        assert_eq!(dispatch(&args("sync-check --help")), 0);
+        assert_eq!(dispatch(&args("context foo -h")), 0);
+        assert_eq!(dispatch(&args("inventory --help")), 0);
+        assert_eq!(dispatch(&args("inventory add --help")), 0);
+        assert_eq!(dispatch(&args("calls -h")), 0);
+        assert_eq!(dispatch(&args("calls classify --kind terminal --help")), 0);
     }
 }

@@ -34,7 +34,11 @@ that runs before any codegen/MC.
 - a product is dispensed only with full payment - `correct_change` holds (the returned
 change equals what was owed at dispense: the bit-vector subtraction is pinned),
 `no_loss_on_refund` holds (every refund zeroes the held money - jam, out-of-stock and
-underpaid selections all return everything), and `no_dispense_out_of_stock` holds. The
+underpaid selections all return everything), `no_dispense_out_of_stock` holds, and
+`jam_resets_to_idle` is a **next-form** step semantic (task 3B): a Jam lands the machine in
+the Jam state, whose only exit is the Reset back to Idle, so the sample after a Jam is Idle -
+it holds because every step consumes an input (the next input is either Reset or unhandled,
+which terminates the path and makes the next-obligation weak). The
 negative variant `fail.rfs` removes the full-payment guard so a product is dispensed on
 partial payment - a pinned **property-violation** CE on `no_dispense_underpaid` at step 3
 (a DispenseCmd with money=0 < price=50 emits Dispense; owed wraps to 14 = 0-50 mod 64);
@@ -85,4 +89,10 @@ capture is shown instead.
   (the full-width bit<8> model exceeds this sandbox's ~1 GB RSS cap - noted simplification
   per the phase plan's discrete-layer rule). The `owed`/`change_out` witnesses make the
   change arithmetic checkable: the invariant compares them at ReturnChange time, and the
-  defect path's wraparound (0 - 50 = 14 mod 64) is visible in the pinned CE.
+  defect path's wraparound (0 - 50 = 14 mod 64) is visible in the pinned CE. The `next`-form
+  property is checked under BOTH exact MC and smt-bounded: before task 3A it false-failed
+  under smt-bounded (an intervening unhandled input froze the Jam config and the old engine
+  checked `next(state == Idle)` against it), and 3A's liveness gate makes it weak at trace
+  death. A `bounded_eventually[N](state == Idle)` return claim is deliberately NOT stated:
+  the machine can sit in Jam/OutOfStock until a Reset, so that liveness needs an assumption
+  (Reset eventually arrives) - assumption support in smt-bounded is task 3C's territory.

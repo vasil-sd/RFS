@@ -41,6 +41,16 @@ module vending_machine {
   prop no_loss_on_refund : always (output_has(Refund) -> money == 0) ;
   # Safety: nothing is dispensed from an empty machine.
   prop no_dispense_out_of_stock : always (output_has(Dispense) -> stock > 0) ;
+  # A next-form step semantic (task 3B): a Jam lands the machine in the Jam state, whose
+  # ONLY exit is the Reset back to Idle - so the sample after a Jam is Idle. This holds
+  # because every step consumes an input: after entering Jam the next input is either
+  # Reset (-> Idle) or unhandled (the path terminates, making the next-obligation
+  # weak/vacuous). It is the form that FALSE-FAILED under smt-bounded before task 3A (an
+  # intervening unhandled input froze the Jam config and the old engine checked
+  # next(state == Idle) against it); 3A's liveness gate makes it safe. A bounded_eventually
+  # return-to-Idle claim is NOT stated here: the machine can sit in Jam/OutOfStock until a
+  # Reset, so that liveness needs an assumption (task 3C's territory).
+  prop jam_resets_to_idle : always (input_is(Jam) -> next (state == Idle)) ;
 
   transition Idle on Coin(C(amt)) { next CoinInserted; set money = money + amt; }
   transition CoinInserted on Coin(C(amt)) { next CoinInserted; set money = money + amt; }

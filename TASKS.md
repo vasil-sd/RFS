@@ -2913,3 +2913,19 @@ PHASE 8 IS NOW COMPLETE.
 - Finding: closed a latent parity bug - in-process BE gated each disjunct by alive[j] but the generated runtimes gated none; now all three identical.
 - Verification: cargo test --features smt 382/0, default 378/0; clippy no new warnings (net -1); fmt clean; inventory audit EXACT (SRC 1024/215, TEST 1093/35); dev_docs_test + docs_md_test green.
 - Environment: /dev/null was again a regular file holding git-status text, breaking the rustc target-probe (E0762); fixed by truncating it + RUSTC_WRAPPER=/tmp/rustc-wrap.sh + deleting corrupted target/.rustc_info.json.
+
+## 2026-11-22 22:10 — Phase 18 task 3B: restore next-form properties in B6 (traffic_light_ctrl) + B7 (vending_machine)
+
+### Interpretation & plan
+
+- Requested: execute scheduled task 3B - now that 3A fixed the D1/D2 soundness gaps, restore the `next`-form property forms that task 3's status forced onto "pure invariants / input-anchored implications only" in the two control-FSM examples that demo smt-bounded.
+- Plan: add a genuine next-form step semantic to each spec (a D1 reproduction - anchor on entering a fault state whose only exit is the recovery transition, so the next-body excludes the frozen state), verify PASS complete under exact MC, regenerate the smt captures, update the READMEs, and confirm the test-leg pins are unchanged.
+
+### Report
+
+- B6 `traffic_light_ctrl/pass.rfs`: added `emergency_returns_to_nsgreen : always (input_is(Emergency) -> next (state == NSGreen))` - Flasher's only exit is Reset->NSGreen, so the sample after an Emergency is NSGreen (any other input terminates the path, making next weak).
+- B7 `vending_machine/pass.rfs`: added `jam_resets_to_idle : always (input_is(Jam) -> next (state == Idle))` - the same D1 scenario on the Jam fault state.
+- Both PASS complete under exact MC (state counts unchanged: 126 / 6465) and PASS WITHIN BOUND 16 under smt-bounded; the regenerated smt-pass.txt captures are byte-identical to committed (no diff).
+- READMEs updated: the next-form property is described, the "no next under smt-bounded" workaround note is retired for these specs, and the bounded-cycle/return-to-Idle liveness claims are explicitly deferred to 3C (they need assumptions).
+- No test-leg re-pinning needed (state counts, verdict, and fail.rfs CE excerpts all unchanged).
+- Verification: rfs validate both valid (pre-existing shared-pattern warnings untouched); exact MC + smt-bounded both pass; captures byte-identical.

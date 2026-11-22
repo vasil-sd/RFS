@@ -39,8 +39,12 @@ that runs before any codegen/MC.
 (the lamps are off throughout the clearance interval, and since a green is only set out
 of AllRed while the other is only cleared in it, the all-red insertion before every phase
 change is pinned jointly), and `preemption_safe` holds (an Emergency lands in Flasher with
-every lamp cleared - the safe gap). The cycle time is bounded by construction: fixed phase
-lengths of 8/3/2 ticks per approach. The negative variant `fail.rfs` removes the all-red
+every lamp cleared - the safe gap). `emergency_returns_to_nsgreen` is a **next-form** step
+semantic (task 3B): an Emergency lands in Flasher, whose only exit is the Reset back to
+NSGreen, so the sample after an Emergency is NSGreen - it holds because every step consumes
+an input (the next input is either Reset or unhandled, which terminates the path and makes
+the next-obligation weak). The cycle time is bounded by construction: fixed phase lengths of
+8/3/2 ticks per approach. The negative variant `fail.rfs` removes the all-red
 clearance so N-S yellow hands straight over to E-W green with the N-S lamp still on - a
 pinned **property-violation** CE on `no_conflicting_greens` at step 13 (a TimerDone from
 NSYellow to EWGreen leaves ns_green=true AND ew_green=true); `fixed.rfs` re-inserts the
@@ -89,6 +93,10 @@ capture is shown instead.
 - What to pay attention to: the clearance invariant is a JOINT pin - `no_conflicting_greens`
   alone would still hold if both lamps were cleared somewhere else, and the clearance
   invariant alone would not catch a handover that skipped it; together they force every green
-  change through AllRed. The spec carries no assumptions (smt-bounded rejects them), which is
-  why the bounded-cycle claim is stated by construction (fixed phase lengths) rather than as
-  a liveness property.
+  change through AllRed. The `next`-form property is checked under BOTH exact MC and
+  smt-bounded: before task 3A it false-failed under smt-bounded (an intervening unhandled
+  input froze the Flasher config and the old engine checked `next(state == NSGreen)` against
+  it), and 3A's liveness gate makes it weak at trace death. The bounded-CYCLE claim
+  (`bounded_eventually[N](state == AllRed)`) is still stated by construction rather than as a
+  liveness property, because that needs an assumption (TimerDone keeps firing) which this
+  spec carries none - assumption support in smt-bounded is task 3C's territory.

@@ -36,6 +36,14 @@ module traffic_light_ctrl {
   # this jointly - a green handover that skipped the clearance would leave both lamps
   # on). The cycle time is bounded by construction: fixed phase lengths of 8/3/2 ticks.
   prop allred_is_the_only_clearance : always (state == AllRed -> !ns_green && !ew_green) ;
+  # A next-form step semantic (task 3B): an Emergency preemption lands in Flasher, and
+  # Flasher's ONLY exit is the Reset back to NSGreen - so the sample after an Emergency
+  # is NSGreen. This holds because every step consumes an input: after entering Flasher
+  # the next input is either Reset (-> NSGreen) or unhandled (the path terminates, making
+  # the next-obligation weak/vacuous). It is the form that FALSE-FAILED under smt-bounded
+  # before task 3A (an intervening unhandled input froze the Flasher config and the old
+  # engine checked next(state == NSGreen) against it); 3A's liveness gate makes it safe.
+  prop emergency_returns_to_nsgreen : always (input_is(Emergency) -> next (state == NSGreen)) ;
 
   # N-S green phase (8 ticks), then yellow (3).
   transition NSGreen on TimerDone where timer < 8 { next NSGreen; set timer = timer + 1; }

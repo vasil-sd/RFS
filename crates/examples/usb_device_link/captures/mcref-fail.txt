@@ -1,0 +1,14 @@
+FAIL
+model-check summary: status=fail states=2303 transitions=2464 max_depth=3 reason=property-violation label=no_data_while_suspended step=3
+  unexpected terminations: 19139
+  first unexpected: config 0 input index 0
+  monitor size: 0 bits
+  memory estimate: 78302 bytes
+property violation: no_data_while_suspended
+  violation step: 3
+  vars at violation step: Vars { addr: 1, config: 0, suspended_from: SuspFrom::Addressed }
+counterexample trace:
+  initial state=State::Default vars=Vars { addr: 0, config: 0, suspended_from: SuspFrom::None }
+  step 0 input=Input::SetAddr_A { addr: 1 } outputs=[] from=State::Default to=State::Addressed vars=Vars { addr: 1, config: 0, suspended_from: SuspFrom::None }
+  step 1 input=Input::SuspendReq outputs=[] from=State::Addressed to=State::Suspended vars=Vars { addr: 1, config: 0, suspended_from: SuspFrom::Addressed }
+  step 2 input=Input::DataIn outputs=[Output::SendData] from=State::Suspended to=State::Suspended vars=Vars { addr: 1, config: 0, suspended_from: SuspFrom::Addressed }

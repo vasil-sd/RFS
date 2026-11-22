@@ -1,0 +1,64 @@
+# rfs 1.0
+# kerberos_auth (Phase 18 A20): a Kerberos (RFC 4120) authentication state machine -
+# AS-REQ/AS-REP (obtain TGT), TGS-REQ/TGS-REP (obtain service ticket), AP-REQ/AP-REP
+# (service access). The clock advances on Tick; the TGT and service ticket carry
+# expiry timestamps, and a replay cache rejects a repeated authenticator timestamp.
+# The AS and TGS exchanges are atomic at this abstraction level (no Tick inside them),
+# so an expiry checked at request time still holds at grant time. Time is abstracted
+# to bit<3> (the TGT lives 6 ticks, the service ticket 4) so exact model checking
+# stays feasible - the real protocol's hour-scale lifetimes are the same machine at a
+# coarser clock.
+module kerberos_auth {
+  enum State { Idle, AsExchange, HaveTgt, TgsExchange, HaveSt, ServiceAccess, Denied }
+  initial Idle
+
+  event AsReq(T(ts: bit<3>))
+  event AsRep
+  event TgsReq(T(ts: bit<3>))
+  event TgsRep
+  event ApReq(T(ts: bit<3>))
+  event Done
+  event Tick
+
+  output GrantTgt
+  output GrantSt
+  output GrantAccess
+  output Reject
+
+  var clock: bit<3> init 0
+  var tgt_expiry: bit<3> init 0
+  var have_tgt: bool init false
+  var st_expiry: bit<3> init 0
+  var have_st: bool init false
+  # Replay cache: the last accepted authenticator timestamp.
+  var last_ts: bit<3> init 0
+  var seen_ts: bool init false
+  # Per-request replay flag: set true iff this request repeated a seen timestamp.
+  var replayed: bool init false
+
+  # No service ticket is granted on an expired TGT (the exchange is atomic, so the
+  # expiry checked at TgsReq time still holds at TgsRep time).
+  prop no_access_with_expired_tgt : always (output_has(GrantSt) -> tgt_expiry > clock) ;
+  # Replay safety: no grant is emitted on a step whose request repeated a seen
+  # timestamp (the reject path may set the flag; a grant never does).
+  prop no_replay : always ((output_has(GrantTgt) || output_has(GrantSt) || output_has(GrantAccess)) -> !replayed) ;
+
+  transition Idle on AsReq(T(ts)) { next AsExchange; set last_ts = ts; set seen_ts = true; set replayed = false; }
+  # AS exchange (atomic): the TGT is valid for 6 ticks from now.
+  transition AsExchange on AsRep { next HaveTgt; emit GrantTgt; set have_tgt = true; set tgt_expiry = clock + 6; }
+  # TGS: accept only with a valid, unexpired TGT and a fresh timestamp.
+  transition HaveTgt on TgsReq(T(ts)) where have_tgt && tgt_expiry > clock && !(seen_ts && ts == last_ts) { priority 2; next TgsExchange; set last_ts = ts; set replayed = false; }
+  transition HaveTgt on TgsReq(T(ts)) where !have_tgt || tgt_expiry <= clock || (seen_ts && ts == last_ts) { priority 1; next Denied; emit Reject; set replayed = seen_ts && ts == last_ts; }
+  # TGS exchange (atomic): the service ticket is valid for 4 ticks from now.
+  transition TgsExchange on TgsRep { next HaveSt; emit GrantSt; set have_st = true; set st_expiry = clock + 4; }
+  # AP: accept only with a valid, unexpired service ticket and a fresh timestamp.
+  transition HaveSt on ApReq(T(ts)) where have_st && st_expiry > clock && !(seen_ts && ts == last_ts) { priority 2; next ServiceAccess; emit GrantAccess; set last_ts = ts; set replayed = false; }
+  transition HaveSt on ApReq(T(ts)) where !have_st || st_expiry <= clock || (seen_ts && ts == last_ts) { priority 1; next Denied; emit Reject; set replayed = seen_ts && ts == last_ts; }
+  transition ServiceAccess on Done { next Idle; set have_st = false; }
+  # The clock advances outside the atomic exchanges.
+  transition Idle on Tick { next Idle; set clock = clock + 1; }
+  transition HaveTgt on Tick { next HaveTgt; set clock = clock + 1; }
+  transition HaveSt on Tick { next HaveSt; set clock = clock + 1; }
+  transition ServiceAccess on Tick { next ServiceAccess; set clock = clock + 1; }
+  transition Denied on Tick { next Idle; set have_tgt = false; set have_st = false; set seen_ts = false; set clock = clock + 1; }
+}

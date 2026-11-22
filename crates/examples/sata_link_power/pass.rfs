@@ -1,0 +1,36 @@
+# rfs 1.0
+# sata_link_power (Phase 18 A17): a SATA link & power state machine (ACS Link Power
+# Management) - Active / Partial / DevSlumber / Slumber, with host-to-device power
+# transitions and wake. The device-side power state is tracked as a cross-port enum
+# var that must stay consistent with the link state. Commands may issue in Active and
+# Partial (with a power penalty) but never in a slumber state without a wake first.
+module sata_link_power {
+  enum State { Active, Partial, DevSlumber, Slumber }
+  initial Active
+
+  event CmdIn
+  event H2DTransition
+  event Wake
+
+  output SendCommand
+  output SendSmp
+
+  enum DevPower { On, Partial, Slumber }
+  var dev_power: DevPower init DevPower::On
+
+  # No command while asleep: commands issue only in Active or Partial.
+  prop no_command_while_asleep : always (output_has(SendCommand) -> state == Active || state == Partial) ;
+  # Wake symmetry: a wake always returns the link to Active.
+  prop wake_returns_active : always (input_is(Wake) -> state == Active) ;
+
+  transition Active on CmdIn { next Active; emit SendCommand; }
+  transition Partial on CmdIn { next Partial; emit SendCommand; }
+  # Host-to-device power transitions, one level deeper at a time.
+  transition Active on H2DTransition { next Partial; emit SendSmp; set dev_power = DevPower::Partial; }
+  transition Partial on H2DTransition { next DevSlumber; emit SendSmp; set dev_power = DevPower::Slumber; }
+  transition DevSlumber on H2DTransition { next Slumber; emit SendSmp; }
+  # Wake from any low-power state returns to Active and restores device power.
+  transition Partial on Wake { next Active; emit SendSmp; set dev_power = DevPower::On; }
+  transition DevSlumber on Wake { next Active; emit SendSmp; set dev_power = DevPower::On; }
+  transition Slumber on Wake { next Active; emit SendSmp; set dev_power = DevPower::On; }
+}

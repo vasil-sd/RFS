@@ -1,0 +1,48 @@
+# rfs 1.0
+# nvme_controller (Phase 18 A16): an NVMe controller & queue lifecycle machine -
+# reset -> initialized -> enabled, I/O submission/completion with a pending-queue
+# counter, asynchronous event requests, and a shutdown that flushes the queue one
+# completion per tick. The device keeps time: a Tick arrives within every 2 samples
+# (assumption). The faithful model with many IO queue pairs and deep CQ/SQ lives in
+# full.rfs (checked via smt-bounded + fuzz, not exact MC).
+module nvme_controller {
+  enum State { Reset, Initialized, Enabled, ShuttingDown }
+  initial Reset
+
+  event InitDone
+  event EnableCmd
+  event IoSubmit(S(qid: bit<2>))
+  event ShutdownCmd
+  event AerReq
+  event Tick
+
+  output SendAdminCmd
+  output SendIo
+  output SendCompletion
+  output SendAerNotify
+
+  var outstanding: bit<3> init 0
+  var enabled: bool init false
+
+  # Ordering: I/O is submitted only once the controller is enabled.
+  prop no_io_before_enabled : always (output_has(SendIo) -> state == Enabled) ;
+  # Shutdown flushes: every pending completion is drained and the controller resets.
+  prop shutdown_flushes : always (state == ShuttingDown -> bounded_eventually[16] (state == Reset)) ;
+
+  # The device keeps time: a Tick arrives within every 2 samples. Every state handles
+  # Tick so the assumption is always satisfiable and never deadlocks the search.
+  assume env_tick : always (bounded_eventually[2] (input_is(Tick))) ;
+
+  transition Reset on InitDone { next Initialized; }
+  transition Reset on Tick { next Reset; }
+  transition Initialized on EnableCmd { next Enabled; set enabled = true; emit SendAdminCmd; }
+  transition Initialized on Tick { next Initialized; }
+  # I/O: only in the enabled state, bounded by the queue depth.
+  transition Enabled on IoSubmit(S(q)) where outstanding < 7 { priority 1; next Enabled; emit SendIo; set outstanding = outstanding + 1; }
+  transition Enabled on AerReq { next Enabled; emit SendAerNotify; }
+  transition Enabled on ShutdownCmd { next ShuttingDown; }
+  transition Enabled on Tick { next Enabled; }
+  # Shutdown: the device completes one pending I/O per tick, then resets.
+  transition ShuttingDown on Tick where outstanding > 0 { priority 1; next ShuttingDown; emit SendCompletion; set outstanding = outstanding - 1; }
+  transition ShuttingDown on Tick where outstanding == 0 { priority 2; next Reset; set enabled = false; set outstanding = 0; }
+}

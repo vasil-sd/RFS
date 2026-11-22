@@ -1,0 +1,21 @@
+module coap_retransmit
+  initial state: Idle
+  enums:
+    State: Idle, AwaitingAck, Aborted
+  events:
+    Request: T(token: bit<8>)
+    Ack: A(token: bit<8>)
+    Timeout: Timeout
+  outputs:
+    SendCon: SendCon
+    SendReset: SendReset
+    Abort: Abort
+  variables:
+    token: bit<8> = 0
+    retries: bit<3> = 0
+  transitions: 8
+  properties:
+    ack_or_abort: always ((state == AwaitingAck) -> bounded_eventually[16] ((state == Idle) || (state == Aborted))) - monitored
+  assumptions:
+    env_timeout: always (bounded_eventually[3] (input_is(Timeout))) - monitored
+

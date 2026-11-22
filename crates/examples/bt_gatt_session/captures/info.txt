@@ -1,0 +1,28 @@
+module bt_gatt_session
+  initial state: Advertising
+  enums:
+    State: Advertising, Connecting, Connected
+  events:
+    ScanReq: ScanReq
+    ConnectReq: ConnectReq
+    LinkUp: LinkUp
+    DisconnectReq: DisconnectReq
+    ReadReq: H(hdl: bit<8>)
+    WriteReq: W(hdl: bit<8>, val: bit<8>)
+    NotifyTrig: NotifyTrig
+  outputs:
+    SendScanRsp: SendScanRsp
+    SendConnectInd: SendConnectInd
+    SendReadRsp: SendReadRsp
+    SendWriteRsp: SendWriteRsp
+    SendNotify: SendNotify
+    SendDisconnect: SendDisconnect
+  variables:
+    subscribed: bool = false
+    mapped: bool = false
+  transitions: 8
+  properties:
+    notify_only_subscribed: always (output_has(SendNotify) -> subscribed) - monitored
+    no_write_unmapped: always (output_has(SendWriteRsp) -> mapped) - monitored
+  assumptions: (none)
+

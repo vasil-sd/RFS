@@ -1,0 +1,59 @@
+# rfs 1.0
+# ppp_lcp_ipcp (Phase 18 A13): PPP (RFC 1661/1332) link + IP control protocol
+# negotiation - the LCP four-way handshake (dead -> req-sent -> ack-rcvd/ack-sent
+# -> open, with NAK renegotiation), then IPCP negotiation with PAP/CHAP auth folded
+# into the IPCP exchange (auth completes when IPCP opens). Data flows only once both
+# phases are done.
+module ppp_lcp_ipcp {
+  enum State { LcpDead, LcpReqSent, LcpAckRcvd, LcpAckSent, LcpOpen, IpcpNegotiating, IpcpOpen }
+  initial LcpDead
+
+  event LocalUp
+  event PeerConfReq
+  event PeerConfAck
+  event PeerConfNak
+  event IpcpStart
+  event IpcpPeerAck
+  event DataIn
+  event LinkDown
+
+  output SendConfReq
+  output SendConfAck
+  output SendIpcpReq
+  output SendIpcpAck
+  output ForwardData
+
+  var lcp_open: bool init false
+  enum Auth { None, Authenticated }
+  var auth: Auth init Auth::None
+
+  # Phase ordering: IPCP negotiation starts only once LCP is open.
+  prop no_ipcp_before_lcp_open : always (output_has(SendIpcpReq) -> lcp_open) ;
+  # Auth before data: IP data flows only after PAP/CHAP completed with IPCP.
+  prop auth_before_data : always (output_has(ForwardData) -> auth == Auth::Authenticated) ;
+
+  transition LcpDead on LocalUp { next LcpReqSent; emit SendConfReq; }
+  # The four-way handshake: our ConfReq is out (ReqSent); the peer's req and ack
+  # arrive in either order.
+  transition LcpReqSent on PeerConfReq { next LcpAckRcvd; emit SendConfAck; }
+  transition LcpReqSent on PeerConfAck { next LcpAckSent; }
+  transition LcpAckRcvd on PeerConfAck { next LcpOpen; set lcp_open = true; }
+  transition LcpAckSent on PeerConfReq { next LcpOpen; emit SendConfAck; set lcp_open = true; }
+  # NAK: renegotiate with corrected options, staying in the current phase.
+  transition LcpReqSent on PeerConfNak { next LcpReqSent; emit SendConfReq; }
+  transition LcpAckRcvd on PeerConfNak { next LcpAckRcvd; emit SendConfReq; }
+  transition LcpAckSent on PeerConfNak { next LcpAckSent; emit SendConfReq; }
+  # IPCP: starts only from LcpOpen; auth (PAP/CHAP) completes when the peer acks.
+  transition LcpOpen on IpcpStart { next IpcpNegotiating; emit SendIpcpReq; }
+  transition IpcpNegotiating on IpcpPeerAck { next IpcpOpen; emit SendIpcpAck; set auth = Auth::Authenticated; }
+  # Data: only once IPCP is open and auth is done.
+  transition IpcpOpen on DataIn { next IpcpOpen; emit ForwardData; }
+  # Teardown from every state.
+  transition LcpDead on LinkDown { next LcpDead; set lcp_open = false; set auth = Auth::None; }
+  transition LcpReqSent on LinkDown { next LcpDead; set lcp_open = false; set auth = Auth::None; }
+  transition LcpAckRcvd on LinkDown { next LcpDead; set lcp_open = false; set auth = Auth::None; }
+  transition LcpAckSent on LinkDown { next LcpDead; set lcp_open = false; set auth = Auth::None; }
+  transition LcpOpen on LinkDown { next LcpDead; set lcp_open = false; set auth = Auth::None; }
+  transition IpcpNegotiating on LinkDown { next LcpDead; set lcp_open = false; set auth = Auth::None; }
+  transition IpcpOpen on LinkDown { next LcpDead; set lcp_open = false; set auth = Auth::None; }
+}

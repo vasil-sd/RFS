@@ -1,0 +1,15 @@
+FAIL
+model-check summary: status=fail states=4 transitions=4 max_depth=3 reason=property-violation label=single_logged_in step=4
+  unexpected terminations: 13
+  first unexpected: config 0 input index 1
+  monitor size: 0 bits
+  memory estimate: 132 bytes
+property violation: single_logged_in
+  violation step: 4
+  vars at violation step: Vars { logins: 2 }
+counterexample trace:
+  initial state=State::Nop vars=Vars { logins: 0 }
+  step 0 input=Input::FLogiReq outputs=[Output::SendFLogiResp] from=State::Nop to=State::FLogi vars=Vars { logins: 0 }
+  step 1 input=Input::PLogiReq outputs=[Output::SendPLogiResp] from=State::FLogi to=State::PLogi vars=Vars { logins: 1 }
+  step 2 input=Input::LoginComplete outputs=[] from=State::PLogi to=State::LoggedIn vars=Vars { logins: 1 }
+  step 3 input=Input::PLogiReq outputs=[Output::SendPLogiResp] from=State::LoggedIn to=State::LoggedIn vars=Vars { logins: 2 }

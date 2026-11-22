@@ -1,0 +1,36 @@
+# rfs 1.0
+# fibrechannel_login - FAILING VARIANT (Phase 18 A15): the state guard is
+# removed, so a second P_LOGI is accepted while already logged in.
+# The original spec is pass.rfs. a Fibre Channel (FC-FS) FLOGI/PLOGI login machine -
+# NOP -> F_LOGI -> P_LOGI -> logged-in, plus RSCN registration and logout. At most one
+# logged-in session per port: a second P_LOGI while already logged in is rejected.
+module fibrechannel_login {
+  enum State { Nop, FLogi, PLogi, LoggedIn }
+  initial Nop
+
+  event FLogiReq
+  event PLogiReq
+  event LoginComplete
+  event LogoutReq
+  event RscnReg
+
+  output SendFLogiResp
+  output SendPLogiResp
+  output SendLogoutResp
+  output SendRscn
+
+  # Count of accepted P_LOGIs: at most one logged-in session per port.
+  var logins: bit<2> init 0
+
+  prop single_logged_in : always (logins <= 1) ;
+
+  transition Nop on FLogiReq { next FLogi; emit SendFLogiResp; }
+  transition FLogi on PLogiReq { next PLogi; emit SendPLogiResp; set logins = 1; }
+  transition PLogi on LoginComplete { next LoggedIn; }
+  // DEFECT: the state guard is gone - a second P_LOGI is accepted while already logged in.
+  transition LoggedIn on PLogiReq { next LoggedIn; emit SendPLogiResp; set logins = logins + 1; }
+  # RSCN registration while logged in.
+  transition LoggedIn on RscnReg { next LoggedIn; emit SendRscn; }
+  # Logout returns cleanly to NOP and clears the session count.
+  transition LoggedIn on LogoutReq { next Nop; emit SendLogoutResp; set logins = 0; }
+}

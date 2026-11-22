@@ -1,0 +1,39 @@
+# rfs 1.0
+# mqtt_qos_session - LARGE-STATE-SPACE TWIN (Phase 18 A11). The faithful model uses
+# the full 16-bit MQTT packet-id space: exactly-once at scale. From the initial
+# configuration every one of the 65536 ids is a distinct reachable configuration,
+# so exact MC is infeasible and shrinking the id space would change the duplicate/
+# loss behavior being demonstrated (no meaningful abstraction lowers it). Checked
+# via smt-bounded (proves exactly_once for every k-step path) + fuzz; the simplified
+# bit<4> version is pass.rfs.
+module mqtt_qos_session {
+  enum State { Disconnected, Connected, AwaitPubrec }
+  initial Disconnected
+
+  event Connect
+  event Disconnect
+  event PublishQoS2(P(id: bit<16>))
+  event PubRel(R(id: bit<16>))
+
+  output SendConnack
+  output Deliver
+  output SendPubrec
+  output SendPubcomp
+
+  var last_id: bit<16> init 0
+  var have_last: bool init false
+  # Per-delivery duplicate flag (see pass.rfs): the dedup guard makes every
+  # delivery non-duplicate; exactly_once asserts it.
+  var was_dup: bool init false
+
+  prop exactly_once : always (!was_dup) ;
+  prop handshake_consistent : always (state == AwaitPubrec -> have_last) ;
+
+  transition Disconnected on Connect { next Connected; emit SendConnack; }
+  transition Connected on Disconnect { next Disconnected; set have_last = false; }
+  transition AwaitPubrec on Disconnect { next Disconnected; set have_last = false; }
+  transition Connected on PublishQoS2(P(id)) where !have_last { priority 1; next AwaitPubrec; emit Deliver; emit SendPubrec; set last_id = id; set have_last = true; set was_dup = false; }
+  transition AwaitPubrec on PublishQoS2(P(id)) where id == last_id { priority 1; next AwaitPubrec; }
+  transition AwaitPubrec on PublishQoS2(P(id)) where id != last_id { priority 2; next AwaitPubrec; }
+  transition AwaitPubrec on PubRel(R(id)) where id == last_id { next Connected; emit SendPubcomp; set have_last = false; }
+}

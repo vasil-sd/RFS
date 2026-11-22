@@ -1161,3 +1161,492 @@ fn sip_call_signaling_no_established_after_cancel_and_the_ignore_defect() {
         "c production compile proof missing:\n{out}"
     );
 }
+
+// ---------------------------------------------------------------------------
+// Phase 18 task 2 - the ten Group-A protocol FSMs A11-A20 (application / storage /
+// wireless / security). Same leg shape as task 1: run.sh drives every demonstrated
+// RFS mode; the pinned excerpts come from the REAL captures (never hand-written).
+// ---------------------------------------------------------------------------
+
+#[test]
+fn mqtt_qos_session_exactly_once_and_the_large_twin() {
+    if !common::toolchain::available_named("gcc")
+        || !(common::toolchain::available_named("rustc") || project_local_rustc_exists())
+    {
+        eprintln!("note: gcc/rustc not available - mqtt_qos_session check skipped");
+        return;
+    }
+    let dir = repo_root().join("crates/examples/mqtt_qos_session");
+    let (code, out) = run_script(&dir, "run.sh");
+    assert_eq!(code, 0, "run.sh failed:\n{out}");
+    // The passing spec: PASS complete with the pinned state count.
+    assert!(
+        out.contains("status=pass-complete states=48 transitions=608 max_depth=3"),
+        "pinned PASS summary missing:\n{out}"
+    );
+    // The failing variant: dedup guard removed -> a duplicate PUBLISH is delivered twice.
+    assert!(
+        out.contains("reason=property-violation label=exactly_once step=3"),
+        "pinned FAIL summary missing:\n{out}"
+    );
+    assert!(
+        out.contains("from=State::AwaitPubrec to=State::AwaitPubrec vars=Vars { last_id: 0, have_last: true, was_dup: true }"),
+        "pinned CE duplicate-delivery defect step missing:\n{out}"
+    );
+    assert!(
+        out.contains("\"label\":\"exactly_once\""),
+        "pinned JSON label missing:\n{out}"
+    );
+    // The fix re-runs to PASS; both generated backends agree (byte-identical reports).
+    assert!(
+        out.matches("status=pass-complete states=48").count() >= 3,
+        "expected pass + both-backend parity (3x states=48), got:\n{out}"
+    );
+    // Production codegen compiles in both backends.
+    assert!(
+        out.contains("rust production: compiles clean"),
+        "rust production compile proof missing:\n{out}"
+    );
+    assert!(
+        out.contains("c production: compiles warning-free"),
+        "c production compile proof missing:\n{out}"
+    );
+    // The large-state-space twin (16-bit packet-id space): smt-bounded proves the
+    // invariant within bound (the committed capture is always cat'ed by run.sh, so
+    // this holds with or without z3), and fuzz runs 200 iterations.
+    assert!(
+        out.contains("PASS WITHIN BOUND 12"),
+        "pinned smt-bounded verdict missing:\n{out}"
+    );
+    assert!(
+        out.contains("runs=200 bound=5 completed=200"),
+        "pinned fuzz transcript missing:\n{out}"
+    );
+}
+
+#[test]
+fn coap_retransmit_ack_or_abort_and_the_lost_ack_loop() {
+    if !common::toolchain::available_named("gcc")
+        || !(common::toolchain::available_named("rustc") || project_local_rustc_exists())
+    {
+        eprintln!("note: gcc/rustc not available - coap_retransmit check skipped");
+        return;
+    }
+    let dir = repo_root().join("crates/examples/coap_retransmit");
+    let (code, out) = run_script(&dir, "run.sh");
+    assert_eq!(code, 0, "run.sh failed:\n{out}");
+    // The passing spec: PASS complete with the pinned state count.
+    assert!(
+        out.contains("status=pass-complete states=13058 transitions=3355906 max_depth=12"),
+        "pinned PASS summary missing:\n{out}"
+    );
+    // The failing variant: retry cap removed -> a lost ACK loops forever.
+    assert!(
+        out.contains("reason=property-violation label=ack_or_abort step=16"),
+        "pinned FAIL summary missing:\n{out}"
+    );
+    assert!(
+        out.contains("trigger step: 1"),
+        "pinned obligation trigger step missing:\n{out}"
+    );
+    assert!(
+        out.contains("\"label\":\"ack_or_abort\""),
+        "pinned JSON label missing:\n{out}"
+    );
+    // The fix re-runs to PASS; both generated backends agree (byte-identical reports).
+    assert!(
+        out.matches("status=pass-complete states=13058").count() >= 3,
+        "expected pass + both-backend parity (3x states=13058), got:\n{out}"
+    );
+    // Production codegen compiles in both backends.
+    assert!(
+        out.contains("rust production: compiles clean"),
+        "rust production compile proof missing:\n{out}"
+    );
+    assert!(
+        out.contains("c production: compiles warning-free"),
+        "c production compile proof missing:\n{out}"
+    );
+    // The extra --mode fuzz leg on the passing spec: 200 seeded runs, clean.
+    assert!(
+        out.contains(
+            "runs=200 bound=5 completed=200 unexpected=0 assumption_stops=0 property_violations=0"
+        ),
+        "pinned fuzz transcript missing:\n{out}"
+    );
+}
+
+#[test]
+fn ppp_lcp_ipcp_no_ipcp_before_lcp_open_and_the_phase_guard_defect() {
+    if !common::toolchain::available_named("gcc")
+        || !(common::toolchain::available_named("rustc") || project_local_rustc_exists())
+    {
+        eprintln!("note: gcc/rustc not available - ppp_lcp_ipcp check skipped");
+        return;
+    }
+    let dir = repo_root().join("crates/examples/ppp_lcp_ipcp");
+    let (code, out) = run_script(&dir, "run.sh");
+    assert_eq!(code, 0, "run.sh failed:\n{out}");
+    // The passing spec: PASS complete with the pinned state count.
+    assert!(
+        out.contains("status=pass-complete states=7 transitions=18 max_depth=5"),
+        "pinned PASS summary missing:\n{out}"
+    );
+    // The failing variant: phase guard removed -> IPCP opens while LCP is still ack-sent.
+    assert!(
+        out.contains("reason=property-violation label=no_ipcp_before_lcp_open step=3"),
+        "pinned FAIL summary missing:\n{out}"
+    );
+    assert!(
+        out.contains("from=State::LcpAckSent to=State::IpcpNegotiating vars=Vars { lcp_open: false, auth: Auth::None }"),
+        "pinned CE IPCP-in-ack-sent defect step missing:\n{out}"
+    );
+    assert!(
+        out.contains("\"label\":\"no_ipcp_before_lcp_open\""),
+        "pinned JSON label missing:\n{out}"
+    );
+    // The fix re-runs to PASS; both generated backends agree (byte-identical reports).
+    assert!(
+        out.matches("status=pass-complete states=7").count() >= 3,
+        "expected pass + both-backend parity (3x states=7), got:\n{out}"
+    );
+    // Production codegen compiles in both backends.
+    assert!(
+        out.contains("rust production: compiles clean"),
+        "rust production compile proof missing:\n{out}"
+    );
+    assert!(
+        out.contains("c production: compiles warning-free"),
+        "c production compile proof missing:\n{out}"
+    );
+}
+
+#[test]
+fn iscsi_login_no_io_before_operational_and_the_phase_guard_defect() {
+    if !common::toolchain::available_named("gcc")
+        || !(common::toolchain::available_named("rustc") || project_local_rustc_exists())
+    {
+        eprintln!("note: gcc/rustc not available - iscsi_login check skipped");
+        return;
+    }
+    let dir = repo_root().join("crates/examples/iscsi_login");
+    let (code, out) = run_script(&dir, "run.sh");
+    assert_eq!(code, 0, "run.sh failed:\n{out}");
+    // The passing spec: PASS complete with the pinned state count.
+    assert!(
+        out.contains("status=pass-complete states=6 transitions=12 max_depth=5"),
+        "pinned PASS summary missing:\n{out}"
+    );
+    // The failing variant: phase guard removed -> I/O is issued in the full-feature phase.
+    assert!(
+        out.contains("reason=property-violation label=no_io_before_operational step=3"),
+        "pinned FAIL summary missing:\n{out}"
+    );
+    assert!(
+        out.contains("from=State::FullFeature to=State::FullFeature vars=Vars { session_id: 1, have_session: true }"),
+        "pinned CE I/O-in-full-feature defect step missing:\n{out}"
+    );
+    assert!(
+        out.contains("\"label\":\"no_io_before_operational\""),
+        "pinned JSON label missing:\n{out}"
+    );
+    // The fix re-runs to PASS; both generated backends agree (byte-identical reports).
+    assert!(
+        out.matches("status=pass-complete states=6").count() >= 3,
+        "expected pass + both-backend parity (3x states=6), got:\n{out}"
+    );
+    // Production codegen compiles in both backends.
+    assert!(
+        out.contains("rust production: compiles clean"),
+        "rust production compile proof missing:\n{out}"
+    );
+    assert!(
+        out.contains("c production: compiles warning-free"),
+        "c production compile proof missing:\n{out}"
+    );
+}
+
+#[test]
+fn fibrechannel_login_single_logged_in_and_the_duplicate_login_defect() {
+    if !common::toolchain::available_named("gcc")
+        || !(common::toolchain::available_named("rustc") || project_local_rustc_exists())
+    {
+        eprintln!("note: gcc/rustc not available - fibrechannel_login check skipped");
+        return;
+    }
+    let dir = repo_root().join("crates/examples/fibrechannel_login");
+    let (code, out) = run_script(&dir, "run.sh");
+    assert_eq!(code, 0, "run.sh failed:\n{out}");
+    // The passing spec: PASS complete with the pinned state count.
+    assert!(
+        out.contains("status=pass-complete states=4 transitions=5 max_depth=3"),
+        "pinned PASS summary missing:\n{out}"
+    );
+    // The failing variant: state guard removed -> a second P_LOGI is accepted while logged in.
+    assert!(
+        out.contains("reason=property-violation label=single_logged_in step=4"),
+        "pinned FAIL summary missing:\n{out}"
+    );
+    assert!(
+        out.contains("from=State::LoggedIn to=State::LoggedIn vars=Vars { logins: 2 }"),
+        "pinned CE duplicate-login defect step (logins reaches 2) missing:\n{out}"
+    );
+    assert!(
+        out.contains("\"label\":\"single_logged_in\""),
+        "pinned JSON label missing:\n{out}"
+    );
+    // The fix re-runs to PASS; both generated backends agree (byte-identical reports).
+    assert!(
+        out.matches("status=pass-complete states=4").count() >= 3,
+        "expected pass + both-backend parity (3x states=4), got:\n{out}"
+    );
+    // Production codegen compiles in both backends.
+    assert!(
+        out.contains("rust production: compiles clean"),
+        "rust production compile proof missing:\n{out}"
+    );
+    assert!(
+        out.contains("c production: compiles warning-free"),
+        "c production compile proof missing:\n{out}"
+    );
+}
+
+#[test]
+fn nvme_controller_no_io_before_enabled_and_the_large_twin() {
+    if !common::toolchain::available_named("gcc")
+        || !(common::toolchain::available_named("rustc") || project_local_rustc_exists())
+    {
+        eprintln!("note: gcc/rustc not available - nvme_controller check skipped");
+        return;
+    }
+    let dir = repo_root().join("crates/examples/nvme_controller");
+    let (code, out) = run_script(&dir, "run.sh");
+    assert_eq!(code, 0, "run.sh failed:\n{out}");
+    // The passing spec: PASS complete with the pinned state count.
+    assert!(
+        out.contains("status=pass-complete states=56 transitions=106 max_depth=27"),
+        "pinned PASS summary missing:\n{out}"
+    );
+    // The failing variant: enable guard removed -> I/O is submitted in the initialized state.
+    assert!(
+        out.contains("reason=property-violation label=no_io_before_enabled step=4"),
+        "pinned FAIL summary missing:\n{out}"
+    );
+    assert!(
+        out.contains("from=State::Initialized to=State::Initialized vars=Vars { outstanding: 1, enabled: false }"),
+        "pinned CE I/O-in-initialized defect step missing:\n{out}"
+    );
+    assert!(
+        out.contains("\"label\":\"no_io_before_enabled\""),
+        "pinned JSON label missing:\n{out}"
+    );
+    // The fix re-runs to PASS; both generated backends agree (byte-identical reports).
+    assert!(
+        out.matches("status=pass-complete states=56").count() >= 3,
+        "expected pass + both-backend parity (3x states=56), got:\n{out}"
+    );
+    // Production codegen compiles in both backends.
+    assert!(
+        out.contains("rust production: compiles clean"),
+        "rust production compile proof missing:\n{out}"
+    );
+    assert!(
+        out.contains("c production: compiles warning-free"),
+        "c production compile proof missing:\n{out}"
+    );
+    // The large-state-space twin (4 queue pairs x bit<8> depth = 2^32 configs):
+    // smt-bounded proves the invariant within bound (the committed capture is always
+    // cat'ed by run.sh, so this holds with or without z3), and fuzz runs 200 iterations.
+    assert!(
+        out.contains("PASS WITHIN BOUND 12"),
+        "pinned smt-bounded verdict missing:\n{out}"
+    );
+    assert!(
+        out.contains("runs=200 bound=5 completed=200"),
+        "pinned fuzz transcript missing:\n{out}"
+    );
+}
+
+#[test]
+fn sata_link_power_no_command_while_asleep_and_the_wake_guard_defect() {
+    if !common::toolchain::available_named("gcc")
+        || !(common::toolchain::available_named("rustc") || project_local_rustc_exists())
+    {
+        eprintln!("note: gcc/rustc not available - sata_link_power check skipped");
+        return;
+    }
+    let dir = repo_root().join("crates/examples/sata_link_power");
+    let (code, out) = run_script(&dir, "run.sh");
+    assert_eq!(code, 0, "run.sh failed:\n{out}");
+    // The passing spec: PASS complete with the pinned state count.
+    assert!(
+        out.contains("status=pass-complete states=4 transitions=8 max_depth=3"),
+        "pinned PASS summary missing:\n{out}"
+    );
+    // The failing variant: wake-before-command guard removed -> a command issues in Slumber.
+    assert!(
+        out.contains("reason=property-violation label=no_command_while_asleep step=4"),
+        "pinned FAIL summary missing:\n{out}"
+    );
+    assert!(
+        out.contains(
+            "from=State::Slumber to=State::Slumber vars=Vars { dev_power: DevPower::Slumber }"
+        ),
+        "pinned CE command-in-Slumber defect step missing:\n{out}"
+    );
+    assert!(
+        out.contains("\"label\":\"no_command_while_asleep\""),
+        "pinned JSON label missing:\n{out}"
+    );
+    // The fix re-runs to PASS; both generated backends agree (byte-identical reports).
+    assert!(
+        out.matches("status=pass-complete states=4").count() >= 3,
+        "expected pass + both-backend parity (3x states=4), got:\n{out}"
+    );
+    // Production codegen compiles in both backends.
+    assert!(
+        out.contains("rust production: compiles clean"),
+        "rust production compile proof missing:\n{out}"
+    );
+    assert!(
+        out.contains("c production: compiles warning-free"),
+        "c production compile proof missing:\n{out}"
+    );
+}
+
+#[test]
+fn usb_device_link_no_data_while_suspended_and_the_state_guard_defect() {
+    if !common::toolchain::available_named("gcc")
+        || !(common::toolchain::available_named("rustc") || project_local_rustc_exists())
+    {
+        eprintln!("note: gcc/rustc not available - usb_device_link check skipped");
+        return;
+    }
+    let dir = repo_root().join("crates/examples/usb_device_link");
+    let (code, out) = run_script(&dir, "run.sh");
+    assert_eq!(code, 0, "run.sh failed:\n{out}");
+    // The passing spec: PASS complete with the pinned state count.
+    assert!(
+        out.contains("status=pass-complete states=4320 transitions=12829 max_depth=3"),
+        "pinned PASS summary missing:\n{out}"
+    );
+    // The failing variant: state guard removed -> a data token flows while suspended.
+    assert!(
+        out.contains("reason=property-violation label=no_data_while_suspended step=3"),
+        "pinned FAIL summary missing:\n{out}"
+    );
+    assert!(
+        out.contains("from=State::Suspended to=State::Suspended vars=Vars { addr: 1, config: 0, suspended_from: SuspFrom::Addressed }"),
+        "pinned CE data-while-suspended defect step missing:\n{out}"
+    );
+    assert!(
+        out.contains("\"label\":\"no_data_while_suspended\""),
+        "pinned JSON label missing:\n{out}"
+    );
+    // The fix re-runs to PASS; both generated backends agree (byte-identical reports).
+    assert!(
+        out.matches("status=pass-complete states=4320").count() >= 3,
+        "expected pass + both-backend parity (3x states=4320), got:\n{out}"
+    );
+    // Production codegen compiles in both backends.
+    assert!(
+        out.contains("rust production: compiles clean"),
+        "rust production compile proof missing:\n{out}"
+    );
+    assert!(
+        out.contains("c production: compiles warning-free"),
+        "c production compile proof missing:\n{out}"
+    );
+}
+
+#[test]
+fn bt_gatt_session_notify_only_subscribed_and_the_subscription_guard_defect() {
+    if !common::toolchain::available_named("gcc")
+        || !(common::toolchain::available_named("rustc") || project_local_rustc_exists())
+    {
+        eprintln!("note: gcc/rustc not available - bt_gatt_session check skipped");
+        return;
+    }
+    let dir = repo_root().join("crates/examples/bt_gatt_session");
+    let (code, out) = run_script(&dir, "run.sh");
+    assert_eq!(code, 0, "run.sh failed:\n{out}");
+    // The passing spec: PASS complete with the pinned state count.
+    assert!(
+        out.contains("status=pass-complete states=4 transitions=131080 max_depth=3"),
+        "pinned PASS summary missing:\n{out}"
+    );
+    // The failing variant: subscription guard removed -> a notification goes to an
+    // unsubscribed client.
+    assert!(
+        out.contains("reason=property-violation label=notify_only_subscribed step=3"),
+        "pinned FAIL summary missing:\n{out}"
+    );
+    assert!(
+        out.contains("from=State::Connected to=State::Connected vars=Vars { subscribed: false, mapped: true }"),
+        "pinned CE notify-unsubscribed defect step missing:\n{out}"
+    );
+    assert!(
+        out.contains("\"label\":\"notify_only_subscribed\""),
+        "pinned JSON label missing:\n{out}"
+    );
+    // The fix re-runs to PASS; both generated backends agree (byte-identical reports).
+    assert!(
+        out.matches("status=pass-complete states=4").count() >= 3,
+        "expected pass + both-backend parity (3x states=4), got:\n{out}"
+    );
+    // Production codegen compiles in both backends.
+    assert!(
+        out.contains("rust production: compiles clean"),
+        "rust production compile proof missing:\n{out}"
+    );
+    assert!(
+        out.contains("c production: compiles warning-free"),
+        "c production compile proof missing:\n{out}"
+    );
+}
+
+#[test]
+fn kerberos_auth_no_access_with_expired_tgt_and_the_expiry_guard_defect() {
+    if !common::toolchain::available_named("gcc")
+        || !(common::toolchain::available_named("rustc") || project_local_rustc_exists())
+    {
+        eprintln!("note: gcc/rustc not available - kerberos_auth check skipped");
+        return;
+    }
+    let dir = repo_root().join("crates/examples/kerberos_auth");
+    let (code, out) = run_script(&dir, "run.sh");
+    assert_eq!(code, 0, "run.sh failed:\n{out}");
+    // The passing spec: PASS complete with the pinned state count.
+    assert!(
+        out.contains("status=pass-complete states=30720 transitions=145472 max_depth=31"),
+        "pinned PASS summary missing:\n{out}"
+    );
+    // The failing variant: expiry guard removed -> a service ticket is granted on an
+    // expired TGT.
+    assert!(
+        out.contains("reason=property-violation label=no_access_with_expired_tgt step=6"),
+        "pinned FAIL summary missing:\n{out}"
+    );
+    assert!(
+        out.contains("from=State::TgsExchange to=State::HaveSt vars=Vars { clock: 2, tgt_expiry: 0, have_tgt: true, st_expiry: 6, have_st: true, last_ts: 1, seen_ts: true, replayed: false }"),
+        "pinned CE GrantSt-on-expired-TGT defect step missing:\n{out}"
+    );
+    assert!(
+        out.contains("\"label\":\"no_access_with_expired_tgt\""),
+        "pinned JSON label missing:\n{out}"
+    );
+    // The fix re-runs to PASS; both generated backends agree (byte-identical reports).
+    assert!(
+        out.matches("status=pass-complete states=30720").count() >= 3,
+        "expected pass + both-backend parity (3x states=30720), got:\n{out}"
+    );
+    // Production codegen compiles in both backends.
+    assert!(
+        out.contains("rust production: compiles clean"),
+        "rust production compile proof missing:\n{out}"
+    );
+    assert!(
+        out.contains("c production: compiles warning-free"),
+        "c production compile proof missing:\n{out}"
+    );
+}

@@ -1,0 +1,15 @@
+FAIL
+model-check summary: status=fail states=5 transitions=9 max_depth=4 reason=property-violation label=no_io_before_enabled step=4
+  unexpected terminations: 12
+  first unexpected: config 0 input index 1
+  monitor size: 9 bits
+  memory estimate: 170 bytes
+property violation: no_io_before_enabled
+  violation step: 4
+  vars at violation step: Vars { outstanding: 1, enabled: false }
+counterexample trace:
+  initial state=State::Reset vars=Vars { outstanding: 0, enabled: false }
+  step 0 input=Input::Tick outputs=[] from=State::Reset to=State::Reset vars=Vars { outstanding: 0, enabled: false }
+  step 1 input=Input::InitDone outputs=[] from=State::Reset to=State::Initialized vars=Vars { outstanding: 0, enabled: false }
+  step 2 input=Input::Tick outputs=[] from=State::Initialized to=State::Initialized vars=Vars { outstanding: 0, enabled: false }
+  step 3 input=Input::IoSubmit_S { qid: 0 } outputs=[Output::SendIo] from=State::Initialized to=State::Initialized vars=Vars { outstanding: 1, enabled: false }

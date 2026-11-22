@@ -1,0 +1,15 @@
+FAIL
+model-check summary: status=fail states=4 transitions=8 max_depth=3 reason=property-violation label=no_command_while_asleep step=4
+  unexpected terminations: 2
+  first unexpected: config 0 input index 2
+  monitor size: 0 bits
+  memory estimate: 132 bytes
+property violation: no_command_while_asleep
+  violation step: 4
+  vars at violation step: Vars { dev_power: DevPower::Slumber }
+counterexample trace:
+  initial state=State::Active vars=Vars { dev_power: DevPower::On }
+  step 0 input=Input::H2DTransition outputs=[Output::SendSmp] from=State::Active to=State::Partial vars=Vars { dev_power: DevPower::Partial }
+  step 1 input=Input::H2DTransition outputs=[Output::SendSmp] from=State::Partial to=State::DevSlumber vars=Vars { dev_power: DevPower::Slumber }
+  step 2 input=Input::H2DTransition outputs=[Output::SendSmp] from=State::DevSlumber to=State::Slumber vars=Vars { dev_power: DevPower::Slumber }
+  step 3 input=Input::CmdIn outputs=[Output::SendCommand] from=State::Slumber to=State::Slumber vars=Vars { dev_power: DevPower::Slumber }

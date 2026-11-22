@@ -1,0 +1,60 @@
+# rfs 1.0
+# nvme_controller - LARGE-STATE-SPACE TWIN (Phase 18 A16). The faithful model carries
+# FOUR IO queue pairs with deep submission/completion queues: each pair's pending
+# depth is a full bit<8> counter, so the joint state space is 2^32 configurations -
+# many concurrent entities whose scheduling is the point, and reducing it to a single
+# shallow queue loses that behavior (no meaningful abstraction lowers it). Checked via
+# smt-bounded (proves no_io_before_enabled for every k-step path) + fuzz; the
+# simplified single-queue version is pass.rfs.
+module nvme_controller {
+  enum State { Reset, Initialized, Enabled, ShuttingDown }
+  initial Reset
+
+  event InitDone
+  event EnableCmd
+  event Submit0
+  event Submit1
+  event Submit2
+  event Submit3
+  event Complete0
+  event Complete1
+  event Complete2
+  event Complete3
+  event ShutdownCmd
+  event Tick
+
+  output SendAdminCmd
+  output SendIo
+  output SendCompletion
+
+  var pending0: bit<8> init 0
+  var pending1: bit<8> init 0
+  var pending2: bit<8> init 0
+  var pending3: bit<8> init 0
+  var enabled: bool init false
+
+  # Ordering: I/O is submitted only once the controller is enabled.
+  prop no_io_before_enabled : always (output_has(SendIo) -> state == Enabled) ;
+
+  transition Reset on InitDone { next Initialized; }
+  transition Reset on Tick { next Reset; }
+  transition Initialized on EnableCmd { next Enabled; set enabled = true; emit SendAdminCmd; }
+  transition Initialized on Tick { next Initialized; }
+  # I/O per queue pair: submit grows the pair's pending depth, complete drains it.
+  transition Enabled on Submit0 where pending0 < 255 { priority 1; next Enabled; emit SendIo; set pending0 = pending0 + 1; }
+  transition Enabled on Submit1 where pending1 < 255 { priority 2; next Enabled; emit SendIo; set pending1 = pending1 + 1; }
+  transition Enabled on Submit2 where pending2 < 255 { priority 3; next Enabled; emit SendIo; set pending2 = pending2 + 1; }
+  transition Enabled on Submit3 where pending3 < 255 { priority 4; next Enabled; emit SendIo; set pending3 = pending3 + 1; }
+  transition Enabled on Complete0 where pending0 > 0 { priority 5; next Enabled; emit SendCompletion; set pending0 = pending0 - 1; }
+  transition Enabled on Complete1 where pending1 > 0 { priority 6; next Enabled; emit SendCompletion; set pending1 = pending1 - 1; }
+  transition Enabled on Complete2 where pending2 > 0 { priority 7; next Enabled; emit SendCompletion; set pending2 = pending2 - 1; }
+  transition Enabled on Complete3 where pending3 > 0 { priority 8; next Enabled; emit SendCompletion; set pending3 = pending3 - 1; }
+  transition Enabled on ShutdownCmd { next ShuttingDown; }
+  transition Enabled on Tick { next Enabled; }
+  # Shutdown: drain the pairs one completion per tick (highest index first), then reset.
+  transition ShuttingDown on Tick where pending3 > 0 { priority 1; next ShuttingDown; emit SendCompletion; set pending3 = pending3 - 1; }
+  transition ShuttingDown on Tick where pending3 == 0 && pending2 > 0 { priority 2; next ShuttingDown; emit SendCompletion; set pending2 = pending2 - 1; }
+  transition ShuttingDown on Tick where pending3 == 0 && pending2 == 0 && pending1 > 0 { priority 3; next ShuttingDown; emit SendCompletion; set pending1 = pending1 - 1; }
+  transition ShuttingDown on Tick where pending3 == 0 && pending2 == 0 && pending1 == 0 && pending0 > 0 { priority 4; next ShuttingDown; emit SendCompletion; set pending0 = pending0 - 1; }
+  transition ShuttingDown on Tick where pending3 == 0 && pending2 == 0 && pending1 == 0 && pending0 == 0 { priority 5; next Reset; set enabled = false; }
+}

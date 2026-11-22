@@ -1,0 +1,32 @@
+module kerberos_auth
+  initial state: Idle
+  enums:
+    State: Idle, AsExchange, HaveTgt, TgsExchange, HaveSt, ServiceAccess, Denied
+  events:
+    AsReq: T(ts: bit<3>)
+    AsRep: AsRep
+    TgsReq: T(ts: bit<3>)
+    TgsRep: TgsRep
+    ApReq: T(ts: bit<3>)
+    Done: Done
+    Tick: Tick
+  outputs:
+    GrantTgt: GrantTgt
+    GrantSt: GrantSt
+    GrantAccess: GrantAccess
+    Reject: Reject
+  variables:
+    clock: bit<3> = 0
+    tgt_expiry: bit<3> = 0
+    have_tgt: bool = false
+    st_expiry: bit<3> = 0
+    have_st: bool = false
+    last_ts: bit<3> = 0
+    seen_ts: bool = false
+    replayed: bool = false
+  transitions: 13
+  properties:
+    no_access_with_expired_tgt: always (output_has(GrantSt) -> (tgt_expiry > clock)) - monitored
+    no_replay: always (output_has(GrantTgt) || output_has(GrantSt) || output_has(GrantAccess) -> !replayed) - monitored
+  assumptions: (none)
+

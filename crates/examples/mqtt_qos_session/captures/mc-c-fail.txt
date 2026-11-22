@@ -1,0 +1,14 @@
+FAIL
+model-check summary: status=fail states=18 transitions=22 max_depth=2 reason=property-violation label=exactly_once step=3
+  unexpected terminations: 55
+  first unexpected: config 0 input index 1
+  monitor size: 0 bits
+  memory estimate: 594 bytes
+property violation: exactly_once
+  violation step: 3
+  vars at violation step: Vars { last_id: 0, have_last: true, was_dup: true }
+counterexample trace:
+  initial state=State::Disconnected vars=Vars { last_id: 0, have_last: false, was_dup: false }
+  step 0 input=Input::Connect outputs=[Output::SendConnack] from=State::Disconnected to=State::Connected vars=Vars { last_id: 0, have_last: false, was_dup: false }
+  step 1 input=Input::PublishQoS2_P { id: 0 } outputs=[Output::Deliver, Output::SendPubrec] from=State::Connected to=State::AwaitPubrec vars=Vars { last_id: 0, have_last: true, was_dup: false }
+  step 2 input=Input::PublishQoS2_P { id: 0 } outputs=[Output::Deliver, Output::SendPubrec] from=State::AwaitPubrec to=State::AwaitPubrec vars=Vars { last_id: 0, have_last: true, was_dup: true }

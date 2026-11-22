@@ -1,0 +1,20 @@
+module sata_link_power
+  initial state: Active
+  enums:
+    State: Active, Partial, DevSlumber, Slumber
+    DevPower: On, Partial, Slumber
+  events:
+    CmdIn: CmdIn
+    H2DTransition: H2DTransition
+    Wake: Wake
+  outputs:
+    SendCommand: SendCommand
+    SendSmp: SendSmp
+  variables:
+    dev_power: enum DevPower = DevPower.On
+  transitions: 8
+  properties:
+    no_command_while_asleep: always (output_has(SendCommand) -> (state == Active) || (state == Partial)) - monitored
+    wake_returns_active: always (input_is(Wake) -> (state == Active)) - monitored
+  assumptions: (none)
+

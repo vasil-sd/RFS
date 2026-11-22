@@ -1,0 +1,42 @@
+# rfs 1.0
+# iscsi_login (Phase 18 A14): an iSCSI (RFC 7143 / SPC-4) login + session machine -
+# the login nop-in/nop-out exchange, the full-feature negotiation phase, then the
+# operational phase where I/O flows; logout and session recovery. The storage analog
+# of the PPP staged-negotiation pattern: no I/O before the operational phase.
+module iscsi_login {
+  enum State { LoggedOut, LoginNegotiating, FullFeature, Operational }
+  initial LoggedOut
+
+  event LoginStart
+  event NopIn
+  event PhaseDone
+  event IoRequest
+  event Logout
+  event RecoveryReq
+
+  output SendLoginResp
+  output SendNopOut
+  output SendIo
+  output SendLogoutResp
+
+  var session_id: bit<8> init 0
+  var have_session: bool init false
+
+  # Ordering: I/O flows only in the operational phase.
+  prop no_io_before_operational : always (output_has(SendIo) -> state == Operational) ;
+  # Clean logout: no dangling session once logged out.
+  prop no_dangling_session : always (state == LoggedOut -> !have_session) ;
+
+  transition LoggedOut on LoginStart { next LoginNegotiating; emit SendLoginResp; }
+  # The login nop-in/nop-out exchange.
+  transition LoginNegotiating on NopIn { next LoginNegotiating; emit SendNopOut; }
+  transition LoginNegotiating on PhaseDone { next FullFeature; set session_id = 1; set have_session = true; }
+  # The full-feature phase: negotiate additional keys, still no I/O.
+  transition FullFeature on NopIn { next FullFeature; emit SendNopOut; }
+  transition FullFeature on PhaseDone { next Operational; }
+  # Operational: I/O flows.
+  transition Operational on IoRequest { next Operational; emit SendIo; }
+  transition Operational on Logout { next LoggedOut; emit SendLogoutResp; set have_session = false; }
+  # Recovery: re-establish the session (the id is preserved across logout).
+  transition LoggedOut on RecoveryReq { next LoginNegotiating; emit SendLoginResp; }
+}

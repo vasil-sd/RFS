@@ -1,0 +1,26 @@
+module nvme_controller
+  initial state: Reset
+  enums:
+    State: Reset, Initialized, Enabled, ShuttingDown
+  events:
+    InitDone: InitDone
+    EnableCmd: EnableCmd
+    IoSubmit: S(qid: bit<2>)
+    ShutdownCmd: ShutdownCmd
+    AerReq: AerReq
+    Tick: Tick
+  outputs:
+    SendAdminCmd: SendAdminCmd
+    SendIo: SendIo
+    SendCompletion: SendCompletion
+    SendAerNotify: SendAerNotify
+  variables:
+    outstanding: bit<3> = 0
+    enabled: bool = false
+  transitions: 10
+  properties:
+    no_io_before_enabled: always (output_has(SendIo) -> (state == Enabled)) - monitored
+    shutdown_flushes: always ((state == ShuttingDown) -> bounded_eventually[16] ((state == Reset))) - monitored
+  assumptions:
+    env_tick: always (bounded_eventually[2] (input_is(Tick))) - monitored
+

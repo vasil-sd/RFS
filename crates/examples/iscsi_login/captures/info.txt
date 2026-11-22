@@ -1,0 +1,25 @@
+module iscsi_login
+  initial state: LoggedOut
+  enums:
+    State: LoggedOut, LoginNegotiating, FullFeature, Operational
+  events:
+    LoginStart: LoginStart
+    NopIn: NopIn
+    PhaseDone: PhaseDone
+    IoRequest: IoRequest
+    Logout: Logout
+    RecoveryReq: RecoveryReq
+  outputs:
+    SendLoginResp: SendLoginResp
+    SendNopOut: SendNopOut
+    SendIo: SendIo
+    SendLogoutResp: SendLogoutResp
+  variables:
+    session_id: bit<8> = 0
+    have_session: bool = false
+  transitions: 8
+  properties:
+    no_io_before_operational: always (output_has(SendIo) -> (state == Operational)) - monitored
+    no_dangling_session: always ((state == LoggedOut) -> !have_session) - monitored
+  assumptions: (none)
+

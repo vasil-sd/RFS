@@ -2866,3 +2866,19 @@ PHASE 8 IS NOW COMPLETE.
 - `docs/llm/TEST_STRUCTURE.md` (10 new rows)
 - `docs/roadmap/phase_18/{PHASE_18.md,tasks/PHASE_18_TASK_8.md}` (placeholder-link fix)
 - `docs/roadmap/phase_18/tasks/PHASE_18_TASK_1.md` (exit criteria + corrections), `PHASE_18_TASK_1_STATUS.md` (new)
+
+## 2026-11-22 09:30 — Phase 18 task 2 (complete): the 10 Group-A protocol FSM example projects A11-A20 + pinned test legs + inventory rows
+
+### Interpretation & plan
+
+- Requested: "continue with execution of task 2" = Phase 18 task 2 (`docs/roadmap/phase_18/tasks/PHASE_18_TASK_2.md`) - create the 10 application/storage/wireless/security protocol FSM example projects (A11-A20), each a real FSM spec that model-checks to PASS, a one-defect variant failing with a PINNED counterexample, the fix, a run script, pinned captures, and a template README - plus one test leg per FSM. The two large-state-space twins (mqtt_qos_session, nvme_controller) additionally ship full.rfs checked via smt-bounded + fuzz.
+- Plan: per-FSM six-step workflow from the task file (pass.rfs -> verify PASS before pinning -> fail.rfs with the listed defect -> fixed.rfs -> run.sh -> README -> test leg), reusing the Phase 17 / task-1 plain-dir machinery and capture patterns.
+
+### Report
+
+- Added 10 example projects under crates/examples/ (mqtt_qos_session, coap_retransmit, ppp_lcp_ipcp, iscsi_login, fibrechannel_login, nvme_controller, sata_link_power, usb_device_link, bt_gatt_session, kerberos_auth): pass.rfs + fail.rfs + fixed.rfs + run.sh + captures/ (pinned text + JSON CEs) + template README.md each; mqtt + nvme additionally full.rfs + captures/full-smt.txt + captures/full-fuzz.txt (smt-bounded PASS WITHIN BOUND 12, fuzz runs=200 bound=5 completed=200 clean); coap additionally captures/fuzz-pass.txt (--mode fuzz on the passing spec).
+- tests/example_projects_test.rs: +10 pinned test legs (suite 24 -> 34): pinned PASS state counts (48/13058/7/6/4/56/4/4320/4/30720), pinned FAIL reason/label/step + CE defect step line copied from the real captures, pinned JSON labels, both-backend parity (3x pass summary), both-backends production compile proofs; twin legs pin "PASS WITHIN BOUND 12" + "runs=200 bound=5 completed=200".
+- docs/llm/TEST_STRUCTURE.md: +31 rows (10 task-2 legs + 21 repairing task 1A's missing inventory rows in smt_plan.rs/smt_emit.rs/ref_mc_smt.rs/ref_mc_smt_test.rs); llm-budget 1430 -> 1432.
+- Wrote docs/roadmap/phase_18/tasks/PHASE_18_TASK_2_STATUS.md (FORMATTING.md section 6.2).
+- Findings: task 1A/1B were committed without STATUS files / TASKS.md entries / 21 inventory rows (debt repaired here for the rows; STATUS + entries still owed); kerberos_auth rescaled bit<8> -> bit<3> time vars because the rfs binary runs under a seccomp filter capping its address space at ~1 GB (~2^34 configs OOM'd at 950 MB RSS) - noted in its README per the simplify-and-note rule; RFS priorities: higher number wins (an early kerberos draft had accept/reject inverted, masking the defect); always(input_is(E) -> next(f)) checks f one sample AFTER the E step (sata's wake property needed the plain implication form); sandbox /dev/null is a regular file that was transiently overwritten with an ELF binary, corrupting cargo's clippy probe stdin until truncated.
+- Verification: cargo test 604/604 (594 baseline + 10 legs); example_projects_test 34/34; docs_md_test 5/5 (new READMEs in its file set); dev_docs_test 9/9; rfs-dev inventory audit EXACT (SRC 1023 fns/215 types, TEST 1084 fns/35 types, zero per-file diffs); clippy no errors (71 warning lines = 64 baseline + 7 task-1A smt style lints, zero in this task's files); fmt clean.

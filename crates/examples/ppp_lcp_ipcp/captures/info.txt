@@ -1,0 +1,29 @@
+module ppp_lcp_ipcp
+  initial state: LcpDead
+  enums:
+    State: LcpDead, LcpReqSent, LcpAckRcvd, LcpAckSent, LcpOpen, IpcpNegotiating, IpcpOpen
+    Auth: None, Authenticated
+  events:
+    LocalUp: LocalUp
+    PeerConfReq: PeerConfReq
+    PeerConfAck: PeerConfAck
+    PeerConfNak: PeerConfNak
+    IpcpStart: IpcpStart
+    IpcpPeerAck: IpcpPeerAck
+    DataIn: DataIn
+    LinkDown: LinkDown
+  outputs:
+    SendConfReq: SendConfReq
+    SendConfAck: SendConfAck
+    SendIpcpReq: SendIpcpReq
+    SendIpcpAck: SendIpcpAck
+    ForwardData: ForwardData
+  variables:
+    lcp_open: bool = false
+    auth: enum Auth = Auth.None
+  transitions: 18
+  properties:
+    no_ipcp_before_lcp_open: always (output_has(SendIpcpReq) -> lcp_open) - monitored
+    auth_before_data: always (output_has(ForwardData) -> (auth == Auth.Authenticated)) - monitored
+  assumptions: (none)
+

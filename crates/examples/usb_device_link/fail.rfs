@@ -1,0 +1,52 @@
+# rfs 1.0
+# usb_device_link - FAILING VARIANT (Phase 18 A18): the state guard is
+# removed, so a data token flows while the device is suspended.
+# The original spec is pass.rfs. a USB device & link state machine - Default ->
+# Addressed -> Configured, suspend/resume with the prior configuration restored, and
+# bus reset. Distinct from the existing examples/valid usb_control_transfer spec
+# (which models one transfer, not the device/link lifecycle). Data flows only in the
+# configured state; a suspended device holds no address of its own.
+module usb_device_link {
+  enum State { Default, Addressed, Configured, Suspended, Recovery }
+  initial Default
+
+  event SetAddr(A(addr: bit<7>))
+  event Configure(C(cfg: bit<4>))
+  event SuspendReq
+  event ResumeReq
+  event DataIn
+  event ResetBus
+  event LinkUp
+
+  output SendData
+  output SendResetAck
+
+  var addr: bit<7> init 0
+  var config: bit<4> init 0
+  enum SuspFrom { None, Addressed, Configured }
+  var suspended_from: SuspFrom init SuspFrom::None
+
+  # No data while suspended: data tokens flow only in the configured state.
+  prop no_data_while_suspended : always (output_has(SendData) -> state != Suspended) ;
+  # A device in Default holds no address (reset clears it).
+  prop default_has_no_address : always (state == Default -> addr == 0) ;
+
+  transition Default on SetAddr(A(a)) where a != 0 { next Addressed; set addr = a; }
+  transition Addressed on Configure(C(c)) { next Configured; set config = c; }
+  # Suspend remembers the prior configuration so resume restores it.
+  transition Addressed on SuspendReq { next Suspended; set suspended_from = SuspFrom::Addressed; }
+  transition Configured on SuspendReq { next Suspended; set suspended_from = SuspFrom::Configured; }
+  transition Suspended on ResumeReq where suspended_from == SuspFrom::Configured { priority 1; next Configured; set suspended_from = SuspFrom::None; }
+  transition Suspended on ResumeReq where suspended_from == SuspFrom::Addressed { priority 2; next Addressed; set suspended_from = SuspFrom::None; }
+  // DEFECT: the state guard is gone - a data token flows while suspended.
+  transition Suspended on DataIn { next Suspended; emit SendData; }
+  # Data: only in the configured state.
+  transition Configured on DataIn { next Configured; emit SendData; }
+  # Bus reset from every state: back to Default, address and config cleared.
+  transition Default on ResetBus { next Default; set addr = 0; set config = 0; set suspended_from = SuspFrom::None; emit SendResetAck; }
+  transition Addressed on ResetBus { next Default; set addr = 0; set config = 0; set suspended_from = SuspFrom::None; emit SendResetAck; }
+  transition Configured on ResetBus { next Default; set addr = 0; set config = 0; set suspended_from = SuspFrom::None; emit SendResetAck; }
+  # A reset while suspended needs link retraining: through Recovery first.
+  transition Suspended on ResetBus { next Recovery; set addr = 0; set config = 0; set suspended_from = SuspFrom::None; emit SendResetAck; }
+  transition Recovery on LinkUp { next Default; }
+}

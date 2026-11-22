@@ -1,0 +1,26 @@
+module usb_device_link
+  initial state: Default
+  enums:
+    State: Default, Addressed, Configured, Suspended, Recovery
+    SuspFrom: None, Addressed, Configured
+  events:
+    SetAddr: A(addr: bit<7>)
+    Configure: C(cfg: bit<4>)
+    SuspendReq: SuspendReq
+    ResumeReq: ResumeReq
+    DataIn: DataIn
+    ResetBus: ResetBus
+    LinkUp: LinkUp
+  outputs:
+    SendData: SendData
+    SendResetAck: SendResetAck
+  variables:
+    addr: bit<7> = 0
+    config: bit<4> = 0
+    suspended_from: enum SuspFrom = SuspFrom.None
+  transitions: 12
+  properties:
+    no_data_while_suspended: always (output_has(SendData) -> (state != Suspended)) - monitored
+    default_has_no_address: always ((state == Default) -> (addr == 0)) - monitored
+  assumptions: (none)
+

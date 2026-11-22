@@ -1,0 +1,17 @@
+FAIL
+model-check summary: status=fail states=487 transitions=1271 max_depth=6 reason=property-violation label=no_access_with_expired_tgt step=6
+  unexpected terminations: 6083
+  first unexpected: config 0 input index 8
+  monitor size: 0 bits
+  memory estimate: 17045 bytes
+property violation: no_access_with_expired_tgt
+  violation step: 6
+  vars at violation step: Vars { clock: 2, tgt_expiry: 0, have_tgt: true, st_expiry: 6, have_st: true, last_ts: 1, seen_ts: true, replayed: false }
+counterexample trace:
+  initial state=State::Idle vars=Vars { clock: 0, tgt_expiry: 0, have_tgt: false, st_expiry: 0, have_st: false, last_ts: 0, seen_ts: false, replayed: false }
+  step 0 input=Input::Tick outputs=[] from=State::Idle to=State::Idle vars=Vars { clock: 1, tgt_expiry: 0, have_tgt: false, st_expiry: 0, have_st: false, last_ts: 0, seen_ts: false, replayed: false }
+  step 1 input=Input::Tick outputs=[] from=State::Idle to=State::Idle vars=Vars { clock: 2, tgt_expiry: 0, have_tgt: false, st_expiry: 0, have_st: false, last_ts: 0, seen_ts: false, replayed: false }
+  step 2 input=Input::AsReq_T { ts: 0 } outputs=[] from=State::Idle to=State::AsExchange vars=Vars { clock: 2, tgt_expiry: 0, have_tgt: false, st_expiry: 0, have_st: false, last_ts: 0, seen_ts: true, replayed: false }
+  step 3 input=Input::AsRep outputs=[Output::GrantTgt] from=State::AsExchange to=State::HaveTgt vars=Vars { clock: 2, tgt_expiry: 0, have_tgt: true, st_expiry: 0, have_st: false, last_ts: 0, seen_ts: true, replayed: false }
+  step 4 input=Input::TgsReq_T { ts: 1 } outputs=[] from=State::HaveTgt to=State::TgsExchange vars=Vars { clock: 2, tgt_expiry: 0, have_tgt: true, st_expiry: 0, have_st: false, last_ts: 1, seen_ts: true, replayed: false }
+  step 5 input=Input::TgsRep outputs=[Output::GrantSt] from=State::TgsExchange to=State::HaveSt vars=Vars { clock: 2, tgt_expiry: 0, have_tgt: true, st_expiry: 6, have_st: true, last_ts: 1, seen_ts: true, replayed: false }

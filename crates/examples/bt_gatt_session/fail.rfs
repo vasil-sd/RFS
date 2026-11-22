@@ -1,0 +1,47 @@
+# rfs 1.0
+# bt_gatt_session - FAILING VARIANT (Phase 18 A19): the subscription guard
+# is removed, so a notification goes to an unsubscribed client.
+# The original spec is pass.rfs. a Bluetooth GATT (Core Spec Vol 3) client/server
+# session machine - advertising -> connecting -> connected, then read/write/notify per
+# characteristic. The client characteristic configuration (CCC, handle 1) carries the
+# subscription flag; notifications go only to subscribed clients, and writes reach only
+# mapped characteristics.
+module bt_gatt_session {
+  enum State { Advertising, Connecting, Connected }
+  initial Advertising
+
+  event ScanReq
+  event ConnectReq
+  event LinkUp
+  event DisconnectReq
+  event ReadReq(H(hdl: bit<8>))
+  event WriteReq(W(hdl: bit<8>, val: bit<8>))
+  event NotifyTrig
+
+  output SendScanRsp
+  output SendConnectInd
+  output SendReadRsp
+  output SendWriteRsp
+  output SendNotify
+  output SendDisconnect
+
+  var subscribed: bool init false
+  var mapped: bool init false
+
+  # Notifications go only to subscribed clients.
+  prop notify_only_subscribed : always (output_has(SendNotify) -> subscribed) ;
+  # Writes reach only mapped characteristics.
+  prop no_write_unmapped : always (output_has(SendWriteRsp) -> mapped) ;
+
+  transition Advertising on ScanReq { next Advertising; emit SendScanRsp; }
+  transition Advertising on ConnectReq { next Connecting; }
+  # Link up: the GATT attribute table is mapped for this connection.
+  transition Connecting on LinkUp { next Connected; emit SendConnectInd; set mapped = true; }
+  transition Connected on ReadReq(H(h)) where mapped { next Connected; emit SendReadRsp; }
+  # CCC (handle 1) writes set the subscription flag; other handles are plain writes.
+  transition Connected on WriteReq(W(h, v)) where h == 1 && mapped { priority 1; next Connected; emit SendWriteRsp; set subscribed = v != 0; }
+  transition Connected on WriteReq(W(h, v)) where h != 1 && mapped { priority 2; next Connected; emit SendWriteRsp; }
+  // DEFECT: the subscription guard is gone - a notification goes to an unsubscribed client.
+  transition Connected on NotifyTrig { next Connected; emit SendNotify; }
+  transition Connected on DisconnectReq { next Advertising; emit SendDisconnect; set subscribed = false; set mapped = false; }
+}

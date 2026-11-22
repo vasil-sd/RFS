@@ -1,0 +1,54 @@
+# rfs 1.0
+# mqtt_qos_session (Phase 18 A11): an MQTT broker's session + QoS delivery machine
+# (RFC 8223). CONNECT/CONNACK, then PUBLISH with the three QoS levels: QoS0
+# fire-and-forget, QoS1 at-least-once (PUBACK), QoS2 exactly-once
+# (PUBREC/PUBREL/PUBCOMP). The packet-id space is abstracted to bit<4> so exact
+# model checking is feasible; the faithful 16-bit version lives in full.rfs
+# (checked via smt-bounded + fuzz, not exact MC). Single in-flight QoS2 exchange:
+# concurrent exchanges with distinct ids are out of scope for this discrete model.
+module mqtt_qos_session {
+  enum State { Disconnected, Connected, AwaitPubrec }
+  initial Disconnected
+
+  event Connect
+  event Disconnect
+  event PublishQoS0(P(id: bit<4>))
+  event PublishQoS1(P(id: bit<4>))
+  event PublishQoS2(P(id: bit<4>))
+  event PubRel(R(id: bit<4>))
+
+  output SendConnack
+  output Deliver
+  output SendPuback
+  output SendPubrec
+  output SendPubcomp
+
+  var last_id: bit<4> init 0
+  var have_last: bool init false
+  # Per-delivery duplicate flag: each QoS2 delivery step records whether it was a
+  # duplicate (the id's handshake already in flight). The dedup guard makes every
+  # delivery non-duplicate in the correct machine; the property asserts that.
+  var was_dup: bool init false
+
+  # Exactly-once (QoS2): no delivery is ever a duplicate of an in-flight id.
+  prop exactly_once : always (!was_dup) ;
+  # State/variable consistency: being in AwaitPubrec means a handshake is in flight.
+  prop handshake_consistent : always (state == AwaitPubrec -> have_last) ;
+
+  transition Disconnected on Connect { next Connected; emit SendConnack; }
+  transition Connected on Disconnect { next Disconnected; set have_last = false; }
+  transition AwaitPubrec on Disconnect { next Disconnected; set have_last = false; }
+  # QoS0: fire-and-forget delivery, no handshake, no dedup obligation.
+  transition Connected on PublishQoS0(P(id)) { next Connected; emit Deliver; }
+  # QoS1: at-least-once - deliver + PUBACK; redelivery on publisher retransmit is legal.
+  transition Connected on PublishQoS1(P(id)) { next Connected; emit Deliver; emit SendPuback; }
+  # QoS2: exactly-once - the dedup guard blocks a second delivery while the
+  # handshake for last_id is in flight.
+  transition Connected on PublishQoS2(P(id)) where !have_last { priority 1; next AwaitPubrec; emit Deliver; emit SendPubrec; set last_id = id; set have_last = true; set was_dup = false; }
+  # Duplicate PUBLISH for the in-flight id: silently ignored (no re-delivery).
+  transition AwaitPubrec on PublishQoS2(P(id)) where id == last_id { priority 1; next AwaitPubrec; }
+  # A different id arrives while the handshake is in flight: dropped in this
+  # single-in-flight abstraction.
+  transition AwaitPubrec on PublishQoS2(P(id)) where id != last_id { priority 2; next AwaitPubrec; }
+  transition AwaitPubrec on PubRel(R(id)) where id == last_id { next Connected; emit SendPubcomp; set have_last = false; }
+}

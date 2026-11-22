@@ -1,0 +1,22 @@
+module fibrechannel_login
+  initial state: Nop
+  enums:
+    State: Nop, FLogi, PLogi, LoggedIn
+  events:
+    FLogiReq: FLogiReq
+    PLogiReq: PLogiReq
+    LoginComplete: LoginComplete
+    LogoutReq: LogoutReq
+    RscnReg: RscnReg
+  outputs:
+    SendFLogiResp: SendFLogiResp
+    SendPLogiResp: SendPLogiResp
+    SendLogoutResp: SendLogoutResp
+    SendRscn: SendRscn
+  variables:
+    logins: bit<2> = 0
+  transitions: 5
+  properties:
+    single_logged_in: always ((logins <= 1)) - monitored
+  assumptions: (none)
+

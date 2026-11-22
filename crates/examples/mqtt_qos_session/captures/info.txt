@@ -1,0 +1,27 @@
+module mqtt_qos_session
+  initial state: Disconnected
+  enums:
+    State: Disconnected, Connected, AwaitPubrec
+  events:
+    Connect: Connect
+    Disconnect: Disconnect
+    PublishQoS0: P(id: bit<4>)
+    PublishQoS1: P(id: bit<4>)
+    PublishQoS2: P(id: bit<4>)
+    PubRel: R(id: bit<4>)
+  outputs:
+    SendConnack: SendConnack
+    Deliver: Deliver
+    SendPuback: SendPuback
+    SendPubrec: SendPubrec
+    SendPubcomp: SendPubcomp
+  variables:
+    last_id: bit<4> = 0
+    have_last: bool = false
+    was_dup: bool = false
+  transitions: 9
+  properties:
+    exactly_once: always (!was_dup) - monitored
+    handshake_consistent: always ((state == AwaitPubrec) -> have_last) - monitored
+  assumptions: (none)
+

@@ -1,0 +1,14 @@
+FAIL
+model-check summary: status=fail states=5 transitions=12 max_depth=3 reason=property-violation label=no_ipcp_before_lcp_open step=3
+  unexpected terminations: 17
+  first unexpected: config 0 input index 1
+  monitor size: 0 bits
+  memory estimate: 165 bytes
+property violation: no_ipcp_before_lcp_open
+  violation step: 3
+  vars at violation step: Vars { lcp_open: false, auth: Auth::None }
+counterexample trace:
+  initial state=State::LcpDead vars=Vars { lcp_open: false, auth: Auth::None }
+  step 0 input=Input::LocalUp outputs=[Output::SendConfReq] from=State::LcpDead to=State::LcpReqSent vars=Vars { lcp_open: false, auth: Auth::None }
+  step 1 input=Input::PeerConfAck outputs=[] from=State::LcpReqSent to=State::LcpAckSent vars=Vars { lcp_open: false, auth: Auth::None }
+  step 2 input=Input::IpcpStart outputs=[Output::SendIpcpReq] from=State::LcpAckSent to=State::IpcpNegotiating vars=Vars { lcp_open: false, auth: Auth::None }

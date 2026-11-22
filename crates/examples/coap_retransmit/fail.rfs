@@ -1,0 +1,41 @@
+# rfs 1.0
+# coap_retransmit - FAILING VARIANT (Phase 18 A12): the retry cap is removed, so a lost
+# ACK loops forever - retransmission never gives up and the exchange never ends.
+# The original spec is pass.rfs. a CoAP (RFC 7252) confirmable-exchange machine -
+# CON sent, ACK awaited, retransmission with a bounded retry count (the exponential
+# backoff is abstracted to the retry counter), RESET on a mismatched token, and
+# abort once the retry cap is reached. The environment keeps time: a Timeout arrives
+# within every 3 samples (assumption).
+module coap_retransmit {
+  enum State { Idle, AwaitingAck, Aborted }
+  initial Idle
+
+  event Request(T(token: bit<8>))
+  event Ack(A(token: bit<8>))
+  event Timeout
+
+  output SendCon
+  output SendReset
+  output Abort
+
+  var token: bit<8> init 0
+  var retries: bit<3> init 0
+
+  # Every exchange ends: an ACK is received or the retry cap aborts it.
+  prop ack_or_abort : always (state == AwaitingAck -> bounded_eventually[16] (state == Idle || state == Aborted)) ;
+
+  # The environment keeps time: a Timeout arrives within every 3 samples.
+  assume env_timeout : always (bounded_eventually[3] (input_is(Timeout))) ;
+
+  transition Idle on Request(T(t)) { next AwaitingAck; emit SendCon; set token = t; set retries = 1; }
+  transition AwaitingAck on Ack(A(t)) where t == token { next Idle; }
+  # A CON with a different token while an exchange is outstanding: RESET the old one,
+  # start fresh with the new token.
+  transition AwaitingAck on Request(T(t)) where t != token { next AwaitingAck; emit SendReset; }
+  // DEFECT: the retry cap is gone - a lost ACK loops forever (retries wraps mod 8).
+  transition AwaitingAck on Timeout { next AwaitingAck; emit SendCon; set retries = retries + 1; }
+  transition Aborted on Request(T(t)) { next AwaitingAck; emit SendCon; set token = t; set retries = 1; }
+  # Idle/Aborted absorb Timeout (the assumption must be satisfiable in every state).
+  transition Idle on Timeout { next Idle; }
+  transition Aborted on Timeout { next Aborted; }
+}

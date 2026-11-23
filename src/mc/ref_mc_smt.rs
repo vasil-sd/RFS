@@ -470,23 +470,41 @@ fn sf_to_z3(sf: &Sf, spec: &SmtSpec, ctx: &SfCtx, step: usize) -> Bool {
 
 /// The input_is atom's defining expression at step i over the step's fire
 /// predicates: OR over matching arms of (some transition of that class fired)
-/// AND (the literal field constraints hold).
+/// AND (the ACTUAL input was that class) AND (the literal field constraints
+/// hold). The class conjunct is entailed by `fires[t]` for single-class
+/// transitions (their enabled predicate pins `ev_i == class`), but a
+/// multi-variant wildcard (task 3D) fires on ANY of its classes - without it,
+/// every covered arm would be true at once and `input_is(Msg(Good))` could
+/// hold while the consumed input was `Msg(Bad)` (masking violations exact
+/// mode reports). With the conjunct the fire-based form coincides with the
+/// ev-based one at every live sample, multi-class included.
 fn input_atom_expr(
     spec: &SmtSpec,
     arms: &[(usize, Vec<(usize, u64, bool)>)],
     fires: &[Bool],
     i: usize,
+    ev_vars: Option<&[BV]>,
     fld_vars: &[Vec<BV>],
 ) -> Bool {
+    let n_classes = spec.classes.len();
+    let cls_bits = ceil_log2_pub(n_classes);
     let mut val = Bool::from_bool(false);
     for (ci, constraints) in arms {
         let mut cls_fire = Bool::from_bool(false);
         for (t, tr) in spec.transitions.iter().enumerate() {
-            if tr.class == *ci {
+            // A multi-variant wildcard transition (task 3D) fires on ANY of
+            // its classes - it contributes to every arm class it covers.
+            if tr.classes.contains(ci) {
                 cls_fire = b_or(&cls_fire, &fires[t]);
             }
         }
         let mut arm = cls_fire;
+        if n_classes > 1 {
+            arm = b_and(
+                &arm,
+                &ev_vars.expect("event vars")[i].eq(BV::from_u64(*ci as u64, cls_bits)),
+            );
+        }
         for (g, v, _isb) in constraints {
             let w = spec
                 .classes
@@ -537,7 +555,10 @@ fn output_atom_expr(
                 match o.args.get(*pos) {
                     Some(arg) => {
                         let w = se_type(arg, spec).width();
-                        let e = bv_of(se_to_z3(arg, spec, &sv, Some(tr.class), Some(w), true));
+                        // classes[0] is a valid field-resolution context: a
+                        // multi-class transition carries no Se::Field nodes
+                        // (bare group patterns have no payload bindings).
+                        let e = bv_of(se_to_z3(arg, spec, &sv, Some(tr.classes[0]), Some(w), true));
                         m = b_and(&m, &e.eq(&BV::from_u64(*v, w)));
                     }
                     None => {
@@ -560,7 +581,8 @@ fn output_atom_expr(
 /// on_error sample, SEMANTICS 3.6), so input_is must reflect the input's
 /// class even when no real transition fired. Without on_error the fire-based
 /// form coincides with this one at every live sample (a live sample means a
-/// transition of the input's class fired).
+/// transition of the input's class fired - and its per-arm `ev_i == ci`
+/// conjunct, task 3D, selects the variant that actually came in).
 fn input_atom_expr_ev(
     spec: &SmtSpec,
     arms: &[(usize, Vec<(usize, u64, bool)>)],
@@ -657,7 +679,14 @@ fn print_trace(
                 vs.push_str(", ");
             }
             let val = read_bv(m, &v_vars[i][j]);
-            if spec.vars[j].is_bool {
+            if spec.vars[j].is_enum {
+                // Enum var (task 3D): the value is a variant index - print
+                // the variant NAME, not the raw index.
+                vs.push_str(&format!(
+                    "{}={}",
+                    spec.vars[j].name, spec.vars[j].enum_variants[val as usize]
+                ));
+            } else if spec.vars[j].is_bool {
                 vs.push_str(&format!(
                     "{}={}",
                     spec.vars[j].name,
@@ -679,7 +708,10 @@ fn print_trace(
                             fs.push_str(", ");
                         }
                         let val = read_bv(m, &fld_vars[i][g]);
-                        if f.2 {
+                        if !f.3.is_empty() {
+                            // Enum field (task 3D): print the variant name.
+                            fs.push_str(&format!("{}={}", f.0, f.3[val as usize]));
+                        } else if f.2 {
                             fs.push_str(&format!(
                                 "{}={}",
                                 f.0,
@@ -818,10 +850,15 @@ fn run_unrolled(
             let tr = &spec.transitions[t];
             let mut en = s_vars[i].eq(&BV::from_u64(tr.state as u64, spec.state_bits));
             if n_classes > 1 {
-                en = b_and(
-                    &en,
-                    &ev_vars.as_ref().unwrap()[i].eq(&BV::from_u64(tr.class as u64, cls_bits)),
-                );
+                // Multi-variant wildcard (task 3D): the transition fires on
+                // ANY of its classes - OR over them. A one-class transition
+                // renders exactly as before (a single equality).
+                let ev = ev_vars.as_ref().unwrap()[i].clone();
+                let mut cls_match = Bool::from_bool(false);
+                for &c in &tr.classes {
+                    cls_match = b_or(&cls_match, &ev.eq(&BV::from_u64(c as u64, cls_bits)));
+                }
+                en = b_and(&en, &cls_match);
             }
             if let Some(guard) = &tr.guard {
                 en = b_and(
@@ -830,7 +867,7 @@ fn run_unrolled(
                         guard,
                         spec,
                         &step_vars(i),
-                        Some(tr.class),
+                        Some(tr.classes[0]),
                         Some(1),
                         false,
                     )),
@@ -901,7 +938,7 @@ fn run_unrolled(
                 if has_on_error {
                     input_atom_expr_ev(spec, arms, i, ev_vars.as_deref(), &fld_vars)
                 } else {
-                    input_atom_expr(spec, arms, &fires, i, &fld_vars)
+                    input_atom_expr(spec, arms, &fires, i, ev_vars.as_deref(), &fld_vars)
                 }
             })
             .collect();
@@ -974,7 +1011,7 @@ fn run_unrolled(
                             expr,
                             spec,
                             &step_vars(i),
-                            Some(spec.transitions[t].class),
+                            Some(spec.transitions[t].classes[0]),
                             Some(spec.vars[j].width),
                             true,
                         ));

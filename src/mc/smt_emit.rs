@@ -626,6 +626,12 @@ fn rust_str_list(items: &[String]) -> String {
     format!("[{}]", inner.join(", "))
 }
 
+/// One Rust string literal (variant names are identifiers - no escaping
+/// surprises; task 3D enum display tables).
+fn rust_str_lit(s: &str) -> String {
+    format!("{s:?}")
+}
+
 /// Emit the full Rust spec section (constants + builder functions + tables).
 pub fn emit_rust_spec(spec: &SmtSpec) -> String {
     let mut s = String::new();
@@ -657,6 +663,24 @@ pub fn emit_rust_spec(spec: &SmtSpec) -> String {
         "const VAR_IS_BOOL: &[bool] = &{:?};\n",
         spec.vars.iter().map(|v| v.is_bool).collect::<Vec<_>>()
     ));
+    // Enum-var witness display (task 3D): concatenated variant names + per-var
+    // offset/length (length 0 = not an enum - print the raw index as before).
+    let mut ven: Vec<String> = Vec::new();
+    let mut voff: Vec<String> = Vec::new();
+    let mut vlen: Vec<String> = Vec::new();
+    for v in &spec.vars {
+        voff.push(ven.len().to_string());
+        vlen.push(v.enum_variants.len().to_string());
+        for name in &v.enum_variants {
+            ven.push(rust_str_lit(name));
+        }
+    }
+    s.push_str(&format!(
+        "/// Enum-var variant names (concatenated; task 3D).\nconst VAR_ENUM_NAMES: &[&str] = &[{}];\nconst VAR_ENUM_OFF: &[usize] = &[{}];\nconst VAR_ENUM_LEN: &[usize] = &[{}];\n",
+        ven.join(", "),
+        voff.join(", "),
+        vlen.join(", ")
+    ));
     let cnames: Vec<String> = spec.classes.iter().map(|c| c.name.clone()).collect();
     s.push_str(&format!(
         "const CLASS_NAMES: &[&str] = &{};\n",
@@ -671,7 +695,7 @@ pub fn emit_rust_spec(spec: &SmtSpec) -> String {
     let fnames: Vec<String> = spec
         .classes
         .iter()
-        .flat_map(|c| c.fields.iter().map(|(n, _, _)| n.clone()))
+        .flat_map(|c| c.fields.iter().map(|(n, _, _, _)| n.clone()))
         .collect();
     s.push_str(&format!(
         "const FIELD_NAMES: &[&str] = &{};\n",
@@ -681,15 +705,34 @@ pub fn emit_rust_spec(spec: &SmtSpec) -> String {
         "const FIELD_WIDTHS: &[u32] = &{:?};\n",
         spec.classes
             .iter()
-            .flat_map(|c| c.fields.iter().map(|(_, w, _)| *w))
+            .flat_map(|c| c.fields.iter().map(|(_, w, _, _)| *w))
             .collect::<Vec<_>>()
     ));
     s.push_str(&format!(
         "const FIELD_IS_BOOL: &[bool] = &{:?};\n",
         spec.classes
             .iter()
-            .flat_map(|c| c.fields.iter().map(|(_, _, b)| *b))
+            .flat_map(|c| c.fields.iter().map(|(_, _, b, _)| *b))
             .collect::<Vec<_>>()
+    ));
+    // Enum-field witness display (task 3D): same pattern as the vars.
+    let mut fen: Vec<String> = Vec::new();
+    let mut foff: Vec<String> = Vec::new();
+    let mut flen: Vec<String> = Vec::new();
+    for c in &spec.classes {
+        for (_, _, _, ev) in &c.fields {
+            foff.push(fen.len().to_string());
+            flen.push(ev.len().to_string());
+            for name in ev {
+                fen.push(rust_str_lit(name));
+            }
+        }
+    }
+    s.push_str(&format!(
+        "/// Enum-field variant names (concatenated; task 3D).\nconst FIELD_ENUM_NAMES: &[&str] = &[{}];\nconst FIELD_ENUM_OFF: &[usize] = &[{}];\nconst FIELD_ENUM_LEN: &[usize] = &[{}];\n",
+        fen.join(", "),
+        foff.join(", "),
+        flen.join(", ")
     ));
     // (class, local field index) per global field - witness display.
     let mut fc: Vec<String> = Vec::new();
@@ -705,11 +748,30 @@ pub fn emit_rust_spec(spec: &SmtSpec) -> String {
     let trans: Vec<String> = spec
         .transitions
         .iter()
-        .map(|t| format!("({}, {}, {})", t.state, t.next_state, t.class))
+        .map(|t| format!("({}, {})", t.state, t.next_state))
         .collect();
     s.push_str(&format!(
-        "/// Transitions in firing order: (state, next_state, class).\nconst TRANS: &[(usize, usize, usize)] = &[{}];\n",
+        "/// Transitions in firing order: (state, next_state).\nconst TRANS: &[(usize, usize)] = &[{}];\n",
         trans.join(", ")
+    ));
+    // Per-transition input classes (task 3D): concatenated class lists. A
+    // named-variant transition has exactly one; a bare-group wildcard has all
+    // of the group's variants (enabled_t ORs over them).
+    let mut cls_all: Vec<String> = Vec::new();
+    let mut cls_off: Vec<String> = Vec::new();
+    let mut cls_len: Vec<String> = Vec::new();
+    for t in &spec.transitions {
+        cls_off.push(cls_all.len().to_string());
+        cls_len.push(t.classes.len().to_string());
+        for &c in &t.classes {
+            cls_all.push(c.to_string());
+        }
+    }
+    s.push_str(&format!(
+        "/// Per-transition input classes (concatenated; task 3D).\nconst TRANS_CLASSES: &[usize] = &[{}];\nconst TRANS_CLS_OFF: &[usize] = &[{}];\nconst TRANS_CLS_LEN: &[usize] = &[{}];\n",
+        cls_all.join(", "),
+        cls_off.join(", "),
+        cls_len.join(", ")
     ));
     let pnames: Vec<String> = spec.properties.iter().map(|p| p.name.clone()).collect();
     s.push_str(&format!(
@@ -770,7 +832,7 @@ pub fn emit_rust_spec(spec: &SmtSpec) -> String {
         let mut r = RustRender::new();
         let uses_i = tr.guard.as_ref().is_some_and(se_uses_step);
         match &tr.guard {
-            Some(g) => render_se_rust(g, spec, Some(1), Some(tr.class), false, "i", &mut r),
+            Some(g) => render_se_rust(g, spec, Some(1), Some(tr.classes[0]), false, "i", &mut r),
             None => r.push("let e0: Bool = Bool::from_bool(true);".into()),
         };
         s.push_str(&format!(
@@ -799,7 +861,7 @@ pub fn emit_rust_spec(spec: &SmtSpec) -> String {
                     expr,
                     spec,
                     Some(spec.vars[j].width),
-                    Some(tr.class),
+                    Some(tr.classes[0]),
                     true,
                     "i",
                     &mut r,
@@ -913,13 +975,26 @@ pub fn emit_rust_spec(spec: &SmtSpec) -> String {
         // no plain input-atom builder (the _ev variant is emitted in the
         // on_error section below)
     } else if spec.input_atoms.is_empty() {
-        s.push_str(
-            "fn build_input_atom(_a: usize, _i: usize, _fires: &[Bool], _fld_vars: &[Vec<BV>]) -> Bool {\n    Bool::from_bool(false)\n}\n\n",
-        );
+        // The ev parameter exists only for multi-class specs (task 3D) - the
+        // call site passes it only then, keeping single-class codegen
+        // byte-identical to before.
+        let ev_param = if spec.classes.len() > 1 {
+            ", _ev_vars: Option<&[BV]>"
+        } else {
+            ""
+        };
+        s.push_str(&format!(
+            "fn build_input_atom(_a: usize, _i: usize, _fires: &[Bool], _fld_vars: &[Vec<BV>]{ev_param}) -> Bool {{\n    Bool::from_bool(false)\n}}\n\n"
+        ));
     } else {
-        s.push_str(
-            "fn build_input_atom(a: usize, i: usize, fires: &[Bool], fld_vars: &[Vec<BV>]) -> Bool {\n",
-        );
+        let ev_param = if spec.classes.len() > 1 {
+            ", ev_vars: Option<&[BV]>"
+        } else {
+            ""
+        };
+        s.push_str(&format!(
+            "fn build_input_atom(a: usize, i: usize, fires: &[Bool], fld_vars: &[Vec<BV>]{ev_param}) -> Bool {{\n"
+        ));
         for (a, arms) in spec.input_atoms.iter().enumerate() {
             // if / else-if chain: an if-without-else in statement position
             // must return (), so the dispatch is one expression.
@@ -931,10 +1006,47 @@ pub fn emit_rust_spec(spec: &SmtSpec) -> String {
             for (ci, constraints) in arms {
                 s.push_str("        {\n");
                 s.push_str("            let mut cls_fire = Bool::from_bool(false);\n");
-                s.push_str(&format!(
-                    "            for t in 0..TRANS.len() {{ if TRANS[t].2 == {ci} {{ cls_fire = b_or(&cls_fire, &fires[t]); }} }}\n"
-                ));
-                let mut arm = "cls_fire".to_string();
+                // Transitions covering this arm's class (task 3D): a
+                // multi-variant wildcard transition covers every class in its
+                // `classes` - the index list is precomputed at emission.
+                let covering: Vec<String> = spec
+                    .transitions
+                    .iter()
+                    .enumerate()
+                    .filter(|(_, tr)| tr.classes.contains(ci))
+                    .map(|(t, _)| t.to_string())
+                    .collect();
+                if covering.is_empty() {
+                    // ev_vars joins the suppression only on multi-class specs
+                    // (the parameter exists only then).
+                    let ev_sup = if spec.classes.len() > 1 {
+                        ", ev_vars"
+                    } else {
+                        ""
+                    };
+                    s.push_str(&format!(
+                        "            let _ = (i, fires, fld_vars{ev_sup}); // no transition covers this class\n"
+                    ));
+                } else {
+                    for t in &covering {
+                        s.push_str(&format!(
+                            "            cls_fire = b_or(&cls_fire, &fires[{t}]);\n"
+                        ));
+                    }
+                }
+                // The actual-input class conjunct (task 3D): entailed by
+                // fires[t] for single-class transitions, but a multi-variant
+                // wildcard fires on ANY of its classes - without it every
+                // covered arm would be true at once and input_is could hold
+                // for the variant that did NOT come in (masking violations).
+                let mut arm = if spec.classes.len() > 1 {
+                    s.push_str(&format!(
+                        "            let ccm: Bool = ev_vars.expect(\"event vars\")[i].eq(&BV::from_u64({ci}u64, CLS_BITS));\n"
+                    ));
+                    "b_and(&cls_fire, &ccm)".to_string()
+                } else {
+                    "cls_fire".to_string()
+                };
                 for (pos, (g, v, _isb)) in constraints.iter().enumerate() {
                     s.push_str(&format!(
                         "            let c{pos}: Bool = fld_vars[i][{g}].eq(&BV::from_u64({v}u64, FIELD_WIDTHS[{g}]));\n"
@@ -1007,7 +1119,7 @@ pub fn emit_rust_spec(spec: &SmtSpec) -> String {
                         arg,
                         spec,
                         Some(se_type(arg, spec).width()),
-                        Some(tr.class),
+                        Some(tr.classes[0]),
                         true,
                         "i",
                         &mut r,
@@ -1920,6 +2032,12 @@ fn c_str_list(items: &[String]) -> String {
     format!("{{{}}}", inner.join(", "))
 }
 
+/// One C string literal (variant names are identifiers - no escaping
+/// surprises; task 3D enum display tables).
+fn c_str_lit(s: &str) -> String {
+    format!("{s:?}")
+}
+
 /// Emit the full C spec section (constants + builder functions + tables).
 pub fn emit_c_spec(spec: &SmtSpec) -> String {
     let mut s = String::new();
@@ -1976,6 +2094,29 @@ pub fn emit_c_spec(spec: &SmtSpec) -> String {
         "static const int VAR_IS_BOOL[] = {{{}}};\n",
         is_bools.join(", ")
     ));
+    // Enum-var witness display (task 3D): concatenated variant names + per-var
+    // offset/length (length 0 = not an enum - print the raw index as before).
+    let mut ven: Vec<String> = Vec::new();
+    let mut voff: Vec<String> = Vec::new();
+    let mut vlen: Vec<String> = Vec::new();
+    for v in &spec.vars {
+        voff.push(format!("{}u", ven.len()));
+        vlen.push(format!("{}u", v.enum_variants.len()));
+        for name in &v.enum_variants {
+            ven.push(c_str_lit(name));
+        }
+    }
+    // A dummy name slot keeps the NAMES array non-empty when no var is an
+    // enum (gcc -Warray-bounds warns on indexing a [0] array even under a
+    // length guard; the dummy is never printed - LEN 0 skips it).
+    s.push_str(&format!(
+        "/* Enum-var variant names (concatenated; task 3D). */\nstatic const char *VAR_ENUM_NAMES[] = {{{}}};\nstatic const unsigned VAR_ENUM_OFF[{}] = {{{}}};\nstatic const unsigned VAR_ENUM_LEN[{}] = {{{}}};\n",
+        if ven.is_empty() { "\"\"".to_string() } else { ven.join(", ") },
+        if spec.vars.is_empty() { 1 } else { spec.vars.len() },
+        if voff.is_empty() { "0u".to_string() } else { voff.join(", ") },
+        if spec.vars.is_empty() { 1 } else { spec.vars.len() },
+        if vlen.is_empty() { "0u".to_string() } else { vlen.join(", ") }
+    ));
     let cnames: Vec<String> = spec.classes.iter().map(|c| c.name.clone()).collect();
     s.push_str(&format!(
         "static const char *CLASS_NAMES[] = {};\n",
@@ -1987,7 +2128,7 @@ pub fn emit_c_spec(spec: &SmtSpec) -> String {
     let fnames: Vec<String> = spec
         .classes
         .iter()
-        .flat_map(|c| c.fields.iter().map(|(n, _, _)| n.clone()))
+        .flat_map(|c| c.fields.iter().map(|(n, _, _, _)| n.clone()))
         .collect();
     s.push_str(&format!(
         "static const char *FIELD_NAMES[{}] = {};\n",
@@ -2001,7 +2142,7 @@ pub fn emit_c_spec(spec: &SmtSpec) -> String {
     let fw: Vec<String> = spec
         .classes
         .iter()
-        .flat_map(|c| c.fields.iter().map(|(_, w, _)| format!("{w}u")))
+        .flat_map(|c| c.fields.iter().map(|(_, w, _, _)| format!("{w}u")))
         .collect();
     s.push_str(&format!(
         "static const unsigned FIELD_WIDTHS[{}] = {{{}}};\n",
@@ -2018,7 +2159,7 @@ pub fn emit_c_spec(spec: &SmtSpec) -> String {
         .flat_map(|c| {
             c.fields
                 .iter()
-                .map(|(_, _, b)| (if *b { 1 } else { 0 }).to_string())
+                .map(|(_, _, b, _)| (if *b { 1 } else { 0 }).to_string())
         })
         .collect();
     s.push_str(&format!("#define N_FIELDS {0}u\n", fbools.len()));
@@ -2030,6 +2171,27 @@ pub fn emit_c_spec(spec: &SmtSpec) -> String {
         } else {
             fbools.join(", ")
         }
+    ));
+    // Enum-field witness display (task 3D): same pattern as the vars.
+    let mut fen: Vec<String> = Vec::new();
+    let mut foff: Vec<String> = Vec::new();
+    let mut flen: Vec<String> = Vec::new();
+    for c in &spec.classes {
+        for (_, _, _, ev) in &c.fields {
+            foff.push(format!("{}u", fen.len()));
+            flen.push(format!("{}u", ev.len()));
+            for name in ev {
+                fen.push(c_str_lit(name));
+            }
+        }
+    }
+    s.push_str(&format!(
+        "/* Enum-field variant names (concatenated; task 3D). */\nstatic const char *FIELD_ENUM_NAMES[] = {{{}}};\nstatic const unsigned FIELD_ENUM_OFF[{}] = {{{}}};\nstatic const unsigned FIELD_ENUM_LEN[{}] = {{{}}};\n",
+        if fen.is_empty() { "\"\"".to_string() } else { fen.join(", ") },
+        if foff.is_empty() { 1 } else { foff.len() },
+        if foff.is_empty() { "0u".to_string() } else { foff.join(", ") },
+        if flen.is_empty() { 1 } else { flen.len() },
+        if flen.is_empty() { "0u".to_string() } else { flen.join(", ") }
     ));
     let mut fc: Vec<String> = Vec::new();
     for (ci, cls) in spec.classes.iter().enumerate() {
@@ -2044,12 +2206,33 @@ pub fn emit_c_spec(spec: &SmtSpec) -> String {
     let trans: Vec<String> = spec
         .transitions
         .iter()
-        .map(|t| format!("{{{0}u, {1}u, {2}u}}", t.state, t.next_state, t.class))
+        .map(|t| format!("{{{0}u, {1}u}}", t.state, t.next_state))
         .collect();
     s.push_str(&format!(
-        "/* Transitions in firing order: (state, next_state, class). */\nstatic const struct {{ unsigned state, next_state, cls; }} TRANS[] = {{{}}};\n#define N_TRANS {1}u\n",
+        "/* Transitions in firing order: (state, next_state). */\nstatic const struct {{ unsigned state, next_state; }} TRANS[] = {{{}}};\n#define N_TRANS {1}u\n",
         trans.join(", "),
         spec.transitions.len()
+    ));
+    // Per-transition input classes (task 3D): concatenated class lists. A
+    // named-variant transition has exactly one; a bare-group wildcard has all
+    // of the group's variants (enabled_t ORs over them).
+    let mut cls_all: Vec<String> = Vec::new();
+    let mut cls_off: Vec<String> = Vec::new();
+    let mut cls_len: Vec<String> = Vec::new();
+    for t in &spec.transitions {
+        cls_off.push(format!("{}u", cls_all.len()));
+        cls_len.push(format!("{}u", t.classes.len()));
+        for &c in &t.classes {
+            cls_all.push(format!("{c}u"));
+        }
+    }
+    s.push_str(&format!(
+        "/* Per-transition input classes (concatenated; task 3D). */\nstatic const unsigned TRANS_CLASSES[] = {{{}}};\nstatic const unsigned TRANS_CLS_OFF[{}] = {{{}}};\nstatic const unsigned TRANS_CLS_LEN[{}] = {{{}}};\n",
+        cls_all.join(", "),
+        if cls_off.is_empty() { 1 } else { cls_off.len() },
+        if cls_off.is_empty() { "0u".to_string() } else { cls_off.join(", ") },
+        if cls_len.is_empty() { 1 } else { cls_len.len() },
+        if cls_len.is_empty() { "0u".to_string() } else { cls_len.join(", ") }
     ));
     let pnames: Vec<String> = spec.properties.iter().map(|p| p.name.clone()).collect();
     s.push_str(&format!(
@@ -2122,7 +2305,7 @@ pub fn emit_c_spec(spec: &SmtSpec) -> String {
     for (t, tr) in spec.transitions.iter().enumerate() {
         let mut r = CRender::new();
         match &tr.guard {
-            Some(g) => render_se_c(g, spec, Some(1), Some(tr.class), false, "i", &mut r),
+            Some(g) => render_se_c(g, spec, Some(1), Some(tr.classes[0]), false, "i", &mut r),
             None => r.push("Z3_ast e0 = Z3_mk_true(c);".into()),
         };
         s.push_str(&format!(
@@ -2150,7 +2333,7 @@ pub fn emit_c_spec(spec: &SmtSpec) -> String {
                     expr,
                     spec,
                     Some(spec.vars[j].width),
-                    Some(tr.class),
+                    Some(tr.classes[0]),
                     true,
                     "i",
                     &mut r,
@@ -2291,23 +2474,74 @@ pub fn emit_c_spec(spec: &SmtSpec) -> String {
         // no plain input-atom builder (the _ev variant is emitted in the
         // on_error section below)
     } else if spec.input_atoms.is_empty() {
-        s.push_str(
-            "static Z3_ast build_input_atom(Z3_context c, unsigned a, unsigned i, const Z3_ast *fld, const Z3_ast *fires) {\n    (void)c; (void)a; (void)i; (void)fld; (void)fires;\n    return Z3_mk_false(c);\n}\n\n",
-        );
+        // The ev parameter exists only for multi-class specs (task 3D) - the
+        // call site passes it only then, keeping single-class codegen
+        // byte-identical to before.
+        let ev_param = if spec.classes.len() > 1 {
+            ", const Z3_ast *ev"
+        } else {
+            ""
+        };
+        s.push_str(&format!(
+            "static Z3_ast build_input_atom(Z3_context c, unsigned a, unsigned i, const Z3_ast *fld, const Z3_ast *fires{ev_param}) {{\n    (void)c; (void)a; (void)i; (void)fld; (void)fires{};\n    return Z3_mk_false(c);\n}}\n\n",
+            if spec.classes.len() > 1 { "; (void)ev" } else { "" }
+        ));
     } else {
-        s.push_str(
-            "static Z3_ast build_input_atom(Z3_context c, unsigned a, unsigned i, const Z3_ast *fld, const Z3_ast *fires) {\n",
-        );
+        let ev_param = if spec.classes.len() > 1 {
+            ", const Z3_ast *ev"
+        } else {
+            ""
+        };
+        s.push_str(&format!(
+            "static Z3_ast build_input_atom(Z3_context c, unsigned a, unsigned i, const Z3_ast *fld, const Z3_ast *fires{ev_param}) {{\n"
+        ));
         for (a, arms) in spec.input_atoms.iter().enumerate() {
             s.push_str(&format!("    if (a == {a}) {{\n"));
             s.push_str("        Z3_ast val = Z3_mk_false(c);\n");
             for (ci, constraints) in arms {
                 s.push_str("        {\n");
                 s.push_str("            Z3_ast cls_fire = Z3_mk_false(c);\n");
-                s.push_str(&format!(
-                    "            for (unsigned t = 0; t < N_TRANS; t++) {{ if (TRANS[t].cls == {ci}u) {{ Z3_ast pair[2] = {{ cls_fire, fires[t] }}; cls_fire = Z3_mk_or(c, 2, pair); }} }}\n"
-                ));
-                let mut arm = "cls_fire".to_string();
+                // Transitions covering this arm's class (task 3D): a
+                // multi-variant wildcard transition covers every class in its
+                // `classes` - the index list is precomputed at emission.
+                let covering: Vec<String> = spec
+                    .transitions
+                    .iter()
+                    .enumerate()
+                    .filter(|(_, tr)| tr.classes.contains(ci))
+                    .map(|(t, _)| format!("{t}u"))
+                    .collect();
+                if covering.is_empty() {
+                    // ev joins the suppression only on multi-class specs (the
+                    // parameter exists only then).
+                    let ev_sup = if spec.classes.len() > 1 {
+                        " (void)ev;"
+                    } else {
+                        ""
+                    };
+                    s.push_str(&format!(
+                        "            (void)fires;{ev_sup} // no transition covers this class\n"
+                    ));
+                } else {
+                    for t in &covering {
+                        s.push_str(&format!(
+                            "            {{ Z3_ast pair[2] = {{ cls_fire, fires[{t}] }}; cls_fire = Z3_mk_or(c, 2, pair); }}\n"
+                        ));
+                    }
+                }
+                // The actual-input class conjunct (task 3D): entailed by
+                // fires[t] for single-class transitions, but a multi-variant
+                // wildcard fires on ANY of its classes - without it every
+                // covered arm would be true at once and input_is could hold
+                // for the variant that did NOT come in (masking violations).
+                let mut arm = if spec.classes.len() > 1 {
+                    s.push_str(&format!(
+                        "            Z3_ast ccm = Z3_mk_eq(c, ev[i], z3_num(c, CLS_BITS, {ci}u));\n"
+                    ));
+                    "Z3_mk_and(c, 2, (Z3_ast[]){ cls_fire, ccm })".to_string()
+                } else {
+                    "cls_fire".to_string()
+                };
                 for (pos, (g, v, _isb)) in constraints.iter().enumerate() {
                     s.push_str(&format!(
                         "            Z3_ast c{pos} = Z3_mk_eq(c, fld[{g}], z3_num(c, FIELD_WIDTHS[{g}], {v}ull));\n"
@@ -2400,7 +2634,7 @@ pub fn emit_c_spec(spec: &SmtSpec) -> String {
                         arg,
                         spec,
                         Some(se_type(arg, spec).width()),
-                        Some(tr.class),
+                        Some(tr.classes[0]),
                         true,
                         "i",
                         &mut r,
@@ -2850,27 +3084,33 @@ mod tests {
                     width: 8,
                     is_bool: false,
                     init: 0,
+                    is_enum: false,
+                    enum_variants: Vec::new(),
                 },
                 SmtVar {
                     name: "flag".into(),
                     width: 1,
                     is_bool: true,
                     init: 0,
+                    is_enum: false,
+                    enum_variants: Vec::new(),
                 },
                 SmtVar {
                     name: "big".into(),
                     width: 16,
                     is_bool: false,
                     init: 256,
+                    is_enum: false,
+                    enum_variants: Vec::new(),
                 },
             ],
             classes: vec![
                 SmtClass {
                     name: "Go_F".into(),
                     fields: vec![
-                        ("x".into(), 8, false),
-                        ("y".into(), 16, false),
-                        ("ok".into(), 1, true),
+                        ("x".into(), 8, false, Vec::new()),
+                        ("y".into(), 16, false, Vec::new()),
+                        ("ok".into(), 1, true, Vec::new()),
                     ],
                 },
                 SmtClass {
@@ -2883,7 +3123,7 @@ mod tests {
                 SmtTrans {
                     state: 0,
                     next_state: 1,
-                    class: 0,
+                    classes: vec![0],
                     guard: Some(Se::Bin(
                         Sb::LogicAnd,
                         Box::new(Se::Bin(
@@ -2931,7 +3171,7 @@ mod tests {
                 SmtTrans {
                     state: 0,
                     next_state: 0,
-                    class: 1,
+                    classes: vec![1],
                     guard: Some(Se::Bin(
                         Sb::Lt,
                         Box::new(Se::Var(0)),
@@ -2970,7 +3210,7 @@ mod tests {
                 SmtTrans {
                     state: 1,
                     next_state: 1,
-                    class: 0,
+                    classes: vec![0],
                     guard: None,
                     assignments: vec![
                         (
@@ -3004,7 +3244,7 @@ mod tests {
                 SmtTrans {
                     state: 1,
                     next_state: 0,
-                    class: 1,
+                    classes: vec![1],
                     guard: None,
                     assignments: vec![(
                         2,

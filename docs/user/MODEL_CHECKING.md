@@ -114,7 +114,12 @@ checked against that frozen artifact (matching exact mode's terminated-path
 semantics). A top-level `bounded_eventually[N]` is likewise unconfirmable if
 the path dies before its deadline. Renamed
 event parameters (`Reply(R(rk))` for declared field `rkey`) work in patterns
-and guards.
+and guards. Enum-typed variables and payload fields, enum paths in expressions
+(`Color::Red`), enum-variant patterns in `input_is`/`output_has`, and bare
+group patterns over multi-variant groups are all accepted (task 3D): an enum
+value encodes as its variant's declaration-order index - the same encoding
+exact mode uses - so verdicts agree with exact mode on every boolean fact,
+and witness traces print the variant name, not the index.
 
 The FULL class - `until`, `bounded_eventually[N]` under another temporal
 operator, and temporals nested under temporals (incl. under `next`) - blows up

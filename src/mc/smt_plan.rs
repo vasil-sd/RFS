@@ -18,8 +18,17 @@
 //!   form the FULL class - converted and carried in the spec, but checked only
 //!   when the engine runs with `--full-properties` (omitted with a per-property
 //!   warning otherwise);
-//! - variables: bit<N> and bool only (no enum-typed vars);
-//! - concrete payload fields: bit<N>/bool with N <= 64.
+//! - variables: bit<N>, bool and enum-typed (task 3D) - an enum value is its
+//!   variant's DECLARATION-ORDER INDEX in a `bit<ceil_log2(N)>` word, exactly
+//!   as exact mode encodes it (`ref_mc_exact.rs`); witness display prints the
+//!   variant NAME, not the index;
+//! - concrete payload fields: bit<N>/bool with N <= 64, and enum-typed (task
+//!   3D) with the same index encoding; abstracted enum fields fold to their
+//!   representative's index (the first declared variant);
+//! - transitions: a bare group pattern fires on ANY of the group's variants
+//!   (`SmtTrans.classes` carries them all, task 3D); such a transition has no
+//!   payload bindings (validator rule), so its guard/assignments/emits convert
+//!   identically for every class.
 //!
 //! Docs: dev:mc-engine-overview, dev:mc-engine-smt, dev:algorithms-mc-engine, llm:mc-engine
 
@@ -139,13 +148,21 @@ pub enum Sf {
 #[derive(Debug, Clone)]
 pub struct SmtVar {
     pub name: String,
-    /// Bit width (1 for bool vars).
+    /// Bit width (1 for bool vars; `ceil_log2(variant_count)` for enum vars).
     pub width: u32,
     /// True when the IR type is `bool` (vs `bit<1>`) - witness display only
     /// (true/false vs 0/1); both encode as 1-bit z3 values.
     pub is_bool: bool,
-    /// Initial value (literal inits only, v1).
+    /// Initial value (literal inits only; an enum var's init is its variant's
+    /// declaration-order index).
     pub init: u64,
+    /// True when the IR type is an enum (task 3D): the value is a variant
+    /// index, and witness display prints `enum_variants[value]`, not the raw
+    /// index.
+    pub is_enum: bool,
+    /// The enum's variants in declaration order (empty for non-enum vars) -
+    /// witness display only.
+    pub enum_variants: Vec<String>,
 }
 
 /// One canonical input class = one event variant. Concrete fields become free
@@ -156,8 +173,10 @@ pub struct SmtClass {
     /// Display name for counterexample output (the plan's unique_name).
     pub name: String,
     /// Concrete fields only: (name, bit width; 1 for bool, is_bool - witness
-    /// display only: true/false vs 0/1).
-    pub fields: Vec<(String, u32, bool)>,
+    /// display only: true/false vs 0/1, enum_variants - the field's enum
+    /// variants in declaration order, empty for non-enum fields; an enum
+    /// field's value is a variant index, task 3D).
+    pub fields: Vec<(String, u32, bool, Vec<String>)>,
 }
 
 /// One output emitted by a transition: group + variant name + argument
@@ -189,9 +208,16 @@ pub struct SmtTrans {
     /// State index into [`SmtSpec::states`] this transition fires from.
     pub state: usize,
     pub next_state: usize,
-    /// Input class (event variant) index.
-    pub class: usize,
-    /// Guard over (state, vars, payload fields); None = always enabled.
+    /// Input classes (event variant) this transition fires on (task 3D):
+    /// exactly one for a named-variant pattern, ALL of the group's variants
+    /// for a bare group pattern (multi-variant wildcard). The engine renders
+    /// `enabled_t(i)` as the OR over these classes of (state-match AND
+    /// `ev_i == c` AND guard).
+    pub classes: Vec<usize>,
+    /// Guard over (state, vars, payload fields); None = always enabled. A
+    /// bare-group-pattern transition carries no payload bindings (validator
+    /// rule - `validate_event_pattern` introduces none), so ONE conversion
+    /// serves every class in `classes`.
     pub guard: Option<Se>,
     /// Variable updates: (var index, expression). Vars absent here are
     /// unchanged by the transition.
@@ -303,6 +329,10 @@ struct ExprCtx {
     /// None (abstracted; the caller substitutes the representative literal).
     field: std::collections::HashMap<String, Option<usize>>,
     state_variant_idx: std::collections::HashMap<String, usize>,
+    /// Enum name -> variants in declaration order (task 3D): resolves an enum
+    /// path literal (`Color::Red`) to the variant's index, exactly as exact
+    /// mode does at configuration build time.
+    enums: std::collections::HashMap<String, Vec<String>>,
     /// Input-class view for input_is resolution: (class index, group, variant
     /// name, per-declared-field concrete GLOBAL field index or None, per-
     /// declared-field representative value as u64 or None). Empty outside
@@ -341,25 +371,70 @@ pub fn build_smt_spec(module: &Module, plan: &McPlan) -> Result<SmtSpec, String>
         None => 0,
     };
 
-    // Vars: bit<N>/bool only (v1).
+    // Enum table (task 3D): name -> variants in declaration order. An enum
+    // value encodes as its variant's DECLARATION-ORDER INDEX - the same
+    // encoding exact mode uses at configuration build time
+    // (`ref_mc_exact.rs`: `Type::Enum { name } => ceil_log2(variant_count)`,
+    // `Val::Enum(name)` replaced by the variant index), so a spec that PASSes
+    // under exact mode encodes to the SAME boolean facts under smt-bounded.
+    let enums: std::collections::HashMap<String, Vec<String>> = module
+        .enums
+        .iter()
+        .map(|e| (e.name.clone(), e.variants.clone()))
+        .collect();
+
+    // Vars: bit<N>/bool/enum (task 3D).
     let mut vars: Vec<SmtVar> = Vec::new();
     let mut var_idx: std::collections::HashMap<String, usize> = std::collections::HashMap::new();
     for v in &module.vars {
         let is_bool = matches!(v.ty, crate::lang::ir::Type::Bool);
-        let width = match &v.ty {
-            crate::lang::ir::Type::Bool => 1u32,
-            crate::lang::ir::Type::Bit { width } => *width,
-            crate::lang::ir::Type::Enum { name: _ } => {
-                return Err(format!(
-                    "smt-bounded mode does not support enum-typed variables (var '{}')",
-                    v.name
-                ))
+        let (is_enum, enum_variants) = match &v.ty {
+            crate::lang::ir::Type::Enum { name } => {
+                let variants = enums.get(name).cloned().ok_or_else(|| {
+                    format!("var '{}' references unknown enum '{}'", v.name, name)
+                })?;
+                (true, variants)
+            }
+            _ => (false, Vec::new()),
+        };
+        let width = if is_enum {
+            ceil_log2(enum_variants.len())
+        } else {
+            match &v.ty {
+                crate::lang::ir::Type::Bool => 1u32,
+                crate::lang::ir::Type::Bit { width } => *width,
+                _ => unreachable!("enum handled above"),
             }
         };
-        // Literal inits only (v1): no var/state references.
+        // Literal inits only (v1): no var/state references. An enum var's init
+        // is a variant path - `Color::Red` (qualified) or, for a State-typed
+        // var, the bare state-variant name (both type-check per resolve_path)
+        // - and encodes as the variant's declaration-order index.
         let init = match &v.init {
             Expr::Int { value } => *value,
             Expr::Bool { value } => u64::from(*value),
+            Expr::Path { path } if is_enum => {
+                let (enum_name, variant) = if path.len() == 1 {
+                    // Bare name: legal only for a State-typed var (a state
+                    // variant); the enum is the var's own type.
+                    (
+                        match &v.ty {
+                            crate::lang::ir::Type::Enum { name } => name.clone(),
+                            _ => unreachable!("is_enum"),
+                        },
+                        path[0].clone(),
+                    )
+                } else {
+                    (path[0].clone(), path[1].clone())
+                };
+                let variants = enums.get(&enum_name).unwrap_or(&enum_variants);
+                variants.iter().position(|s| s == &variant).ok_or_else(|| {
+                    format!(
+                        "initial value of var '{}' references unknown variant '{}'",
+                        v.name, variant
+                    )
+                })? as u64
+            }
             other => {
                 return Err(format!(
                     "smt-bounded mode requires literal initial values (var '{}' has {:?})",
@@ -379,20 +454,22 @@ pub fn build_smt_spec(module: &Module, plan: &McPlan) -> Result<SmtSpec, String>
             width,
             is_bool,
             init,
+            is_enum,
+            enum_variants,
         });
     }
 
     // Input classes from the plan's abstraction table.
     let mut classes: Vec<SmtClass> = Vec::new();
     for vi in &plan.abstraction.variants {
-        let mut fields: Vec<(String, u32, bool)> = Vec::new();
+        let mut fields: Vec<(String, u32, bool, Vec<String>)> = Vec::new();
         for f in &vi.fields {
             if !f.concrete {
                 continue; // abstracted: substituted as a literal during conversion
             }
             let is_bool = matches!(f.domain, Some(ValueDomain::Bool));
-            let width = match &f.domain {
-                Some(ValueDomain::Bool) => 1u32,
+            let (width, enum_variants) = match &f.domain {
+                Some(ValueDomain::Bool) => (1u32, Vec::new()),
                 Some(ValueDomain::Int { max }) => {
                     if *max == u64::MAX {
                         return Err(format!(
@@ -407,17 +484,16 @@ pub fn build_smt_spec(module: &Module, plan: &McPlan) -> Result<SmtSpec, String>
                             f.name
                         ));
                     }
-                    w
+                    (w, Vec::new())
                 }
-                Some(ValueDomain::Enum { .. }) => {
-                    return Err(format!(
-                        "smt-bounded mode does not support enum-typed payload fields (field '{}')",
-                        f.name
-                    ))
+                // Enum-typed concrete field (task 3D): the value is the
+                // variant's declaration-order index in ceil_log2(N) bits.
+                Some(ValueDomain::Enum { variants, .. }) => {
+                    (ceil_log2(variants.len()), variants.clone())
                 }
                 None => unreachable!("concrete field has a domain"),
             };
-            fields.push((f.name.clone(), width, is_bool));
+            fields.push((f.name.clone(), width, is_bool, enum_variants));
         }
         classes.push(SmtClass {
             name: vi.unique_name.clone(),
@@ -452,6 +528,18 @@ pub fn build_smt_spec(module: &Module, plan: &McPlan) -> Result<SmtSpec, String>
                 reps.push(match &f.representative {
                     Some(crate::codegen::fsm::RepValue::Bool(b)) => Some(u64::from(*b)),
                     Some(crate::codegen::fsm::RepValue::Int(v)) => Some(*v),
+                    // Abstracted enum field (task 3D): the representative is
+                    // the FIRST declared variant - fold it to its index (0),
+                    // exactly as concrete enum values encode.
+                    Some(crate::codegen::fsm::RepValue::EnumVariant(path)) => {
+                        f.domain.as_ref().and_then(|d| match d {
+                            ValueDomain::Enum { variants, .. } => variants
+                                .iter()
+                                .position(|s| s == &path[path.len() - 1])
+                                .map(|i| i as u64),
+                            _ => None,
+                        })
+                    }
                     _ => None,
                 });
             }
@@ -478,56 +566,67 @@ pub fn build_smt_spec(module: &Module, plan: &McPlan) -> Result<SmtSpec, String>
                     t.id, t.next_state
                 )
             })?;
-        // Match the transition's pattern to an input class. A bare group
-        // pattern (variant: None) names exactly one variant when the group is
-        // single-variant; multi-variant wildcards are rejected in v1.
-        let class = if t.pattern.variant.is_none() {
-            let candidates: Vec<usize> = plan
-                .abstraction
+        // Match the transition's pattern to its input classes (task 3D). A
+        // bare group pattern (variant: None) fires on ANY of the group's
+        // variants - all of them go into `classes` (the multi-variant
+        // wildcard; exact mode's input_matches_variant returns true for every
+        // variant of the group). A named-variant pattern yields exactly one.
+        let t_classes: Vec<usize> = if t.pattern.variant.is_none() {
+            plan.abstraction
                 .variants
                 .iter()
                 .enumerate()
                 .filter(|(_, v)| v.group == t.pattern.group)
                 .map(|(i, _)| i)
-                .collect();
-            if candidates.len() != 1 {
-                return Err(format!(
-                    "smt-bounded mode does not support wildcard event patterns over multi-variant groups (transition {} on '{}')",
-                    t.id, t.pattern.group
-                ));
-            }
-            candidates.into_iter().next().expect("one candidate")
+                .collect()
         } else {
-            plan.abstraction
+            vec![plan
+                .abstraction
                 .variants
                 .iter()
                 .position(|v| {
                     v.group == t.pattern.group
                         && variant_name(&t.pattern.variant).as_deref() == Some(v.variant.as_str())
                 })
-                .ok_or_else(|| format!("transition {} has no matching input class", t.id))?
+                .ok_or_else(|| format!("transition {} has no matching input class", t.id))?]
         };
+        if t_classes.is_empty() {
+            return Err(format!(
+                "transition {} matches no input class (group '{}')",
+                t.id, t.pattern.group
+            ));
+        }
+        // The single-class case is the common one; multi-class transitions
+        // carry no payload references (see below), so t_classes[0] is a valid
+        // field-resolution context for every expression of this transition.
+        let class = t_classes[0];
 
-        // Conversion context for this transition's payload fields. Declared
-        // field names resolve directly; the pattern's BINDING names (which may
-        // rename a field, e.g. `R(k)` for declared field `rkey`) are aliased to
-        // the declared name at the same POSITION - patterns match positionally,
+        // Conversion context for this transition's payload fields. Exact mode
+        // introduces bindings ONLY for a struct pattern matching the input's
+        // variant (pattern_bindings returns empty maps otherwise - bare group
+        // patterns and unit variants), so the field map + bind aliases are
+        // built only in that case: a bare-group-pattern guard/assignment/emit
+        // can reference state, vars and literals only, exactly as the
+        // validator's binding-free environment allows. Declared field names
+        // resolve directly; the pattern's BINDING names (which may rename a
+        // field, e.g. `R(k)` for declared field `rkey`) are aliased to the
+        // declared name at the same POSITION - patterns match positionally,
         // exactly as the exact-mode engines do.
         let mut field: std::collections::HashMap<String, Option<usize>> =
             std::collections::HashMap::new();
-        for f in &plan.abstraction.variants[class].fields {
-            field.insert(
-                f.name.clone(),
-                if f.concrete {
-                    Some(fi_concrete(&classes[class], &f.name))
-                } else {
-                    None
-                },
-            );
-        }
         let mut bind_alias: std::collections::HashMap<String, String> =
             std::collections::HashMap::new();
         if let Some(crate::lang::ir::PatternVariant::Struct { fields, .. }) = &t.pattern.variant {
+            for f in &plan.abstraction.variants[class].fields {
+                field.insert(
+                    f.name.clone(),
+                    if f.concrete {
+                        Some(fi_concrete(&classes[class], &f.name))
+                    } else {
+                        None
+                    },
+                );
+            }
             for (pos, pf) in fields.iter().enumerate() {
                 if let crate::lang::ir::PatternExpr::Bind { name } = &pf.pattern {
                     if let Some(declared) = plan.abstraction.variants[class]
@@ -546,6 +645,7 @@ pub fn build_smt_spec(module: &Module, plan: &McPlan) -> Result<SmtSpec, String>
             state_variant_idx: state_variant_idx.clone(),
             bind_alias,
             input_classes: Vec::new(),
+            enums: enums.clone(),
         };
 
         let guard = match &t.guard {
@@ -564,7 +664,8 @@ pub fn build_smt_spec(module: &Module, plan: &McPlan) -> Result<SmtSpec, String>
             ));
         }
         // Emitted outputs: argument expressions converted in this transition's
-        // context (an enum-path argument hits the shared enum rejection).
+        // context (an enum-path argument resolves to the variant's index,
+        // task 3D).
         let mut emits: Vec<SmtEmit> = Vec::new();
         for o in &t.emits {
             let args = o
@@ -581,7 +682,7 @@ pub fn build_smt_spec(module: &Module, plan: &McPlan) -> Result<SmtSpec, String>
         transitions.push(SmtTrans {
             state,
             next_state,
-            class,
+            classes: t_classes,
             guard,
             assignments,
             emits,
@@ -612,6 +713,7 @@ pub fn build_smt_spec(module: &Module, plan: &McPlan) -> Result<SmtSpec, String>
                 state_variant_idx: state_variant_idx.clone(),
                 bind_alias: std::collections::HashMap::new(),
                 input_classes: Vec::new(),
+                enums: enums.clone(),
             };
             let emits = oe
                 .emits
@@ -665,6 +767,7 @@ pub fn build_smt_spec(module: &Module, plan: &McPlan) -> Result<SmtSpec, String>
             state_variant_idx: state_variant_idx.clone(),
             bind_alias: std::collections::HashMap::new(),
             input_classes: input_classes.clone(),
+            enums: enums.clone(),
         };
         let formula = match &p.formula {
             Formula::Always { inner }
@@ -701,6 +804,7 @@ pub fn build_smt_spec(module: &Module, plan: &McPlan) -> Result<SmtSpec, String>
         state_variant_idx: state_variant_idx.clone(),
         bind_alias: std::collections::HashMap::new(),
         input_classes: input_classes.clone(),
+        enums: enums.clone(),
     };
     let mut assumptions: Vec<SmtAssumption> = module
         .assumptions
@@ -824,7 +928,7 @@ fn fi_concrete(class: &SmtClass, name: &str) -> usize {
     class
         .fields
         .iter()
-        .position(|(n, _, _)| n == name)
+        .position(|(n, _, _, _)| n == name)
         .expect("concrete field listed")
 }
 
@@ -843,11 +947,24 @@ fn convert_expr(
             is_bool: true,
         }),
         Expr::Path { path } => {
-            if path.len() != 1 {
-                return Err(format!(
-                    "smt-bounded mode does not support enum paths in expressions ({:?})",
-                    path
-                ));
+            if path.len() > 1 {
+                // Enum path literal (task 3D): `Color::Red` resolves to the
+                // variant's DECLARATION-ORDER INDEX - the same value exact
+                // mode substitutes for Val::Enum at configuration build time.
+                // The enum type is fixed by context (the validator already
+                // checked the path against the module's enums).
+                let variants = ctx
+                    .enums
+                    .get(&path[0])
+                    .ok_or_else(|| format!("unknown enum type '{}' in expression", path[0]))?;
+                return variants
+                    .iter()
+                    .position(|s| s == &path[1])
+                    .map(|i| Se::Lit {
+                        value: i as u64,
+                        is_bool: false,
+                    })
+                    .ok_or_else(|| format!("unknown variant '{}' in enum '{}'", path[1], path[0]));
             }
             let name = &path[0];
             if name == "state" {
@@ -869,6 +986,11 @@ fn convert_expr(
                             Some(crate::mc::plan::ValueDomain::Bool) => (1u32, true),
                             Some(crate::mc::plan::ValueDomain::Int { max }) => {
                                 (ceil_log2((*max as usize) + 1), false)
+                            }
+                            // Enum-typed concrete field (task 3D): the value
+                            // is the variant's declaration-order index.
+                            Some(crate::mc::plan::ValueDomain::Enum { variants, .. }) => {
+                                (ceil_log2(variants.len()), false)
                             }
                             _ => unreachable!("concrete field domain"),
                         };
@@ -991,10 +1113,20 @@ fn convert_formula(f: &Formula, ctx: &ExprCtx) -> Result<Sf, String> {
                         crate::lang::ir::PatternExpr::Bool { value } => {
                             constraints.push((pos, u64::from(*value), true))
                         }
-                        crate::lang::ir::PatternExpr::EnumVariant { .. } => return Err(
-                            "smt-bounded mode does not support enum-variant output patterns (v1)"
-                                .into(),
-                        ),
+                        // Enum-variant output pattern (task 3D): the emitted
+                        // enum argument encodes as its variant's index, so the
+                        // constraint is an index equality - the same (pos,
+                        // value, is_bool) triple, value = the index.
+                        crate::lang::ir::PatternExpr::EnumVariant { path } => {
+                            let variants = ctx.enums.get(&path[0]).ok_or_else(|| {
+                                format!("unknown enum type '{}' in output pattern", path[0])
+                            })?;
+                            let idx =
+                                variants.iter().position(|s| s == &path[1]).ok_or_else(|| {
+                                    format!("unknown variant '{}' in enum '{}'", path[1], path[0])
+                                })?;
+                            constraints.push((pos, idx as u64, false))
+                        }
                     }
                 }
             }
@@ -1078,11 +1210,26 @@ fn resolve_input_is(
                             }
                         }
                     }
-                    crate::lang::ir::PatternExpr::EnumVariant { .. } => {
-                        return Err(
-                            "smt-bounded mode does not support enum-variant input patterns (v1)"
-                                .into(),
-                        )
+                    // Enum-variant input pattern (task 3D): the field encodes
+                    // as its variant's index - a concrete field gets an index
+                    // constraint; an abstracted field folds against its
+                    // representative's index (the first declared variant),
+                    // exactly like the Int/Bool folding above.
+                    crate::lang::ir::PatternExpr::EnumVariant { path } => {
+                        let variants = ctx.enums.get(&path[0]).ok_or_else(|| {
+                            format!("unknown enum type '{}' in input pattern", path[0])
+                        })?;
+                        let idx = variants.iter().position(|s| s == &path[1]).ok_or_else(|| {
+                            format!("unknown variant '{}' in enum '{}'", path[1], path[0])
+                        })? as u64;
+                        if let Some(g) = concrete[pos] {
+                            constraints.push((g, idx, false));
+                        } else {
+                            match &reps[pos] {
+                                Some(v) if *v == idx => {}
+                                _ => impossible = true,
+                            }
+                        }
                     }
                 }
             }

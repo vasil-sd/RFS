@@ -1423,3 +1423,410 @@ fn task3c_expensive_assumption_omission_and_flag() {
         );
     }
 }
+
+// ---------------------------------------------------------------------------
+// Phase 18 task 3D - enum index encodings + multi-variant wildcards
+// ---------------------------------------------------------------------------
+// Every encoding is a bijection between an enum value and its
+// declaration-order index in bit<ceil_log2(N)> (faithful to exact mode), so
+// the pins below assert BOTH the verdict parity (ref vs both generated
+// backends, byte-for-byte at every bound) AND that witness traces render the
+// variant NAME, not the raw index.
+
+/// (a-FAIL) Enum-typed var: ToGreen is the only input and its guard holds at
+/// the initial sample (color=Red), so color becomes Green at sample 1 - the
+/// violation step is deterministic (step 1, bound >= 2). The CE must print
+/// `color=Green`, not `color=1`.
+const SMT_ENUM_VAR_FAIL_SRC: &str = r#"
+module smt_enum_var_fail {
+  enum State { A }
+  initial A
+  enum Color { Red, Green, Blue }
+  var color: Color init Color::Red
+  event ToGreen
+  transition A on ToGreen where color != Color::Green {
+    next A;
+    set color = Color::Green;
+  }
+  prop never_green : always (color != Color::Green) ;
+}
+"#;
+
+/// (a-PASS) The var only ever holds Red or Green - Blue is unreachable.
+const SMT_ENUM_VAR_PASS_SRC: &str = r#"
+module smt_enum_var_pass {
+  enum State { A }
+  initial A
+  enum Color { Red, Green, Blue }
+  var color: Color init Color::Red
+  event ToGreen
+  transition A on ToGreen where color != Color::Green {
+    next A;
+    set color = Color::Green;
+  }
+  prop not_blue : always (color != Color::Blue) ;
+}
+"#;
+
+/// (b-FAIL) Enum-typed concrete payload field: the guard admits only c=Blue
+/// and Go is the ONLY transition, so keeping the path alive REQUIRES
+/// consuming Go(G(c=Blue)) at step 0 - color becomes Blue at sample 1,
+/// deterministic step 1 for bound >= 2. The CE must print the field by name
+/// (`Go_G(c=Blue)`) and the var it flows into (`color=Blue`). Noop stays as a
+/// second class (it has no transition - consuming it kills the path) so the
+/// trace carries the event column.
+const SMT_ENUM_FIELD_FAIL_SRC: &str = r#"
+module smt_enum_field_fail {
+  enum State { A }
+  initial A
+  enum Color { Red, Green, Blue }
+  event Go(G(c: Color))
+  event Noop
+  var color: Color init Color::Red
+  transition A on Go(G(c)) where c == Color::Blue {
+    next A;
+    set color = c;
+  }
+  prop never_blue : always (color != Color::Blue) ;
+}
+"#;
+
+/// (b-PASS) The guard admits only c=Red - Blue never enters the system.
+const SMT_ENUM_FIELD_PASS_SRC: &str = r#"
+module smt_enum_field_pass {
+  enum State { A }
+  initial A
+  enum Color { Red, Green, Blue }
+  event Go(G(c: Color))
+  event Noop
+  var color: Color init Color::Red
+  transition A on Go(G(c)) where c == Color::Red {
+    next A;
+    set color = c;
+  }
+  transition A on Noop { next A; }
+  prop never_blue : always (color != Color::Blue) ;
+}
+"#;
+
+/// (c-FAIL) Multi-variant wildcard: the bare `on Msg` pattern at A fires on
+/// ANY of the group's variants and moves to B; at B only Good is accepted.
+/// The property forbids consuming Bad - the ONLY way to violate is Bad at
+/// step 0 (later, B accepts no Bad and Good-only keeps the path alive without
+/// violating), so the violation is deterministic: sample 1, bound >= 2. The
+/// CE carries `event=Msg_Bad()`.
+const SMT_WILDCARD_FAIL_SRC: &str = r#"
+module smt_wildcard_fail {
+  enum State { A, B }
+  initial A
+  event Msg(Good)
+  event Msg(Bad)
+  transition A on Msg { next B; }
+  transition B on Msg(Good) { next B; }
+  prop bad_never_consumed : always (!input_is(Msg(Bad))) ;
+}
+"#;
+
+/// (c-PASS) The wildcard's soundness pin: at every live sample EXACTLY ONE of
+/// the group's variants came in, so the two input_is atoms are never true at
+/// once. Before the per-arm `ev_i == ci` conjunct (task 3D), both arms were
+/// driven by the same fires[t] and this spec FALSE-FAILED - the wildcard made
+/// input_is(Msg(Ping)) hold while the consumed input was Msg(Pong).
+const SMT_WILDCARD_PASS_SRC: &str = r#"
+module smt_wildcard_pass {
+  enum State { A }
+  initial A
+  event Msg(Ping)
+  event Msg(Pong)
+  transition A on Msg { next A; }
+  prop not_both : always (!(input_is(Msg(Ping)) && input_is(Msg(Pong)))) ;
+}
+"#;
+
+/// (d-FAIL, output side) Enum path in a property: the transition emits
+/// Painted(P(Color::Green)) and sets color to the same literal; the pattern
+/// demands Color::Red. Tick is the only input and fires at step 0, so the
+/// mismatch lands at sample 1 - deterministic step 1 for bound >= 2 (single
+/// class: fully forced trace). The verdict pins the output_has enum-index
+/// constraint (a wrong index on either side would flip it); the CE prints
+/// `color=Green` - the enum-literal assignment encoded as an index constant.
+const SMT_ENUM_OUT_FAIL_SRC: &str = r#"
+module smt_enum_out_fail {
+  enum State { A }
+  initial A
+  enum Color { Red, Green }
+  output Painted(P(c: Color))
+  var color: Color init Color::Red
+  event Tick
+  transition A on Tick {
+    next A;
+    set color = Color::Green;
+    emit Painted(P(Color::Green));
+  }
+  prop only_red : always (input_is(Tick) -> output_has(Painted(P(Color::Red)))) ;
+}
+"#;
+
+/// (d-PASS, output side) The same machine, pattern demanding the variant that
+/// is actually emitted - the enum-index constraint matches on both sides.
+const SMT_ENUM_OUT_PASS_SRC: &str = r#"
+module smt_enum_out_pass {
+  enum State { A }
+  initial A
+  enum Color { Red, Green }
+  output Painted(P(c: Color))
+  var color: Color init Color::Red
+  event Tick
+  transition A on Tick {
+    next A;
+    set color = Color::Green;
+    emit Painted(P(Color::Green));
+  }
+  prop only_green : always (input_is(Tick) -> output_has(Painted(P(Color::Green)))) ;
+}
+"#;
+
+/// (d-FAIL, input side) Enum-variant input pattern: the guard admits only
+/// c=Green and Go is the ONLY transition, so the machine is FORCED to consume
+/// Go(G(c=Green)) at step 0 - the pattern matches at sample 1 and the
+/// property is violated there, deterministic for bound >= 2. This pins the
+/// enum-index constraint in the input_is arm: if the pattern's Color::Green
+/// did not encode as the same index the field carries, the atom would never
+/// match and the spec would false-PASS.
+const SMT_ENUM_IN_FAIL_SRC: &str = r#"
+module smt_enum_in_fail {
+  enum State { A }
+  initial A
+  enum Color { Red, Green }
+  event Go(G(c: Color))
+  event Noop
+  transition A on Go(G(c)) where c == Color::Green { next A; }
+  prop never_green_in : always (!input_is(Go(G(Color::Green)))) ;
+}
+"#;
+
+/// (d-PASS, input side) The guard admits only c=Red - the Green pattern is
+/// never matched.
+const SMT_ENUM_IN_PASS_SRC: &str = r#"
+module smt_enum_in_pass {
+  enum State { A }
+  initial A
+  enum Color { Red, Green }
+  event Go(G(c: Color))
+  event Noop
+  transition A on Go(G(c)) where c == Color::Red { next A; }
+  transition A on Noop { next A; }
+  prop never_green_in : always (!input_is(Go(G(Color::Green)))) ;
+}
+"#;
+
+/// Task 3D parity driver: ref in-process vs BOTH generated backends, full
+/// stdout byte-comparison + exit code at every listed bound (the specs carry
+/// no assumptions and no FULL-class properties, so no flags are needed).
+fn parity_task3d(src: &str, tag: &str, bounds: &[usize], expect_exit: impl Fn(usize) -> i32) {
+    let note = version_note();
+    for &bound in bounds {
+        let (ref_code, ref_out, _warnings) = ref_smt(src, bound, false, false, "all");
+        assert_eq!(
+            ref_code,
+            expect_exit(bound),
+            "ref exit at bound {bound} {note}"
+        );
+        for backend in ["rust", "c"] {
+            let bin = smt_binary(backend, src, tag);
+            let (gen_code, gen_out) = run_bin(&bin, &["--bound", &bound.to_string()]);
+            assert_eq!(
+                ref_code, gen_code,
+                "{backend} exit mismatch at bound {bound} {note}"
+            );
+            assert_eq!(
+                ref_out, gen_out,
+                "{backend} stdout mismatch at bound {bound} {note}\n--- ref ---\n{ref_out}\n--- {backend} ---\n{gen_out}"
+            );
+        }
+    }
+}
+
+/// Exit-code-only parity at bounds where the witness trace carries FREE
+/// variables (multi-class FAIL specs: after the path dies, the unconstrained
+/// ev/fld vars take solver-version-dependent values - the VERDICT stays
+/// deterministic, the trace bytes do not). Byte-parity is pinned at the
+/// forced-trace bounds by the caller.
+fn parity_task3d_exit_only(
+    src: &str,
+    tag: &str,
+    bounds: &[usize],
+    expect_exit: impl Fn(usize) -> i32,
+) {
+    let note = version_note();
+    for &bound in bounds {
+        let (ref_code, _ref_out, _warnings) = ref_smt(src, bound, false, false, "all");
+        assert_eq!(
+            ref_code,
+            expect_exit(bound),
+            "ref exit at bound {bound} {note}"
+        );
+        for backend in ["rust", "c"] {
+            let bin = smt_binary(backend, src, tag);
+            let (gen_code, _gen_out) = run_bin(&bin, &["--bound", &bound.to_string()]);
+            assert_eq!(
+                ref_code, gen_code,
+                "{backend} exit mismatch at bound {bound} {note}"
+            );
+        }
+    }
+}
+
+#[test]
+fn task3d_enum_var_pass_and_fail() {
+    // (a-PASS) Blue is unreachable at every bound. Single-class spec: no ev
+    // variable, every step forced - full parity at every bound.
+    parity_task3d(SMT_ENUM_VAR_PASS_SRC, "enum_var_pass", &BOUNDS, |_| 0);
+    // (a-FAIL) deterministic step-1 violation for bound >= 2; the CE prints
+    // the variant NAME, not the index. Single-class: fully deterministic
+    // trace at every bound.
+    let note = version_note();
+    parity_task3d(SMT_ENUM_VAR_FAIL_SRC, "enum_var_fail", &BOUNDS, |b| {
+        if b >= 2 {
+            1
+        } else {
+            0
+        }
+    });
+    for &bound in &BOUNDS {
+        if bound < 2 {
+            continue;
+        }
+        let (_code, out, _w) = ref_smt(SMT_ENUM_VAR_FAIL_SRC, bound, false, false, "all");
+        assert!(
+            out.contains("reason=property-violation label=never_green step=1"),
+            "pinned enum-var FAIL summary missing at bound {bound} {note}:\n{out}"
+        );
+        assert!(
+            out.contains("color=Green"),
+            "the CE must print the variant name, not the index, at bound {bound} {note}:\n{out}"
+        );
+        assert!(
+            !out.contains("color=1}"),
+            "raw index leaked into the witness at bound {bound} {note}:\n{out}"
+        );
+    }
+}
+
+#[test]
+fn task3d_enum_field_pass_and_fail() {
+    // (b-PASS) only Red is admitted - PASS prints no trace, so full parity
+    // holds at every bound.
+    parity_task3d(SMT_ENUM_FIELD_PASS_SRC, "enum_field_pass", &BOUNDS, |_| 0);
+    // (b-FAIL) step 0's input is forced by the violation requirement
+    // (Go+Blue is the only way to both stay alive and violate), so the
+    // bound-2 trace is fully deterministic - byte-parity there. Beyond it,
+    // the dead path's free vars are version-dependent - exit parity only.
+    let note = version_note();
+    parity_task3d(SMT_ENUM_FIELD_FAIL_SRC, "enum_field_fail", &[1, 2], |b| {
+        if b >= 2 {
+            1
+        } else {
+            0
+        }
+    });
+    parity_task3d_exit_only(SMT_ENUM_FIELD_FAIL_SRC, "enum_field_fail", &[5], |_| 1);
+    let (_code, out, _w) = ref_smt(SMT_ENUM_FIELD_FAIL_SRC, 2, false, false, "all");
+    assert!(
+        out.contains("reason=property-violation label=never_blue step=1"),
+        "pinned enum-field FAIL summary missing {note}:\n{out}"
+    );
+    assert!(
+        out.contains("Go_G(c=Blue)"),
+        "the CE must print the enum field by name {note}:\n{out}"
+    );
+    assert!(
+        out.contains("color=Blue"),
+        "the var fed by the enum field must print by name {note}:\n{out}"
+    );
+}
+
+#[test]
+fn task3d_wildcard_pass_and_fail() {
+    // (c-PASS) exactly one variant per live sample - the soundness pin for
+    // the per-arm ev_i == ci conjunct. PASS prints no trace: full parity at
+    // every bound.
+    parity_task3d(SMT_WILDCARD_PASS_SRC, "wildcard_pass", &BOUNDS, |_| 0);
+    // (c-FAIL) Bad is forced at step 0 (the only way to violate - later, B
+    // accepts no Bad), so the bound-2 trace is fully deterministic -
+    // byte-parity there; beyond it the dead path's free ev vars are
+    // version-dependent - exit parity only.
+    let note = version_note();
+    parity_task3d(SMT_WILDCARD_FAIL_SRC, "wildcard_fail", &[1, 2], |b| {
+        if b >= 2 {
+            1
+        } else {
+            0
+        }
+    });
+    parity_task3d_exit_only(SMT_WILDCARD_FAIL_SRC, "wildcard_fail", &[5], |_| 1);
+    let (_code, out, _w) = ref_smt(SMT_WILDCARD_FAIL_SRC, 2, false, false, "all");
+    assert!(
+        out.contains("reason=property-violation label=bad_never_consumed step=1"),
+        "pinned wildcard FAIL summary missing {note}:\n{out}"
+    );
+    assert!(
+        out.contains("event=Msg_Bad()"),
+        "the CE must show the variant that actually came in {note}:\n{out}"
+    );
+}
+
+#[test]
+fn task3d_enum_patterns_pass_and_fail() {
+    // (d-PASS, output) the emitted variant matches the pattern's index - PASS
+    // prints no trace: full parity at every bound.
+    parity_task3d(SMT_ENUM_OUT_PASS_SRC, "enum_out_pass", &BOUNDS, |_| 0);
+    // (d-FAIL, output) single-class spec: every step is forced (Tick is the
+    // only input and fires everywhere), so the trace is deterministic at all
+    // bounds; the CE prints the emitted variant by name.
+    let note = version_note();
+    parity_task3d(SMT_ENUM_OUT_FAIL_SRC, "enum_out_fail", &BOUNDS, |b| {
+        if b >= 2 {
+            1
+        } else {
+            0
+        }
+    });
+    for &bound in &BOUNDS {
+        if bound < 2 {
+            continue;
+        }
+        let (_code, out, _w) = ref_smt(SMT_ENUM_OUT_FAIL_SRC, bound, false, false, "all");
+        assert!(
+            out.contains("reason=property-violation label=only_red step=1"),
+            "pinned enum-output FAIL summary missing at bound {bound} {note}:\n{out}"
+        );
+        assert!(
+            out.contains("color=Green"),
+            "the enum-literal assignment must print by name at bound {bound} {note}:\n{out}"
+        );
+    }
+    // (d-PASS, input) only Red is admitted - the Green pattern never matches.
+    parity_task3d(SMT_ENUM_IN_PASS_SRC, "enum_in_pass", &BOUNDS, |_| 0);
+    // (d-FAIL, input) Green is forced at step 0 (Go+Green is the only
+    // transition), so the bound-2 trace is fully deterministic - byte-parity
+    // there; beyond it the dead path's free vars are version-dependent - exit
+    // parity only.
+    parity_task3d(SMT_ENUM_IN_FAIL_SRC, "enum_in_fail", &[1, 2], |b| {
+        if b >= 2 {
+            1
+        } else {
+            0
+        }
+    });
+    parity_task3d_exit_only(SMT_ENUM_IN_FAIL_SRC, "enum_in_fail", &[5], |_| 1);
+    let (_code, out, _w) = ref_smt(SMT_ENUM_IN_FAIL_SRC, 2, false, false, "all");
+    assert!(
+        out.contains("reason=property-violation label=never_green_in step=1"),
+        "pinned enum-input FAIL summary missing {note}:\n{out}"
+    );
+    assert!(
+        out.contains("Go_G(c=Green)"),
+        "the consumed enum field must print by name {note}:\n{out}"
+    );
+}

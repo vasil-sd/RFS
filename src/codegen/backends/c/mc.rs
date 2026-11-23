@@ -2674,6 +2674,11 @@ fn smt_engine_replacements(spec: &crate::mc::smt_plan::SmtSpec) -> Vec<(&'static
             "{II_ROW_PUSH}",
             if has_on_error {
                 Some("            ii_flat[(size_t)(i + 1) * N_INPUT_ATOMS + a] = build_input_atom_ev(c, a, i, ev_vars, fldi);")
+            } else if spec.classes.len() > 1 {
+                // Multi-class specs (task 3D): the atom also takes the step's
+                // event variable - a wildcard transition covers several arm
+                // classes at once, so the atom must test which one came in.
+                Some("            ii_flat[(size_t)(i + 1) * N_INPUT_ATOMS + a] = build_input_atom(c, a, i, fldi, fires, ev_vars);")
             } else {
                 Some("            ii_flat[(size_t)(i + 1) * N_INPUT_ATOMS + a] = build_input_atom(c, a, i, fldi, fires);")
             },
@@ -2780,8 +2785,15 @@ static void smt_print_trace(Z3_context c, unsigned k, Z3_model m, const Z3_ast *
         for (unsigned j = 0; j < N_VARS; j++) {
             if (j > 0) printf(", ");
             uint64_t val = smt_read_bv(c, m, v_vars[(size_t)i * N_VARS + j]);
-            if (VAR_IS_BOOL[j]) printf("%s=%s", VAR_NAMES[j], val != 0 ? "true" : "false");
-            else printf("%s=%llu", VAR_NAMES[j], (unsigned long long)val);
+            if (VAR_ENUM_LEN[j] > 0) {
+                /* Enum var (task 3D): the value is a variant index - print
+                   the variant NAME, not the raw index. */
+                printf("%s=%s", VAR_NAMES[j], VAR_ENUM_NAMES[VAR_ENUM_OFF[j] + val]);
+            } else if (VAR_IS_BOOL[j]) {
+                printf("%s=%s", VAR_NAMES[j], val != 0 ? "true" : "false");
+            } else {
+                printf("%s=%llu", VAR_NAMES[j], (unsigned long long)val);
+            }
         }
         printf("} ");
         if (N_CLASSES > 1) {
@@ -2793,8 +2805,14 @@ static void smt_print_trace(Z3_context c, unsigned k, Z3_model m, const Z3_ast *
                 if (!first) printf(", ");
                 first = 0;
                 uint64_t val = smt_read_bv(c, m, fld_vars[(size_t)i * N_FIELDS + g]);
-                if (FIELD_IS_BOOL[g]) printf("%s=%s", FIELD_NAMES[g], val != 0 ? "true" : "false");
-                else printf("%s=%llu", FIELD_NAMES[g], (unsigned long long)val);
+                if (FIELD_ENUM_LEN[g] > 0) {
+                    /* Enum field (task 3D): print the variant name. */
+                    printf("%s=%s", FIELD_NAMES[g], FIELD_ENUM_NAMES[FIELD_ENUM_OFF[g] + val]);
+                } else if (FIELD_IS_BOOL[g]) {
+                    printf("%s=%s", FIELD_NAMES[g], val != 0 ? "true" : "false");
+                } else {
+                    printf("%s=%llu", FIELD_NAMES[g], (unsigned long long)val);
+                }
             }
             printf(")");
         } else {
@@ -2879,7 +2897,16 @@ static int run_smt(int argc, char **argv) {
         for (unsigned t = 0; t < N_TRANS; t++) {
             Z3_ast en = Z3_mk_eq(c, s_vars[i], z3_num(c, STATE_BITS, TRANS[t].state));
             if (N_CLASSES > 1) {
-                Z3_ast pair[2] = { en, Z3_mk_eq(c, ev_vars[i], z3_num(c, CLS_BITS, TRANS[t].cls)) };
+                /* Multi-variant wildcard (task 3D): the transition fires on
+                   ANY of its classes - OR over them. A one-class transition
+                   renders exactly as before (a single equality). */
+                Z3_ast cls_match = Z3_mk_false(c);
+                for (unsigned ci = 0; ci < TRANS_CLS_LEN[t]; ci++) {
+                    Z3_ast m = Z3_mk_eq(c, ev_vars[i], z3_num(c, CLS_BITS, TRANS_CLASSES[TRANS_CLS_OFF[t] + ci]));
+                    Z3_ast pairm[2] = { cls_match, m };
+                    cls_match = Z3_mk_or(c, 2, pairm);
+                }
+                Z3_ast pair[2] = { en, cls_match };
                 en = Z3_mk_and(c, 2, pair);
             }
             Z3_ast pair2[2] = { en, GUARD_FNS[t](c, s_vars[i], vi, fldi) };

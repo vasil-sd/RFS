@@ -659,3 +659,305 @@ fn smt_bounded_runtime_bound_flag() {
         );
     }
 }
+
+// ---------------------------------------------------------------------------
+// Phase 18 task 3D - enum index encodings + multi-variant wildcards
+// (generated-binary pins; ref-vs-generated parity lives in ref_mc_smt_test)
+// ---------------------------------------------------------------------------
+
+/// (a-FAIL) Enum-typed var: deterministic step-1 violation; the CE prints the
+/// variant NAME, not the index. Single class - fully forced trace.
+const T3D_ENUM_VAR_FAIL_SRC: &str = r#"
+module smt_enum_var_fail {
+  enum State { A }
+  initial A
+  enum Color { Red, Green, Blue }
+  var color: Color init Color::Red
+  event ToGreen
+  transition A on ToGreen where color != Color::Green {
+    next A;
+    set color = Color::Green;
+  }
+  prop never_green : always (color != Color::Green) ;
+}
+"#;
+
+/// (a-PASS) Blue is unreachable.
+const T3D_ENUM_VAR_PASS_SRC: &str = r#"
+module smt_enum_var_pass {
+  enum State { A }
+  initial A
+  enum Color { Red, Green, Blue }
+  var color: Color init Color::Red
+  event ToGreen
+  transition A on ToGreen where color != Color::Green {
+    next A;
+    set color = Color::Green;
+  }
+  prop not_blue : always (color != Color::Blue) ;
+}
+"#;
+
+/// (b-FAIL) Enum-typed concrete payload field: Go+Blue is the only way to
+/// stay alive, so step 0 is forced - deterministic step-1 violation. The CE
+/// prints the field by name in the event column and the var it flows into.
+const T3D_ENUM_FIELD_FAIL_SRC: &str = r#"
+module smt_enum_field_fail {
+  enum State { A }
+  initial A
+  enum Color { Red, Green, Blue }
+  event Go(G(c: Color))
+  event Noop
+  var color: Color init Color::Red
+  transition A on Go(G(c)) where c == Color::Blue {
+    next A;
+    set color = c;
+  }
+  prop never_blue : always (color != Color::Blue) ;
+}
+"#;
+
+/// (b-PASS) only Red is admitted.
+const T3D_ENUM_FIELD_PASS_SRC: &str = r#"
+module smt_enum_field_pass {
+  enum State { A }
+  initial A
+  enum Color { Red, Green, Blue }
+  event Go(G(c: Color))
+  event Noop
+  var color: Color init Color::Red
+  transition A on Go(G(c)) where c == Color::Red {
+    next A;
+    set color = c;
+  }
+  transition A on Noop { next A; }
+  prop never_blue : always (color != Color::Blue) ;
+}
+"#;
+
+/// (c-FAIL) Multi-variant wildcard: Bad is forced at step 0 (the only way to
+/// violate - later, B accepts no Bad) - deterministic step-1 violation. The
+/// CE shows the variant that actually came in.
+const T3D_WILDCARD_FAIL_SRC: &str = r#"
+module smt_wildcard_fail {
+  enum State { A, B }
+  initial A
+  event Msg(Good)
+  event Msg(Bad)
+  transition A on Msg { next B; }
+  transition B on Msg(Good) { next B; }
+  prop bad_never_consumed : always (!input_is(Msg(Bad))) ;
+}
+"#;
+
+/// (c-PASS) The wildcard's soundness pin: at every live sample EXACTLY ONE of
+/// the group's variants came in, so the two input_is atoms are never true at
+/// once. Before the per-arm `ev_i == ci` conjunct this spec false-failed.
+const T3D_WILDCARD_PASS_SRC: &str = r#"
+module smt_wildcard_pass {
+  enum State { A }
+  initial A
+  event Msg(Ping)
+  event Msg(Pong)
+  transition A on Msg { next A; }
+  prop not_both : always (!(input_is(Msg(Ping)) && input_is(Msg(Pong)))) ;
+}
+"#;
+
+/// (d-FAIL, output side) The emitted variant (Green) mismatches the pattern's
+/// (Red) - deterministic step-1 violation; the CE prints the enum-literal
+/// assignment by name.
+const T3D_ENUM_OUT_FAIL_SRC: &str = r#"
+module smt_enum_out_fail {
+  enum State { A }
+  initial A
+  enum Color { Red, Green }
+  output Painted(P(c: Color))
+  var color: Color init Color::Red
+  event Tick
+  transition A on Tick {
+    next A;
+    set color = Color::Green;
+    emit Painted(P(Color::Green));
+  }
+  prop only_red : always (input_is(Tick) -> output_has(Painted(P(Color::Red)))) ;
+}
+"#;
+
+/// (d-PASS, output side) the pattern demands the variant that is emitted.
+const T3D_ENUM_OUT_PASS_SRC: &str = r#"
+module smt_enum_out_pass {
+  enum State { A }
+  initial A
+  enum Color { Red, Green }
+  output Painted(P(c: Color))
+  var color: Color init Color::Red
+  event Tick
+  transition A on Tick {
+    next A;
+    set color = Color::Green;
+    emit Painted(P(Color::Green));
+  }
+  prop only_green : always (input_is(Tick) -> output_has(Painted(P(Color::Green)))) ;
+}
+"#;
+
+/// (d-FAIL, input side) Go+Green is the only transition - the machine is
+/// forced to consume Green at step 0 and the pattern matches there. Pins the
+/// enum-index constraint in the input_is arm.
+const T3D_ENUM_IN_FAIL_SRC: &str = r#"
+module smt_enum_in_fail {
+  enum State { A }
+  initial A
+  enum Color { Red, Green }
+  event Go(G(c: Color))
+  event Noop
+  transition A on Go(G(c)) where c == Color::Green { next A; }
+  prop never_green_in : always (!input_is(Go(G(Color::Green)))) ;
+}
+"#;
+
+/// (d-PASS, input side) only Red is admitted - the Green pattern never matches.
+const T3D_ENUM_IN_PASS_SRC: &str = r#"
+module smt_enum_in_pass {
+  enum State { A }
+  initial A
+  enum Color { Red, Green }
+  event Go(G(c: Color))
+  event Noop
+  transition A on Go(G(c)) where c == Color::Red { next A; }
+  transition A on Noop { next A; }
+  prop never_green_in : always (!input_is(Go(G(Color::Green)))) ;
+}
+"#;
+
+#[test]
+fn smt_bounded_task3d_enum_and_wildcards() {
+    if !common::toolchain::z3_available() {
+        eprintln!(
+            "note: z3 not available - SMT bounded suite skipped (set RFS_Z3_DIR or install z3)"
+        );
+        return;
+    }
+    let project = rust_e2e_project("task3d");
+    let dir = root().join("target").join("rfs_smt_bounded");
+    std::fs::create_dir_all(&dir).expect("create scratch dir");
+
+    // (src, tag, bound, expect_exit, pinned stdout substrings) - the bound is
+    // chosen so the witness trace is fully forced (no solver-version-free
+    // vars): single-class specs at 3, multi-class FAIL specs at 2.
+    let cases: [(&str, &str, &str, i32, &[&str]); 10] = [
+        (
+            T3D_ENUM_VAR_FAIL_SRC,
+            "enum_var_fail",
+            "3",
+            1,
+            &[
+                "reason=property-violation label=never_green step=1",
+                "color=Green",
+            ],
+        ),
+        (
+            T3D_ENUM_VAR_PASS_SRC,
+            "enum_var_pass",
+            "5",
+            0,
+            &["PASS WITHIN BOUND 5"],
+        ),
+        (
+            T3D_ENUM_FIELD_FAIL_SRC,
+            "enum_field_fail",
+            "2",
+            1,
+            &[
+                "reason=property-violation label=never_blue step=1",
+                "Go_G(c=Blue)",
+                "color=Blue",
+            ],
+        ),
+        (
+            T3D_ENUM_FIELD_PASS_SRC,
+            "enum_field_pass",
+            "5",
+            0,
+            &["PASS WITHIN BOUND 5"],
+        ),
+        (
+            T3D_WILDCARD_FAIL_SRC,
+            "wildcard_fail",
+            "2",
+            1,
+            &[
+                "reason=property-violation label=bad_never_consumed step=1",
+                "event=Msg_Bad()",
+            ],
+        ),
+        (
+            T3D_WILDCARD_PASS_SRC,
+            "wildcard_pass",
+            "5",
+            0,
+            &["PASS WITHIN BOUND 5"],
+        ),
+        (
+            T3D_ENUM_OUT_FAIL_SRC,
+            "enum_out_fail",
+            "3",
+            1,
+            &[
+                "reason=property-violation label=only_red step=1",
+                "color=Green",
+            ],
+        ),
+        (
+            T3D_ENUM_OUT_PASS_SRC,
+            "enum_out_pass",
+            "5",
+            0,
+            &["PASS WITHIN BOUND 5"],
+        ),
+        (
+            T3D_ENUM_IN_FAIL_SRC,
+            "enum_in_fail",
+            "2",
+            1,
+            &[
+                "reason=property-violation label=never_green_in step=1",
+                "Go_G(c=Green)",
+            ],
+        ),
+        (
+            T3D_ENUM_IN_PASS_SRC,
+            "enum_in_pass",
+            "5",
+            0,
+            &["PASS WITHIN BOUND 5"],
+        ),
+    ];
+
+    for (src, tag, bound, expect_exit, pinned) in cases {
+        let c_src = dir.join(format!("smt_{tag}.c"));
+        std::fs::write(&c_src, generate("c", src, tag)).expect("write C source");
+        let c_bin = dir.join(format!("smt_{tag}_c"));
+        compile_c(&c_src, &c_bin);
+        let r_bin = build_rust(&project, &generate("rust", src, tag));
+        let args = ["--bound", bound];
+        let (rc, cout) = run_bin(&c_bin, &args);
+        let (rr, rout) = run_bin(&r_bin, &args);
+        assert_eq!(
+            rr, rc,
+            "{tag}: exit codes differ\nrust:\n{rout}\nc:\n{cout}"
+        );
+        assert_eq!(
+            rout, cout,
+            "{tag}: stdout differs\n--- rust ---\n{rout}--- c ---\n{cout}"
+        );
+        assert_eq!(rc, expect_exit, "{tag}: wrong exit code:\n{cout}");
+        for p in pinned {
+            assert!(
+                cout.contains(p),
+                "{tag}: pinned output missing ({p}):\n{cout}"
+            );
+        }
+    }
+}

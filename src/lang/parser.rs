@@ -818,6 +818,22 @@ fn pattern_field(i: &str) -> IResult<&str, PatternField> {
             },
         ));
     }
+    // Unnamed enum-variant field (task 3D): `P(Color::Red)` - a qualified
+    // path in the pattern position constrains the field to that variant
+    // WITHOUT binding it (formula patterns bind nothing, Phase 1), exactly
+    // like the unnamed int/bool literals above. A single-segment path is a
+    // plain identifier and falls through to the bind arm below.
+    if let Ok((i2, path)) = ident_path(i) {
+        if path.len() > 1 {
+            return Ok((
+                i2,
+                PatternField {
+                    name: None,
+                    pattern: PatternExpr::EnumVariant { path },
+                },
+            ));
+        }
+    }
 
     let (i, name) = identifier(i)?;
     let (i_colon, _) = p_space0(i)?;

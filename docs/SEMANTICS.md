@@ -959,10 +959,27 @@ rather than the fire predicates, because the unmatched input is still
 consumed (section 3.6's on_error sample). The fallback's emits mark the
 matching `output_has` atoms true at the steps that took it.
 
-v1 scope rejections (shared error text in both backends): enum-typed
-variables, wildcard event patterns over multi-variant groups in transitions,
-and enum-variant output patterns in `output_has`. This mode is a bug-hunting
-extension; the v1.0 completeness guarantees above apply to exact mode only.
+**Enum support and multi-variant wildcards (task 3D).** Enum-typed variables,
+enum-typed concrete payload fields, enum paths in expressions (`Color::Red`),
+enum-variant patterns in `input_is`/`output_has`, and bare group patterns over
+multi-variant groups in transitions are all accepted and encoded FAITHFULLY to
+exact mode: an enum value is its variant's DECLARATION-ORDER INDEX in a
+`bit<ceil_log2(N)>` word - the same encoding exact mode uses at configuration
+build time (same index order, same width), so every boolean fact exact mode
+derives about enum values holds identically under smt-bounded. Witness traces
+print the variant NAME, not the index. A bare group pattern fires on ANY of
+the group's variants: `enabled_t(i)` is the OR over the group's classes of
+(state-match AND `ev_i == c` AND guard), and such a transition carries no
+payload bindings (validator rule - formula and transition patterns alike
+introduce none for a bare group), so one guard/assignment conversion serves
+every class. The `input_is` atom additionally tests that the ACTUAL input was
+the arm's class (`ev_i == ci`): without it a wildcard would make every covered
+arm true at once and mask violations exact mode reports. Large-group wildcards
+are enabled by default - profiling a 16-variant group at bound 5 solves in
+milliseconds, so no `--full-properties` gating is triggered.
+
+This mode is a bug-hunting extension; the v1.0 completeness guarantees above
+apply to exact mode only.
 
 ---
 

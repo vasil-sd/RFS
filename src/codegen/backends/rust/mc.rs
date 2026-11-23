@@ -1882,6 +1882,11 @@ fn smt_engine_replacements(spec: &crate::mc::smt_plan::SmtSpec) -> Vec<(&'static
             "{II_ROW_PUSH}",
             if has_on_error {
                 Some("                ii_row.push(build_input_atom_ev(a, i, ev_vars.as_deref(), &fld_vars));")
+            } else if spec.classes.len() > 1 {
+                // Multi-class specs (task 3D): the atom also takes the step's
+                // event variable - a wildcard transition covers several arm
+                // classes at once, so the atom must test which one came in.
+                Some("                ii_row.push(build_input_atom(a, i, &fires, &fld_vars, ev_vars.as_deref()));")
             } else {
                 Some("                ii_row.push(build_input_atom(a, i, &fires, &fld_vars));")
             },
@@ -1985,7 +1990,11 @@ fn smt_print_trace(k: usize, m: &Model, s_vars: &[BV], v_vars: &[Vec<BV>], ev_va
         for j in 0..VAR_NAMES.len() {
             if j > 0 { vs.push_str(", "); }
             let val = smt_read_bv(m, &v_vars[i][j]);
-            if VAR_IS_BOOL[j] {
+            if VAR_ENUM_LEN[j] > 0 {
+                // Enum var (task 3D): the value is a variant index - print
+                // the variant NAME, not the raw index.
+                vs.push_str(&format!("{}={}", VAR_NAMES[j], VAR_ENUM_NAMES[VAR_ENUM_OFF[j] + val as usize]));
+            } else if VAR_IS_BOOL[j] {
                 vs.push_str(&format!("{}={}", VAR_NAMES[j], if val != 0 { "true" } else { "false" }));
             } else {
                 vs.push_str(&format!("{}={}", VAR_NAMES[j], val));
@@ -1998,7 +2007,10 @@ fn smt_print_trace(k: usize, m: &Model, s_vars: &[BV], v_vars: &[Vec<BV>], ev_va
                 if FIELD_POS[g].0 != ci { continue; }
                 if !fs.is_empty() { fs.push_str(", "); }
                 let val = smt_read_bv(m, &fld_vars[i][g]);
-                if FIELD_IS_BOOL[g] {
+                if FIELD_ENUM_LEN[g] > 0 {
+                    // Enum field (task 3D): print the variant name.
+                    fs.push_str(&format!("{}={}", FIELD_NAMES[g], FIELD_ENUM_NAMES[FIELD_ENUM_OFF[g] + val as usize]));
+                } else if FIELD_IS_BOOL[g] {
                     fs.push_str(&format!("{}={}", FIELD_NAMES[g], if val != 0 { "true" } else { "false" }));
                 } else {
                     fs.push_str(&format!("{}={}", FIELD_NAMES[g], val));
@@ -2064,7 +2076,15 @@ fn run_smt() -> i32 {
             for t in 0..TRANS.len() {
                 let mut en = s_vars[i].eq(&BV::from_u64(TRANS[t].0 as u64, STATE_BITS));
                 if N_CLASSES > 1 {
-                    en = b_and(&en, &ev_vars.as_ref().unwrap()[i].eq(&BV::from_u64(TRANS[t].2 as u64, CLS_BITS)));
+                    // Multi-variant wildcard (task 3D): the transition fires on
+                    // ANY of its classes - OR over them. A one-class transition
+                    // renders exactly as before (a single equality).
+                    let ev = ev_vars.as_ref().unwrap()[i].clone();
+                    let mut cls_match = Bool::from_bool(false);
+                    for &c in &TRANS_CLASSES[TRANS_CLS_OFF[t]..TRANS_CLS_OFF[t] + TRANS_CLS_LEN[t]] {
+                        cls_match = b_or(&cls_match, &ev.eq(&BV::from_u64(c as u64, CLS_BITS)));
+                    }
+                    en = b_and(&en, &cls_match);
                 }
                 en = b_and(&en, &guards[t](i));
                 enableds.push(en);

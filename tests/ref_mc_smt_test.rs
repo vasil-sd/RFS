@@ -364,11 +364,20 @@ fn smt_binary(backend: &str, src: &str, tag: &str) -> PathBuf {
 /// `full_properties` mirrors the generated binaries' `--full-properties`
 /// flag (task 1A): without it, FULL-class properties are omitted with a
 /// per-property warning (returned as the third tuple element).
-fn ref_smt(src: &str, bound: usize, full_properties: bool) -> (i32, String, Vec<String>) {
+/// `full_assumptions` is the DISTINCT gate for the FULL assumption class
+/// (task 3C); `assumes_arg` is the `--assumes` wire string (`all` / `none` /
+/// comma-separated labels).
+fn ref_smt(
+    src: &str,
+    bound: usize,
+    full_properties: bool,
+    full_assumptions: bool,
+    assumes_arg: &str,
+) -> (i32, String, Vec<String>) {
     let ir = rfs::parse_source(src).unwrap_or_else(|e| panic!("spec must parse: {e}"));
     assert_eq!(ir.modules.len(), 1);
     let module = &ir.modules[0];
-    let out = rfs::mc::ref_mc::run_smt(module, bound, full_properties)
+    let out = rfs::mc::ref_mc::run_smt(module, bound, full_properties, full_assumptions, assumes_arg)
         .unwrap_or_else(|e| panic!("ref-mc smt run failed: {e}"));
     (out.exit_code, out.output, out.warnings)
 }
@@ -397,7 +406,7 @@ fn ref_smt_vs_generated_fail_spec() {
     // Violated at the INITIAL configuration: every bound >= 1 fails at step 0.
     let note = version_note();
     for &bound in &BOUNDS {
-        let (ref_code, ref_out, _warnings) = ref_smt(SMT_FAIL_SRC, bound, false);
+        let (ref_code, ref_out, _warnings) = ref_smt(SMT_FAIL_SRC, bound, false, false, "all");
         assert_eq!(ref_code, 1, "ref exit {note}");
         for backend in ["rust", "c"] {
             let bin = smt_binary(backend, SMT_FAIL_SRC, "fail");
@@ -420,7 +429,7 @@ fn ref_smt_vs_generated_liveness_spec() {
     // Bounds >= 2: the stuck-in-A cycle is found -> liveness fail at step 0.
     let note = version_note();
     for &bound in &BOUNDS {
-        let (ref_code, ref_out, _warnings) = ref_smt(SMT_LIV_SRC, bound, false);
+        let (ref_code, ref_out, _warnings) = ref_smt(SMT_LIV_SRC, bound, false, false, "all");
         let expected = if bound == 1 { 0 } else { 1 };
         assert_eq!(ref_code, expected, "ref exit at bound {bound} {note}");
         for backend in ["rust", "c"] {
@@ -442,7 +451,7 @@ fn ref_smt_vs_generated_liveness_spec() {
 fn ref_smt_vs_generated_pass_spec() {
     let note = version_note();
     for &bound in &BOUNDS {
-        let (ref_code, ref_out, _warnings) = ref_smt(SMT_PASS_SRC, bound, false);
+        let (ref_code, ref_out, _warnings) = ref_smt(SMT_PASS_SRC, bound, false, false, "all");
         assert_eq!(ref_code, 0, "ref exit at bound {bound} {note}");
         for backend in ["rust", "c"] {
             let bin = smt_binary(backend, SMT_PASS_SRC, "pass");
@@ -460,8 +469,9 @@ fn ref_smt_vs_generated_pass_spec() {
 }
 
 #[test]
-fn ref_smt_rejects_assumption_and_on_error_specs() {
-    // build_smt_spec's rejection errors surface verbatim (same as codegen).
+fn ref_smt_accepts_assumption_and_on_error_specs() {
+    // Task 3C: the old shared rejections are gone - specs with assumptions or
+    // on_error blocks now run. The pre-3C error strings must not resurface.
     let assume_src = r#"
 module smt_ref_cli_assume {
   enum State { A }
@@ -472,11 +482,11 @@ module smt_ref_cli_assume {
 }
 "#;
     let ir = rfs::parse_source(assume_src).expect("parses");
-    let err = rfs::mc::ref_mc::run_smt(&ir.modules[0], 3, false).expect_err("must reject");
-    assert!(
-        err.starts_with("smt-bounded mode does not support assumptions"),
-        "{err}"
-    );
+    let out = rfs::mc::ref_mc::run_smt(&ir.modules[0], 3, false, false, "all")
+        .expect("assumption specs are accepted now");
+    assert_eq!(out.exit_code, 0);
+    assert!(!out.output.contains("does not support assumptions"));
+
     let onerr_src = r#"
 module smt_ref_cli_onerr {
   enum State { A }
@@ -487,8 +497,10 @@ module smt_ref_cli_onerr {
 }
 "#;
     let ir = rfs::parse_source(onerr_src).expect("parses");
-    let err = rfs::mc::ref_mc::run_smt(&ir.modules[0], 3, false).expect_err("must reject");
-    assert_eq!(err, "smt-bounded mode does not support on_error blocks");
+    let out = rfs::mc::ref_mc::run_smt(&ir.modules[0], 3, false, false, "all")
+        .expect("on_error specs are accepted now");
+    assert_eq!(out.exit_code, 0);
+    assert!(!out.output.contains("does not support on_error"));
 }
 
 // ---------------------------------------------------------------------------
@@ -852,7 +864,7 @@ fn omit_warning(name: &str) -> String {
 fn parity_task1a(src: &str, tag: &str, full: bool, expect_exit: impl Fn(usize) -> i32) {
     let note = version_note();
     for &bound in &BOUNDS {
-        let (ref_code, ref_out, _warnings) = ref_smt(src, bound, full);
+        let (ref_code, ref_out, _warnings) = ref_smt(src, bound, full, false, "all");
         assert_eq!(
             ref_code,
             expect_exit(bound),
@@ -930,7 +942,7 @@ fn task1a_renamed_event_parameter() {
     let note = version_note();
     for &bound in &BOUNDS {
         let expect_exit = if bound >= 4 { 1 } else { 0 };
-        let (ref_code, ref_out, _warnings) = ref_smt(SMT_RENAME_SRC, bound, false);
+        let (ref_code, ref_out, _warnings) = ref_smt(SMT_RENAME_SRC, bound, false, false, "all");
         assert_eq!(ref_code, expect_exit, "ref exit at bound {bound} {note}");
         for backend in ["rust", "c"] {
             let bin = smt_binary(backend, SMT_RENAME_SRC, "rename");
@@ -998,7 +1010,7 @@ fn task1a_full_class_omission_and_flag() {
             (SMT_UNTIL_PASS_SRC, "until_pass", 0),
             (SMT_UNTIL_FAIL_SRC, "until_fail", 0),
         ] {
-            let (ref_code, ref_out, warnings) = ref_smt(src, bound, false);
+            let (ref_code, ref_out, warnings) = ref_smt(src, bound, false, false, "all");
             assert_eq!(ref_code, expect_exit, "ref exit at bound {bound} {note}");
             assert_eq!(
                 warnings,
@@ -1043,7 +1055,7 @@ fn task1a_full_class_omission_and_flag() {
                 (true, _) => 1,
                 (false, _) => 0,
             };
-            let (ref_code, ref_out, warnings) = ref_smt(src, bound, true);
+            let (ref_code, ref_out, warnings) = ref_smt(src, bound, true, false, "all");
             assert_eq!(
                 ref_code, expect_exit,
                 "ref exit at bound {bound} (full) {note}"
@@ -1071,5 +1083,295 @@ fn task1a_full_class_omission_and_flag() {
                 assert_eq!(gen_err, "", "{backend} stderr must be empty (full)");
             }
         }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Task 3C - on_error blocks (D4) + assumptions (D3): the new contract,
+// parity-pinned against BOTH generated backends exactly like the family above.
+// ---------------------------------------------------------------------------
+
+/// Parity helper for task 3C: ref vs both generated backends at every bound,
+/// with the full-properties / full-assumptions flags and the --assumes
+/// selection threaded through. Byte-identical stdout is asserted.
+fn parity_task3c(
+    src: &str,
+    tag: &str,
+    full_props: bool,
+    full_assumes: bool,
+    assumes: &str,
+    expect_exit: impl Fn(usize) -> i32,
+) {
+    let note = version_note();
+    for &bound in &BOUNDS {
+        let (ref_code, ref_out, _warnings) =
+            ref_smt(src, bound, full_props, full_assumes, assumes);
+        assert_eq!(
+            ref_code,
+            expect_exit(bound),
+            "ref exit at bound {bound} (full_props={full_props} full_assumes={full_assumes} assumes={assumes}) {note}"
+        );
+        for backend in ["rust", "c"] {
+            let bin = smt_binary(backend, src, tag);
+            let bound_s = bound.to_string();
+            let mut args: Vec<&str> = vec!["--bound", &bound_s];
+            if full_props {
+                args.push("--full-properties");
+            }
+            if full_assumes {
+                args.push("--full-assumptions");
+            }
+            if assumes != "all" {
+                args.push("--assumes");
+                args.push(assumes);
+            }
+            let (gen_code, gen_out) = run_bin(&bin, &args);
+            assert_eq!(
+                ref_code, gen_code,
+                "{backend} exit mismatch at bound {bound} (full_props={full_props} full_assumes={full_assumes} assumes={assumes}) {note}"
+            );
+            assert_eq!(
+                ref_out, gen_out,
+                "{backend} stdout mismatch at bound {bound} (full_props={full_props} full_assumes={full_assumes} assumes={assumes}) {note}\n--- ref ---\n{ref_out}\n--- {backend} ---\n{gen_out}"
+            );
+        }
+    }
+}
+
+/// (a) on_error PASS variant: the single unhandled input takes the fallback
+/// to Safe at every step; the property holds because the fallback IS the
+/// only successor. Deterministic PASS at every bound.
+const SMT_OE_PASS_SRC: &str = r#"
+module smt_oe_pass {
+  enum State { A, Safe }
+  initial A
+  event Weird
+  prop weird_lands_safe : always (input_is(Weird) -> next (state == Safe)) ;
+  on_error { next Safe; }
+}
+"#;
+
+/// (a) on_error FAIL variant: the fallback leads to the violation. Single
+/// input class -> every step consumes Weird -> the violation is at sample 1
+/// for every bound >= 2 (deterministic). The witness trace must carry the
+/// [on_error] marker on the fallback step.
+const SMT_OE_FAIL_SRC: &str = r#"
+module smt_oe_fail {
+  enum State { A, Safe }
+  initial A
+  event Weird
+  prop never_safe : always (state != Safe) ;
+  on_error { next Safe; }
+}
+"#;
+
+/// (b) Cheap-assumption pruning: Bad sets x, the property forbids x > 0, the
+/// assumption prunes Bad. WITH the assumption: PASS (no input survives
+/// pruning - the path dies after the initial sample). WITH --assumes none:
+/// FAIL (Bad is available and violates).
+/// Bad is the ONLY event, so without the assumption every step consumes it
+/// and x becomes 1 at sample 1 - the violation step is deterministic (sample
+/// 1), keeping ref/generated stdout byte-identical. WITH the assumption no
+/// input survives pruning: the path dies after the initial sample and the
+/// property holds vacuously on the only alive sample.
+const SMT_ASSUME_PRUNE_SRC: &str = r#"
+module smt_assume_prune {
+  enum State { A }
+  initial A
+  event Bad
+  var x: bit<8> init 0
+  transition A on Bad { next A; set x = 1; }
+  prop x_zero : always (x == 0) ;
+  assume no_bad : always (!input_is(Bad)) ;
+}
+"#;
+
+/// The assumption-free TWIN of SMT_ASSUME_PRUNE_SRC: `--assumes none` on the
+/// original must reproduce this spec's verdict byte-for-byte.
+const SMT_ASSUME_PRUNE_NOASSUME_SRC: &str = r#"
+module smt_assume_prune {
+  enum State { A }
+  initial A
+  event Bad
+  var x: bit<8> init 0
+  transition A on Bad { next A; set x = 1; }
+  prop x_zero : always (x == 0) ;
+}
+"#;
+
+/// (c-FAIL) The assumed input ITSELF leads to a violation: the assumption
+/// forces Tick at every input-consuming step (`next(input_is(Tick))` - the
+/// `next` shifts the obligation off sample 0, where no input has been
+/// consumed yet and a bare `input_is` would be statically false), so x
+/// increments forever and `x < 3` fails at sample 3. Deterministic for bound
+/// >= 4.
+const SMT_ASSUME_FAIL_SRC: &str = r#"
+module smt_assume_fail {
+  enum State { A }
+  initial A
+  event Tick
+  var x: bit<8> init 0
+  transition A on Tick { next A; set x = x + 1; }
+  prop x_bounded : always (x < 3) ;
+  assume tick_ok : always (next(input_is(Tick))) ;
+}
+"#;
+
+/// (d/e) Expensive assumption: nested temporal -> FULL class. WITHOUT
+/// --full-assumptions it is omitted (warning + assumptions_omitted=1) and the
+/// relaxed spec FAILs (NonTick x4 drives c to 4 at sample 4 - bound >= 5).
+/// WITH the flag the assumption is asserted and the spec PASSES (c <= 3).
+const SMT_ASSUME_FULL_SRC: &str = r#"
+module smt_assume_full {
+  enum State { A }
+  initial A
+  event Tick
+  event NonTick
+  var c: bit<8> init 0
+  transition A on Tick { next A; set c = 0; }
+  transition A on NonTick { next A; set c = c + 1; }
+  prop bounded_counter : always (c < 4) ;
+  assume tick_soon : always (bounded_eventually[3] (input_is(Tick))) ;
+}
+"#;
+
+#[test]
+fn task3c_on_error_pass_and_fail() {
+    // PASS variant: the fallback is taken at every step and the property holds.
+    parity_task3c(SMT_OE_PASS_SRC, "oe_pass", false, false, "all", |_| 0);
+    // FAIL variant: deterministic step-1 violation for bound >= 2; the CE must
+    // show the [on_error] marker on the fallback step.
+    let note = version_note();
+    parity_task3c(SMT_OE_FAIL_SRC, "oe_fail", false, false, "all", |b| {
+        if b >= 2 {
+            1
+        } else {
+            0
+        }
+    });
+    for &bound in &BOUNDS {
+        if bound < 2 {
+            continue;
+        }
+        let (_code, out, _w) = ref_smt(SMT_OE_FAIL_SRC, bound, false, false, "all");
+        assert!(
+            out.contains("reason=property-violation label=never_safe step=1"),
+            "pinned on_error FAIL summary missing at bound {bound} {note}:\n{out}"
+        );
+        assert!(
+            out.contains("[on_error]"),
+            "the witness trace must mark the fallback step at bound {bound} {note}:\n{out}"
+        );
+    }
+}
+
+#[test]
+fn task3c_assumption_pruning() {
+    // WITH the cheap assumption: Bad is pruned, x stays 0 -> PASS.
+    parity_task3c(SMT_ASSUME_PRUNE_SRC, "assume_prune", false, false, "all", |_| 0);
+    // WITH --assumes none: Bad is available -> FAIL once the Bad step's
+    // effect (x = 1) lands inside the checked horizon - bound 1 only sees
+    // the initial sample, so it still passes. The violation step is
+    // solver-chosen, so pin the reason/label, not the step.
+    let note = version_note();
+    parity_task3c(SMT_ASSUME_PRUNE_SRC, "assume_prune_none", false, false, "none", |b| {
+        if b >= 2 {
+            1
+        } else {
+            0
+        }
+    });
+    for &bound in &BOUNDS {
+        let (_code, out, _w) = ref_smt(SMT_ASSUME_PRUNE_SRC, bound, false, false, "none");
+        if bound >= 2 {
+            assert!(
+                out.contains("reason=property-violation label=x_zero"),
+                "pinned pruned-assumption FAIL summary missing at bound {bound} {note}:\n{out}"
+            );
+        }
+    }
+    // --assumes none reproduces the assumption-free TWIN byte-for-byte (ref AND
+    // both generated backends).
+    for &bound in &BOUNDS {
+        let (_c1, out_none, _w1) = ref_smt(SMT_ASSUME_PRUNE_SRC, bound, false, false, "none");
+        let (_c2, out_twin, _w2) = ref_smt(SMT_ASSUME_PRUNE_NOASSUME_SRC, bound, false, false, "all");
+        assert_eq!(out_none, out_twin, "ref: --assumes none must equal the twin at bound {bound} {note}\n--- none ---\n{out_none}\n--- twin ---\n{out_twin}");
+        for backend in ["rust", "c"] {
+            let bin_none = smt_binary(backend, SMT_ASSUME_PRUNE_SRC, "assume_prune_none");
+            let bin_twin = smt_binary(backend, SMT_ASSUME_PRUNE_NOASSUME_SRC, "assume_prune_twin");
+            let bound_s = bound.to_string();
+            let (g1, o1) = run_bin(&bin_none, &["--bound", &bound_s, "--assumes", "none"]);
+            let (g2, o2) = run_bin(&bin_twin, &["--bound", &bound_s]);
+            assert_eq!(g1, g2, "{backend}: --assumes none exit must equal the twin at bound {bound}");
+            assert_eq!(o1, o2, "{backend}: --assumes none stdout must equal the twin at bound {bound}\n--- none ---\n{o1}\n--- twin ---\n{o2}");
+        }
+    }
+}
+
+#[test]
+fn task3c_assumed_input_still_fails() {
+    // The assumption is satisfied (every input IS Tick) but the assumed input
+    // itself drives x past the bound: deterministic FAIL at sample 3 for
+    // bound >= 4.
+    parity_task3c(SMT_ASSUME_FAIL_SRC, "assume_fail", false, false, "all", |b| {
+        if b >= 4 {
+            1
+        } else {
+            0
+        }
+    });
+}
+
+#[test]
+fn task3c_expensive_assumption_omission_and_flag() {
+    let note = version_note();
+    // WITHOUT --full-assumptions: the nested-temporal assumption is omitted
+    // (warning + assumptions_omitted=1) and the relaxed spec FAILs at bound >= 5.
+    parity_task3c(SMT_ASSUME_FULL_SRC, "assume_full_off", false, false, "all", |b| {
+        if b >= 5 {
+            1
+        } else {
+            0
+        }
+    });
+    for &bound in &BOUNDS {
+        let (_code, out, warnings) = ref_smt(SMT_ASSUME_FULL_SRC, bound, false, false, "all");
+        assert!(
+            warnings.iter().any(|w| w.contains("omits assumption 'tick_soon' by default")),
+            "pinned omission warning missing at bound {bound} {note}:\n{warnings:?}"
+        );
+        assert!(
+            out.contains("assumptions_omitted=1"),
+            "pinned assumptions_omitted suffix missing at bound {bound} {note}:\n{out}"
+        );
+        for backend in ["rust", "c"] {
+            let bin = smt_binary(backend, SMT_ASSUME_FULL_SRC, "assume_full_off");
+            let (gen_code, gen_out, gen_err) =
+                run_bin_full(&bin, &["--bound", &bound.to_string()]);
+            assert_eq!(
+                gen_code,
+                if bound >= 5 { 1 } else { 0 },
+                "{backend} exit at bound {bound} (omitted) {note}"
+            );
+            assert!(
+                gen_err.contains("omits assumption 'tick_soon' by default"),
+                "{backend} stderr must carry the omission warning:\n{gen_err}"
+            );
+            assert!(
+                gen_out.contains("assumptions_omitted=1"),
+                "{backend} summary must carry the suffix:\n{gen_out}"
+            );
+        }
+    }
+    // WITH --full-assumptions: the assumption is asserted, c stays <= 3 -> PASS
+    // at every bound, no warning, no suffix.
+    parity_task3c(SMT_ASSUME_FULL_SRC, "assume_full_on", false, true, "all", |_| 0);
+    for &bound in &BOUNDS {
+        let (_code, out, warnings) = ref_smt(SMT_ASSUME_FULL_SRC, bound, false, true, "all");
+        assert!(warnings.is_empty(), "no warning with the flag:\n{warnings:?}");
+        assert!(
+            !out.contains("assumptions_omitted"),
+            "no omission suffix with the flag:\n{out}"
+        );
     }
 }

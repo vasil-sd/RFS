@@ -53,26 +53,31 @@ pub fn generate_model_checker(
         code.push_str(&crate::mc::smt_emit::emit_rust_spec(&spec));
         // The __SMT_SUMMARY_*__ placeholders are filled from the shared
         // mc_concepts constants (D-P16-5) so the wire format has one source.
-        code.push_str(
-            &SMT_ENGINE_RUST
-                .replace("{BOUND}", &options.mc_smt_bound.to_string())
-                .replace(
-                    "__SMT_SUMMARY_FAIL_PROPERTY_FORMAT__",
-                    crate::codegen::mc_concepts::SMT_SUMMARY_FAIL_PROPERTY_FORMAT,
-                )
-                .replace(
-                    "__SMT_SUMMARY_UNKNOWN_FORMAT__",
-                    crate::codegen::mc_concepts::SMT_SUMMARY_UNKNOWN_FORMAT,
-                )
-                .replace(
-                    "__SMT_SUMMARY_FAIL_LIVENESS_FORMAT__",
-                    crate::codegen::mc_concepts::SMT_SUMMARY_FAIL_LIVENESS_FORMAT,
-                )
-                .replace(
-                    "__SMT_SUMMARY_PASS_FORMAT__",
-                    crate::codegen::mc_concepts::SMT_SUMMARY_PASS_FORMAT,
-                ),
-        );
+        let mut engine = SMT_ENGINE_RUST
+            .replace("{BOUND}", &options.mc_smt_bound.to_string())
+            .replace(
+                "__SMT_SUMMARY_FAIL_PROPERTY_FORMAT__",
+                crate::codegen::mc_concepts::SMT_SUMMARY_FAIL_PROPERTY_FORMAT,
+            )
+            .replace(
+                "__SMT_SUMMARY_UNKNOWN_FORMAT__",
+                crate::codegen::mc_concepts::SMT_SUMMARY_UNKNOWN_FORMAT,
+            )
+            .replace(
+                "__SMT_SUMMARY_FAIL_LIVENESS_FORMAT__",
+                crate::codegen::mc_concepts::SMT_SUMMARY_FAIL_LIVENESS_FORMAT,
+            )
+            .replace(
+                "__SMT_SUMMARY_PASS_FORMAT__",
+                crate::codegen::mc_concepts::SMT_SUMMARY_PASS_FORMAT,
+            );
+        // Task 3C placeholders: every new emission is guarded by the presence
+        // of the construct, so specs with NO on_error and NO assumptions
+        // generate byte-identical engines to before.
+        for (ph, val) in smt_engine_replacements(&spec) {
+            engine = engine.replace(ph, &val);
+        }
+        code.push_str(&engine);
         return Ok(CodegenOutput {
             mc_code: Some(code),
             ..Default::default()
@@ -1814,6 +1819,142 @@ fn run_fuzz() {
 /// asserted in a fixed order; queries run in a fixed order (safety properties
 /// in declaration order, then liveness properties in declaration order). The
 /// C backend mirrors all of this exactly.
+/// Task 3C engine-template placeholder values. Each placeholder expands to
+/// the empty string when its construct is absent from the spec (byte-
+/// identity), or to the on_error/assumption machinery otherwise.
+fn smt_engine_replacements(spec: &crate::mc::smt_plan::SmtSpec) -> Vec<(&'static str, String)> {
+    let has_on_error = spec.on_error.is_some();
+    let has_assumptions = !spec.assumptions.is_empty();
+    let any_fire_block = "            let any_fire = if fires.is_empty() {\n                Bool::from_bool(false)\n            } else {\n                let mut acc: Option<Bool> = None;\n                for f in &fires {\n                    acc = Some(match acc {\n                        Some(a) => b_or(&a, f),\n                        None => b_and(f, &Bool::from_bool(true)),\n                    });\n                }\n                acc.expect(\"non-empty fires\")\n            };\n";
+    let early_on_error = format!("{any_fire_block}            let on_error_fire = any_fire.not();\n");
+    let mut out: Vec<(&'static str, String)> = vec![
+        ("{TRACE_OE_PARAM}", if has_on_error { Some(", oe_fires: &[Bool]") } else { None }),
+        (
+            "{TRACE_OE_MARKER}",
+            if has_on_error {
+                Some(
+                    "        let ev = if i < oe_fires.len() && smt_read_bool(m, &oe_fires[i]) {\n            format!(\"{ev} [on_error]\")\n        } else {\n            ev\n        };\n",
+                )
+            } else {
+                None
+            },
+        ),
+        ("{TRACE_OE_ARG}", if has_on_error { Some(", &oe_fires") } else { None }),
+        (
+            "{ASSUME_FLAG_DECLS}",
+            if has_assumptions {
+                Some("    let mut full_assumptions = false;\n    let mut assumes_arg = String::from(\"all\");\n")
+            } else {
+                None
+            },
+        ),
+        (
+            "{ASSUME_FLAG_ARMS}",
+            if has_assumptions {
+                Some(
+                    " else if args[ai] == \"--full-assumptions\" {\n            full_assumptions = true;\n        } else if args[ai] == \"--assumes\" {\n            ai += 1;\n            assumes_arg = args.get(ai).cloned().unwrap_or_default();\n        }",
+                )
+            } else {
+                None
+            },
+        ),
+        (
+            "{ASSUME_SELECTION}",
+            if has_assumptions {
+                Some(
+                    "    let selected_assumes: Vec<String> = match assumes_arg.as_str() {\n        \"all\" => ASSUME_NAMES.iter().map(|x| x.to_string()).collect(),\n        \"none\" => Vec::new(),\n        other => other.split(',').map(|x| x.trim().to_string()).filter(|x| !x.is_empty() && ASSUME_NAMES.contains(&x.as_str())).collect(),\n    };\n",
+                )
+            } else {
+                None
+            },
+        ),
+        (
+            "{OE_FIRES_DECL}",
+            if has_on_error {
+                Some("        let mut oe_fires: Vec<Bool> = Vec::new();\n")
+            } else {
+                None
+            },
+        ),
+        ("{ANY_FIRE_EARLY}", None),
+        (
+            "{II_ROW_PUSH}",
+            if has_on_error {
+                Some("                ii_row.push(build_input_atom_ev(a, i, ev_vars.as_deref(), &fld_vars));")
+            } else {
+                Some("                ii_row.push(build_input_atom(a, i, &fires, &fld_vars));")
+            },
+        ),
+        (
+            "{OH_ROW_PUSH}",
+            if has_on_error {
+                Some("                let mut oh_val = build_output_atom(a, i, &fires);\n                oh_val = b_or(&oh_val, &b_and(&on_error_fire, &build_on_error_emit_match(a, i)));\n                oh_row.push(oh_val);")
+            } else {
+                Some("                oh_row.push(build_output_atom(a, i, &fires));")
+            },
+        ),
+        (
+            "{ANY_FIRE_LATE}",
+            if has_on_error { None } else { Some(any_fire_block) },
+        ),
+        (
+            "{ALIVE_PUSH}",
+            if has_on_error {
+                Some("            alive.push(alive[i].clone());\n            oe_fires.push(on_error_fire.clone());")
+            } else {
+                Some("            alive.push(b_and(&alive[i], &any_fire));")
+            },
+        ),
+        (
+            "{EMPTY_STATE_PUSH}",
+            if has_on_error {
+                Some("                base.push(BV::from_u64(ON_ERROR_NEXT_STATE as u64, STATE_BITS).eq(&s_vars[i + 1]));")
+            } else {
+                Some("                base.push(s_vars[i].eq(&s_vars[i + 1]));")
+            },
+        ),
+        (
+            "{NEXT_STATE_PUSH}",
+            if has_on_error {
+                Some("                base.push(any_fire.ite(&chain, &BV::from_u64(ON_ERROR_NEXT_STATE as u64, STATE_BITS)).eq(&s_vars[i + 1]));")
+            } else {
+                Some("                base.push(any_fire.ite(&chain, &s_vars[i]).eq(&s_vars[i + 1]));")
+            },
+        ),
+        (
+            "{ASSUME_CONSTRAINTS}",
+            if has_assumptions {
+                Some(
+                    "        // ---- Assumptions (task 3C, D3): per-sample base constraints ----\n        // Each SELECTED assumption's formula is asserted at every sample it\n        // covers (always[N] clips), alive-gated: a dead sample does not exist\n        // in exact mode (the path terminated), so the obligation is weak there.\n        let assume_fns = assume_fns();\n        let mut active_assumes: Vec<usize> = Vec::new();\n        let mut aomitted = 0usize;\n        for a in 0..ASSUME_NAMES.len() {\n            if !selected_assumes.iter().any(|x| x == ASSUME_NAMES[a]) { continue; }\n            if ASSUME_FULL[a] && !full_assumptions {\n                eprintln!(\"warning: smt-bounded mode omits assumption '{}' by default - it uses eventually/bounded_eventually/until or nested temporal operators, which greatly affect solver time/memory at large bounds (O(k*N) formula growth). Pass --full-assumptions to include it.\", ASSUME_NAMES[a]);\n                aomitted += 1;\n                continue;\n            }\n            active_assumes.push(a);\n        }\n        for &a in &active_assumes {\n            // always[N] clips at N; next_depth drops the trailing anchors whose\n            // shifted horizon does not exist (same clipping as properties).\n            let hi = k\n                .min(if ASSUME_BOUNDS[a] == 0 { k } else { ASSUME_BOUNDS[a] })\n                .min(k.saturating_sub(ASSUME_NEXT_DEPTH[a]));\n            if hi == 0 {\n                continue; // no evaluable anchor within the bound\n            }\n            for i in 0..hi {\n                base.push(b_or(&alive[i].not(), &assume_fns[a](i, k, &alive, &ii_steps, &oh_steps)));\n            }\n        }\n\n",
+                )
+            } else {
+                None
+            },
+        ),
+        (
+            "{ASSUME_OMIT_SUFFIX}",
+            if has_assumptions {
+                Some(
+                    "        let omit_suffix = if aomitted > 0 { format!(\"{omit_suffix} assumptions_omitted={aomitted}\") } else { omit_suffix };\n",
+                )
+            } else {
+                None
+            },
+        ),
+    ]
+    .into_iter()
+    .map(|(ph, val)| (ph, val.unwrap_or_default().to_string()))
+    .collect();
+    // The on_error variant computes any_fire EARLY (before the atom rows -
+    // the oh row needs on_error_fire); the plain variant keeps it late.
+    if has_on_error {
+        if let Some(e) = out.iter_mut().find(|(ph, _)| *ph == "{ANY_FIRE_EARLY}") {
+            e.1 = early_on_error;
+        }
+    }
+    out
+}
+
 const SMT_ENGINE_RUST: &str = r#"
 // ===== SMT bounded-mode runtime (task 11) =====
 const DEFAULT_BOUND: usize = {BOUND};
@@ -1835,7 +1976,7 @@ fn b_and(a: &Bool, b: &Bool) -> Bool { Bool::and(&[a, b]) }
 fn b_or(a: &Bool, b: &Bool) -> Bool { Bool::or(&[a, b]) }
 
 /// Witness trace (pinned format - identical in both backends).
-fn smt_print_trace(k: usize, m: &Model, s_vars: &[BV], v_vars: &[Vec<BV>], ev_vars: Option<&[BV]>, fld_vars: &[Vec<BV>]) {
+fn smt_print_trace(k: usize, m: &Model, s_vars: &[BV], v_vars: &[Vec<BV>], ev_vars: Option<&[BV]>, fld_vars: &[Vec<BV>]{TRACE_OE_PARAM}) {
     println!("witness trace (solver model; bound k={k}):");
     for i in 0..k {
         let si = smt_read_bv(m, &s_vars[i]) as usize;
@@ -1866,7 +2007,7 @@ fn smt_print_trace(k: usize, m: &Model, s_vars: &[BV], v_vars: &[Vec<BV>], ev_va
         } else {
             "event=-".to_string()
         };
-        println!("  step {i}: state={} vars={{{vs}}} {ev}", STATES[si]);
+{TRACE_OE_MARKER}        println!("  step {i}: state={} vars={{{vs}}} {ev}", STATES[si]);
     }
 }
 
@@ -1875,18 +2016,18 @@ fn run_smt() -> i32 {
     let args: Vec<String> = std::env::args().collect();
     let mut bound = DEFAULT_BOUND;
     let mut full_properties = false;
-    let mut ai = 1;
+{ASSUME_FLAG_DECLS}    let mut ai = 1;
     while ai < args.len() {
         if args[ai] == "--bound" {
             ai += 1;
             bound = args.get(ai).and_then(|x| x.parse().ok()).unwrap_or(DEFAULT_BOUND);
         } else if args[ai] == "--full-properties" {
             full_properties = true;
-        }
+        }{ASSUME_FLAG_ARMS}
         ai += 1;
     }
     let k = bound.max(1);
-    let cfg = Config::new();
+{ASSUME_SELECTION}    let cfg = Config::new();
     with_z3_config(&cfg, || {
         // ---- Step variables (fixed names/order - parity-critical) ----
         let s_vars: Vec<BV> = (0..k).map(|i| BV::new_const(format!("s_{i}"), STATE_BITS)).collect();
@@ -1916,7 +2057,7 @@ fn run_smt() -> i32 {
         // i+1 is built from step i's fires in the loop below.
         let mut ii_steps: Vec<Vec<Bool>> = vec![vec![Bool::from_bool(false); N_INPUT_ATOMS]];
         let mut oh_steps: Vec<Vec<Bool>> = vec![vec![Bool::from_bool(false); N_OUTPUT_ATOMS]];
-        for i in 0..k - 1 {
+{OE_FIRES_DECL}        for i in 0..k - 1 {
             // enabled_t = state match ∧ class match ∧ guard (firing order).
             let mut enableds: Vec<Bool> = Vec::new();
             for t in 0..TRANS.len() {
@@ -1944,34 +2085,22 @@ fn run_smt() -> i32 {
                 fires.push(fire);
                 prefix_or = Some(new_prefix);
             }
-            // input_is/output_has atoms for sample i+1 (the transition fired
+{ANY_FIRE_EARLY}            // input_is/output_has atoms for sample i+1 (the transition fired
             // at step i is that sample's consumed input / emitted outputs).
             let mut ii_row: Vec<Bool> = Vec::new();
             for a in 0..N_INPUT_ATOMS {
-                ii_row.push(build_input_atom(a, i, &fires, &fld_vars));
+{II_ROW_PUSH}
             }
             ii_steps.push(ii_row);
             let mut oh_row: Vec<Bool> = Vec::new();
             for a in 0..N_OUTPUT_ATOMS {
-                oh_row.push(build_output_atom(a, i, &fires));
+{OH_ROW_PUSH}
             }
             oh_steps.push(oh_row);
-            let any_fire = if fires.is_empty() {
-                Bool::from_bool(false)
-            } else {
-                let mut acc: Option<Bool> = None;
-                for f in &fires {
-                    acc = Some(match acc {
-                        Some(a) => b_or(&a, f),
-                        None => b_and(f, &Bool::from_bool(true)),
-                    });
-                }
-                acc.expect("non-empty fires")
-            };
-            alive.push(b_and(&alive[i], &any_fire));
+{ANY_FIRE_LATE}{ALIVE_PUSH}
             if TRANS.is_empty() {
                 // No transitions: deadlocked from step 0; state/vars frozen.
-                base.push(s_vars[i].eq(&s_vars[i + 1]));
+{EMPTY_STATE_PUSH}
                 for j in 0..VAR_WIDTHS.len() {
                     base.push(v_vars[i][j].eq(&v_vars[i + 1][j]));
                 }
@@ -1981,7 +2110,7 @@ fn run_smt() -> i32 {
                 for t in (0..TRANS.len() - 1).rev() {
                     chain = fires[t].ite(&BV::from_u64(TRANS[t].1 as u64, STATE_BITS), &chain);
                 }
-                base.push(any_fire.ite(&chain, &s_vars[i]).eq(&s_vars[i + 1]));
+{NEXT_STATE_PUSH}
                 // Next vars: per-var ITE chains (unchanged when unassigned).
                 for j in 0..VAR_WIDTHS.len() {
                     let mut acc: Option<BV> = None;
@@ -2007,7 +2136,7 @@ fn run_smt() -> i32 {
 
 
 
-        // ---- Omissions: FULL properties without --full-properties ----
+{ASSUME_CONSTRAINTS}        // ---- Omissions: FULL properties without --full-properties ----
         let omitted = PROP_FULL.iter().filter(|&&f| f && !full_properties).count();
         for p in 0..PROP_KINDS.len() {
             if PROP_FULL[p] && !full_properties {
@@ -2015,7 +2144,7 @@ fn run_smt() -> i32 {
             }
         }
         let omit_suffix = if omitted > 0 { format!(" properties_omitted={omitted}") } else { String::new() };
-
+{ASSUME_OMIT_SUFFIX}
         // ---- Queries (fixed order: safety, then liveness; declaration order) ----
         let props = prop_fns();
         let expands = expand_fns();
@@ -2052,7 +2181,7 @@ fn run_smt() -> i32 {
                             println!("__SMT_SUMMARY_FAIL_PROPERTY_FORMAT__{}", k, PROP_NAMES[p], vstep, omit_suffix);
                             println!("property violation: {}", PROP_NAMES[p]);
                             println!("  violation step: {vstep}");
-                            smt_print_trace(k, &m, &s_vars, &v_vars, ev_vars.as_deref(), &fld_vars);
+                            smt_print_trace(k, &m, &s_vars, &v_vars, ev_vars.as_deref(), &fld_vars{TRACE_OE_ARG});
                             return 1;
                         }
                         SatResult::Unsat => {}
@@ -2110,7 +2239,7 @@ fn run_smt() -> i32 {
                                 println!("liveness violation: {}", PROP_NAMES[p]);
                                 println!("  violation step: {}", pair.0);
                                 println!("  cycle length: {}", pair.1 - pair.0);
-                                smt_print_trace(k, &m, &s_vars, &v_vars, ev_vars.as_deref(), &fld_vars);
+                                smt_print_trace(k, &m, &s_vars, &v_vars, ev_vars.as_deref(), &fld_vars{TRACE_OE_ARG});
                                 return 1;
                             }
                             SatResult::Unsat => {}
@@ -2145,7 +2274,7 @@ fn run_smt() -> i32 {
                             println!("__SMT_SUMMARY_FAIL_PROPERTY_FORMAT__{}", k, PROP_NAMES[p], PROP_BE_BOUND[p] - 1, omit_suffix);
                             println!("property violation: {}", PROP_NAMES[p]);
                             println!("  violation step: {}", PROP_BE_BOUND[p] - 1);
-                            smt_print_trace(k, &m, &s_vars, &v_vars, ev_vars.as_deref(), &fld_vars);
+                            smt_print_trace(k, &m, &s_vars, &v_vars, ev_vars.as_deref(), &fld_vars{TRACE_OE_ARG});
                             return 1;
                         }
                         SatResult::Unsat => {}
@@ -2196,7 +2325,7 @@ fn run_smt() -> i32 {
                                 println!("liveness violation: {}", PROP_NAMES[p]);
                                 println!("  violation step: {}", pair.0);
                                 println!("  cycle length: {}", pair.1 - pair.0);
-                                smt_print_trace(k, &m, &s_vars, &v_vars, ev_vars.as_deref(), &fld_vars);
+                                smt_print_trace(k, &m, &s_vars, &v_vars, ev_vars.as_deref(), &fld_vars{TRACE_OE_ARG});
                                 return 1;
                             }
                             SatResult::Unsat => {}

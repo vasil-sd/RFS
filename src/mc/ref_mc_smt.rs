@@ -30,12 +30,12 @@
 
 use z3::{ast::Bool, ast::BV, with_z3_config, Config, Model, SatResult, Solver};
 
-use crate::codegen::mc_concepts::{smt_summary_line, FailReason, SmtStatus};
-use crate::codegen::AssumptionSelection;
+use crate::codegen::mc_concepts::{parse_assume_selection, smt_summary_line, FailReason, SmtStatus};
 use crate::lang::ir::Module;
 use crate::mc::plan::McPlan;
 use crate::mc::smt_plan::{
-    build_smt_spec, ceil_log2_pub, se_type, Sb, Se, SeType, Sf, SmtPropKind, SmtSpec,
+    build_smt_spec, ceil_log2_pub, se_type, Sb, Se, SeType, Sf, SmtOnError, SmtPropKind,
+    SmtSpec,
 };
 
 /// The outcome of one in-process SMT-bounded run: the exit code mirroring the
@@ -523,7 +523,14 @@ fn output_atom_expr(
     for (t, tr) in spec.transitions.iter().enumerate() {
         let mut emit_match = Bool::from_bool(false);
         for o in &tr.emits {
-            if o.group != *group || o.variant.as_deref() != variant.as_deref() {
+            // A group-level pattern (variant None) matches ANY variant of the
+            // group - exact mode's output_matches does the same (the old
+            // exact-variant comparison was a parity gap: group-level patterns
+            // never matched variant emits under smt-bounded).
+            if o.group != *group
+                || variant.is_some()
+                    && o.variant.as_deref() != variant.as_deref()
+            {
                 continue;
             }
             let mut m = Bool::from_bool(true);
@@ -547,6 +554,91 @@ fn output_atom_expr(
     val
 }
 
+/// The input_is atom's defining expression at step i evaluated against the
+/// ACTUAL input (the class variable ev_i + its payload fields) rather than
+/// the fire predicates - used ONLY when the module has an on_error fallback,
+/// where an unmatched input is still CONSUMED (exact mode records it in the
+/// on_error sample, SEMANTICS 3.6), so input_is must reflect the input's
+/// class even when no real transition fired. Without on_error the fire-based
+/// form coincides with this one at every live sample (a live sample means a
+/// transition of the input's class fired).
+fn input_atom_expr_ev(
+    spec: &SmtSpec,
+    arms: &[(usize, Vec<(usize, u64, bool)>)],
+    i: usize,
+    ev_vars: Option<&[BV]>,
+    fld_vars: &[Vec<BV>],
+) -> Bool {
+    let n_classes = spec.classes.len();
+    let cls_bits = ceil_log2_pub(n_classes);
+    let mut val = Bool::from_bool(false);
+    for (ci, constraints) in arms {
+        let mut arm = if n_classes > 1 {
+            ev_vars.expect("event vars")[i].eq(&BV::from_u64(*ci as u64, cls_bits))
+        } else {
+            Bool::from_bool(true)
+        };
+        for (g, v, _isb) in constraints {
+            let w = spec
+                .classes
+                .iter()
+                .flat_map(|c| c.fields.iter())
+                .nth(*g)
+                .map(|f| f.1)
+                .unwrap_or(1);
+            arm = b_and(&arm, &fld_vars[i][*g].eq(&BV::from_u64(*v, w)));
+        }
+        val = b_or(&val, &arm);
+    }
+    val
+}
+
+/// Whether the on_error fallback's emits match an output_has atom definition
+/// at step i (group/variant statically, literal argument constraints
+/// evaluated in the step's configuration - the fallback carries no pattern
+/// bindings, so no class context).
+fn on_error_emit_match(
+    spec: &SmtSpec,
+    oe: &SmtOnError,
+    def: &(String, Option<String>, Vec<(usize, u64, bool)>),
+    i: usize,
+    s_vars: &[BV],
+    v_vars: &[Vec<BV>],
+    fld_vars: &[Vec<BV>],
+) -> Bool {
+    let (group, variant, constraints) = def;
+    let sv = StepVars {
+        s: &s_vars[i],
+        v: &v_vars[i],
+        fld: &fld_vars[i],
+    };
+    let mut val = Bool::from_bool(false);
+    for o in &oe.emits {
+        // Group-level pattern match (same rule as output_atom_expr).
+        if o.group != *group
+            || variant.is_some() && o.variant.as_deref() != variant.as_deref()
+        {
+            continue;
+        }
+        let mut m = Bool::from_bool(true);
+        for (pos, v, _isb) in constraints {
+            match o.args.get(*pos) {
+                Some(arg) => {
+                    let w = se_type(arg, spec).width();
+                    let e = bv_of(se_to_z3(arg, spec, &sv, None, Some(w), true));
+                    m = b_and(&m, &e.eq(&BV::from_u64(*v, w)));
+                }
+                None => {
+                    m = Bool::from_bool(false);
+                    break;
+                }
+            }
+        }
+        val = b_or(&val, &m);
+    }
+    val
+}
+
 /// Witness trace (pinned format - identical in both generated backends).
 fn print_trace(
     out: &mut String,
@@ -557,6 +649,7 @@ fn print_trace(
     v_vars: &[Vec<BV>],
     ev_vars: Option<&[BV]>,
     fld_vars: &[Vec<BV>],
+    oe_fires: &[Bool],
 ) {
     out.push_str(&format!("witness trace (solver model; bound k={k}):\n"));
     for i in 0..k {
@@ -606,6 +699,14 @@ fn print_trace(
         } else {
             "event=-".to_string()
         };
+        // The on_error marker: this step's input matched no real transition
+        // and the fallback was taken (task 3C, D4). Only present for specs
+        // with an on_error block; the final unrolled step consumes no input.
+        let ev = if i < oe_fires.len() && read_bool(m, &oe_fires[i]) {
+            format!("{ev} [on_error]")
+        } else {
+            ev
+        };
         // The generated format is `vars={{{vs}}}` - no space before the
         // closing brace (byte-parity surface).
         out.push_str(&format!(
@@ -617,21 +718,48 @@ fn print_trace(
 
 /// Run the in-process SMT-bounded check over the shared encoding model.
 /// `bound` is the unrolling depth k (the generated binaries' `--bound`);
-/// `full_properties` enables the FULL class (top-level bounded_eventually/
-/// until, nested temporals) - without it those properties are omitted with a
-/// per-property warning (mirrors the generated binaries' --full-properties).
-pub fn run(module: &Module, bound: usize, full_properties: bool) -> Result<SmtOutcome, String> {
+/// `full_properties` enables the FULL property class (top-level
+/// bounded_eventually/until, nested temporals) - without it those properties
+/// are omitted with a per-property warning (mirrors the generated binaries'
+/// --full-properties); `full_assumptions` is the DISTINCT gate for the FULL
+/// assumption class (task 3C - expensive/cheap is chosen independently for
+/// properties vs assumptions); `assumes_arg` is the `--assumes` wire string
+/// (`all` / `none` / comma-separated labels, unknown labels silently dropped
+/// per SEMANTICS 7.4).
+pub fn run(
+    module: &Module,
+    bound: usize,
+    full_properties: bool,
+    full_assumptions: bool,
+    assumes_arg: &str,
+) -> Result<SmtOutcome, String> {
     // The model chain (D-P16-3): the same two calls both backends make.
-    // Assumption selection is irrelevant - build_smt_spec rejects any spec
-    // with assumptions (surfaced verbatim below), same as codegen.
-    let plan = McPlan::compute(module, &AssumptionSelection::All);
+    // build_smt_spec encodes ALL assumptions; selection happens here at
+    // runtime - the same pattern exact mode uses in generated binaries.
+    let plan = McPlan::compute(module, &crate::codegen::AssumptionSelection::All);
     let spec = build_smt_spec(module, &plan)?;
     let k = bound.max(1);
+    let known: Vec<&str> = spec.assumptions.iter().map(|a| a.name.as_str()).collect();
+    let selected = parse_assume_selection(assumes_arg, &known);
     let cfg = Config::new();
-    with_z3_config(&cfg, || run_unrolled(&spec, k, full_properties))
+    with_z3_config(&cfg, || {
+        run_unrolled(
+            &spec,
+            k,
+            full_properties,
+            full_assumptions,
+            &selected,
+        )
+    })
 }
 
-fn run_unrolled(spec: &SmtSpec, k: usize, full_properties: bool) -> Result<SmtOutcome, String> {
+fn run_unrolled(
+    spec: &SmtSpec,
+    k: usize,
+    full_properties: bool,
+    full_assumptions: bool,
+    selected: &[String],
+) -> Result<SmtOutcome, String> {
     let n_classes = spec.classes.len();
     let cls_bits = ceil_log2_pub(n_classes);
     // ---- Step variables (fixed names/order - parity-critical) ----
@@ -689,6 +817,9 @@ fn run_unrolled(spec: &SmtSpec, k: usize, full_properties: bool) -> Result<SmtOu
     // and row i+1 is built from step i's fires in the loop below.
     let mut ii_steps: Vec<Vec<Bool>> = vec![vec![Bool::from_bool(false); spec.input_atoms.len()]];
     let mut oh_steps: Vec<Vec<Bool>> = vec![vec![Bool::from_bool(false); spec.output_atoms.len()]];
+    // on_error_fire per step (witness-trace display only - the [on_error]
+    // marker on the steps that took the fallback).
+    let mut oe_fires: Vec<Bool> = Vec::new();
     for i in 0..k - 1 {
         // enabled_t = state match AND class match AND guard (firing order).
         let mut enableds: Vec<Bool> = Vec::new();
@@ -745,31 +876,86 @@ fn run_unrolled(spec: &SmtSpec, k: usize, full_properties: bool) -> Result<SmtOu
             }
             acc.expect("non-empty fires")
         };
-        alive.push(b_and(&alive[i], &any_fire));
+        // on_error fallback (task 3C, D4): a catch-all lowest-priority
+        // transition from ANY state - an unmatched input takes the fallback
+        // instead of killing the path (SEMANTICS 3.6). alive[i+1] = alive[i]
+        // AND (any_fire OR on_error_fire) = alive[i] (the disjunction is now
+        // always true on a live path).
+        let has_on_error = spec.on_error.is_some();
+        let on_error_fire = if has_on_error {
+            any_fire.not()
+        } else {
+            Bool::from_bool(false)
+        };
+        alive.push(if has_on_error {
+            alive[i].clone()
+        } else {
+            b_and(&alive[i], &any_fire)
+        });
+        if has_on_error {
+            oe_fires.push(on_error_fire.clone());
+        }
         // input_is/output_has atoms for sample i+1: the transition fired at
         // step i IS the consumed input; its emits are that sample's outputs.
+        // With an on_error fallback the unmatched input is STILL consumed
+        // (exact mode records it in the on_error sample - SEMANTICS 3.6), so
+        // input_is is evaluated against the actual input class ev_i rather
+        // than the fire predicates; without one the two coincide at every
+        // live sample.
         let ii_row: Vec<Bool> = spec
             .input_atoms
             .iter()
             .enumerate()
-            .map(|(_a, arms)| input_atom_expr(spec, arms, &fires, i, &fld_vars))
+            .map(|(_a, arms)| {
+                if has_on_error {
+                    input_atom_expr_ev(spec, arms, i, ev_vars.as_deref(), &fld_vars)
+                } else {
+                    input_atom_expr(spec, arms, &fires, i, &fld_vars)
+                }
+            })
             .collect();
         ii_steps.push(ii_row);
         let oh_row: Vec<Bool> = spec
             .output_atoms
             .iter()
             .enumerate()
-            .map(|(_a, def)| output_atom_expr(spec, def, &fires, i, &s_vars, &v_vars, &fld_vars))
+            .map(|(_a, def)| {
+                let mut val =
+                    output_atom_expr(spec, def, &fires, i, &s_vars, &v_vars, &fld_vars);
+                if has_on_error {
+                    // The fallback's emits feed the step's output_has atoms
+                    // exactly like a real transition's emits.
+                    let oe = spec.on_error.as_ref().expect("on_error present");
+                    val = b_or(
+                        &val,
+                        &b_and(
+                            &on_error_fire,
+                            &on_error_emit_match(spec, oe, def, i, &s_vars, &v_vars, &fld_vars),
+                        ),
+                    );
+                }
+                val
+            })
             .collect();
         oh_steps.push(oh_row);
         if spec.transitions.is_empty() {
-            // No transitions: deadlocked from step 0; state/vars frozen.
-            base.push(s_vars[i].eq(&s_vars[i + 1]));
+            // No transitions: on_error (if any) is the ONLY successor; else
+            // deadlocked from step 0 with state/vars frozen.
+            if has_on_error {
+                let oe = spec.on_error.as_ref().expect("on_error present");
+                base.push(
+                    BV::from_u64(oe.next_state as u64, spec.state_bits).eq(&s_vars[i + 1]),
+                );
+            } else {
+                base.push(s_vars[i].eq(&s_vars[i + 1]));
+            }
             for j in 0..spec.vars.len() {
                 base.push(v_vars[i][j].eq(&v_vars[i + 1][j]));
             }
         } else {
-            // Next state: ITE chain over firing transitions (last first).
+            // Next state: ITE chain over firing transitions (last first); the
+            // on_error fallback replaces the frozen self-loop when present
+            // (NOT any_fire implies on_error_fire - the disjunction is total).
             let mut chain: BV = BV::from_u64(
                 spec.transitions[spec.transitions.len() - 1].next_state as u64,
                 spec.state_bits,
@@ -780,7 +966,13 @@ fn run_unrolled(spec: &SmtSpec, k: usize, full_properties: bool) -> Result<SmtOu
                     &chain,
                 );
             }
-            base.push(any_fire.ite(&chain, &s_vars[i]).eq(&s_vars[i + 1]));
+            let next_state = if has_on_error {
+                let oe = spec.on_error.as_ref().expect("on_error present");
+                any_fire.ite(&chain, &BV::from_u64(oe.next_state as u64, spec.state_bits))
+            } else {
+                any_fire.ite(&chain, &s_vars[i])
+            };
+            base.push(next_state.eq(&s_vars[i + 1]));
             // Next vars: per-var ITE chains (unchanged when unassigned).
             for j in 0..spec.vars.len() {
                 let mut acc: Option<BV> = None;
@@ -825,8 +1017,50 @@ fn run_unrolled(spec: &SmtSpec, k: usize, full_properties: bool) -> Result<SmtOu
         k,
     };
 
-    let mut out = String::new();
     let mut warnings: Vec<String> = Vec::new();
+    // ---- Assumptions (task 3C, D3): per-sample base constraints ----
+    // Each SELECTED assumption's formula is asserted at every sample it
+    // covers (always[N] clips at N), alive-gated: a dead sample does not
+    // exist in exact mode (the path terminated on the unmatched input), so
+    // the obligation is weak there - exactly as D1 made next-obligations
+    // weak at trace death. This prunes the input space: only inputs
+    // satisfying every active assumption are allowed (exact-mode successor
+    // pruning, SEMANTICS 7.5). Expensive forms (top-level
+    // eventually/bounded_eventually/until, nested temporals) are asserted
+    // only with --full-assumptions; without it they are omitted with a
+    // per-assumption warning and counted for assumptions_omitted=M.
+    let aomitted: usize = spec
+        .assumptions
+        .iter()
+        .filter(|a| selected.contains(&a.name) && a.full && !full_assumptions)
+        .count();
+    for a in &spec.assumptions {
+        if !selected.contains(&a.name) {
+            continue;
+        }
+        if a.full && !full_assumptions {
+            warnings.push(format!(
+                "warning: smt-bounded mode omits assumption '{}' by default - it uses eventually/bounded_eventually/until or nested temporal operators, which greatly affect solver time/memory at large bounds (O(k*N) formula growth). Pass --full-assumptions to include it.",
+                a.name
+            ));
+            continue;
+        }
+        // Anchor range: always[N] clips at N, next_depth at the shifted
+        // horizon (sound - trailing anchors dropped, no false FAILs; the same
+        // clipping properties use - without it a `next`-bearing assumption
+        // would read alive[k] out of bounds at the last sample).
+        let hi = k
+            .min(a.bound.unwrap_or(k))
+            .min(k.saturating_sub(a.next_depth));
+        if hi == 0 {
+            continue; // no evaluable anchor within the bound
+        }
+        for i in 0..hi {
+            base.push(b_or(&alive[i].not(), &sf_to_z3(&a.formula, spec, &ctx, i)));
+        }
+    }
+
+    let mut out = String::new();
 
     // ---- Omissions: FULL properties without --full-properties ----
     let omitted: usize = spec
@@ -897,6 +1131,9 @@ fn run_unrolled(spec: &SmtSpec, k: usize, full_properties: bool) -> Result<SmtOu
                         if omitted > 0 {
                             summary.push_str(&format!(" properties_omitted={omitted}"));
                         }
+                        if aomitted > 0 {
+                            summary.push_str(&format!(" assumptions_omitted={aomitted}"));
+                        }
                         out.push_str(&format!("{summary}\n"));
                         out.push_str(&format!("property violation: {}\n", prop.name));
                         out.push_str(&format!("  violation step: {vstep}\n"));
@@ -909,6 +1146,8 @@ fn run_unrolled(spec: &SmtSpec, k: usize, full_properties: bool) -> Result<SmtOu
                             &v_vars,
                             ev_vars.as_deref(),
                             &fld_vars,
+
+                            &oe_fires,
                         );
                         return Ok(SmtOutcome {
                             exit_code: 1,
@@ -922,6 +1161,9 @@ fn run_unrolled(spec: &SmtSpec, k: usize, full_properties: bool) -> Result<SmtOu
                         let mut summary = smt_summary_line(SmtStatus::Unknown, k, None, None, None);
                         if omitted > 0 {
                             summary.push_str(&format!(" properties_omitted={omitted}"));
+                        }
+                        if aomitted > 0 {
+                            summary.push_str(&format!(" assumptions_omitted={aomitted}"));
                         }
                         out.push_str(&format!("{summary}\n"));
                         return Ok(SmtOutcome {
@@ -999,6 +1241,9 @@ fn run_unrolled(spec: &SmtSpec, k: usize, full_properties: bool) -> Result<SmtOu
                             if omitted > 0 {
                                 summary.push_str(&format!(" properties_omitted={omitted}"));
                             }
+                            if aomitted > 0 {
+                                summary.push_str(&format!(" assumptions_omitted={aomitted}"));
+                            }
                             out.push_str(&format!("{summary}\n"));
                             out.push_str(&format!("liveness violation: {}\n", prop.name));
                             out.push_str(&format!("  violation step: {}\n", pair.0));
@@ -1012,6 +1257,8 @@ fn run_unrolled(spec: &SmtSpec, k: usize, full_properties: bool) -> Result<SmtOu
                                 &v_vars,
                                 ev_vars.as_deref(),
                                 &fld_vars,
+
+                                &oe_fires,
                             );
                             return Ok(SmtOutcome {
                                 exit_code: 1,
@@ -1028,6 +1275,9 @@ fn run_unrolled(spec: &SmtSpec, k: usize, full_properties: bool) -> Result<SmtOu
                                 smt_summary_line(SmtStatus::Unknown, k, None, None, None);
                             if omitted > 0 {
                                 summary.push_str(&format!(" properties_omitted={omitted}"));
+                            }
+                            if aomitted > 0 {
+                                summary.push_str(&format!(" assumptions_omitted={aomitted}"));
                             }
                             out.push_str(&format!("{summary}\n"));
                             return Ok(SmtOutcome {
@@ -1087,6 +1337,9 @@ fn run_unrolled(spec: &SmtSpec, k: usize, full_properties: bool) -> Result<SmtOu
                         if omitted > 0 {
                             summary.push_str(&format!(" properties_omitted={omitted}"));
                         }
+                        if aomitted > 0 {
+                            summary.push_str(&format!(" assumptions_omitted={aomitted}"));
+                        }
                         out.push_str(&format!("{summary}\n"));
                         out.push_str(&format!("property violation: {}\n", prop.name));
                         out.push_str(&format!("  violation step: {vstep}\n"));
@@ -1099,6 +1352,8 @@ fn run_unrolled(spec: &SmtSpec, k: usize, full_properties: bool) -> Result<SmtOu
                             &v_vars,
                             ev_vars.as_deref(),
                             &fld_vars,
+
+                            &oe_fires,
                         );
                         return Ok(SmtOutcome {
                             exit_code: 1,
@@ -1112,6 +1367,9 @@ fn run_unrolled(spec: &SmtSpec, k: usize, full_properties: bool) -> Result<SmtOu
                         let mut summary = smt_summary_line(SmtStatus::Unknown, k, None, None, None);
                         if omitted > 0 {
                             summary.push_str(&format!(" properties_omitted={omitted}"));
+                        }
+                        if aomitted > 0 {
+                            summary.push_str(&format!(" assumptions_omitted={aomitted}"));
                         }
                         out.push_str(&format!("{summary}\n"));
                         return Ok(SmtOutcome {
@@ -1179,6 +1437,9 @@ fn run_unrolled(spec: &SmtSpec, k: usize, full_properties: bool) -> Result<SmtOu
                             if omitted > 0 {
                                 summary.push_str(&format!(" properties_omitted={omitted}"));
                             }
+                            if aomitted > 0 {
+                                summary.push_str(&format!(" assumptions_omitted={aomitted}"));
+                            }
                             out.push_str(&format!("{summary}\n"));
                             out.push_str(&format!("liveness violation: {}\n", prop.name));
                             out.push_str(&format!("  violation step: {}\n", pair.0));
@@ -1192,6 +1453,8 @@ fn run_unrolled(spec: &SmtSpec, k: usize, full_properties: bool) -> Result<SmtOu
                                 &v_vars,
                                 ev_vars.as_deref(),
                                 &fld_vars,
+
+                                &oe_fires,
                             );
                             return Ok(SmtOutcome {
                                 exit_code: 1,
@@ -1208,6 +1471,9 @@ fn run_unrolled(spec: &SmtSpec, k: usize, full_properties: bool) -> Result<SmtOu
                                 smt_summary_line(SmtStatus::Unknown, k, None, None, None);
                             if omitted > 0 {
                                 summary.push_str(&format!(" properties_omitted={omitted}"));
+                            }
+                            if aomitted > 0 {
+                                summary.push_str(&format!(" assumptions_omitted={aomitted}"));
                             }
                             out.push_str(&format!("{summary}\n"));
                             return Ok(SmtOutcome {
@@ -1228,6 +1494,9 @@ fn run_unrolled(spec: &SmtSpec, k: usize, full_properties: bool) -> Result<SmtOu
     let mut summary = smt_summary_line(SmtStatus::PassWithinBound, k, None, None, None);
     if omitted > 0 {
         summary.push_str(&format!(" properties_omitted={omitted}"));
+    }
+    if aomitted > 0 {
+        summary.push_str(&format!(" assumptions_omitted={aomitted}"));
     }
     out.push_str(&format!("{summary}\n"));
     Ok(SmtOutcome {
@@ -1290,7 +1559,7 @@ module smt_ref_pass {
     fn fail_at_initial_config() {
         let m = module(FAIL_SRC);
         for k in [1usize, 3, 5] {
-            let out = run(&m, k, false).expect("smt run");
+            let out = run(&m, k, false, false, "all").expect("smt run");
             assert_eq!(out.exit_code, 1, "bound {k}");
             assert!(
                 out.output.starts_with(&format!(
@@ -1312,10 +1581,10 @@ module smt_ref_pass {
     fn liveness_cycle_report() {
         let m = module(LIV_SRC);
         // Bound 1 has no a<b pair: the cycle query is vacuous -> pass.
-        let out1 = run(&m, 1, false).expect("smt run");
+        let out1 = run(&m, 1, false, false, "all").expect("smt run");
         assert_eq!(out1.exit_code, 0, "bound 1: {}", out1.output);
         for k in [2usize, 4] {
-            let out = run(&m, k, false).expect("smt run");
+            let out = run(&m, k, false, false, "all").expect("smt run");
             assert_eq!(out.exit_code, 1, "bound {k}: {}", out.output);
             assert!(
                 out.output.contains(&format!(
@@ -1336,7 +1605,7 @@ module smt_ref_pass {
     fn pass_within_bound() {
         let m = module(PASS_SRC);
         for k in [1usize, 3, 10] {
-            let out = run(&m, k, false).expect("smt run");
+            let out = run(&m, k, false, false, "all").expect("smt run");
             assert_eq!(out.exit_code, 0, "bound {k}: {}", out.output);
             assert!(
                 out.output == format!(
@@ -1349,37 +1618,30 @@ module smt_ref_pass {
     }
 
     #[test]
-    fn rejection_errors_surface_verbatim() {
-        // Assumptions are rejected by build_smt_spec (same error as codegen).
+    fn assumption_and_on_error_specs_accepted() {
+        // Task 3C: assumptions (D3) and on_error blocks (D4) are now encoded,
+        // not rejected. The assumption prunes the E input; the on_error
+        // fallback keeps the path alive on any unmatched input with x frozen.
         let m = module(
             r#"
-module smt_ref_assume {
+module smt_ref_accept {
   enum State { A }
   initial A
   event E
-  assume a1 : always (true) ;
-  transition A on E { next A; }
-}
-"#,
-        );
-        let err = run(&m, 3, false).expect_err("assumption spec must be rejected");
-        assert!(
-            err.starts_with("smt-bounded mode does not support assumptions"),
-            "{err}"
-        );
-        // on_error blocks are rejected the same way.
-        let m = module(
-            r#"
-module smt_ref_onerr {
-  enum State { A }
-  initial A
-  event E
-  transition A on E { next A; }
+  var x: bit<8> init 0
+  transition A on E { next A; set x = 1; }
+  prop p : always (x == 0) ;
+  assume no_e : always (!input_is(E)) ;
   on_error { next A; }
 }
 "#,
         );
-        let err = run(&m, 3, false).expect_err("on_error spec must be rejected");
-        assert_eq!(err, "smt-bounded mode does not support on_error blocks");
+        // With the assumption active: E is pruned, only unmatched inputs
+        // survive - they take the on_error fallback and x stays 0 -> PASS.
+        let out = run(&m, 3, false, false, "all").expect("smt run");
+        assert_eq!(out.exit_code, 0, "{}", out.output);
+        // With --assumes none: E fires, x becomes 1 -> FAIL at sample 1.
+        let out = run(&m, 3, false, false, "none").expect("smt run");
+        assert_eq!(out.exit_code, 1, "{}", out.output);
     }
 }

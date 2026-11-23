@@ -94,8 +94,10 @@ non-smt build exits with a clear diagnostic).
 
 | Flag | Meaning |
 |---|---|
-| `--bound N` | unrolling depth. Default 10. Specs with assumptions or `on_error` blocks are rejected (same as codegen) |
-| `--full-properties` | check the FULL property class (see below). Without it those properties are omitted with a per-property warning |
+| `--bound N` | unrolling depth. Default 10 |
+| `--full-properties` | check the FULL property class (see below). Without it those properties are omitted with a per-property warning and a `properties_omitted=M` summary suffix |
+| `--full-assumptions` | assert the FULL assumption class (see below). DISTINCT from `--full-properties`: expensive properties and cheap assumptions (or the reverse) can be combined. Without it, FULL assumptions are omitted with a per-assumption warning and an `assumptions_omitted=M` summary suffix |
+| `--assumes all\|none\|labels` | select which assumptions are active (default `all`; same wire format as exact/fuzz, unknown labels silently dropped). `none` encodes zero assumptions - the assumption-free verdict |
 
 Exit codes: 0 pass-within-bound / 1 fail / 2 unknown.
 
@@ -120,14 +122,31 @@ the formula at large bounds (O(k*N) growth), so it is opt-in via
 `--full-properties`. Its expansions are horizon-truncated and sound (no false
 FAILs; no completeness claim). Without the flag each FULL property is omitted
 with a stderr warning naming it and the flag, and the summary line gains
-`properties_omitted=M` (only when M > 0). The generated SMT binaries accept the
-same two flags (`--bound`, `--full-properties`).
+`properties_omitted=M` (only when M > 0).
+
+**Assumptions and on_error.** Assumptions are per-step input-space pruning:
+each SELECTED assumption's formula is asserted at every sample it covers
+(`always[N]` clips at N; `next`-bearing bodies drop their trailing anchors,
+as properties do), alive-gated - a dead sample does not exist in exact mode,
+so the obligation is weak there. Only inputs satisfying every active
+assumption are allowed, exactly exact mode's successor pruning (SEMANTICS
+7.5). The CHEAP class - `assume always (f)` / `always[N] (f)` with an
+input-constraining body (`input_is(...)` patterns and boolean guards over
+payload fields, no temporal nesting) - is asserted by default; the EXPENSIVE
+class (top-level `eventually`/`bounded_eventually`/`until`, or a temporal
+operator nested under another) only with `--full-assumptions`, otherwise
+omitted with a per-assumption warning and `assumptions_omitted=M`. An
+`on_error` block adds the catch-all fallback transition (SEMANTICS 3.6):
+any input no transition matches takes it - next-state only, no variable
+assignments - keeping the path alive where exact mode would terminate it.
+The generated SMT binaries accept the same four flags (`--bound`,
+`--full-properties`, `--full-assumptions`, `--assumes`).
 
 ### Shared flags and not-applicable flags
 
-`--assumes all|none|labels` (shared by exact and fuzz; same wire format as the
-generated binaries, unknown labels silently dropped) and `--log-level
-off|error|warn|info|debug` apply to every mode.
+`--assumes all|none|labels` (shared by exact, fuzz and smt-bounded; same wire
+format as the generated binaries, unknown labels silently dropped) and
+`--log-level off|error|warn|info|debug` apply to every mode.
 
 NOT applicable to `rfs mc-ref` (documented in its usage text): `--threads`/
 `--fast` - generated-engine tuning; the reference engine is single-threaded.

@@ -74,14 +74,19 @@ pub fn generate_model_checker(
             crate::codegen::mc_concepts::SMT_SUMMARY_PASS_FORMAT,
             &["%u"],
         );
-        code.push_str(
-            &SMT_ENGINE_C
-                .replace("{BOUND}", &options.mc_smt_bound.to_string())
-                .replace("__SMT_SUMMARY_FAIL_PROPERTY_FORMAT_C__", &fail_property_c)
-                .replace("__SMT_SUMMARY_UNKNOWN_FORMAT_C__", &unknown_c)
-                .replace("__SMT_SUMMARY_FAIL_LIVENESS_FORMAT_C__", &fail_liveness_c)
-                .replace("__SMT_SUMMARY_PASS_FORMAT_C__", &pass_c),
-        );
+        let mut engine = SMT_ENGINE_C
+            .replace("{BOUND}", &options.mc_smt_bound.to_string())
+            .replace("__SMT_SUMMARY_FAIL_PROPERTY_FORMAT_C__", &fail_property_c)
+            .replace("__SMT_SUMMARY_UNKNOWN_FORMAT_C__", &unknown_c)
+            .replace("__SMT_SUMMARY_FAIL_LIVENESS_FORMAT_C__", &fail_liveness_c)
+            .replace("__SMT_SUMMARY_PASS_FORMAT_C__", &pass_c);
+        // Task 3C placeholders: every new emission is guarded by the presence
+        // of the construct, so specs with NO on_error and NO assumptions
+        // generate byte-identical engines to before.
+        for (ph, val) in smt_engine_replacements(&spec) {
+            engine = engine.replace(ph, &val);
+        }
+        code.push_str(&engine);
         return Ok(CodegenOutput {
             mc_code: Some(code),
             ..Default::default()
@@ -2610,6 +2615,138 @@ int run_fuzz(int argc, char** argv) {{
     )
 }
 
+/// Task 3C engine-template placeholder values (C mirror of the Rust one).
+fn smt_engine_replacements(spec: &crate::mc::smt_plan::SmtSpec) -> Vec<(&'static str, String)> {
+    let has_on_error = spec.on_error.is_some();
+    let has_assumptions = !spec.assumptions.is_empty();
+    let any_fire_block = "        Z3_ast any_fire;\n        if (N_TRANS == 0) {\n            any_fire = Z3_mk_false(c);\n        } else {\n            Z3_ast pair[2] = { fires[0], Z3_mk_true(c) };\n            any_fire = Z3_mk_and(c, 2, pair);\n            for (unsigned t = 1; t < N_TRANS; t++) {\n                Z3_ast pair[2] = { any_fire, fires[t] };\n                any_fire = Z3_mk_or(c, 2, pair);\n            }\n        }\n";
+    let early_on_error = format!("{any_fire_block}        Z3_ast on_error_fire = Z3_mk_not(c, any_fire);\n");
+    let mut out: Vec<(&'static str, String)> = vec![
+        ("{TRACE_OE_PARAM}", if has_on_error { Some(", const Z3_ast *oe_fires") } else { None }),
+        (
+            "{TRACE_OE_MARKER}",
+            if has_on_error {
+                Some("        if (i + 1 < k && smt_read_bool(c, m, oe_fires[i])) printf(\" [on_error]\");\n")
+            } else {
+                None
+            },
+        ),
+        ("{TRACE_OE_ARG}", if has_on_error { Some(", oe_fires") } else { None }),
+        (
+            "{ASSUME_FLAG_DECLS}",
+            if has_assumptions {
+                Some("    int full_assumptions = 0;\n    const char *assumes_arg = \"all\";\n")
+            } else {
+                None
+            },
+        ),
+        (
+            "{ASSUME_FLAG_ARMS}",
+            if has_assumptions {
+                Some(
+                    " else if (strcmp(argv[ai], \"--full-assumptions\") == 0) {\n            full_assumptions = 1;\n        } else if (strcmp(argv[ai], \"--assumes\") == 0 && ai + 1 < argc) {\n            assumes_arg = argv[ai + 1];\n            ai++;\n        }",
+                )
+            } else {
+                None
+            },
+        ),
+        (
+            "{ASSUME_SELECTION}",
+            if has_assumptions {
+                Some(
+                    "    const char *selected_assumes[N_ASSUME];\n    int n_selected = 0;\n    if (strcmp(assumes_arg, \"all\") == 0) {\n        for (unsigned a = 0; a < N_ASSUME; a++) selected_assumes[n_selected++] = ASSUME_NAMES[a];\n    } else if (strcmp(assumes_arg, \"none\") != 0) {\n        char sel_buf[256];\n        strncpy(sel_buf, assumes_arg, sizeof sel_buf - 1);\n        sel_buf[sizeof sel_buf - 1] = '\\0';\n        for (char *tok = strtok(sel_buf, \",\"); tok; tok = strtok(0, \",\")) {\n            while (*tok == ' ') tok++;\n            if (!*tok) continue;\n            for (unsigned a = 0; a < N_ASSUME; a++) {\n                if (strcmp(tok, ASSUME_NAMES[a]) == 0) { selected_assumes[n_selected++] = ASSUME_NAMES[a]; break; }\n            }\n        }\n    }\n",
+                )
+            } else {
+                None
+            },
+        ),
+        (
+            "{OE_FIRES_DECL}",
+            if has_on_error {
+                Some("    Z3_ast *oe_fires = malloc((k > 1 ? k - 1 : 1) * sizeof(Z3_ast));\n")
+            } else {
+                None
+            },
+        ),
+        ("{ANY_FIRE_EARLY}", None),
+        (
+            "{II_ROW_PUSH}",
+            if has_on_error {
+                Some("            ii_flat[(size_t)(i + 1) * N_INPUT_ATOMS + a] = build_input_atom_ev(c, a, i, ev_vars, fldi);")
+            } else {
+                Some("            ii_flat[(size_t)(i + 1) * N_INPUT_ATOMS + a] = build_input_atom(c, a, i, fldi, fires);")
+            },
+        ),
+        (
+            "{OH_ROW_PUSH}",
+            if has_on_error {
+                Some("            Z3_ast oh_val = build_output_atom(c, a, i, vi, fldi, fires);\n            Z3_ast oepair[2] = { on_error_fire, build_on_error_emit_match(c, a, i, vi, fldi) };\n            oh_flat[(size_t)(i + 1) * N_OUTPUT_ATOMS + a] = Z3_mk_or(c, 2, (Z3_ast[]){ oh_val, Z3_mk_and(c, 2, oepair) });")
+            } else {
+                Some("            oh_flat[(size_t)(i + 1) * N_OUTPUT_ATOMS + a] = build_output_atom(c, a, i, vi, fldi, fires);")
+            },
+        ),
+        (
+            "{ANY_FIRE_LATE}",
+            if has_on_error { None } else { Some(any_fire_block) },
+        ),
+        (
+            "{ALIVE_PUSH}",
+            if has_on_error {
+                Some("        alive[i + 1] = alive[i];\n        oe_fires[i] = on_error_fire;")
+            } else {
+                Some("        Z3_ast apair[2] = { alive[i], any_fire };\n        alive[i + 1] = Z3_mk_and(c, 2, apair);")
+            },
+        ),
+        (
+            "{EMPTY_STATE_PUSH}",
+            if has_on_error {
+                Some("            BASE_PUSH(Z3_mk_eq(c, s_vars[i + 1], z3_num(c, STATE_BITS, ON_ERROR_NEXT_STATE)));")
+            } else {
+                Some("            BASE_PUSH(Z3_mk_eq(c, s_vars[i], s_vars[i + 1]));")
+            },
+        ),
+        (
+            "{NEXT_STATE_PUSH}",
+            if has_on_error {
+                Some("            BASE_PUSH(Z3_mk_eq(c, Z3_mk_ite(c, any_fire, chain, z3_num(c, STATE_BITS, ON_ERROR_NEXT_STATE)), s_vars[i + 1]));")
+            } else {
+                Some("            BASE_PUSH(Z3_mk_eq(c, Z3_mk_ite(c, any_fire, chain, s_vars[i]), s_vars[i + 1]));")
+            },
+        ),
+        (
+            "{ASSUME_CONSTRAINTS}",
+            if has_assumptions {
+                Some(
+                    "    // ---- Assumptions (task 3C, D3): per-sample base constraints ----\n    int active_assumes[N_ASSUME];\n    int n_active = 0;\n    unsigned aomitted = 0;\n    for (unsigned a = 0; a < N_ASSUME; a++) {\n        int sel = 0;\n        for (int s2 = 0; s2 < n_selected; s2++) if (strcmp(selected_assumes[s2], ASSUME_NAMES[a]) == 0) sel = 1;\n        if (!sel) continue;\n        if (ASSUME_FULL[a] && !full_assumptions) {\n            fprintf(stderr, \"warning: smt-bounded mode omits assumption '%s' by default - it uses eventually/bounded_eventually/until or nested temporal operators, which greatly affect solver time/memory at large bounds (O(k*N) formula growth). Pass --full-assumptions to include it.\\n\", ASSUME_NAMES[a]);\n            aomitted++;\n            continue;\n        }\n        active_assumes[n_active++] = (int)a;\n    }\n    for (int ai2 = 0; ai2 < n_active; ai2++) {\n        unsigned a = (unsigned)active_assumes[ai2];\n        // always[N] clips at N; next_depth drops the trailing anchors whose\n        // shifted horizon does not exist (same clipping as properties).\n        unsigned hi = k;\n        if (ASSUME_BOUNDS[a] != 0 && ASSUME_BOUNDS[a] < hi) hi = ASSUME_BOUNDS[a];\n        if (ASSUME_NEXT_DEPTH[a] < hi) hi -= ASSUME_NEXT_DEPTH[a]; else hi = 0;\n        if (hi == 0) continue; // no evaluable anchor within the bound\n        for (unsigned i = 0; i < hi; i++) {\n            const Z3_ast *vi = &v_vars[(size_t)i * N_VARS];\n            const Z3_ast *fldi = &fld_vars[(size_t)i * N_FIELDS];\n            Z3_ast phi = ASSUME_FNS[a](c, i, k, s_vars[i], vi, fldi, alive, ii_flat, oh_flat);\n            Z3_ast gate[2] = { Z3_mk_not(c, alive[i]), phi };\n            BASE_PUSH(Z3_mk_or(c, 2, gate));\n        }\n    }\n\n",
+                )
+            } else {
+                None
+            },
+        ),
+        (
+            "{ASSUME_OMIT_SUFFIX}",
+            if has_assumptions {
+                Some(
+                    "    char aomit_buf[64];\n    if (aomitted > 0) {\n        snprintf(aomit_buf, sizeof aomit_buf, \"%s assumptions_omitted=%u\", omit_suffix, aomitted);\n        omit_suffix = aomit_buf;\n    }\n",
+                )
+            } else {
+                None
+            },
+        ),
+    ]
+    .into_iter()
+    .map(|(ph, val)| (ph, val.unwrap_or_default().to_string()))
+    .collect();
+    // The on_error variant computes any_fire EARLY (before the atom rows -
+    // the oh row needs on_error_fire); the plain variant keeps it late.
+    if has_on_error {
+        if let Some(e) = out.iter_mut().find(|(ph, _)| *ph == "{ANY_FIRE_EARLY}") {
+            e.1 = early_on_error;
+        }
+    }
+    out
+}
+
 const SMT_ENGINE_C: &str = r#"
 
 // ===== SMT bounded-mode runtime (task 11) =====
@@ -2634,7 +2771,7 @@ static int smt_read_bool(Z3_context c, Z3_model m, Z3_ast e) {
 }
 
 /// Witness trace (pinned format - identical in both backends).
-static void smt_print_trace(Z3_context c, unsigned k, Z3_model m, const Z3_ast *s_vars, const Z3_ast *v_vars, const Z3_ast *ev_vars, const Z3_ast *fld_vars) {
+static void smt_print_trace(Z3_context c, unsigned k, Z3_model m, const Z3_ast *s_vars, const Z3_ast *v_vars, const Z3_ast *ev_vars, const Z3_ast *fld_vars{TRACE_OE_PARAM}) {
     printf("witness trace (solver model; bound k=%u):\n", k);
     for (unsigned i = 0; i < k; i++) {
         unsigned si = (unsigned)smt_read_bv(c, m, s_vars[i]);
@@ -2662,7 +2799,7 @@ static void smt_print_trace(Z3_context c, unsigned k, Z3_model m, const Z3_ast *
         } else {
             printf("event=-");
         }
-        printf("\n");
+{TRACE_OE_MARKER}        printf("\n");
     }
 }
 
@@ -2670,18 +2807,18 @@ static int run_smt(int argc, char **argv) {
     // Runtime flags.
     unsigned bound = DEFAULT_BOUND;
     int full_properties = 0;
-    for (int ai = 1; ai < argc; ai++) {
+{ASSUME_FLAG_DECLS}    for (int ai = 1; ai < argc; ai++) {
         if (strcmp(argv[ai], "--bound") == 0 && ai + 1 < argc) {
             char *end = 0;
             unsigned long v = strtoul(argv[ai + 1], &end, 10);
             if (end != argv[ai + 1] && *end == '\0') bound = (unsigned)v;
         } else if (strcmp(argv[ai], "--full-properties") == 0) {
             full_properties = 1;
-        }
+        }{ASSUME_FLAG_ARMS}
     }
     unsigned k = bound > 1u ? bound : 1u;
 
-    Z3_context c = Z3_mk_context(0);
+{ASSUME_SELECTION}    Z3_context c = Z3_mk_context(0);
 
     // ---- Step variables (fixed names/order - parity-critical) ----
     Z3_ast *s_vars = malloc(k * sizeof(Z3_ast));
@@ -2732,7 +2869,7 @@ static int run_smt(int argc, char **argv) {
     for (unsigned a = 0; a < N_INPUT_ATOMS; a++) ii_flat[a] = Z3_mk_false(c);
     for (unsigned a = 0; a < N_OUTPUT_ATOMS; a++) oh_flat[a] = Z3_mk_false(c);
     alive[0] = Z3_mk_true(c);
-    int ret = 0;
+{OE_FIRES_DECL}    int ret = 0;
     for (unsigned i = 0; i + 1 < k; i++) {
         const Z3_ast *vi = &v_vars[(size_t)i * N_VARS];
         const Z3_ast *fldi = &fld_vars[(size_t)i * N_FIELDS];
@@ -2768,30 +2905,18 @@ static int run_smt(int argc, char **argv) {
                 prefix = Z3_mk_and(c, 2, pair);
             }
         }
-        // input_is/output_has atoms for sample i+1 (the transition fired at
+{ANY_FIRE_EARLY}        // input_is/output_has atoms for sample i+1 (the transition fired at
         // step i is that sample's consumed input / emitted outputs).
         for (unsigned a = 0; a < N_INPUT_ATOMS; a++) {
-            ii_flat[(size_t)(i + 1) * N_INPUT_ATOMS + a] = build_input_atom(c, a, i, fldi, fires);
+{II_ROW_PUSH}
         }
         for (unsigned a = 0; a < N_OUTPUT_ATOMS; a++) {
-            oh_flat[(size_t)(i + 1) * N_OUTPUT_ATOMS + a] = build_output_atom(c, a, i, vi, fldi, fires);
+{OH_ROW_PUSH}
         }
-        Z3_ast any_fire;
-        if (N_TRANS == 0) {
-            any_fire = Z3_mk_false(c);
-        } else {
-            Z3_ast pair[2] = { fires[0], Z3_mk_true(c) };
-            any_fire = Z3_mk_and(c, 2, pair);
-            for (unsigned t = 1; t < N_TRANS; t++) {
-                Z3_ast pair[2] = { any_fire, fires[t] };
-                any_fire = Z3_mk_or(c, 2, pair);
-            }
-        }
-        Z3_ast apair[2] = { alive[i], any_fire };
-        alive[i + 1] = Z3_mk_and(c, 2, apair);
+{ANY_FIRE_LATE}{ALIVE_PUSH}
         if (N_TRANS == 0) {
             // No transitions: deadlocked from step 0; state/vars frozen.
-            BASE_PUSH(Z3_mk_eq(c, s_vars[i], s_vars[i + 1]));
+{EMPTY_STATE_PUSH}
             for (unsigned j = 0; j < N_VARS; j++) {
                 BASE_PUSH(Z3_mk_eq(c, v_vars[(size_t)i * N_VARS + j], v_vars[(size_t)(i + 1) * N_VARS + j]));
             }
@@ -2801,7 +2926,7 @@ static int run_smt(int argc, char **argv) {
             for (long u = (long)N_TRANS - 2; u >= 0; u--) {
                 chain = Z3_mk_ite(c, fires[u], z3_num(c, STATE_BITS, TRANS[u].next_state), chain);
             }
-            BASE_PUSH(Z3_mk_eq(c, Z3_mk_ite(c, any_fire, chain, s_vars[i]), s_vars[i + 1]));
+{NEXT_STATE_PUSH}
             // Next vars: per-var ITE chains (unchanged when unassigned).
             for (unsigned j = 0; j < N_VARS; j++) {
                 Z3_ast acc = 0;
@@ -2828,7 +2953,7 @@ static int run_smt(int argc, char **argv) {
 
 
 
-    // ---- Omissions: FULL properties without --full-properties ----
+{ASSUME_CONSTRAINTS}    // ---- Omissions: FULL properties without --full-properties ----
     unsigned omitted = 0;
     for (unsigned p = 0; p < N_PROPS; p++) {
         if (PROP_FULL[p] && !full_properties) {
@@ -2842,7 +2967,7 @@ static int run_smt(int argc, char **argv) {
         snprintf(omit_buf, sizeof omit_buf, " properties_omitted=%u", omitted);
         omit_suffix = omit_buf;
     }
-
+{ASSUME_OMIT_SUFFIX}
     // Keep the expansion table referenced even when no FULL property exists
     // (its entries - incl. expand_dummy - are reachable only through it).
     (void)EXPAND_FNS;
@@ -2891,7 +3016,7 @@ static int run_smt(int argc, char **argv) {
                 printf("%s\n", omit_suffix);
                 printf("property violation: %s\n", PROP_NAMES[p]);
                 printf("  violation step: %u\n", vstep);
-                smt_print_trace(c, k, m, s_vars, v_vars, ev_vars, fld_vars);
+                smt_print_trace(c, k, m, s_vars, v_vars, ev_vars, fld_vars{TRACE_OE_ARG});
                 ret = 1; goto done;
             } else if (r == Z3_L_UNDEF) {
                 printf("UNKNOWN (solver inconclusive within bound %u)\n", k);
@@ -2959,7 +3084,7 @@ static int run_smt(int argc, char **argv) {
                 printf("liveness violation: %s\n", PROP_NAMES[p]);
                 printf("  violation step: %u\n", pa);
                 printf("  cycle length: %u\n", pb - pa);
-                smt_print_trace(c, k, m, s_vars, v_vars, ev_vars, fld_vars);
+                smt_print_trace(c, k, m, s_vars, v_vars, ev_vars, fld_vars{TRACE_OE_ARG});
                 ret = 1; goto done;
             } else if (r == Z3_L_UNDEF) {
                 printf("UNKNOWN (solver inconclusive within bound %u)\n", k);
@@ -2996,7 +3121,7 @@ static int run_smt(int argc, char **argv) {
                 printf("%s\n", omit_suffix);
                 printf("property violation: %s\n", PROP_NAMES[p]);
                 printf("  violation step: %u\n", PROP_BE_BOUND[p] - 1);
-                smt_print_trace(c, k, m, s_vars, v_vars, ev_vars, fld_vars);
+                smt_print_trace(c, k, m, s_vars, v_vars, ev_vars, fld_vars{TRACE_OE_ARG});
                 ret = 1; goto done;
             } else if (r == Z3_L_UNDEF) {
                 printf("UNKNOWN (solver inconclusive within bound %u)\n", k);
@@ -3051,7 +3176,7 @@ static int run_smt(int argc, char **argv) {
                     printf("liveness violation: %s\n", PROP_NAMES[p]);
                     printf("  violation step: %u\n", pa);
                     printf("  cycle length: %u\n", pb - pa);
-                    smt_print_trace(c, k, m, s_vars, v_vars, ev_vars, fld_vars);
+                    smt_print_trace(c, k, m, s_vars, v_vars, ev_vars, fld_vars{TRACE_OE_ARG});
                     ret = 1; goto done;
                 } else if (r == Z3_L_UNDEF) {
                     printf("UNKNOWN (solver inconclusive within bound %u)\n", k);

@@ -94,8 +94,8 @@ pub struct McRefOptions {
     /// EXACT-MODE-ONLY (rejected under `--mode fuzz`).
     pub timeout_sec: Option<u64>,
     /// `--assumes` wire string: `all`, `none`, or comma-separated labels
-    /// (exact + fuzz; rejected under `--mode smt-bounded` - the generated SMT
-    /// binary parses only `--bound`/`--full-properties`).
+    /// (exact + fuzz + smt-bounded - task 3C; the generated SMT binaries parse
+    /// it too).
     pub assumes: String,
     /// `--counterexample-format`: text (default) or json. EXACT-MODE-ONLY.
     pub ce_format: CeFormat,
@@ -120,6 +120,12 @@ pub struct McRefOptions {
     /// those properties are omitted with a per-property warning. SMT-BOUNDED-
     /// ONLY (a usage error under other modes).
     pub full_properties: bool,
+    /// `--full-assumptions`: check the FULL assumption class in smt-bounded
+    /// mode (top-level eventually/bounded_eventually/until, nested temporals)
+    /// - without it those assumptions are omitted with a per-assumption
+    /// warning. DISTINCT from --full-properties, so expensive/cheap is chosen
+    /// independently for properties vs assumptions (task 3C). SMT-BOUNDED-ONLY.
+    pub full_assumptions: bool,
 }
 
 impl Default for McRefOptions {
@@ -136,6 +142,7 @@ impl Default for McRefOptions {
             seed: None,
             violate: Vec::new(),
             full_properties: false,
+            full_assumptions: false,
             unexpected_prob: None,
         }
     }
@@ -186,12 +193,11 @@ pub fn run_mc_ref(path: &Path, opts: &McRefOptions) -> Result<(ExitCode, String)
             || opts.seed.is_some()
             || !opts.violate.is_empty()
             || opts.unexpected_prob.is_some()
-            || opts.assumes != "all"
         {
             return Err(
                 "--max-states/--timeout-sec/--counterexample-format/--nondet/--runs/--seed/"
                     .to_string()
-                    + "--violate/--unexpected-prob/--assumes are not available under --mode smt-bounded",
+                    + "--violate/--unexpected-prob are not available under --mode smt-bounded",
             );
         }
         #[cfg(feature = "smt")]
@@ -201,6 +207,8 @@ pub fn run_mc_ref(path: &Path, opts: &McRefOptions) -> Result<(ExitCode, String)
                 opts.bound
                     .unwrap_or(crate::codegen::mc_concepts::SMT_DEFAULT_BOUND),
                 opts.full_properties,
+                opts.full_assumptions,
+                &opts.assumes,
             )?;
             // Omission warnings go to stderr (the generated SMT binaries do
             // the same); stdout carries the report only.
@@ -229,6 +237,9 @@ pub fn run_mc_ref(path: &Path, opts: &McRefOptions) -> Result<(ExitCode, String)
     }
     if opts.full_properties && opts.mode != McMode::SmtBounded {
         return Err("--full-properties is only available under --mode smt-bounded".to_string());
+    }
+    if opts.full_assumptions && opts.mode != McMode::SmtBounded {
+        return Err("--full-assumptions is only available under --mode smt-bounded".to_string());
     }
     if opts.mode == McMode::Fuzz {
         if opts.max_states.is_some()
@@ -299,7 +310,7 @@ pub fn exit_code_for(status: crate::codegen::mc_concepts::ExactStatus) -> ExitCo
 }
 
 fn usage() -> String {
-    "usage: rfs mc-ref <spec.rfs|spec.json> [--mode exact|fuzz|smt-bounded]\n       [exact: --max-states N --timeout-sec N --nondet --counterexample-format json|text]\n       [fuzz: --bound N --runs N --seed N --violate label:prob:percent%,... --unexpected-prob P]\n       [smt-bounded: --bound N --full-properties]\n       [--assumes all|none|labels] [--log-level off|error|warn|info|debug]\n\nRuns the reference model checker in-process (no compilation).\n\n--mode exact (default): exhaustive exact search. Exit codes mirror the\n  generated exact-mode binaries: 0 pass-complete, 1 fail, 2 unknown-state-\n  limit. --nondet fires EVERY enabled transition as its own successor;\n  liveness then requires strongly-fair bad cycles.\n--mode fuzz: seeded random testing (the generated fuzz runtimes' strategy).\n  Exit codes: 0 no property violation (summary line printed), 1 violation\n  found (per-run report printed, NO summary line). --bound steps per run (5),\n  --runs count (20), --seed LCG seed (12345), --violate forced-violation\n  directives, --unexpected-prob injection probability (0.0).\n--mode smt-bounded: k-step SMT unrolling over z3 (the generated SMT binaries'\n  mode, in-process). Exit codes mirror them: 0 pass-within-bound, 1 fail,\n  2 unknown. --bound is the unrolling depth (10); --full-properties checks\n  the FULL property class (top-level bounded_eventually/until, nested\n  temporals) - without it those properties are omitted with a per-property\n  warning (they greatly affect solver time/memory at large bounds). Specs\n  with assumptions or on_error blocks are rejected (same as codegen).\n  Requires the `smt` cargo feature; a non-smt build exits with a clear\n  diagnostic.\n\n--assumes is shared by exact and fuzz. Exact-only flags (--max-states/\n--timeout-sec/--counterexample-format/--nondet) are a usage error under\n--mode fuzz; every flag other than --bound/--full-properties is a usage\nerror under --mode smt-bounded, and --full-properties is a usage error\nunder the other modes.\n\nNot applicable (and why):\n  --threads/--fast: generated-engine tuning; ref_mc is single-threaded."
+    "usage: rfs mc-ref <spec.rfs|spec.json> [--mode exact|fuzz|smt-bounded]\n       [exact: --max-states N --timeout-sec N --nondet --counterexample-format json|text]\n       [fuzz: --bound N --runs N --seed N --violate label:prob:percent%,... --unexpected-prob P]\n       [smt-bounded: --bound N --full-properties --full-assumptions]\n       [--assumes all|none|labels] [--log-level off|error|warn|info|debug]\n\nRuns the reference model checker in-process (no compilation).\n\n--mode exact (default): exhaustive exact search. Exit codes mirror the\n  generated exact-mode binaries: 0 pass-complete, 1 fail, 2 unknown-state-\n  limit. --nondet fires EVERY enabled transition as its own successor;\n  liveness then requires strongly-fair bad cycles.\n--mode fuzz: seeded random testing (the generated fuzz runtimes' strategy).\n  Exit codes: 0 no property violation (summary line printed), 1 violation\n  found (per-run report printed, NO summary line). --bound steps per run (5),\n  --runs count (20), --seed LCG seed (12345), --violate forced-violation\n  directives, --unexpected-prob injection probability (0.0).\n--mode smt-bounded: k-step SMT unrolling over z3 (the generated SMT binaries'\n  mode, in-process). Exit codes mirror them: 0 pass-within-bound, 1 fail,\n  2 unknown. --bound is the unrolling depth (10); --full-properties checks\n  the FULL property class (top-level bounded_eventually/until, nested\n  temporals) - without it those properties are omitted with a per-property\n  warning (they greatly affect solver time/memory at large bounds).\n  --full-assumptions is the DISTINCT gate for the FULL assumption class\n  (top-level eventually/bounded_eventually/until, nested temporals) -\n  without it those assumptions are omitted with a per-assumption warning;\n  cheap input-guard assumptions (assume always (input_is(...)/guards)) and\n  on_error fallback blocks are checked by default. --assumes selects which\n  assumptions are active (all|none|labels). Requires the `smt` cargo\n  feature; a non-smt build exits with a clear diagnostic.\n\n--assumes is shared by exact, fuzz and smt-bounded. Exact-only flags\n(--max-states/--timeout-sec/--counterexample-format/--nondet) are a usage\nerror under --mode fuzz; every flag other than --bound/--full-properties/\n--full-assumptions/--assumes is a usage error under --mode smt-bounded, and\n--full-properties/--full-assumptions are usage errors under the other modes.\n\nNot applicable (and why):\n  --threads/--fast: generated-engine tuning; ref_mc is single-threaded."
         .to_string()
 }
 
@@ -443,6 +454,9 @@ pub fn run_cli(args: &[String]) -> ExitCode {
             },
             "--full-properties" => {
                 opts.full_properties = true;
+            }
+            "--full-assumptions" => {
+                opts.full_assumptions = true;
             }
             "--unexpected-prob" => match take_value(args, &mut i, &arg) {
                 Ok(v) => match v.parse::<f64>() {

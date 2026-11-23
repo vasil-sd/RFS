@@ -97,6 +97,24 @@ fn sf_uses_output_atoms(sf: &Sf) -> bool {
     }
 }
 
+/// True iff the formula contains a FULL-class temporal node (bounded_
+/// eventually / until / nested always[N] / nested eventually) - such nodes
+/// render horizon-truncated loops that reference `k`, so the builder fn must
+/// name its `k` parameter without the underscore prefix.
+fn sf_uses_horizon(sf: &Sf) -> bool {
+    match sf {
+        Sf::BoundedEventually { .. }
+        | Sf::Until { .. }
+        | Sf::BoundedAlways { .. }
+        | Sf::Eventually(_) => true,
+        Sf::Not(inner) | Sf::Next(inner) => sf_uses_horizon(inner),
+        Sf::And(l, r) | Sf::Or(l, r) | Sf::Implies(l, r) => {
+            sf_uses_horizon(l) || sf_uses_horizon(r)
+        }
+        Sf::Se(_) | Sf::InputIs { .. } | Sf::OutputHas { .. } => false,
+    }
+}
+
 /// True iff the formula contains a `next` node (the property fn must name its
 /// `alive` parameter without the underscore prefix - the D1 liveness gate
 /// references `alive[step+1]`).
@@ -889,7 +907,12 @@ pub fn emit_rust_spec(spec: &SmtSpec) -> String {
     // define the ii_/oh_ named constants). Specs without atoms get trivial
     // dummies - the engine's loops are compiled out by the N_*_ATOMS == 0
     // guards, but the functions must exist for the loop bodies to type-check.
-    if spec.input_atoms.is_empty() {
+    // With on_error the unrolling loop calls build_input_atom_ev instead, so
+    // the plain builder would be dead code - emit it only without on_error.
+    if spec.on_error.is_some() {
+        // no plain input-atom builder (the _ev variant is emitted in the
+        // on_error section below)
+    } else if spec.input_atoms.is_empty() {
         s.push_str(
             "fn build_input_atom(_a: usize, _i: usize, _fires: &[Bool], _fld_vars: &[Vec<BV>]) -> Bool {\n    Bool::from_bool(false)\n}\n\n",
         );
@@ -1022,12 +1045,26 @@ pub fn emit_rust_spec(spec: &SmtSpec) -> String {
             s.push_str("            let mut emit_match = Bool::from_bool(false);\n");
             s.push_str("            for pi in 0..EMIT_PAIR_T.len() {\n");
             s.push_str("                if EMIT_PAIR_T[pi] != t { continue; }\n");
-            s.push_str(&format!(
-                "                if EMIT_PAIR_GROUP[pi] == \"{group}\" && EMIT_PAIR_VARIANT[pi] == {} {{\n",
-                match variant {
-                    Some(v) => format!("Some(\"{v}\")"),
-                    None => "None".to_string(),
+            // A group-level pattern (variant None) matches ANY variant of the
+            // group - exact mode's output_matches rule. The relaxed `true`
+            // check is emitted only when the group actually has variant emits
+            // (unit-output groups keep the byte-identical `== None` form).
+            let variant_check = match variant {
+                Some(v) => format!("EMIT_PAIR_VARIANT[pi] == Some(\"{v}\")"),
+                None => {
+                    if spec
+                        .transitions
+                        .iter()
+                        .any(|t| t.emits.iter().any(|o| o.group == *group && o.variant.is_some()))
+                    {
+                        "true".to_string()
+                    } else {
+                        "EMIT_PAIR_VARIANT[pi] == None".to_string()
+                    }
                 }
+            };
+            s.push_str(&format!(
+                "                if EMIT_PAIR_GROUP[pi] == \"{group}\" && {variant_check} {{\n"
             ));
             s.push_str("                    let args = EMIT_ARGS_FNS[pi](i);\n");
             s.push_str("                    let mut m = Bool::from_bool(true);\n");
@@ -1126,6 +1163,207 @@ pub fn emit_rust_spec(spec: &SmtSpec) -> String {
         "fn expand_fns() -> Vec<fn(usize, usize, &[Bool], &[Vec<Bool>], &[Vec<Bool>]) -> Bool> {{ vec![{}] }}\n",
         expands.join(", ")
     ));
+
+    // ---- on_error fallback (task 3C, D4) - emitted ONLY when the module has
+    // one, so specs without it generate byte-identical code to before. ----
+    if let Some(oe) = &spec.on_error {
+        s.push_str(&format!(
+            "/// on_error fallback (task 3C): catch-all lowest-priority transition\n/// from ANY state - no pattern bindings, no variable assignments.\nconst ON_ERROR_NEXT_STATE: usize = {};\n",
+            oe.next_state
+        ));
+        // The fallback's emits: pair tables + argument step functions (same
+        // structure as the transition emit tables).
+        if oe.emits.is_empty() {
+            s.push_str("const OE_EMIT_GROUP: &[&str] = &[];\nconst OE_EMIT_VARIANT: &[Option<&str>] = &[];\nconst OE_EMIT_ARGW: &[&[u32]] = &[];\n");
+            s.push_str(
+                "fn oe_emit_args_dummy(_i: usize) -> Vec<BV> { Vec::new() }\nconst OE_EMIT_ARGS_FNS: &[fn(usize) -> Vec<BV>] = &[oe_emit_args_dummy];\n\n",
+            );
+        } else {
+            let groups: Vec<String> = oe.emits.iter().map(|o| o.group.clone()).collect();
+            let variants: Vec<String> = oe
+                .emits
+                .iter()
+                .map(|o| match &o.variant {
+                    Some(v) => format!("Some(\"{v}\")"),
+                    None => "None".to_string(),
+                })
+                .collect();
+            let argws: Vec<Vec<u32>> = oe
+                .emits
+                .iter()
+                .map(|o| o.args.iter().map(|a| se_type(a, spec).width()).collect())
+                .collect();
+            s.push_str(&format!(
+                "const OE_EMIT_GROUP: &[&str] = &{};\n",
+                rust_str_list(&groups)
+            ));
+            s.push_str(&format!(
+                "const OE_EMIT_VARIANT: &[Option<&str>] = &[{}];\n",
+                variants.join(", ")
+            ));
+            s.push_str(&format!(
+                "const OE_EMIT_ARGW: &[&[u32]] = &[{}];\n",
+                argws
+                    .iter()
+                    .map(|row| format!("&{:?}", row))
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            ));
+            let mut arg_fns = String::new();
+            let mut fn_names: Vec<String> = Vec::new();
+            for (oi, o) in oe.emits.iter().enumerate() {
+                if o.args.is_empty() {
+                    arg_fns.push_str("fn oe_emit_args_dummy(_i: usize) -> Vec<BV> { Vec::new() }\n\n");
+                    fn_names.push("oe_emit_args_dummy".to_string());
+                    continue;
+                }
+                let mut body = String::new();
+                for arg in &o.args {
+                    let mut r = RustRender::new();
+                    render_se_rust(
+                        arg,
+                        spec,
+                        Some(se_type(arg, spec).width()),
+                        None,
+                        true,
+                        "i",
+                        &mut r,
+                    );
+                    body.push_str(&format!(
+                        "    v.push({{{lines}    e{n}\n    }});\n",
+                        lines = r.lines.join("\n    "),
+                        n = r.n - 1
+                    ));
+                }
+                arg_fns.push_str(&format!(
+                    "fn oe_emit_args_{oi}(i: usize) -> Vec<BV> {{\n    let mut v: Vec<BV> = Vec::new();\n{body}    v\n}}\n\n",
+                ));
+                fn_names.push(format!("oe_emit_args_{oi}"));
+            }
+            s.push_str(&arg_fns);
+            s.push_str(&format!(
+                "const OE_EMIT_ARGS_FNS: &[fn(usize) -> Vec<BV>] = &[{}];\n\n",
+                fn_names.join(", ")
+            ));
+        }
+        // input_is evaluated against the ACTUAL input (ev_i + payload fields)
+        // - with on_error an unmatched input is still consumed (exact mode
+        // records it in the on_error sample, SEMANTICS 3.6). Specs without
+        // input atoms get a trivial dummy (the engine's loops are compiled
+        // out by the N_INPUT_ATOMS == 0 guards).
+        if spec.input_atoms.is_empty() {
+            s.push_str(
+                "fn build_input_atom_ev(_a: usize, _i: usize, _ev_vars: Option<&[BV]>, _fld_vars: &[Vec<BV>]) -> Bool {\n    Bool::from_bool(false)\n}\n\n",
+            );
+        } else {
+        s.push_str("fn build_input_atom_ev(a: usize, i: usize, ev_vars: Option<&[BV]>, fld_vars: &[Vec<BV>]) -> Bool {\n");
+        for (a, arms) in spec.input_atoms.iter().enumerate() {
+            s.push_str(&format!(
+                "    {} a == {a} {{\n",
+                if a == 0 { "if" } else { "} else if" }
+            ));
+            s.push_str("        let mut val = Bool::from_bool(false);\n");
+            for (ci, constraints) in arms {
+                s.push_str("        {\n");
+                if spec.classes.len() > 1 {
+                    s.push_str(&format!(
+                        "            let mut arm: Bool = ev_vars.expect(\"event vars\")[i].eq(&BV::from_u64({ci}u64, CLS_BITS));\n"
+                    ));
+                } else {
+                    s.push_str("            let mut arm: Bool = Bool::from_bool(true);\n");
+                }
+                for (pos, (g, v, _isb)) in constraints.iter().enumerate() {
+                    s.push_str(&format!(
+                        "            let c{pos}: Bool = fld_vars[i][{g}].eq(&BV::from_u64({v}u64, FIELD_WIDTHS[{g}]));\n"
+                    ));
+                    s.push_str(&format!("            arm = b_and(&arm, &c{pos});\n"));
+                }
+                s.push_str("            val = b_or(&val, &arm);\n");
+                s.push_str("        }\n");
+            }
+            s.push_str("        val\n");
+        }
+        s.push_str("    } else {\n        Bool::from_bool(false)\n    }\n}\n\n");
+        }
+        // Whether the fallback's emits match an output_has atom definition at
+        // step i (group-level patterns match ANY variant of the group - exact
+        // mode's output_matches rule).
+        if spec.output_atoms.is_empty() {
+            s.push_str(
+                "fn build_on_error_emit_match(_a: usize, _i: usize) -> Bool {\n    Bool::from_bool(false)\n}\n\n",
+            );
+        } else {
+        s.push_str("fn build_on_error_emit_match(a: usize, i: usize) -> Bool {\n");
+        for (a, (group, variant, constraints)) in spec.output_atoms.iter().enumerate() {
+            s.push_str(&format!(
+                "    {} a == {a} {{\n",
+                if a == 0 { "if" } else { "} else if" }
+            ));
+            s.push_str("        let mut val = Bool::from_bool(false);\n");
+            s.push_str("        for pi in 0..OE_EMIT_GROUP.len() {\n");
+            s.push_str(&format!(
+                "            if OE_EMIT_GROUP[pi] == \"{group}\" && {} {{\n",
+                match variant {
+                    Some(v) => format!("OE_EMIT_VARIANT[pi] == Some(\"{v}\")"),
+                    None => "true".to_string(),
+                }
+            ));
+            s.push_str("                let args = OE_EMIT_ARGS_FNS[pi](i);\n");
+            s.push_str("                let mut m = Bool::from_bool(true);\n");
+            for (pos, v, _isb) in constraints {
+                s.push_str(&format!(
+                    "                m = b_and(&m, &args[{pos}].eq(&BV::from_u64({v}u64, OE_EMIT_ARGW[pi][{pos}])));\n"
+                ));
+            }
+            s.push_str("                val = b_or(&val, &m);\n");
+            s.push_str("            }\n        }\n");
+            s.push_str("        val\n");
+        }
+        s.push_str("    } else {\n        Bool::from_bool(false)\n    }\n}\n\n");
+        }
+    }
+
+    // ---- Assumptions (task 3C, D3) - emitted ONLY when the module has any,
+    // so specs without them generate byte-identical code to before. ----
+    if !spec.assumptions.is_empty() {
+        let anames: Vec<String> = spec.assumptions.iter().map(|a| a.name.clone()).collect();
+        s.push_str(&format!(
+            "/// Assumptions (task 3C): per-sample base constraints - exact-mode\n/// successor pruning expressed as SMT facts (SEMANTICS 7.x).\nconst ASSUME_NAMES: &[&str] = &{};\n",
+            rust_str_list(&anames)
+        ));
+        s.push_str(&format!(
+            "/// FULL class (asserted only with --full-assumptions).\nconst ASSUME_FULL: &[bool] = &{:?};\n",
+            spec.assumptions.iter().map(|a| a.full).collect::<Vec<_>>()
+        ));
+        s.push_str(&format!(
+            "/// always[N] sample clip (0 = all samples).\nconst ASSUME_BOUNDS: &[usize] = &{:?};\n",
+            spec.assumptions.iter().map(|a| a.bound.unwrap_or(0)).collect::<Vec<_>>()
+        ));
+        s.push_str(&format!(
+            "/// next_depth anchor clip: the last N anchors have no shifted horizon and are dropped (same clipping as properties).\nconst ASSUME_NEXT_DEPTH: &[usize] = &{:?};\n",
+            spec.assumptions.iter().map(|a| a.next_depth).collect::<Vec<_>>()
+        ));
+        // One builder fn per assumption - same signature as the property fns
+        // (FULL-class bodies render horizon loops that need k; next bodies
+        // need the D1 alive gate).
+        for (a, ass) in spec.assumptions.iter().enumerate() {
+            let mut r = RustRender::new();
+            let fin = render_sf_rust(&ass.formula, spec, "i", &mut r);
+            let i_name = if sf_uses_step(&ass.formula) { "i" } else { "_i" };
+            let k_name = if sf_uses_horizon(&ass.formula) { "k" } else { "_k" };
+            let alive_name = if sf_uses_next(&ass.formula) { "alive" } else { "_alive" };
+            let ii_name = if sf_uses_input_atoms(&ass.formula) { "ii_steps" } else { "_ii_steps" };
+            let oh_name = if sf_uses_output_atoms(&ass.formula) { "oh_steps" } else { "_oh_steps" };
+            s.push_str(&format!(
+                "fn assume_f{a}({i_name}: usize, {k_name}: usize, {alive_name}: &[Bool], {ii_name}: &[Vec<Bool>], {oh_name}: &[Vec<Bool>]) -> Bool {{\n    {}\n    {fin}\n}}\n\n",
+                r.lines.join("\n    ")
+            ));
+        }
+        s.push_str(&format!(
+            "fn assume_fns() -> Vec<fn(usize, usize, &[Bool], &[Vec<Bool>], &[Vec<Bool>]) -> Bool> {{ vec![{}] }}\n",
+            (0..spec.assumptions.len()).map(|a| format!("assume_f{a}")).collect::<Vec<_>>().join(", ")
+        ));
+    }
     s
 }
 
@@ -2025,7 +2263,13 @@ pub fn emit_c_spec(spec: &SmtSpec) -> String {
     // define the ii_/oh_ named constants). Specs without atoms get trivial
     // dummies - the engine's loops are compiled out by the N_*_ATOMS == 0
     // guards, but the functions must exist for the loop bodies to compile.
-    if spec.input_atoms.is_empty() {
+    // With on_error the unrolling loop calls build_input_atom_ev instead, so
+    // the plain builder would be an unused static (-Wall) - emit it only
+    // without on_error.
+    if spec.on_error.is_some() {
+        // no plain input-atom builder (the _ev variant is emitted in the
+        // on_error section below)
+    } else if spec.input_atoms.is_empty() {
         s.push_str(
             "static Z3_ast build_input_atom(Z3_context c, unsigned a, unsigned i, const Z3_ast *fld, const Z3_ast *fires) {\n    (void)c; (void)a; (void)i; (void)fld; (void)fires;\n    return Z3_mk_false(c);\n}\n\n",
         );
@@ -2175,12 +2419,25 @@ pub fn emit_c_spec(spec: &SmtSpec) -> String {
             s.push_str("            Z3_ast emit_match = Z3_mk_false(c);\n");
             s.push_str("            for (unsigned pi = 0; pi < N_EMIT_PAIRS; pi++) {\n");
             s.push_str("                if (EMIT_PAIR_T[pi] != t) continue;\n");
-            s.push_str(&format!(
-                "                if (strcmp(EMIT_PAIR_GROUP[pi], \"{group}\") == 0 && {} ) {{\n",
-                match variant {
-                    Some(v) => format!("strcmp(EMIT_PAIR_VARIANT[pi], \"{v}\") == 0"),
-                    None => "EMIT_PAIR_VARIANT[pi] == 0".to_string(),
+            // Group-level pattern relaxation (same rule as the Rust emitter -
+            // exact mode's output_matches matches any variant of the group;
+            // unit-output groups keep the byte-identical `== 0` form).
+            let variant_check = match variant {
+                Some(v) => format!("strcmp(EMIT_PAIR_VARIANT[pi], \"{v}\") == 0"),
+                None => {
+                    if spec
+                        .transitions
+                        .iter()
+                        .any(|t| t.emits.iter().any(|o| o.group == *group && o.variant.is_some()))
+                    {
+                        "1".to_string()
+                    } else {
+                        "EMIT_PAIR_VARIANT[pi] == 0".to_string()
+                    }
                 }
+            };
+            s.push_str(&format!(
+                "                if (strcmp(EMIT_PAIR_GROUP[pi], \"{group}\") == 0 && {variant_check} ) {{\n"
             ));
             s.push_str(&format!("                    Z3_ast args[{max_args}];\n"));
             s.push_str(&format!(
@@ -2295,6 +2552,243 @@ pub fn emit_c_spec(spec: &SmtSpec) -> String {
         "static Z3_ast (*EXPAND_FNS[N_PROPS])(Z3_context, unsigned, unsigned, Z3_ast, const Z3_ast *, const Z3_ast *, const Z3_ast *, const Z3_ast *, const Z3_ast *) = {{{}}};\n",
         expands.join(", ")
     ));
+
+    // ---- on_error fallback (task 3C, D4) - emitted ONLY when the module has
+    // one, so specs without it generate byte-identical code to before. ----
+    if let Some(oe) = &spec.on_error {
+        s.push_str(&format!(
+            "/* on_error fallback (task 3C): catch-all lowest-priority transition\n * from ANY state - no pattern bindings, no variable assignments. */\nstatic const unsigned ON_ERROR_NEXT_STATE = {next}u;\n",
+            next = oe.next_state
+        ));
+        // The tables are consumed only by build_on_error_emit_match, which is
+        // a constant-false stub when the module has no output atoms - emit
+        // them then and the statics would be unused (-Wall).
+        if spec.output_atoms.is_empty() {
+            // no tables; the stub consumer references nothing
+        } else if oe.emits.is_empty() {
+            s.push_str("static const char *OE_EMIT_GROUP[] = {0};\n#define N_OE_EMITS 0u\nstatic const char *OE_EMIT_VARIANT[] = {0};\nstatic const unsigned int *OE_EMIT_ARGW[] = {0};\n");
+            s.push_str(
+                "static void oe_emit_args_dummy(Z3_context c, unsigned i, const Z3_ast *v, const Z3_ast *fld, Z3_ast *out) {\n    (void)c; (void)i; (void)v; (void)fld; (void)out;\n}\nstatic void (*OE_EMIT_ARGS_FNS[1])(Z3_context, unsigned, const Z3_ast *, const Z3_ast *, Z3_ast *) = {oe_emit_args_dummy};\n\n",
+            );
+        } else {
+            let groups: Vec<String> = oe.emits.iter().map(|o| o.group.clone()).collect();
+            s.push_str(&format!(
+                "static const char *OE_EMIT_GROUP[] = {};\n#define N_OE_EMITS {1}u\n",
+                c_str_list(&groups),
+                oe.emits.len()
+            ));
+            let variants: Vec<String> = oe
+                .emits
+                .iter()
+                .map(|o| match &o.variant {
+                    Some(v) => format!("{v:?}"),
+                    None => "0".to_string(),
+                })
+                .collect();
+            s.push_str(&format!(
+                "/* NULL = unit variant. */\nstatic const char *OE_EMIT_VARIANT[] = {{{}}};\n",
+                variants.join(", ")
+            ));
+            let mut fn_names: Vec<String> = Vec::new();
+            for (oi, o) in oe.emits.iter().enumerate() {
+                s.push_str(&format!(
+                    "static const unsigned int OE_EMIT_ARGW_{oi}[] = {{{}}};\n",
+                    o.args
+                        .iter()
+                        .map(|a| format!("{}u", se_type(a, spec).width()))
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                ));
+                if o.args.is_empty() {
+                    s.push_str(
+                        "static void oe_emit_args_dummy(Z3_context c, unsigned i, const Z3_ast *v, const Z3_ast *fld, Z3_ast *out) {\n    (void)c; (void)i; (void)v; (void)fld; (void)out;\n}\n\n",
+                    );
+                    fn_names.push("oe_emit_args_dummy".to_string());
+                    continue;
+                }
+                let mut body = String::new();
+                for (ai, arg) in o.args.iter().enumerate() {
+                    let mut r = CRender::new();
+                    render_se_c(
+                        arg,
+                        spec,
+                        Some(se_type(arg, spec).width()),
+                        None,
+                        true,
+                        "i",
+                        &mut r,
+                    );
+                    body.push_str(&format!(
+                        "    {{\n{}        out[{ai}] = e{};\n    }}\n",
+                        r.lines.join("\n        "),
+                        r.n - 1
+                    ));
+                }
+                let voids = "(void)i; (void)v; (void)fld;";
+                s.push_str(&format!(
+                    "static void oe_emit_args_{oi}(Z3_context c, unsigned i, const Z3_ast *v, const Z3_ast *fld, Z3_ast *out) {{\n    {voids}\n{body}}}\n\n"
+                ));
+                fn_names.push(format!("oe_emit_args_{oi}"));
+            }
+            s.push_str(&format!(
+                "static const unsigned int *OE_EMIT_ARGW[] = {{{}}};\n",
+                (0..oe.emits.len()).map(|oi| format!("OE_EMIT_ARGW_{oi}")).collect::<Vec<_>>().join(", ")
+            ));
+            s.push_str(&format!(
+                "static void (*OE_EMIT_ARGS_FNS[N_OE_EMITS])(Z3_context, unsigned, const Z3_ast *, const Z3_ast *, Z3_ast *) = {{{}}};\n",
+                fn_names.join(", ")
+            ));
+        }
+        // input_is evaluated against the ACTUAL input (ev_i + payload fields)
+        // - with on_error an unmatched input is still consumed (exact mode
+        // records it in the on_error sample, SEMANTICS 3.6).
+        if spec.input_atoms.is_empty() {
+            s.push_str(
+                "static Z3_ast build_input_atom_ev(Z3_context c, unsigned a, unsigned i, const Z3_ast *ev, const Z3_ast *fld) {\n    (void)c; (void)a; (void)i; (void)ev; (void)fld;\n    return Z3_mk_false(c);\n}\n\n",
+            );
+        } else {
+            s.push_str(
+                "static Z3_ast build_input_atom_ev(Z3_context c, unsigned a, unsigned i, const Z3_ast *ev, const Z3_ast *fld) {\n",
+            );
+            for (a, arms) in spec.input_atoms.iter().enumerate() {
+                s.push_str(&format!("    if (a == {a}) {{\n"));
+                s.push_str("        Z3_ast val = Z3_mk_false(c);\n");
+                for (ci, constraints) in arms {
+                    s.push_str("        {\n");
+                    if spec.classes.len() > 1 {
+                        s.push_str(&format!(
+                            "            Z3_ast arm = Z3_mk_eq(c, ev[i], z3_num(c, CLS_BITS, {ci}ull));\n"
+                        ));
+                    } else {
+                        s.push_str("            Z3_ast arm = Z3_mk_true(c);\n");
+                    }
+                    for (pos, (g, v, _isb)) in constraints.iter().enumerate() {
+                        s.push_str(&format!(
+                            "            Z3_ast c{pos} = Z3_mk_eq(c, fld[{g}], z3_num(c, FIELD_WIDTHS[{g}], {v}ull));\n"
+                        ));
+                        s.push_str(&format!(
+                            "            arm = Z3_mk_and(c, 2, (Z3_ast[]){{ arm, c{pos} }});\n"
+                        ));
+                    }
+                    s.push_str("            val = Z3_mk_or(c, 2, (Z3_ast[]){ val, arm });\n");
+                    s.push_str("        }\n");
+                }
+                s.push_str("        return val;\n    }");
+            }
+            s.push_str("    return Z3_mk_false(c);\n}\n\n");
+        }
+        // Whether the fallback's emits match an output_has atom definition at
+        // step i (group-level patterns match ANY variant of the group - exact
+        // mode's output_matches rule).
+        if spec.output_atoms.is_empty() {
+            s.push_str(
+                "static Z3_ast build_on_error_emit_match(Z3_context c, unsigned a, unsigned i, const Z3_ast *v, const Z3_ast *fld) {\n    (void)c; (void)a; (void)i; (void)v; (void)fld;\n    return Z3_mk_false(c);\n}\n\n",
+            );
+        } else {
+            let max_args = oe
+                .emits
+                .iter()
+                .map(|o| o.args.len())
+                .max()
+                .unwrap_or(0)
+                .max(1);
+            s.push_str(
+                "static Z3_ast build_on_error_emit_match(Z3_context c, unsigned a, unsigned i, const Z3_ast *v, const Z3_ast *fld) {\n",
+            );
+            for (a, (group, variant, constraints)) in spec.output_atoms.iter().enumerate() {
+                s.push_str(&format!("    if (a == {a}) {{\n"));
+                s.push_str("        Z3_ast val = Z3_mk_false(c);\n");
+                s.push_str("        for (unsigned pi = 0; pi < N_OE_EMITS; pi++) {\n");
+                s.push_str(&format!(
+                    "            if (strcmp(OE_EMIT_GROUP[pi], \"{group}\") == 0 && {} ) {{\n",
+                    match variant {
+                        Some(v) => format!("strcmp(OE_EMIT_VARIANT[pi], \"{v}\") == 0"),
+                        None => "1".to_string(),
+                    }
+                ));
+                s.push_str(&format!("            {{ Z3_ast args[{max_args}];\n"));
+                s.push_str("                OE_EMIT_ARGS_FNS[pi](c, i, v, fld, args);\n");
+                s.push_str("                Z3_ast m = Z3_mk_true(c);\n");
+                for (pos, v, _isb) in constraints {
+                    s.push_str(&format!(
+                        "                m = Z3_mk_and(c, 2, (Z3_ast[]){{ m, Z3_mk_eq(c, args[{pos}], z3_num(c, OE_EMIT_ARGW[pi][{pos}], {v}ull)) }});\n"
+                    ));
+                }
+                s.push_str("                val = Z3_mk_or(c, 2, (Z3_ast[]){ val, m });\n            }\n        }\n        return val;\n    }");
+            }
+            s.push_str("    return Z3_mk_false(c);\n}\n\n");
+        }
+    }
+
+    // ---- Assumptions (task 3C, D3) - emitted ONLY when the module has any,
+    // so specs without them generate byte-identical code to before. ----
+    if !spec.assumptions.is_empty() {
+        let anames: Vec<String> = spec.assumptions.iter().map(|a| a.name.clone()).collect();
+        s.push_str(&format!(
+            "/* Assumptions (task 3C): per-sample base constraints - exact-mode\n * successor pruning expressed as SMT facts (SEMANTICS 7.x). */\nstatic const char *ASSUME_NAMES[] = {};\n#define N_ASSUME {1}u\n",
+            c_str_list(&anames),
+            spec.assumptions.len()
+        ));
+        s.push_str(&format!(
+            "/* FULL class (asserted only with --full-assumptions). */\nstatic const unsigned char ASSUME_FULL[] = {{{}}};\n",
+            spec.assumptions
+                .iter()
+                .map(|a| if a.full { "1" } else { "0" })
+                .collect::<Vec<_>>()
+                .join(", ")
+        ));
+        s.push_str(&format!(
+            "/* always[N] sample clip (0 = all samples). */\nstatic const unsigned ASSUME_BOUNDS[] = {{{}}};\n",
+            spec.assumptions
+                .iter()
+                .map(|a| format!("{}u", a.bound.unwrap_or(0)))
+                .collect::<Vec<_>>()
+                .join(", ")
+        ));
+        s.push_str(&format!(
+            "/* next_depth anchor clip: the last N anchors have no shifted horizon and are dropped (same clipping as properties). */\nstatic const unsigned ASSUME_NEXT_DEPTH[] = {{{}}};\n",
+            spec.assumptions
+                .iter()
+                .map(|a| format!("{}u", a.next_depth))
+                .collect::<Vec<_>>()
+                .join(", ")
+        ));
+        // One builder fn per assumption - same signature as the property fns
+        // (FULL-class bodies render horizon loops that need k; next bodies
+        // need the D1 alive gate). Unused parameters get void-casts exactly
+        // like expr_p{p} (warning-free generated code).
+        for (a, ass) in spec.assumptions.iter().enumerate() {
+            let mut r = CRender::new();
+            let fin = render_sf_c(&ass.formula, spec, "i", &mut r);
+            let ii_name = if sf_uses_input_atoms(&ass.formula) { "ii" } else { "_ii" };
+            let oh_name = if sf_uses_output_atoms(&ass.formula) { "oh" } else { "_oh" };
+            let alive_name = if sf_uses_next(&ass.formula) { "alive" } else { "_alive" };
+            let voids = format!(
+                "(void)s; (void)v; (void)fld;{}{}{}",
+                if sf_uses_horizon(&ass.formula) {
+                    String::new()
+                } else {
+                    " (void)k;".to_string()
+                },
+                if ii_name == "_ii" { " (void)_ii;" } else { "" },
+                if oh_name == "_oh" { " (void)_oh;" } else { "" },
+            );
+            let void_alive = if alive_name == "_alive" { " (void)_alive;" } else { "" };
+            let void_i = if sf_uses_step(&ass.formula) {
+                String::new()
+            } else {
+                "\n    (void)i;".to_string()
+            };
+            s.push_str(&format!(
+                "static Z3_ast assume_f{a}(Z3_context c, unsigned i, unsigned k, Z3_ast s, const Z3_ast *v, const Z3_ast *fld, const Z3_ast *{alive_name}, const Z3_ast *{ii_name}, const Z3_ast *{oh_name}) {{\n    {voids}{void_alive}{void_i}\n    {}\n    return {fin};\n}}\n\n",
+                r.lines.join("\n    ")
+            ));
+        }
+        s.push_str(&format!(
+            "static Z3_ast (*ASSUME_FNS[N_ASSUME])(Z3_context, unsigned, unsigned, Z3_ast, const Z3_ast *, const Z3_ast *, const Z3_ast *, const Z3_ast *, const Z3_ast *) = {{{}}};\n",
+            (0..spec.assumptions.len()).map(|a| format!("assume_f{a}")).collect::<Vec<_>>().join(", ")
+        ));
+    }
     s
 }
 
@@ -2522,6 +3016,8 @@ mod tests {
             ],
             input_atoms: Vec::new(),
             output_atoms: Vec::new(),
+            assumptions: Vec::new(),
+            on_error: None,
         }
     }
 

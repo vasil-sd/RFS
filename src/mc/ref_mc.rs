@@ -2087,16 +2087,21 @@ pub fn run_fuzz(module: &Module, cfg: &FuzzConfig) -> Result<ref_mc_fuzz::FuzzRe
 /// SMT-bounded entry point (D-P16-1): delegates to the in-process z3 executor
 /// in `ref_mc_smt.rs` (feature-gated - codegen of smt artifacts is NOT gated,
 /// in-process execution IS). `full_properties` enables the FULL property class
-/// (the generated binaries' --full-properties). Returns the outcome (exit code
-/// 0/1/2 + full stdout + stderr warnings) - the CLI prints it and maps the
-/// exit code.
+/// (the generated binaries' --full-properties); `full_assumptions` is the
+/// DISTINCT gate for the FULL assumption class (task 3C - expensive/cheap is
+/// chosen independently for properties vs assumptions); `assumes_arg` is the
+/// `--assumes` wire string (`all` / `none` / comma-separated labels). Returns
+/// the outcome (exit code 0/1/2 + full stdout + stderr warnings) - the CLI
+/// prints it and maps the exit code.
 #[cfg(feature = "smt")]
 pub fn run_smt(
     module: &Module,
     bound: usize,
     full_properties: bool,
+    full_assumptions: bool,
+    assumes_arg: &str,
 ) -> Result<ref_mc_smt::SmtOutcome, String> {
-    ref_mc_smt::run(module, bound, full_properties)
+    ref_mc_smt::run(module, bound, full_properties, full_assumptions, assumes_arg)
 }
 
 // ---------------------------------------------------------------------------

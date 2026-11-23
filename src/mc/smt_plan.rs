@@ -4,7 +4,13 @@
 //! generated binaries (parity by construction, D-P4-12).
 //!
 //! v1 scope (documented limitations, rejected at codegen with shared errors):
-//! - no assumptions, no on_error blocks;
+//! - assumptions and on_error blocks ARE supported (task 3C): every assumption
+//!   is encoded as a per-sample base constraint (exact-mode-faithful successor
+//!   pruning, SEMANTICS 7.x) and the on_error block as a catch-all lowest-
+//!   priority transition from any state (SEMANTICS 3.6); expensive assumption
+//!   forms (top-level eventually/bounded_eventually/until, nested temporals)
+//!   are carried but asserted only with `--full-assumptions` (omitted with a
+//!   per-assumption warning otherwise);
 //! - properties: top-level `always` / `always[N]` / `eventually` bodies may use
 //!   expr/not/and/or/implies plus `input_is`, `output_has` and `next` (the
 //!   DEFAULT class - checked without any flag); top-level `bounded_eventually[N]`
@@ -165,6 +171,19 @@ pub struct SmtEmit {
     pub args: Vec<Se>,
 }
 
+/// The module's `on_error` fallback (SEMANTICS 3.6): a catch-all, lowest-
+/// priority transition from ANY state - no pattern bindings, no variable
+/// assignments (all vars carry over unchanged). Encoded as a dedicated field
+/// (NOT a [`SmtTrans`] with a fake state index) so the three engines and both
+/// emitters handle it uniformly and the real-transition firing order is
+/// untouched. `on_error_fire(i) = NOT any_fire_real(i)`; its emits feed the
+/// step's output_has atoms exactly like a real transition's emits.
+#[derive(Debug, Clone)]
+pub struct SmtOnError {
+    pub next_state: usize,
+    pub emits: Vec<SmtEmit>,
+}
+
 #[derive(Debug, Clone)]
 pub struct SmtTrans {
     /// State index into [`SmtSpec::states`] this transition fires from.
@@ -210,6 +229,36 @@ pub struct SmtProp {
     pub formula: Sf,
 }
 
+/// One assumption converted for per-sample base-constraint assertion
+/// (task 3C, D3). Exact mode compiles each selected assumption to a monitor
+/// and prunes any successor whose input violates it (SEMANTICS 7.5); the SMT
+/// encoding expresses the same pruning as per-step constraints: only inputs
+/// satisfying every active assumption are allowed.
+#[derive(Debug, Clone)]
+pub struct SmtAssumption {
+    pub name: String,
+    /// The converted formula with any top-level `always`/`always[N]` DROPPED
+    /// (the per-sample assertion loop IS the universal quantification over
+    /// samples). Other top forms are carried as their [`Sf`] nodes
+    /// (`Eventually` / `BoundedEventually` / `Until`) and asserted at every
+    /// sample from which their horizon-truncated expansion is evaluated.
+    pub formula: Sf,
+    /// `always[N]` clip: assert only at samples 0..N. None = all samples.
+    pub bound: Option<usize>,
+    /// Deepest `next` nesting in the body: the per-sample assertion is
+    /// evaluated at sample i + depth, so anchors within `next_depth` of the
+    /// horizon end have no shifted horizon and are dropped (same clipping as
+    /// properties - without it a `next`-bearing assumption would read
+    /// `alive[k]` out of bounds at the last sample).
+    pub next_depth: usize,
+    /// FULL class: top-level eventually/bounded_eventually/until, or a
+    /// temporal operator nested under another (O(k*N) formula growth). Asserted
+    /// only when the engine runs with `--full-assumptions`; omitted with a
+    /// per-assumption warning otherwise. A top-level `always`/`always[N]`
+    /// input-guard body is DEFAULT.
+    pub full: bool,
+}
+
 /// The complete backend-neutral SMT spec.
 #[derive(Debug, Clone)]
 pub struct SmtSpec {
@@ -224,9 +273,17 @@ pub struct SmtSpec {
     /// - the same order the exact engine uses for first-match selection.
     pub transitions: Vec<SmtTrans>,
     pub properties: Vec<SmtProp>,
+    /// The module's on_error fallback (None = an unmatched input kills the
+    /// path, as before task 3C).
+    pub on_error: Option<SmtOnError>,
+    /// ALL of the module's assumptions, in declaration order (selection via
+    /// `--assumes` happens at RUNTIME in every engine - the same pattern exact
+    /// mode uses, where generated binaries carry every assumption's monitor
+    /// and activate a subset per run).
+    pub assumptions: Vec<SmtAssumption>,
     /// input_is atom definitions, indexed by `Sf::InputIs.id` (formula walk
-    /// order over all properties). Each: (class index, literal field
-    /// constraints as (GLOBAL field index, value, is_bool)).
+    /// order over all properties, then all assumptions). Each: (class index,
+    /// literal field constraints as (GLOBAL field index, value, is_bool)).
     pub input_atoms: Vec<Vec<(usize, Vec<(usize, u64, bool)>)>>,
     /// output_has atom definitions, indexed by `Sf::OutputHas.id`.
     pub output_atoms: Vec<(String, Option<String>, Vec<(usize, u64, bool)>)>,
@@ -269,16 +326,6 @@ fn ceil_log2(n: usize) -> u32 {
 /// shared error string for unsupported constructs (identical in both
 /// backends, so codegen behavior is parity-safe).
 pub fn build_smt_spec(module: &Module, plan: &McPlan) -> Result<SmtSpec, String> {
-    if !module.assumptions.is_empty() {
-        return Err(format!(
-            "smt-bounded mode does not support assumptions (spec has {})",
-            module.assumptions.len()
-        ));
-    }
-    if module.on_error.is_some() {
-        return Err("smt-bounded mode does not support on_error blocks".into());
-    }
-
     // States: the module's `State` enum, declaration order.
     let state_enum = module
         .enums
@@ -541,6 +588,52 @@ pub fn build_smt_spec(module: &Module, plan: &McPlan) -> Result<SmtSpec, String>
         });
     }
 
+    // on_error fallback (task 3C, D4): a catch-all lowest-priority transition
+    // from ANY state - no pattern bindings, no variable assignments. Emit
+    // argument expressions convert in a no-binding context (an enum-path
+    // argument still hits the shared enum rejection until task 3D).
+    let on_error = match &module.on_error {
+        Some(oe) => {
+            let next_state = states
+                .iter()
+                .position(|s| s == &oe.next_state)
+                .ok_or_else(|| format!("on_error targets unknown state '{}'", oe.next_state))?;
+            // No input class: an empty variant spec (field references in emit
+            // arguments are impossible - on_error carries no pattern bindings).
+            let empty_variant = crate::mc::plan::VariantInputSpec {
+                group: String::new(),
+                variant: String::new(),
+                unique_name: String::new(),
+                fields: Vec::new(),
+            };
+            let ctx = ExprCtx {
+                var_idx: var_idx.clone(),
+                field: std::collections::HashMap::new(),
+                state_variant_idx: state_variant_idx.clone(),
+                bind_alias: std::collections::HashMap::new(),
+                input_classes: Vec::new(),
+            };
+            let emits = oe
+                .emits
+                .iter()
+                .map(|o| -> Result<SmtEmit, String> {
+                    let args = o
+                        .args
+                        .iter()
+                        .map(|a| convert_expr(a, &ctx, &empty_variant))
+                        .collect::<Result<Vec<_>, _>>()?;
+                    Ok(SmtEmit {
+                        group: o.group.clone(),
+                        variant: o.variant.clone(),
+                        args,
+                    })
+                })
+                .collect::<Result<Vec<_>, _>>()?;
+            Some(SmtOnError { next_state, emits })
+        }
+        None => None,
+    };
+
     // Properties: top-level always/always[N]/eventually are the DEFAULT class
     // (checked without any flag); top-level bounded_eventually/until and any
     // temporal operator nested under another temporal operator form the FULL
@@ -594,13 +687,37 @@ pub fn build_smt_spec(module: &Module, plan: &McPlan) -> Result<SmtSpec, String>
         });
     }
 
-    // Atom ids: walk every property formula in pre-order and number the
-    // input_is/output_has occurrences; collect their definitions for the
-    // engines' per-step precomputation.
+    // Assumptions (task 3C, D3): every assumption of the module is converted
+    // with the SAME convert_formula path as properties (input_is/output_has/
+    // expr/guards all work) and carried for per-sample base-constraint
+    // assertion. Selection (`--assumes all|none|labels`) happens at RUNTIME in
+    // every engine - the same pattern exact mode uses, where generated
+    // binaries carry every assumption's monitor and activate a subset per run.
+    // Assumption context: no payload bindings (input_is/output_has atoms carry
+    // their own pre-resolved data) - identical to the property context.
+    let assume_ctx = ExprCtx {
+        var_idx: var_idx.clone(),
+        field: std::collections::HashMap::new(),
+        state_variant_idx: state_variant_idx.clone(),
+        bind_alias: std::collections::HashMap::new(),
+        input_classes: input_classes.clone(),
+    };
+    let mut assumptions: Vec<SmtAssumption> = module
+        .assumptions
+        .iter()
+        .map(|a| convert_assumption(a, &assume_ctx))
+        .collect::<Result<Vec<_>, _>>()?;
+
+    // Atom ids: walk every property formula, then every assumption formula,
+    // in pre-order and number the input_is/output_has occurrences; collect
+    // their definitions for the engines' per-step precomputation.
     let mut input_atoms: Vec<Vec<(usize, Vec<(usize, u64, bool)>)>> = Vec::new();
     let mut output_atoms: Vec<(String, Option<String>, Vec<(usize, u64, bool)>)> = Vec::new();
     for prop in &mut properties {
         assign_atom_ids(&mut prop.formula, &mut input_atoms, &mut output_atoms);
+    }
+    for a in &mut assumptions {
+        assign_atom_ids(&mut a.formula, &mut input_atoms, &mut output_atoms);
     }
 
     let state_bits = ceil_log2(states.len());
@@ -612,8 +729,70 @@ pub fn build_smt_spec(module: &Module, plan: &McPlan) -> Result<SmtSpec, String>
         classes,
         transitions,
         properties,
+        on_error,
+        assumptions,
         input_atoms,
         output_atoms,
+    })
+}
+
+/// Convert one assumption formula for per-sample assertion (task 3C, D3).
+/// A top-level `always`/`always[N]` is DROPPED - the per-sample assertion loop
+/// IS the universal quantification over samples (exact mode steps the
+/// assumption monitor at every sample, SEMANTICS 7.3/7.5). Other top forms are
+/// carried as their [`Sf`] nodes and asserted at every sample from which their
+/// horizon-truncated expansion is evaluated. FULL class: top-level
+/// eventually/bounded_eventually/until (the liveness forms) or a temporal
+/// operator nested under another - asserted only with `--full-assumptions`.
+fn convert_assumption(
+    a: &crate::lang::ir::Property,
+    ctx: &ExprCtx,
+) -> Result<SmtAssumption, String> {
+    let (formula, bound, full) = match &a.formula {
+        Formula::Always { inner } => (
+            convert_formula(inner, ctx)?,
+            None,
+            nested_temporal(&a.formula),
+        ),
+        Formula::BoundedAlways { bound: n, inner } => (
+            convert_formula(inner, ctx)?,
+            Some(*n as usize),
+            nested_temporal(&a.formula),
+        ),
+        Formula::Eventually { inner } => (
+            Sf::Eventually(Box::new(convert_formula(inner, ctx)?)),
+            None,
+            true,
+        ),
+        Formula::BoundedEventually { bound: n, inner } => (
+            Sf::BoundedEventually {
+                bound: *n as usize,
+                inner: Box::new(convert_formula(inner, ctx)?),
+            },
+            None,
+            true,
+        ),
+        Formula::Until { left, right } => (
+            Sf::Until {
+                left: Box::new(convert_formula(left, ctx)?),
+                right: Box::new(convert_formula(right, ctx)?),
+            },
+            None,
+            true,
+        ),
+        other => {
+            return Err(format!(
+                "smt-bounded mode supports top-level always/always[N]/eventually/bounded_eventually/until assumptions only (assumption '{}' is {:?})",
+                a.name, formula_tag(other)
+            ))
+        }
+    };
+    Ok(SmtAssumption {
+        name: a.name.clone(),
+        formula,
+        bound,
+        next_depth: next_depth(&a.formula),
+        full,
     })
 }
 

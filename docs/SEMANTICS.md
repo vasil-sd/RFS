@@ -926,11 +926,43 @@ warning naming it and the flag, and the summary line
 gains `properties_omitted=M` only when M > 0 (existing captures stay
 byte-identical).
 
-v1 scope rejections (shared error text in both backends): assumptions,
-`on_error` blocks, enum-typed variables, wildcard event patterns over
-multi-variant groups in transitions, and enum-variant output patterns in
-`output_has`. This mode is a bug-hunting extension; the v1.0 completeness
-guarantees above apply to exact mode only.
+**Assumptions (task 3C).** Each SELECTED assumption's formula is asserted at
+every sample it covers as a base constraint - `always[N]` clips at N, and a
+`next`-bearing body drops its trailing anchors exactly as properties do (the
+shifted horizon does not exist there). The assertion is alive-gated: a dead
+sample does not exist in exact mode (the path terminated on the unmatched
+input), so the obligation is weak there - the same weakening section 8.3
+gives `next`. Only inputs satisfying every active assumption are allowed:
+this IS section 7.5's successor pruning, expressed as per-step SMT facts.
+The CHEAP class - top-level `always`/`always[N]` over an input-constraining
+body (`input_is(...)` patterns and boolean guards over payload fields, no
+temporal nesting) - is asserted by default; the EXPENSIVE class (top-level
+`eventually`/`bounded_eventually`/`until`, or a temporal operator nested
+under another) only with `--full-assumptions` - a DISTINCT gate from
+`--full-properties`, so expensive properties and cheap assumptions (or the
+reverse) can be combined. Without the flag each omitted assumption raises a
+per-assumption stderr warning naming it and the flag, and the summary line
+gains `assumptions_omitted=M` only when M > 0. Selection follows section 7.4:
+`--assumes all|none|labels` (default `all`, unknown labels silently dropped);
+`none` encodes zero assumptions and reproduces the assumption-free verdict
+byte-for-byte.
+
+**on_error blocks (task 3C).** An `on_error` block adds the section 3.6
+catch-all fallback as a lowest-priority transition from ANY state: any input
+no declared transition matches takes it - next-state only, NO variable
+assignments (the on_error construct carries none) - so the path stays alive
+where exact mode would terminate it on the unexpected input. The next-state
+equation becomes `ite(any_fire, chain, on_error_next)` and the `alive`
+recurrence gains the fallback disjunct; `input_is`/`output_has` are then
+evaluated against the ACTUAL input (the class variable + payload fields)
+rather than the fire predicates, because the unmatched input is still
+consumed (section 3.6's on_error sample). The fallback's emits mark the
+matching `output_has` atoms true at the steps that took it.
+
+v1 scope rejections (shared error text in both backends): enum-typed
+variables, wildcard event patterns over multi-variant groups in transitions,
+and enum-variant output patterns in `output_has`. This mode is a bug-hunting
+extension; the v1.0 completeness guarantees above apply to exact mode only.
 
 ---
 

@@ -72,6 +72,29 @@ fails offline, use the direct toolchain path from §1 if it still exists.
 - System tools may be old (see §1); prefer the project-local toolchain.
 - Use `tail -n 120` or `grep` on long cargo output to keep tool results readable.
 - **`/dev/null` corruption (unsloth-studio sandbox):** in this sandbox `/dev/null` is sometimes a *regular file* (holding stray output such as git-status text) instead of the character device. The rustc target-probe (`rustc - ...`, whose source stdin is redirected off `/dev/null`) then parses that text as Rust and dies with `error[E0762]: unterminated character literal` on EVERY cargo build/test/clippy. Diagnose with `file /dev/null` (healthy = "character special"; corrupted = "ASCII text" / "empty"). Fix: `rm /dev/null; mknod /dev/null c 1 3` (major 1, minor 3 = `/dev/null`; needs root, which this sandbox runs as). The section-2 activation prefix now heals it automatically (`[ -c /dev/null ] || { rm -f /dev/null; mknod /dev/null c 1 3; }`), so a corrupted device is repaired before any cargo command runs. If the E0762 error persists after healing `/dev/null`, a stale `target/.rustc_info.json` probe cache may hold the bad result - delete it (`rm -f target/.rustc_info.json`) and retry.
+- **Mid-run re-corruption (observed 2026-11-23):** long test runs can corrupt `/dev/null` AGAIN while they are executing (the example `run.sh` scripts compile with `-o /dev/null`, and the sandbox quirk turns the device into a regular file that then accumulates written data). The rustc target-probe of any cargo subprocess started after that point fails with "couldn't read from stdin, as it did not contain valid UTF-8", and in `tests/ref_mc_smt_test.rs` the first such failure POISONS the shared bin-cache mutex, so every remaining parity test dies with `PoisonError` (14 instant failures, 0.11 s). Robust remedy: export `RUSTC_WRAPPER=/tmp/rustc-wrap.sh` for the whole run - a tiny shim that replaces a bare `-` source argument with an empty file and redirects rustc's stdin from `/dev/null`, so a corrupted device is never parsed as source. Recreate it if `/tmp` was cleared:
+
+```sh
+cat > /tmp/rustc-wrap.sh <<'WRAP'
+#!/bin/sh
+COMPILER=$1
+shift
+RUSTC_BIN=/workspace/host/rustup/toolchains/stable-x86_64-unknown-linux-gnu/bin/rustc
+printf '' > /tmp/empty_src.rs
+list=$(printf '%s\n' "$@")
+newlist=$(printf '%s\n' "$list" | sed -e "s|^$RUSTC_BIN\$||" -e 's/^-$/\/tmp\/empty_src.rs/')
+set --
+while IFS= read -r line; do
+  [ -n "$line" ] && set -- "$@" "$line"
+done <<EOF2
+$newlist
+EOF2
+exec "$COMPILER" "$@" < /dev/null
+WRAP
+chmod +x /tmp/rustc-wrap.sh
+```
+
+  (The wrapper is a no-op passthrough for normal file-argument compiles; it only rewrites the probe's `-` stdin form.)
 
 ## 5. z3 (SMT solver) — Phase 4 SMT mode (optional)
 
@@ -119,7 +142,18 @@ an alternative (the release ships `z3.pc`). Do **not** use the `gh-release` or
 `vendored` z3-sys features: they would pin Rust to a different solver build than
 the C backend links against, breaking SMT result parity.
 
-### 5.3 Using z3 from generated C code
+### 5.3 The `rfs-smt` binary (smt-enabled rfs, used by example run scripts)
+
+The Phase 18 example projects that demonstrate smt-bounded (`crates/examples/traffic_light_ctrl/run.sh`, `crates/examples/vending_machine/run.sh`) resolve an smt-enabled rfs as `RFS_SMT_BIN` > `target/debug/rfs-smt`; without one they fall back to the committed capture. Build it from the CURRENT source - a stale `rfs-smt` silently re-introduces already-fixed engine behavior (observed 2026-11-23: a pre-task-3A binary made the B6/B7 legs false-FAIL on the D1 scenario):
+
+```sh
+export PATH="/workspace/host/z3/bin:$PATH" Z3_LIBRARY_PATH_OVERRIDE=/workspace/host/z3/bin
+cargo build --features smt && cp target/debug/rfs target/debug/rfs-smt
+```
+
+(`target/` is gitignored, so the binary does not survive a clean checkout - rebuild it before running those example legs or their test suite.)
+
+### 5.4 Using z3 from generated C code
 
 ```sh
 gcc -Wall out.c -I/workspace/host/z3/include -L/workspace/host/z3/bin -lz3 \

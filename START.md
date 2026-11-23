@@ -251,8 +251,12 @@ src/cli/commands/diagram/   mod.rs plugin registry + dot/plantuml/mermaid/tables
 src/cli/info_format/     mod.rs rfs info format registry + embedded models (Phase 7 D-P7-6);
                      ebnf_grammar.rs EBNF RuleNode model + 61-rule GRAMMAR_RULES (D-P7-7)
 src/mc/plan.rs       shared MC plan: abstraction, encoding, traversal, liveness obligations
-src/mc/smt_plan.rs + src/mc/smt_emit.rs   shared SMT spec + emitter (optional smt mode)
-src/mc/ref_mc.rs        brute-force reference MC, independent data structures (task 3.2, D-P6-5)
+src/mc/smt_plan.rs + src/mc/smt_emit.rs   shared SMT spec + emitter (optional smt mode; Phase 18
+                     tasks 1A/3A-3C: property-language extension, trace-death soundness, assumptions
+                     + on_error)
+src/mc/ref_mc.rs        reference MC common core + entry points (Phase 6 task 3.2, D-P6-5; split per
+                     mode in Phase 16 task 1, D-P16-1): ref_mc_exact.rs exact BFS + liveness,
+                     ref_mc_fuzz.rs seeded random testing, ref_mc_smt.rs in-process SMT-bounded
 src/main.rs          CLI arg parsing + dispatch (8 subcommands)
 src/training.rs      snippet extraction + aggregation
 src/bin/             build_training, extract_training_snippets, generate_code_tests, test_generated_code
@@ -343,7 +347,7 @@ dev_tools/SKILL.md. The grep/sed forms are the fallback when `rfs-dev` is absent
 | Change RFS syntax/grammar | `DESIGN.md` sections 5-6 (the language surface + grammar - KB.md section 3 is a pointer stub to them) + `KB.md` section 6.5 (parser findings); add examples FIRST | Update parser/validator | Full checklist (`BUILD.md` section 5) + update DESIGN/KB |
 | Change the IR | `DESIGN.md` section 7 + `to_json`/`from_json` in `src/lang/ir.rs` (hand-rolled, D-P5-2) | Decide backward compat; bump `IR_VERSION` if needed | JSON round-trip tests + full checklist |
 | Add a codegen backend language | `src/codegen/CODEGEN.md` fully + `src/codegen/backends/RUST.md` / `src/codegen/backends/C.md` as references | Implement 3 command fns in `src/codegen/backends/<lang>/*.rs`, register static in `BACKENDS` | per-command generation tests (see CODEGEN section 8) |
-| Phase implementation (Phases 0-9 COMPLETE; next phase to be planned) | `docs/roadmap/INTRO.md` + `PROTOCOL.md` + `FORMATTING.md` fully + `docs/roadmap/phase_N/PHASE_N.md`; phase-specific docs (`DESIGN.md` sections 22-25 for the shipped MC/toolchain/docs decisions, `DESIGN.md` sections 12 + 5.10 for properties - KB.md section 2.6 is a pointer stub to them) | Two-stage protocol from PROTOCOL.md: planning stage writes `phase_N/PHASE_N_PLAN.md`, then stops for user review; implementation stage executes the plan, tracks corrections, writes `phase_N/PHASE_N_STATUS.md` at exit criteria | Full checklist + docs sync + TASKS.md entry |
+| Phase implementation (Phases 0-17 COMPLETE; Phase 18 in progress - the real-world FSM example catalogue + the smt-bounded unification arc, tasks 3A-3E) | `docs/roadmap/INTRO.md` + `PROTOCOL.md` + `FORMATTING.md` fully + `docs/roadmap/phase_N/PHASE_N.md`; phase-specific docs (`DESIGN.md` sections 22-25 for the shipped MC/toolchain/docs decisions, `DESIGN.md` sections 12 + 5.10 for properties - KB.md section 2.6 is a pointer stub to them) | Two-stage protocol from PROTOCOL.md: planning stage writes `phase_N/PHASE_N_PLAN.md`, then stops for user review; implementation stage executes the plan, tracks corrections, writes `phase_N/PHASE_N_STATUS.md` at exit criteria | Full checklist + docs sync + TASKS.md entry |
 | Improve validator/codegen checks | `DESIGN.md` sections 19-20 (decision tables D1-D10) + `KB.md` section 7 | Implement checks, add invalid examples first | Full checklist |
 | Training-set work | `KB.md` section 4.6 (format rules: 2 messages, `< think> ... < /think>` assistant, snippets auto-extracted) | Edit `training/<cat>/rfs_training.jsonl` | `cargo extract-training-snippets && cargo build-training && cargo test-training` |
 | LLM training run (GPU) | `head -60 training.py` (docstring only) + `BUILD.md` last command row | `python training.py --stage both` | `--dry-run` first for CPU-only data/reward validation |

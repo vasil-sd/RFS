@@ -2929,3 +2929,43 @@ PHASE 8 IS NOW COMPLETE.
 - READMEs updated: the next-form property is described, the "no next under smt-bounded" workaround note is retired for these specs, and the bounded-cycle/return-to-Idle liveness claims are explicitly deferred to 3C (they need assumptions).
 - No test-leg re-pinning needed (state counts, verdict, and fail.rfs CE excerpts all unchanged).
 - Verification: rfs validate both valid (pre-existing shared-pattern warnings untouched); exact MC + smt-bounded both pass; captures byte-identical.
+
+---
+
+## 2026-11-23 09:39 — Phase 18 task 3C (complete): accept assumptions + on_error blocks in smt-bounded mode (--assumes, --full-assumptions)
+
+### Interpretation & plan
+
+- Requested: execute plan correction 3C - remove the two shared v1 rejections in `build_smt_spec` (assumptions D3, on_error D4) and encode both faithfully to exact mode across all three SMT engines (in-process ref_mc_smt + both generated runtimes), parity-pinned.
+- Plan: per PHASE_18_TASK_3C.md - cheap input-guard assumptions default / expensive temporal forms behind a DISTINCT `--full-assumptions` flag; `--assumes all|none|labels` honored on both smt surfaces; on_error as the §3.6 catch-all fallback (next-state only, no assignments); tests + docs sync.
+
+### Report
+
+- `src/mc/smt_plan.rs`: dropped both rejections; new `SmtAssumption { name, formula, bound, next_depth, full }` + `SmtSpec.assumptions`, `SmtOnError { next_state, emits }` + `SmtSpec.on_error`; `convert_assumption` via the existing `convert_formula` path (top-level always/always[N] dropped - the per-sample assertion loop IS the universal quantification; FULL class = top-level eventually/bounded_eventually/until or temporal nesting).
+- `src/mc/ref_mc_smt.rs`: `run` gained `full_assumptions` + `assumes_arg`; per-sample assumption base constraints (alive-gated, always[N] clip, next_depth anchor drop, FULL only with the flag + per-assumption omission warning + `assumptions_omitted=M`); on_error fallback as `ite(any_fire, chain, on_error_next)` with the alive recurrence gaining the fallback disjunct; input_is/output_has evaluated against the ACTUAL input when an on_error block exists; `[on_error]` trace markers.
+- `src/mc/smt_emit.rs` + both generated runtimes (`src/codegen/backends/{rust,c}/mc.rs`): assumption tables + per-assumption builder fns, on_error machinery (next-state ITE, alive disjunct, `_ev` atom builders, trace markers); the on_error section emits ONLY when the module has one and the emit-args tables only when output atoms exist - assumption-free/on_error-free specs stay byte-identical.
+- `src/cli/commands/mc_ref.rs`: `--assumes` no longer rejected under smt-bounded; new smt-bounded-only `--full-assumptions` (usage error under other modes, like `--full-properties`).
+- Tests: old rejection pins replaced by acceptance pins; new `parity_task3c` helper + 4 in-process parity tests (on_error pass/fail with trace markers, assumption pruning with `--assumes none` byte-twin, assumed-input-still-fails via `always (next(input_is(Tick)))`, expensive-assumption omission + flag flip) + `smt_bounded_test.rs::smt_bounded_task3c_on_error_and_assumptions` (both generated backends, gcc -Wall clean).
+- Docs: SEMANTICS.md §9.9 new Assumptions/on_error paragraphs (v1-scope list no longer names them), MODEL_CHECKING.md flag table + What-it-checks paragraph, USAGE.md mc-ref row; TEST_STRUCTURE/SRC_STRUCTURE rows updated.
+- Verification: `cargo test --features smt --test ref_mc_smt_test --test smt_bounded_test` 15/15 + 3/3 (baseline was 11/11 + 2/2); full smt suite green; build zero warnings; clippy clean in touched code; all pre-existing pins byte-identical.
+- Findings: a positive input_is/output_has assumption asserted at sample 0 is statically false there (no input consumed yet) -> vacuous PASS vs exact mode's "assumption violated at initial configuration" - routed to task 3E's residual-differences section; specs forcing an input every step should write `always (next(input_is(...)))`. D8 enum support remains rejected - task 3D.
+- Bookkeeping note (2026-11-23 prep session): this entry was appended LATE - the 3C commit (6bf7c66) landed without its TASKS.md entry and without the inventory rows for its 8 new fns/types (added in the prep session; SRC_STRUCTURE budget 1830 -> 1831).
+
+---
+
+## 2026-11-23 15:22 — Phase 18 task 3D preparation: toolchain verified, stale state records + captures fixed, baseline re-measured
+
+### Interpretation & plan
+
+- Requested: read the session-opening set (START/TOOLCHAIN/roadmap docs), verify tool availability (esp. mmdc + puppeteer cache + headless browser per TASKS.md/BUILD.md history), update CURRENT_STATE.md and fix other stale things, prepare for executing Phase 18 task 3D.
+- Plan: (1) confirm cargo/rustc/external tools/rfs-dev; (2) repair the known mmdc/puppeteer environment gap; (3) re-measure the full test matrix on the current tree; (4) fix every stale doc/capture/inventory item found; (5) record the measured baseline.
+
+### Report
+
+- Toolchain: cargo/rustc 1.99.0 project-local OK; gcc/clang/dot/plantuml/mmdc/make/node/npm present; z3 5.3.1 at /workspace/host/z3; rfs-dev built + working. mmdc was PRESENT but NOT WORKING (the documented gotcha): ~/.cache/puppeteer missing in the ephemeral sandbox HOME -> fixed with the TOOLCHAIN.md §6.4 symlink to the persistent /workspace/host/.cache/puppeteer cache (chrome + chrome-headless-shell 156/157); live render verified end-to-end (185 KB SVG).
+- STALE BINARY FOUND: target/debug/rfs-smt dated Nov 21 - predates task 3A's D1/D2 liveness fix. The B6/B7 example legs (traffic_light_ctrl, vending_machine) resolved it via run.sh and FALSE-FAILED on the exact D1 scenario (Emergency in Flasher -> frozen config checked by next). Rebuilt rfs-smt from current source (cargo build --features smt + copy); both specs PASS WITHIN BOUND 16 again and the regenerated smt-pass.txt captures are byte-identical to committed.
+- STALE CAPTURES: task 3B added a next-form property to pass.rfs of B6/B7 but never regenerated their exact-MC captures - committed info.txt/mcref-pass.txt/mc-{rust,c}-pass.txt lacked the new property line and read "monitor size: 0 bits" (now 1 - the next-form property needs one monitor bit). Regenerated all 8 via the test legs; kept.
+- STALE DOCS FIXED: CURRENT_STATE.md gained the Phase 18 IN PROGRESS row + header date 2026-11-23 (it stopped at Phase 17); BUILD.md section-3 counts corrected to measured 612 root / 752 workspace / 42 example legs (+ the known-good baseline section: 612/644/634, clippy 71 lines / 52 unique pairs, rfs-dev 108); START.md section-6 phase line (was "Phases 0-9 COMPLETE") + section-3 src/mc tree (Phase 16 split was missing); TOOLCHAIN.md new §5.3 documenting the rfs-smt build recipe (old §5.3 renumbered to §5.4, CHANGE_IMPACT.md cross-ref updated) + a §4 bullet on MID-RUN /dev/null re-corruption with the copy-paste RUSTC_WRAPPER recipe (verified byte-identical to the working shim); docs/llm/SRC_STRUCTURE.md +8 inventory rows for task 3C's un-inventoried fns/types (smt_engine_replacements x2, input_atom_expr_ev, on_error_emit_match, sf_uses_horizon, convert_assumption, SmtAssumption, SmtOnError) - audit now EXACT (SRC 1030 fns / 217 types), llm-budget 1830 -> 1831.
+- CODE HYGIENE: cargo fmt normalized 7 files left unformatted by tasks 3A/3C (fmt --check was RED on the committed tree); fixed task 3C's two new clippy doc_lazy_continuation warnings in mc_ref.rs (back to the 71-line baseline, verified against a pre-3C worktree).
+- MEASURED BASELINE (2026-11-23, for task 3D): cargo test 612/0; --workspace 752/0 (--exclude rfs-dev 644); --features smt 634/0 under z3 5.3.1 (RUSTC_WRAPPER needed - /dev/null re-corrupts mid-run, poisoning the ref_mc_smt bin-cache mutex: 14 instant PoisonError failures observed and diagnosed); test-generated-code 1720/0 (194 modules); clippy 0 errors / 71 warning lines; fmt clean; sync-check clean; inventory EXACT; dev_docs_test 9/9; docs_md_test 5/5.
+- Task 3D is ready to execute: all six D8 rejections confirmed present in src/mc/smt_plan.rs (lines 354/414/495/848/995/1083 - the task file's ~line numbers predate 3C's growth), dependencies 1A + 3C landed, tree green.

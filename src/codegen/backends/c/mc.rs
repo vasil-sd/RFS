@@ -2620,7 +2620,8 @@ fn smt_engine_replacements(spec: &crate::mc::smt_plan::SmtSpec) -> Vec<(&'static
     let has_on_error = spec.on_error.is_some();
     let has_assumptions = !spec.assumptions.is_empty();
     let any_fire_block = "        Z3_ast any_fire;\n        if (N_TRANS == 0) {\n            any_fire = Z3_mk_false(c);\n        } else {\n            Z3_ast pair[2] = { fires[0], Z3_mk_true(c) };\n            any_fire = Z3_mk_and(c, 2, pair);\n            for (unsigned t = 1; t < N_TRANS; t++) {\n                Z3_ast pair[2] = { any_fire, fires[t] };\n                any_fire = Z3_mk_or(c, 2, pair);\n            }\n        }\n";
-    let early_on_error = format!("{any_fire_block}        Z3_ast on_error_fire = Z3_mk_not(c, any_fire);\n");
+    let early_on_error =
+        format!("{any_fire_block}        Z3_ast on_error_fire = Z3_mk_not(c, any_fire);\n");
     let mut out: Vec<(&'static str, String)> = vec![
         ("{TRACE_OE_PARAM}", if has_on_error { Some(", const Z3_ast *oe_fires") } else { None }),
         (

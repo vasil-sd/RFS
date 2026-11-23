@@ -1826,7 +1826,8 @@ fn smt_engine_replacements(spec: &crate::mc::smt_plan::SmtSpec) -> Vec<(&'static
     let has_on_error = spec.on_error.is_some();
     let has_assumptions = !spec.assumptions.is_empty();
     let any_fire_block = "            let any_fire = if fires.is_empty() {\n                Bool::from_bool(false)\n            } else {\n                let mut acc: Option<Bool> = None;\n                for f in &fires {\n                    acc = Some(match acc {\n                        Some(a) => b_or(&a, f),\n                        None => b_and(f, &Bool::from_bool(true)),\n                    });\n                }\n                acc.expect(\"non-empty fires\")\n            };\n";
-    let early_on_error = format!("{any_fire_block}            let on_error_fire = any_fire.not();\n");
+    let early_on_error =
+        format!("{any_fire_block}            let on_error_fire = any_fire.not();\n");
     let mut out: Vec<(&'static str, String)> = vec![
         ("{TRACE_OE_PARAM}", if has_on_error { Some(", oe_fires: &[Bool]") } else { None }),
         (

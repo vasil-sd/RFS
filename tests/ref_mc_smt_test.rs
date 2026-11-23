@@ -377,8 +377,14 @@ fn ref_smt(
     let ir = rfs::parse_source(src).unwrap_or_else(|e| panic!("spec must parse: {e}"));
     assert_eq!(ir.modules.len(), 1);
     let module = &ir.modules[0];
-    let out = rfs::mc::ref_mc::run_smt(module, bound, full_properties, full_assumptions, assumes_arg)
-        .unwrap_or_else(|e| panic!("ref-mc smt run failed: {e}"));
+    let out = rfs::mc::ref_mc::run_smt(
+        module,
+        bound,
+        full_properties,
+        full_assumptions,
+        assumes_arg,
+    )
+    .unwrap_or_else(|e| panic!("ref-mc smt run failed: {e}"));
     (out.exit_code, out.output, out.warnings)
 }
 
@@ -1104,8 +1110,7 @@ fn parity_task3c(
 ) {
     let note = version_note();
     for &bound in &BOUNDS {
-        let (ref_code, ref_out, _warnings) =
-            ref_smt(src, bound, full_props, full_assumes, assumes);
+        let (ref_code, ref_out, _warnings) = ref_smt(src, bound, full_props, full_assumes, assumes);
         assert_eq!(
             ref_code,
             expect_exit(bound),
@@ -1268,19 +1273,33 @@ fn task3c_on_error_pass_and_fail() {
 #[test]
 fn task3c_assumption_pruning() {
     // WITH the cheap assumption: Bad is pruned, x stays 0 -> PASS.
-    parity_task3c(SMT_ASSUME_PRUNE_SRC, "assume_prune", false, false, "all", |_| 0);
+    parity_task3c(
+        SMT_ASSUME_PRUNE_SRC,
+        "assume_prune",
+        false,
+        false,
+        "all",
+        |_| 0,
+    );
     // WITH --assumes none: Bad is available -> FAIL once the Bad step's
     // effect (x = 1) lands inside the checked horizon - bound 1 only sees
     // the initial sample, so it still passes. The violation step is
     // solver-chosen, so pin the reason/label, not the step.
     let note = version_note();
-    parity_task3c(SMT_ASSUME_PRUNE_SRC, "assume_prune_none", false, false, "none", |b| {
-        if b >= 2 {
-            1
-        } else {
-            0
-        }
-    });
+    parity_task3c(
+        SMT_ASSUME_PRUNE_SRC,
+        "assume_prune_none",
+        false,
+        false,
+        "none",
+        |b| {
+            if b >= 2 {
+                1
+            } else {
+                0
+            }
+        },
+    );
     for &bound in &BOUNDS {
         let (_code, out, _w) = ref_smt(SMT_ASSUME_PRUNE_SRC, bound, false, false, "none");
         if bound >= 2 {
@@ -1294,7 +1313,8 @@ fn task3c_assumption_pruning() {
     // both generated backends).
     for &bound in &BOUNDS {
         let (_c1, out_none, _w1) = ref_smt(SMT_ASSUME_PRUNE_SRC, bound, false, false, "none");
-        let (_c2, out_twin, _w2) = ref_smt(SMT_ASSUME_PRUNE_NOASSUME_SRC, bound, false, false, "all");
+        let (_c2, out_twin, _w2) =
+            ref_smt(SMT_ASSUME_PRUNE_NOASSUME_SRC, bound, false, false, "all");
         assert_eq!(out_none, out_twin, "ref: --assumes none must equal the twin at bound {bound} {note}\n--- none ---\n{out_none}\n--- twin ---\n{out_twin}");
         for backend in ["rust", "c"] {
             let bin_none = smt_binary(backend, SMT_ASSUME_PRUNE_SRC, "assume_prune_none");
@@ -1302,7 +1322,10 @@ fn task3c_assumption_pruning() {
             let bound_s = bound.to_string();
             let (g1, o1) = run_bin(&bin_none, &["--bound", &bound_s, "--assumes", "none"]);
             let (g2, o2) = run_bin(&bin_twin, &["--bound", &bound_s]);
-            assert_eq!(g1, g2, "{backend}: --assumes none exit must equal the twin at bound {bound}");
+            assert_eq!(
+                g1, g2,
+                "{backend}: --assumes none exit must equal the twin at bound {bound}"
+            );
             assert_eq!(o1, o2, "{backend}: --assumes none stdout must equal the twin at bound {bound}\n--- none ---\n{o1}\n--- twin ---\n{o2}");
         }
     }
@@ -1313,13 +1336,20 @@ fn task3c_assumed_input_still_fails() {
     // The assumption is satisfied (every input IS Tick) but the assumed input
     // itself drives x past the bound: deterministic FAIL at sample 3 for
     // bound >= 4.
-    parity_task3c(SMT_ASSUME_FAIL_SRC, "assume_fail", false, false, "all", |b| {
-        if b >= 4 {
-            1
-        } else {
-            0
-        }
-    });
+    parity_task3c(
+        SMT_ASSUME_FAIL_SRC,
+        "assume_fail",
+        false,
+        false,
+        "all",
+        |b| {
+            if b >= 4 {
+                1
+            } else {
+                0
+            }
+        },
+    );
 }
 
 #[test]
@@ -1327,17 +1357,26 @@ fn task3c_expensive_assumption_omission_and_flag() {
     let note = version_note();
     // WITHOUT --full-assumptions: the nested-temporal assumption is omitted
     // (warning + assumptions_omitted=1) and the relaxed spec FAILs at bound >= 5.
-    parity_task3c(SMT_ASSUME_FULL_SRC, "assume_full_off", false, false, "all", |b| {
-        if b >= 5 {
-            1
-        } else {
-            0
-        }
-    });
+    parity_task3c(
+        SMT_ASSUME_FULL_SRC,
+        "assume_full_off",
+        false,
+        false,
+        "all",
+        |b| {
+            if b >= 5 {
+                1
+            } else {
+                0
+            }
+        },
+    );
     for &bound in &BOUNDS {
         let (_code, out, warnings) = ref_smt(SMT_ASSUME_FULL_SRC, bound, false, false, "all");
         assert!(
-            warnings.iter().any(|w| w.contains("omits assumption 'tick_soon' by default")),
+            warnings
+                .iter()
+                .any(|w| w.contains("omits assumption 'tick_soon' by default")),
             "pinned omission warning missing at bound {bound} {note}:\n{warnings:?}"
         );
         assert!(
@@ -1346,8 +1385,7 @@ fn task3c_expensive_assumption_omission_and_flag() {
         );
         for backend in ["rust", "c"] {
             let bin = smt_binary(backend, SMT_ASSUME_FULL_SRC, "assume_full_off");
-            let (gen_code, gen_out, gen_err) =
-                run_bin_full(&bin, &["--bound", &bound.to_string()]);
+            let (gen_code, gen_out, gen_err) = run_bin_full(&bin, &["--bound", &bound.to_string()]);
             assert_eq!(
                 gen_code,
                 if bound >= 5 { 1 } else { 0 },
@@ -1365,10 +1403,20 @@ fn task3c_expensive_assumption_omission_and_flag() {
     }
     // WITH --full-assumptions: the assumption is asserted, c stays <= 3 -> PASS
     // at every bound, no warning, no suffix.
-    parity_task3c(SMT_ASSUME_FULL_SRC, "assume_full_on", false, true, "all", |_| 0);
+    parity_task3c(
+        SMT_ASSUME_FULL_SRC,
+        "assume_full_on",
+        false,
+        true,
+        "all",
+        |_| 0,
+    );
     for &bound in &BOUNDS {
         let (_code, out, warnings) = ref_smt(SMT_ASSUME_FULL_SRC, bound, false, true, "all");
-        assert!(warnings.is_empty(), "no warning with the flag:\n{warnings:?}");
+        assert!(
+            warnings.is_empty(),
+            "no warning with the flag:\n{warnings:?}"
+        );
         assert!(
             !out.contains("assumptions_omitted"),
             "no omission suffix with the flag:\n{out}"

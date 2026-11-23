@@ -20,5 +20,6 @@ module traffic_light_ctrl
     no_conflicting_greens: always (!ns_green && ew_green) - monitored
     preemption_safe: always (input_is(Emergency) -> (state == Flasher) && !ns_green && !ew_green) - monitored
     allred_is_the_only_clearance: always ((state == AllRed) -> !ns_green && !ew_green) - monitored
+    emergency_returns_to_nsgreen: always (input_is(Emergency) -> next ((state == NSGreen))) - monitored
   assumptions: (none)
 

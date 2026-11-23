@@ -1052,11 +1052,11 @@ pub fn emit_rust_spec(spec: &SmtSpec) -> String {
             let variant_check = match variant {
                 Some(v) => format!("EMIT_PAIR_VARIANT[pi] == Some(\"{v}\")"),
                 None => {
-                    if spec
-                        .transitions
-                        .iter()
-                        .any(|t| t.emits.iter().any(|o| o.group == *group && o.variant.is_some()))
-                    {
+                    if spec.transitions.iter().any(|t| {
+                        t.emits
+                            .iter()
+                            .any(|o| o.group == *group && o.variant.is_some())
+                    }) {
                         "true".to_string()
                     } else {
                         "EMIT_PAIR_VARIANT[pi] == None".to_string()
@@ -1213,7 +1213,8 @@ pub fn emit_rust_spec(spec: &SmtSpec) -> String {
             let mut fn_names: Vec<String> = Vec::new();
             for (oi, o) in oe.emits.iter().enumerate() {
                 if o.args.is_empty() {
-                    arg_fns.push_str("fn oe_emit_args_dummy(_i: usize) -> Vec<BV> { Vec::new() }\n\n");
+                    arg_fns
+                        .push_str("fn oe_emit_args_dummy(_i: usize) -> Vec<BV> { Vec::new() }\n\n");
                     fn_names.push("oe_emit_args_dummy".to_string());
                     continue;
                 }
@@ -1256,34 +1257,34 @@ pub fn emit_rust_spec(spec: &SmtSpec) -> String {
                 "fn build_input_atom_ev(_a: usize, _i: usize, _ev_vars: Option<&[BV]>, _fld_vars: &[Vec<BV>]) -> Bool {\n    Bool::from_bool(false)\n}\n\n",
             );
         } else {
-        s.push_str("fn build_input_atom_ev(a: usize, i: usize, ev_vars: Option<&[BV]>, fld_vars: &[Vec<BV>]) -> Bool {\n");
-        for (a, arms) in spec.input_atoms.iter().enumerate() {
-            s.push_str(&format!(
-                "    {} a == {a} {{\n",
-                if a == 0 { "if" } else { "} else if" }
-            ));
-            s.push_str("        let mut val = Bool::from_bool(false);\n");
-            for (ci, constraints) in arms {
-                s.push_str("        {\n");
-                if spec.classes.len() > 1 {
-                    s.push_str(&format!(
+            s.push_str("fn build_input_atom_ev(a: usize, i: usize, ev_vars: Option<&[BV]>, fld_vars: &[Vec<BV>]) -> Bool {\n");
+            for (a, arms) in spec.input_atoms.iter().enumerate() {
+                s.push_str(&format!(
+                    "    {} a == {a} {{\n",
+                    if a == 0 { "if" } else { "} else if" }
+                ));
+                s.push_str("        let mut val = Bool::from_bool(false);\n");
+                for (ci, constraints) in arms {
+                    s.push_str("        {\n");
+                    if spec.classes.len() > 1 {
+                        s.push_str(&format!(
                         "            let mut arm: Bool = ev_vars.expect(\"event vars\")[i].eq(&BV::from_u64({ci}u64, CLS_BITS));\n"
                     ));
-                } else {
-                    s.push_str("            let mut arm: Bool = Bool::from_bool(true);\n");
-                }
-                for (pos, (g, v, _isb)) in constraints.iter().enumerate() {
-                    s.push_str(&format!(
+                    } else {
+                        s.push_str("            let mut arm: Bool = Bool::from_bool(true);\n");
+                    }
+                    for (pos, (g, v, _isb)) in constraints.iter().enumerate() {
+                        s.push_str(&format!(
                         "            let c{pos}: Bool = fld_vars[i][{g}].eq(&BV::from_u64({v}u64, FIELD_WIDTHS[{g}]));\n"
                     ));
-                    s.push_str(&format!("            arm = b_and(&arm, &c{pos});\n"));
+                        s.push_str(&format!("            arm = b_and(&arm, &c{pos});\n"));
+                    }
+                    s.push_str("            val = b_or(&val, &arm);\n");
+                    s.push_str("        }\n");
                 }
-                s.push_str("            val = b_or(&val, &arm);\n");
-                s.push_str("        }\n");
+                s.push_str("        val\n");
             }
-            s.push_str("        val\n");
-        }
-        s.push_str("    } else {\n        Bool::from_bool(false)\n    }\n}\n\n");
+            s.push_str("    } else {\n        Bool::from_bool(false)\n    }\n}\n\n");
         }
         // Whether the fallback's emits match an output_has atom definition at
         // step i (group-level patterns match ANY variant of the group - exact
@@ -1293,33 +1294,33 @@ pub fn emit_rust_spec(spec: &SmtSpec) -> String {
                 "fn build_on_error_emit_match(_a: usize, _i: usize) -> Bool {\n    Bool::from_bool(false)\n}\n\n",
             );
         } else {
-        s.push_str("fn build_on_error_emit_match(a: usize, i: usize) -> Bool {\n");
-        for (a, (group, variant, constraints)) in spec.output_atoms.iter().enumerate() {
-            s.push_str(&format!(
-                "    {} a == {a} {{\n",
-                if a == 0 { "if" } else { "} else if" }
-            ));
-            s.push_str("        let mut val = Bool::from_bool(false);\n");
-            s.push_str("        for pi in 0..OE_EMIT_GROUP.len() {\n");
-            s.push_str(&format!(
-                "            if OE_EMIT_GROUP[pi] == \"{group}\" && {} {{\n",
-                match variant {
-                    Some(v) => format!("OE_EMIT_VARIANT[pi] == Some(\"{v}\")"),
-                    None => "true".to_string(),
-                }
-            ));
-            s.push_str("                let args = OE_EMIT_ARGS_FNS[pi](i);\n");
-            s.push_str("                let mut m = Bool::from_bool(true);\n");
-            for (pos, v, _isb) in constraints {
+            s.push_str("fn build_on_error_emit_match(a: usize, i: usize) -> Bool {\n");
+            for (a, (group, variant, constraints)) in spec.output_atoms.iter().enumerate() {
                 s.push_str(&format!(
+                    "    {} a == {a} {{\n",
+                    if a == 0 { "if" } else { "} else if" }
+                ));
+                s.push_str("        let mut val = Bool::from_bool(false);\n");
+                s.push_str("        for pi in 0..OE_EMIT_GROUP.len() {\n");
+                s.push_str(&format!(
+                    "            if OE_EMIT_GROUP[pi] == \"{group}\" && {} {{\n",
+                    match variant {
+                        Some(v) => format!("OE_EMIT_VARIANT[pi] == Some(\"{v}\")"),
+                        None => "true".to_string(),
+                    }
+                ));
+                s.push_str("                let args = OE_EMIT_ARGS_FNS[pi](i);\n");
+                s.push_str("                let mut m = Bool::from_bool(true);\n");
+                for (pos, v, _isb) in constraints {
+                    s.push_str(&format!(
                     "                m = b_and(&m, &args[{pos}].eq(&BV::from_u64({v}u64, OE_EMIT_ARGW[pi][{pos}])));\n"
                 ));
+                }
+                s.push_str("                val = b_or(&val, &m);\n");
+                s.push_str("            }\n        }\n");
+                s.push_str("        val\n");
             }
-            s.push_str("                val = b_or(&val, &m);\n");
-            s.push_str("            }\n        }\n");
-            s.push_str("        val\n");
-        }
-        s.push_str("    } else {\n        Bool::from_bool(false)\n    }\n}\n\n");
+            s.push_str("    } else {\n        Bool::from_bool(false)\n    }\n}\n\n");
         }
     }
 
@@ -1349,11 +1350,31 @@ pub fn emit_rust_spec(spec: &SmtSpec) -> String {
         for (a, ass) in spec.assumptions.iter().enumerate() {
             let mut r = RustRender::new();
             let fin = render_sf_rust(&ass.formula, spec, "i", &mut r);
-            let i_name = if sf_uses_step(&ass.formula) { "i" } else { "_i" };
-            let k_name = if sf_uses_horizon(&ass.formula) { "k" } else { "_k" };
-            let alive_name = if sf_uses_next(&ass.formula) { "alive" } else { "_alive" };
-            let ii_name = if sf_uses_input_atoms(&ass.formula) { "ii_steps" } else { "_ii_steps" };
-            let oh_name = if sf_uses_output_atoms(&ass.formula) { "oh_steps" } else { "_oh_steps" };
+            let i_name = if sf_uses_step(&ass.formula) {
+                "i"
+            } else {
+                "_i"
+            };
+            let k_name = if sf_uses_horizon(&ass.formula) {
+                "k"
+            } else {
+                "_k"
+            };
+            let alive_name = if sf_uses_next(&ass.formula) {
+                "alive"
+            } else {
+                "_alive"
+            };
+            let ii_name = if sf_uses_input_atoms(&ass.formula) {
+                "ii_steps"
+            } else {
+                "_ii_steps"
+            };
+            let oh_name = if sf_uses_output_atoms(&ass.formula) {
+                "oh_steps"
+            } else {
+                "_oh_steps"
+            };
             s.push_str(&format!(
                 "fn assume_f{a}({i_name}: usize, {k_name}: usize, {alive_name}: &[Bool], {ii_name}: &[Vec<Bool>], {oh_name}: &[Vec<Bool>]) -> Bool {{\n    {}\n    {fin}\n}}\n\n",
                 r.lines.join("\n    ")
@@ -2425,11 +2446,11 @@ pub fn emit_c_spec(spec: &SmtSpec) -> String {
             let variant_check = match variant {
                 Some(v) => format!("strcmp(EMIT_PAIR_VARIANT[pi], \"{v}\") == 0"),
                 None => {
-                    if spec
-                        .transitions
-                        .iter()
-                        .any(|t| t.emits.iter().any(|o| o.group == *group && o.variant.is_some()))
-                    {
+                    if spec.transitions.iter().any(|t| {
+                        t.emits
+                            .iter()
+                            .any(|o| o.group == *group && o.variant.is_some())
+                    }) {
                         "1".to_string()
                     } else {
                         "EMIT_PAIR_VARIANT[pi] == 0".to_string()
@@ -2632,7 +2653,10 @@ pub fn emit_c_spec(spec: &SmtSpec) -> String {
             }
             s.push_str(&format!(
                 "static const unsigned int *OE_EMIT_ARGW[] = {{{}}};\n",
-                (0..oe.emits.len()).map(|oi| format!("OE_EMIT_ARGW_{oi}")).collect::<Vec<_>>().join(", ")
+                (0..oe.emits.len())
+                    .map(|oi| format!("OE_EMIT_ARGW_{oi}"))
+                    .collect::<Vec<_>>()
+                    .join(", ")
             ));
             s.push_str(&format!(
                 "static void (*OE_EMIT_ARGS_FNS[N_OE_EMITS])(Z3_context, unsigned, const Z3_ast *, const Z3_ast *, Z3_ast *) = {{{}}};\n",
@@ -2760,9 +2784,21 @@ pub fn emit_c_spec(spec: &SmtSpec) -> String {
         for (a, ass) in spec.assumptions.iter().enumerate() {
             let mut r = CRender::new();
             let fin = render_sf_c(&ass.formula, spec, "i", &mut r);
-            let ii_name = if sf_uses_input_atoms(&ass.formula) { "ii" } else { "_ii" };
-            let oh_name = if sf_uses_output_atoms(&ass.formula) { "oh" } else { "_oh" };
-            let alive_name = if sf_uses_next(&ass.formula) { "alive" } else { "_alive" };
+            let ii_name = if sf_uses_input_atoms(&ass.formula) {
+                "ii"
+            } else {
+                "_ii"
+            };
+            let oh_name = if sf_uses_output_atoms(&ass.formula) {
+                "oh"
+            } else {
+                "_oh"
+            };
+            let alive_name = if sf_uses_next(&ass.formula) {
+                "alive"
+            } else {
+                "_alive"
+            };
             let voids = format!(
                 "(void)s; (void)v; (void)fld;{}{}{}",
                 if sf_uses_horizon(&ass.formula) {
@@ -2773,7 +2809,11 @@ pub fn emit_c_spec(spec: &SmtSpec) -> String {
                 if ii_name == "_ii" { " (void)_ii;" } else { "" },
                 if oh_name == "_oh" { " (void)_oh;" } else { "" },
             );
-            let void_alive = if alive_name == "_alive" { " (void)_alive;" } else { "" };
+            let void_alive = if alive_name == "_alive" {
+                " (void)_alive;"
+            } else {
+                ""
+            };
             let void_i = if sf_uses_step(&ass.formula) {
                 String::new()
             } else {

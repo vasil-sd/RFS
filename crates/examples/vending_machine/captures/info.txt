@@ -27,5 +27,6 @@ module vending_machine
     correct_change: always (output_has(ReturnChange) -> (change_out == owed)) - monitored
     no_loss_on_refund: always (output_has(Refund) -> (money == 0)) - monitored
     no_dispense_out_of_stock: always (output_has(Dispense) -> (stock > 0)) - monitored
+    jam_resets_to_idle: always (input_is(Jam) -> next ((state == Idle))) - monitored
   assumptions: (none)
 

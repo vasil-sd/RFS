@@ -123,8 +123,8 @@ pub struct McRefOptions {
     /// `--full-assumptions`: check the FULL assumption class in smt-bounded
     /// mode (top-level eventually/bounded_eventually/until, nested temporals)
     /// - without it those assumptions are omitted with a per-assumption
-    /// warning. DISTINCT from --full-properties, so expensive/cheap is chosen
-    /// independently for properties vs assumptions (task 3C). SMT-BOUNDED-ONLY.
+    ///   warning. DISTINCT from --full-properties, so expensive/cheap is chosen
+    ///   independently for properties vs assumptions (task 3C). SMT-BOUNDED-ONLY.
     pub full_assumptions: bool,
 }
 

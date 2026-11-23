@@ -30,12 +30,13 @@
 
 use z3::{ast::Bool, ast::BV, with_z3_config, Config, Model, SatResult, Solver};
 
-use crate::codegen::mc_concepts::{parse_assume_selection, smt_summary_line, FailReason, SmtStatus};
+use crate::codegen::mc_concepts::{
+    parse_assume_selection, smt_summary_line, FailReason, SmtStatus,
+};
 use crate::lang::ir::Module;
 use crate::mc::plan::McPlan;
 use crate::mc::smt_plan::{
-    build_smt_spec, ceil_log2_pub, se_type, Sb, Se, SeType, Sf, SmtOnError, SmtPropKind,
-    SmtSpec,
+    build_smt_spec, ceil_log2_pub, se_type, Sb, Se, SeType, Sf, SmtOnError, SmtPropKind, SmtSpec,
 };
 
 /// The outcome of one in-process SMT-bounded run: the exit code mirroring the
@@ -527,9 +528,7 @@ fn output_atom_expr(
             // group - exact mode's output_matches does the same (the old
             // exact-variant comparison was a parity gap: group-level patterns
             // never matched variant emits under smt-bounded).
-            if o.group != *group
-                || variant.is_some()
-                    && o.variant.as_deref() != variant.as_deref()
+            if o.group != *group || variant.is_some() && o.variant.as_deref() != variant.as_deref()
             {
                 continue;
             }
@@ -615,9 +614,7 @@ fn on_error_emit_match(
     let mut val = Bool::from_bool(false);
     for o in &oe.emits {
         // Group-level pattern match (same rule as output_atom_expr).
-        if o.group != *group
-            || variant.is_some() && o.variant.as_deref() != variant.as_deref()
-        {
+        if o.group != *group || variant.is_some() && o.variant.as_deref() != variant.as_deref() {
             continue;
         }
         let mut m = Bool::from_bool(true);
@@ -743,13 +740,7 @@ pub fn run(
     let selected = parse_assume_selection(assumes_arg, &known);
     let cfg = Config::new();
     with_z3_config(&cfg, || {
-        run_unrolled(
-            &spec,
-            k,
-            full_properties,
-            full_assumptions,
-            &selected,
-        )
+        run_unrolled(&spec, k, full_properties, full_assumptions, &selected)
     })
 }
 
@@ -920,8 +911,7 @@ fn run_unrolled(
             .iter()
             .enumerate()
             .map(|(_a, def)| {
-                let mut val =
-                    output_atom_expr(spec, def, &fires, i, &s_vars, &v_vars, &fld_vars);
+                let mut val = output_atom_expr(spec, def, &fires, i, &s_vars, &v_vars, &fld_vars);
                 if has_on_error {
                     // The fallback's emits feed the step's output_has atoms
                     // exactly like a real transition's emits.
@@ -943,9 +933,7 @@ fn run_unrolled(
             // deadlocked from step 0 with state/vars frozen.
             if has_on_error {
                 let oe = spec.on_error.as_ref().expect("on_error present");
-                base.push(
-                    BV::from_u64(oe.next_state as u64, spec.state_bits).eq(&s_vars[i + 1]),
-                );
+                base.push(BV::from_u64(oe.next_state as u64, spec.state_bits).eq(&s_vars[i + 1]));
             } else {
                 base.push(s_vars[i].eq(&s_vars[i + 1]));
             }
@@ -1146,7 +1134,6 @@ fn run_unrolled(
                             &v_vars,
                             ev_vars.as_deref(),
                             &fld_vars,
-
                             &oe_fires,
                         );
                         return Ok(SmtOutcome {
@@ -1257,7 +1244,6 @@ fn run_unrolled(
                                 &v_vars,
                                 ev_vars.as_deref(),
                                 &fld_vars,
-
                                 &oe_fires,
                             );
                             return Ok(SmtOutcome {
@@ -1352,7 +1338,6 @@ fn run_unrolled(
                             &v_vars,
                             ev_vars.as_deref(),
                             &fld_vars,
-
                             &oe_fires,
                         );
                         return Ok(SmtOutcome {
@@ -1453,7 +1438,6 @@ fn run_unrolled(
                                 &v_vars,
                                 ev_vars.as_deref(),
                                 &fld_vars,
-
                                 &oe_fires,
                             );
                             return Ok(SmtOutcome {

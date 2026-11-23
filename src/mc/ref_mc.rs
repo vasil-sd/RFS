@@ -2101,7 +2101,13 @@ pub fn run_smt(
     full_assumptions: bool,
     assumes_arg: &str,
 ) -> Result<ref_mc_smt::SmtOutcome, String> {
-    ref_mc_smt::run(module, bound, full_properties, full_assumptions, assumes_arg)
+    ref_mc_smt::run(
+        module,
+        bound,
+        full_properties,
+        full_assumptions,
+        assumes_arg,
+    )
 }
 
 // ---------------------------------------------------------------------------

@@ -528,8 +528,14 @@ fn smt_bounded_task3c_on_error_and_assumptions() {
     let r_bin = build_rust(&project, &generate("rust", SMT_OE_FAIL_SRC, "oe_fail"));
     let (rc, cout) = run_bin(&c_bin, &["--bound", "3"]);
     let (rr, rout) = run_bin(&r_bin, &["--bound", "3"]);
-    assert_eq!(rr, rc, "on_error exit codes differ\nrust:\n{rout}\nc:\n{cout}");
-    assert_eq!(rout, cout, "on_error stdout differs\n--- rust ---\n{rout}--- c ---\n{cout}");
+    assert_eq!(
+        rr, rc,
+        "on_error exit codes differ\nrust:\n{rout}\nc:\n{cout}"
+    );
+    assert_eq!(
+        rout, cout,
+        "on_error stdout differs\n--- rust ---\n{rout}--- c ---\n{cout}"
+    );
     assert_eq!(rc, 1, "on_error fail spec must exit 1:\n{cout}");
     assert!(
         cout.contains("model-check summary: status=fail mode=smt-bounded bound=3 reason=property-violation label=never_safe step=1"),
@@ -543,38 +549,68 @@ fn smt_bounded_task3c_on_error_and_assumptions() {
     // (b) Cheap assumption: PASS with it active, FAIL with --assumes none -
     // both backends, parity-pinned.
     let c_src = dir.join("smt_assume_prune.c");
-    std::fs::write(&c_src, generate("c", SMT_ASSUME_PRUNE_SRC, "assume_prune")).expect("write C source");
+    std::fs::write(&c_src, generate("c", SMT_ASSUME_PRUNE_SRC, "assume_prune"))
+        .expect("write C source");
     let c_bin = dir.join("smt_assume_prune_c");
     compile_c(&c_src, &c_bin);
-    let r_bin = build_rust(&project, &generate("rust", SMT_ASSUME_PRUNE_SRC, "assume_prune"));
+    let r_bin = build_rust(
+        &project,
+        &generate("rust", SMT_ASSUME_PRUNE_SRC, "assume_prune"),
+    );
     for (args, expect_exit, what) in [
         (&["--bound", "5"][..], 0, "assumption active"),
-        (&["--bound", "5", "--assumes", "none"][..], 1, "--assumes none"),
+        (
+            &["--bound", "5", "--assumes", "none"][..],
+            1,
+            "--assumes none",
+        ),
     ] {
         let (rc, cout) = run_bin(&c_bin, args);
         let (rr, rout) = run_bin(&r_bin, args);
-        assert_eq!(rr, rc, "{what}: exit codes differ\nrust:\n{rout}\nc:\n{cout}");
-        assert_eq!(rout, cout, "{what}: stdout differs\n--- rust ---\n{rout}--- c ---\n{cout}");
+        assert_eq!(
+            rr, rc,
+            "{what}: exit codes differ\nrust:\n{rout}\nc:\n{cout}"
+        );
+        assert_eq!(
+            rout, cout,
+            "{what}: stdout differs\n--- rust ---\n{rout}--- c ---\n{cout}"
+        );
         assert_eq!(rc, expect_exit, "{what}: wrong exit code:\n{cout}");
     }
 
     // (c) Expensive assumption: omitted without --full-assumptions (stderr
     // warning + assumptions_omitted=1 in the summary), PASS with the flag.
     let c_src = dir.join("smt_assume_full.c");
-    std::fs::write(&c_src, generate("c", SMT_ASSUME_FULL_SRC, "assume_full")).expect("write C source");
+    std::fs::write(&c_src, generate("c", SMT_ASSUME_FULL_SRC, "assume_full"))
+        .expect("write C source");
     let c_bin = dir.join("smt_assume_full_c");
     compile_c(&c_src, &c_bin);
-    let r_bin = build_rust(&project, &generate("rust", SMT_ASSUME_FULL_SRC, "assume_full"));
+    let r_bin = build_rust(
+        &project,
+        &generate("rust", SMT_ASSUME_FULL_SRC, "assume_full"),
+    );
     for (args, expect_exit, want_suffix) in [
         (&["--bound", "5"][..], 1, true),
         (&["--bound", "5", "--full-assumptions"][..], 0, false),
     ] {
         let (rc, cout, cerr) = run_bin_full(&c_bin, args);
         let (rr, rout, rerr) = run_bin_full(&r_bin, args);
-        assert_eq!(rr, rc, "expensive assumption: exit codes differ\nrust:\n{rout}\nc:\n{cout}");
-        assert_eq!(rout, cout, "expensive assumption: stdout differs\n--- rust ---\n{rout}--- c ---\n{cout}");
-        assert_eq!(cerr, rerr, "expensive assumption: stderr differs\n--- rust ---\n{rerr}--- c ---\n{cerr}");
-        assert_eq!(rc, expect_exit, "expensive assumption: wrong exit code:\n{cout}");
+        assert_eq!(
+            rr, rc,
+            "expensive assumption: exit codes differ\nrust:\n{rout}\nc:\n{cout}"
+        );
+        assert_eq!(
+            rout, cout,
+            "expensive assumption: stdout differs\n--- rust ---\n{rout}--- c ---\n{cout}"
+        );
+        assert_eq!(
+            cerr, rerr,
+            "expensive assumption: stderr differs\n--- rust ---\n{rerr}--- c ---\n{cerr}"
+        );
+        assert_eq!(
+            rc, expect_exit,
+            "expensive assumption: wrong exit code:\n{cout}"
+        );
         if want_suffix {
             assert!(
                 cout.contains("assumptions_omitted=1"),
@@ -585,7 +621,10 @@ fn smt_bounded_task3c_on_error_and_assumptions() {
                 "pinned omission warning missing from stderr:\n{cerr}"
             );
         } else {
-            assert!(!cout.contains("assumptions_omitted"), "no suffix with the flag:\n{cout}");
+            assert!(
+                !cout.contains("assumptions_omitted"),
+                "no suffix with the flag:\n{cout}"
+            );
             assert!(cerr.is_empty(), "no warning with the flag:\n{cerr}");
         }
     }

@@ -477,13 +477,10 @@ pub fn build_smt_spec(module: &Module, plan: &McPlan) -> Result<SmtSpec, String>
                             f.name
                         ));
                     }
+                    // Int domains are always 2^N-1 by construction (plan.rs::value_domain
+                    // emits them only from bit<N> types), so no power-of-two test is
+                    // needed - the dead check was removed in task 3F (V1_R_R_AUDIT.md S3).
                     let w = ceil_log2((*max as usize) + 1);
-                    if (1u64 << w) - 1 != *max {
-                        return Err(format!(
-                            "non-power-of-two domain for field '{}' (not a bit<N> type)",
-                            f.name
-                        ));
-                    }
                     (w, Vec::new())
                 }
                 // Enum-typed concrete field (task 3D): the value is the

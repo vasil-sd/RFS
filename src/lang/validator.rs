@@ -690,18 +690,13 @@ pub fn type_formula(f: &Formula, env: &Env) -> Result<(), String> {
 }
 
 fn check_pattern_group(pattern: &EventPattern, env: &Env, is_input: bool) -> Result<(), String> {
-    // Formula patterns do not introduce bindings in Phase 1. We only ensure group/variant names are plausible.
-    let _ = is_input;
-    if pattern.variant.is_some() {
-        if let PatternVariant::Struct { fields, .. } = &pattern.variant.clone().unwrap() {
-            for f in fields {
-                if f.name.is_some() {
-                    return Err("formula input patterns do not bind variables in Phase 1".into());
-                }
-            }
-        }
-    }
-    let _ = env;
+    // Formula patterns introduce no usable bindings (task 3F): a named field is a
+    // labeled wildcard - both MC backends render PatternExpr::Bind as a
+    // no-constraint match (ref_mc.rs::input_matches / smt_plan.rs::resolve_input_is),
+    // and the bound name is not referenceable anywhere in a formula. Mirrors
+    // check_output_pattern_group, which never restricted names - this removes the
+    // input/output asymmetry flagged by V1_R_R_AUDIT.md (row V17).
+    let _ = (pattern, env, is_input);
     Ok(())
 }
 

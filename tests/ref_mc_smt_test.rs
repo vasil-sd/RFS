@@ -320,7 +320,9 @@ fn cached_binary(key: &str, build: impl FnOnce() -> PathBuf) -> PathBuf {
     // 2026-11-23 mid-run re-corruption incident) used to poison this lock and kill
     // every remaining parity test with PoisonError (14 instant failures, 0.11 s).
     // into_inner() degrades that to "rebuild the binary for this one test".
-    let mut cache = BIN_CACHE.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+    let mut cache = BIN_CACHE
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
     if let Some(p) = cache.get(key) {
         return p.clone();
     }

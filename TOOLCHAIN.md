@@ -26,6 +26,9 @@ command that needs cargo/rustc:
 # corrupted /dev/null makes the rustc target-probe read it as source -> E0762 on
 # every cargo build/test/clippy. No-op when /dev/null is already a char device.
 [ -c /dev/null ] || { rm -f /dev/null; mknod /dev/null c 1 3; }
+# Task 3K: the committed RUSTC_WRAPPER makes the rustc target-probe immune to a
+# (re-)corrupted /dev/null MID-RUN - export it for every run, especially long ones.
+export RUSTC_WRAPPER=/workspace/host/RFS/scripts/rustc-wrap.sh
 export RUSTUP_HOME=/workspace/host/rustup
 export CARGO_HOME=/workspace/host/.cargo
 export PATH="$CARGO_HOME/bin:$PATH"
@@ -71,30 +74,8 @@ fails offline, use the direct toolchain path from §1 if it still exists.
 - If cargo fails with a lock-file version error, the active toolchain is too old or missing: reinstall per §3 before debugging code.
 - System tools may be old (see §1); prefer the project-local toolchain.
 - Use `tail -n 120` or `grep` on long cargo output to keep tool results readable.
-- **`/dev/null` corruption (unsloth-studio sandbox):** in this sandbox `/dev/null` is sometimes a *regular file* (holding stray output such as git-status text) instead of the character device. The rustc target-probe (`rustc - ...`, whose source stdin is redirected off `/dev/null`) then parses that text as Rust and dies with `error[E0762]: unterminated character literal` on EVERY cargo build/test/clippy. Diagnose with `file /dev/null` (healthy = "character special"; corrupted = "ASCII text" / "empty"). Fix: `rm /dev/null; mknod /dev/null c 1 3` (major 1, minor 3 = `/dev/null`; needs root, which this sandbox runs as). The section-2 activation prefix now heals it automatically (`[ -c /dev/null ] || { rm -f /dev/null; mknod /dev/null c 1 3; }`), so a corrupted device is repaired before any cargo command runs. If the E0762 error persists after healing `/dev/null`, a stale `target/.rustc_info.json` probe cache may hold the bad result - delete it (`rm -f target/.rustc_info.json`) and retry.
-- **Mid-run re-corruption (observed 2026-11-23):** long test runs can corrupt `/dev/null` AGAIN while they are executing (the example `run.sh` scripts compile with `-o /dev/null`, and the sandbox quirk turns the device into a regular file that then accumulates written data). The rustc target-probe of any cargo subprocess started after that point fails with "couldn't read from stdin, as it did not contain valid UTF-8", and in `tests/ref_mc_smt_test.rs` the first such failure POISONS the shared bin-cache mutex, so every remaining parity test dies with `PoisonError` (14 instant failures, 0.11 s). Robust remedy: export `RUSTC_WRAPPER=/tmp/rustc-wrap.sh` for the whole run - a tiny shim that replaces a bare `-` source argument with an empty file and redirects rustc's stdin from `/dev/null`, so a corrupted device is never parsed as source. Recreate it if `/tmp` was cleared:
-
-```sh
-cat > /tmp/rustc-wrap.sh <<'WRAP'
-#!/bin/sh
-COMPILER=$1
-shift
-RUSTC_BIN=/workspace/host/rustup/toolchains/stable-x86_64-unknown-linux-gnu/bin/rustc
-printf '' > /tmp/empty_src.rs
-list=$(printf '%s\n' "$@")
-newlist=$(printf '%s\n' "$list" | sed -e "s|^$RUSTC_BIN\$||" -e 's/^-$/\/tmp\/empty_src.rs/')
-set --
-while IFS= read -r line; do
-  [ -n "$line" ] && set -- "$@" "$line"
-done <<EOF2
-$newlist
-EOF2
-exec "$COMPILER" "$@" < /dev/null
-WRAP
-chmod +x /tmp/rustc-wrap.sh
-```
-
-  (The wrapper is a no-op passthrough for normal file-argument compiles; it only rewrites the probe's `-` stdin form.)
+- **`/dev/null` corruption (unsloth-studio sandbox) - ROOT CAUSED by task 3K (2026-11-24):** `/dev` here is a sparse tmpfs whose device nodes were baked in at image build (the siblings such as `/dev/zero` are dated Oct 31); the original `/dev/null` was DELETED after image build. Any later write to the missing path - a shell redirect (`> /dev/null`) or compiler output (`-o /dev/null`) - recreates it as a REGULAR FILE holding that data (git-status text, ELF objects). The rustc target-probe (`rustc - ...`, whose source stdin is redirected off `/dev/null`) then parses that content as Rust and dies with `error[E0762]: unterminated character literal` or "couldn't read from stdin, as it did not contain valid UTF-8" on EVERY cargo build/test/clippy. Diagnose with `file /dev/null` (healthy = "character special"; corrupted = "ASCII text" / "data" / "ELF..."). Session-start safety net: the section-2 activation prefix heals it (`[ -c /dev/null ] || { rm -f /dev/null; mknod /dev/null c 1 3; }` - major 1, minor 3 = `/dev/null`; needs root, which this sandbox runs as). If E0762 persists after healing, a stale `target/.rustc_info.json` probe cache may hold the bad result - delete it (`rm -f target/.rustc_info.json`) and retry.
+- **Mid-run re-corruption (observed 2026-11-23; STABILIZED by task 3K):** long test runs used to corrupt `/dev/null` AGAIN while executing: the 28 example `run.sh` scripts compiled with `-o /dev/null`, and with the device missing gcc/rustc recreated it as a regular file holding an ELF object. The first probe failure after that POISONED the shared bin-cache mutex in `tests/ref_mc_smt_test.rs`, so every remaining parity test died with `PoisonError` (14 instant failures, 0.11 s) - forcing full suite re-runs. Task 3K removed both failure modes: (a) all 28 `run.sh` scripts now write their compile-check output to a temp file inside `$BUILD` (deleted after the check) - no more writes to `/dev/null`; (b) `cached_binary` recovers from a poisoned mutex (`unwrap_or_else(PoisonError::into_inner)`), so one environment blip degrades ONE test instead of cascading. The durable remedy against any future device-missing event: export `RUSTC_WRAPPER=/workspace/host/RFS/scripts/rustc-wrap.sh` (the COMMITTED wrapper - the section-2 activation prefix and the BUILD.md verification checklist do this automatically). It rewrites the probe's bare `-` source argument to a guaranteed-empty file and redirects rustc's stdin from that same empty file (NOT from `/dev/null`, so a corrupted device can never feed rustc); for normal file-argument compiles it is a no-op passthrough. Verified in task 3K: with `/dev/null` corrupted, `cargo build` fails without the wrapper and succeeds with it. The old ephemeral `/tmp/rustc-wrap.sh` recipe is RETIRED - the committed script replaces it.
 
 ## 5. z3 (SMT solver) — Phase 4 SMT mode (optional)
 

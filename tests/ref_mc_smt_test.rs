@@ -315,7 +315,12 @@ static BIN_CACHE: std::sync::LazyLock<
 > = std::sync::LazyLock::new(|| std::sync::Mutex::new(std::collections::HashMap::new()));
 
 fn cached_binary(key: &str, build: impl FnOnce() -> PathBuf) -> PathBuf {
-    let mut cache = BIN_CACHE.lock().expect("bin cache lock");
+    // Task 3K: recover from a poisoned mutex instead of cascading. A build-closure
+    // panic (e.g. rustc's target-probe dying on a corrupted /dev/null - the
+    // 2026-11-23 mid-run re-corruption incident) used to poison this lock and kill
+    // every remaining parity test with PoisonError (14 instant failures, 0.11 s).
+    // into_inner() degrades that to "rebuild the binary for this one test".
+    let mut cache = BIN_CACHE.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
     if let Some(p) = cache.get(key) {
         return p.clone();
     }

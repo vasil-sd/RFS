@@ -70,9 +70,9 @@ echo
 
 echo "=== 4. production codegen (both backends, warning-free) ==="
 ( cd "$BUILD" && "$RFS" codegen rust production "$HERE/pass.rfs" --out prod-rust )
-"$RUSTC" --edition 2021 --crate-type lib --emit=metadata "$BUILD/prod-rust-fsm.rs" -o /dev/null && echo "rust production: compiles clean"
+"$RUSTC" --edition 2021 --crate-type lib --emit=metadata "$BUILD/prod-rust-fsm.rs" -o "$BUILD/.compile-check.rmeta" && rm -f "$BUILD/.compile-check.rmeta" && echo "rust production: compiles clean"
 ( cd "$BUILD" && "$RFS" codegen c production "$HERE/pass.rfs" --out prod-c )
-"$GCC" -Wall -c "$BUILD/prod-c-fsm.c" -o /dev/null && echo "c production: compiles warning-free"
+"$GCC" -Wall -c "$BUILD/prod-c-fsm.c" -o "$BUILD/.compile-check.o" && rm -f "$BUILD/.compile-check.o" && echo "c production: compiles warning-free"
 echo
 
 echo "captures written to $CAP/ :"; ls -1 "$CAP"

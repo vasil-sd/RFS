@@ -167,9 +167,12 @@ grep/sed for those operations.
 
 ## 5. Verification checklist after changes
 
-After any non-trivial change, run at minimum:
+After any non-trivial change, run at minimum (the RUSTC_WRAPPER export is task 3K's
+durable defense against the sandbox's mid-run /dev/null re-corruption - keep it on every
+run, especially long ones; see TOOLCHAIN.md section 4):
 
 ```sh
+export RUSTC_WRAPPER=/workspace/host/RFS/scripts/rustc-wrap.sh
 cargo build && cargo test && cargo clippy --all-targets && cargo fmt --check
 ```
 

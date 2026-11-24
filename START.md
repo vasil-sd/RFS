@@ -293,6 +293,9 @@ Activate in every shell command that needs cargo (env does not persist between c
 # a corrupted /dev/null makes the rustc target-probe read it as source -> E0762 on every
 # cargo command. No-op when /dev/null is already a char device.
 [ -c /dev/null ] || { rm -f /dev/null; mknod /dev/null c 1 3; }
+# Task 3K: the committed RUSTC_WRAPPER makes the rustc target-probe immune to a
+# (re-)corrupted /dev/null MID-RUN - export it for every run, especially long ones.
+export RUSTC_WRAPPER=/workspace/host/RFS/scripts/rustc-wrap.sh
 export RUSTUP_HOME=/workspace/host/rustup
 export CARGO_HOME=/workspace/host/.cargo
 export PATH="$CARGO_HOME/bin:$PATH"

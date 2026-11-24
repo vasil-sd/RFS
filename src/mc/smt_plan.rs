@@ -733,28 +733,42 @@ pub fn build_smt_spec(module: &Module, plan: &McPlan) -> Result<SmtSpec, String>
         None => None,
     };
 
-    // Properties: top-level always/always[N]/eventually are the DEFAULT class
-    // (checked without any flag); top-level bounded_eventually/until and any
+    // Properties: the top forms always, always[N] and eventually are the
+    // DEFAULT class (checked without any flag); top-level
+    // bounded_eventually/until and any
     // temporal operator nested under another temporal operator form the FULL
-    // class (converted here, checked only with --full-properties).
+    // class (converted here, checked only with --full-properties). Task 3G: a
+    // top form that is none of those five (a bare boolean formula, a top-level
+    // next, ...) is desugared to always(...) BEFORE the kind match - exact mode
+    // anchors such formulas at Range::all() (checked at every sample; a
+    // top-level next shifts by one), so smt-bounded reproduces the same
+    // verdicts with zero formula-size change for the common cases.
     let mut properties: Vec<SmtProp> = Vec::new();
     for p in &module.properties {
-        let (kind, bound) = match &p.formula {
+        // Task 3G normalization: the five accepted top forms pass through
+        // unchanged (every existing pin stays byte-identical); anything else is
+        // wrapped in Always, which the kind match below takes as a plain always
+        // (bound None) and whose inner is converted as a nested node by
+        // convert_formula.
+        let top = match &p.formula {
+            Formula::Always { .. }
+            | Formula::BoundedAlways { .. }
+            | Formula::Eventually { .. }
+            | Formula::BoundedEventually { .. }
+            | Formula::Until { .. } => p.formula.clone(),
+            other => Formula::Always {
+                inner: Box::new(other.clone()),
+            },
+        };
+        let (kind, bound) = match &top {
             Formula::Always { .. } => (SmtPropKind::Always, None),
-            Formula::BoundedAlways { bound, .. } => {
-                (SmtPropKind::Always, Some(*bound as usize))
-            }
+            Formula::BoundedAlways { bound, .. } => (SmtPropKind::Always, Some(*bound as usize)),
             Formula::Eventually { .. } => (SmtPropKind::Eventually, None),
             Formula::BoundedEventually { bound, .. } => {
                 (SmtPropKind::BoundedEventually(*bound as usize), None)
             }
             Formula::Until { .. } => (SmtPropKind::Until, None),
-            other => {
-                return Err(format!(
-                    "smt-bounded mode supports top-level always/always[N]/eventually/bounded_eventually/until properties only (property '{}' is {:?})",
-                    p.name, formula_tag(other)
-                ))
-            }
+            _ => unreachable!("top form normalized above"),
         };
         // Property context: no payload bindings (input_is/output_has atoms
         // carry their own pre-resolved data).
@@ -766,7 +780,7 @@ pub fn build_smt_spec(module: &Module, plan: &McPlan) -> Result<SmtSpec, String>
             input_classes: input_classes.clone(),
             enums: enums.clone(),
         };
-        let formula = match &p.formula {
+        let formula = match &top {
             Formula::Always { inner }
             | Formula::BoundedAlways { inner, .. }
             | Formula::Eventually { inner }
@@ -781,8 +795,8 @@ pub fn build_smt_spec(module: &Module, plan: &McPlan) -> Result<SmtSpec, String>
             name: p.name.clone(),
             kind,
             bound,
-            full: classify_full(&p.formula),
-            next_depth: next_depth(&p.formula),
+            full: classify_full(&top),
+            next_depth: next_depth(&top),
             formula,
         });
     }
@@ -842,9 +856,15 @@ pub fn build_smt_spec(module: &Module, plan: &McPlan) -> Result<SmtSpec, String>
 /// IS the universal quantification over samples (exact mode steps the
 /// assumption monitor at every sample, SEMANTICS 7.3/7.5). Other top forms are
 /// carried as their [`Sf`] nodes and asserted at every sample from which their
-/// horizon-truncated expansion is evaluated. FULL class: top-level
+/// horizon-truncated expansion is evaluated. Task 3G: a top form that is none
+/// of the listed ones (a bare boolean formula, a top-level `next`, ...) is
+/// likewise asserted per-sample as its converted [`Sf`] node - a bare boolean
+/// means "holds at every sample", a top-level `next` shifts by one, both
+/// matching exact mode's Range::all() anchoring. FULL class: top-level
 /// eventually/bounded_eventually/until (the liveness forms) or a temporal
-/// operator nested under another - asserted only with `--full-assumptions`.
+/// operator nested under another - asserted only with `--full-assumptions`;
+/// the classification still comes from `nested_temporal` on the original
+/// formula, so expensive shapes stay behind the flag.
 fn convert_assumption(
     a: &crate::lang::ir::Property,
     ctx: &ExprCtx,
@@ -881,12 +901,15 @@ fn convert_assumption(
             None,
             true,
         ),
-        other => {
-            return Err(format!(
-                "smt-bounded mode supports top-level always/always[N]/eventually/bounded_eventually/until assumptions only (assumption '{}' is {:?})",
-                a.name, formula_tag(other)
-            ))
-        }
+        // Task 3G: any other top form is asserted per-sample as its converted
+        // Sf node - the Always arm's shape verbatim, with nested_temporal on
+        // the ORIGINAL (unwrapped) formula so classification is not fooled by
+        // a wrapper.
+        other => (
+            convert_formula(other, ctx)?,
+            None,
+            nested_temporal(&a.formula),
+        ),
     };
     Ok(SmtAssumption {
         name: a.name.clone(),
@@ -902,21 +925,6 @@ fn variant_name(v: &Option<crate::lang::ir::PatternVariant>) -> Option<String> {
         Some(crate::lang::ir::PatternVariant::Unit { name }) => Some(name.clone()),
         Some(crate::lang::ir::PatternVariant::Struct { name, .. }) => Some(name.clone()),
         None => None,
-    }
-}
-
-fn formula_tag(f: &Formula) -> &'static str {
-    match f {
-        Formula::InputIs { .. } => "input_is",
-        Formula::OutputHas { .. } => "output_has",
-        Formula::Expr { .. } => "expr",
-        Formula::Not { .. } => "not",
-        Formula::And { .. } => "and",
-        Formula::Or { .. } => "or",
-        Formula::Implies { .. } => "implies",
-        Formula::Next { .. } => "next",
-        Formula::Always { .. } => "always",
-        _ => "temporal",
     }
 }
 

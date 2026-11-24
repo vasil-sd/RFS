@@ -461,8 +461,6 @@ its width; concrete payload fields wider than 64 bits (the plan's saturated u64:
 domain); non-power-of-two domains (not a bit<N> type); enum-typed payload fields;
 wildcard event patterns over multi-variant groups (a bare group pattern names exactly
 one variant only for single-variant groups); unknown state/next-state/var references;
-properties that are not top-level always/eventually and property formulas beyond
-expr/not/and/or/implies (`src/mc/smt_plan.rs::formula_tag` names the rejected shape);
 enum paths in expressions.
 
 **Shared emitter.** `src/mc/smt_emit.rs::emit_rust_spec` / `src/mc/smt_emit.rs::emit_c_spec`
@@ -567,7 +565,7 @@ Code: `src/mc/smt_plan.rs::Se`, `src/mc/smt_plan.rs::Sb`, `src/mc/smt_plan.rs::S
 `src/mc/smt_plan.rs::SmtVar`, `src/mc/smt_plan.rs::SmtClass`, `src/mc/smt_plan.rs::SmtTrans`,
 `src/mc/smt_plan.rs::SmtPropKind`, `src/mc/smt_plan.rs::SmtProp`, `src/mc/smt_plan.rs::SmtSpec`,
 `src/mc/smt_plan.rs::ExprCtx`, `src/mc/smt_plan.rs::ceil_log2_pub`,
-`src/mc/smt_plan.rs::build_smt_spec`, `src/mc/smt_plan.rs::formula_tag`,
+`src/mc/smt_plan.rs::build_smt_spec`,
 `src/mc/smt_plan.rs::convert_expr`, `src/mc/smt_plan.rs::convert_formula`,
 `src/mc/smt_plan.rs::SeType`, `src/mc/smt_plan.rs::se_type`, `src/mc/smt_plan.rs::bit_op_type`,
 `src/mc/smt_emit.rs::global_field_index`, `src/mc/smt_emit.rs::se_uses_step`,

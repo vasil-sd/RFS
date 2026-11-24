@@ -1547,7 +1547,7 @@ flowchart TD
 transitions, properties) shared by both SMT emitters: `convert_expr` /
 `convert_formula` lower IR expressions/formulas into the `Se` / `Sf` AST
 (concrete fields resolved via `fi_concrete`, variant names via
-`variant_name`, property tags via `formula_tag`), and `se_type` /
+`variant_name`), and `se_type` /
 `bit_op_type` compute the SMT-level types (mirroring the validator's
 `bit_op_type`). `src/mc/smt_emit.rs::emit_rust_spec` and
 `src/mc/smt_emit.rs::emit_c_spec` render the standalone z3 binaries from the
@@ -1625,7 +1625,7 @@ flowchart TD
 `convert_expr`, `convert_formula`, `se_type`, `render_se_rust`,
 `render_se_c`, `render_bool_bin_rust`, `render_bool_bin_c`,
 `render_bit_bin_rust`, `render_bit_bin_c` are recursive (self-edges
-omitted). Isolated leaves: `variant_name`, `formula_tag`, `fi_concrete`,
+omitted). Isolated leaves: `variant_name`, `fi_concrete`,
 `SeType::width`, `global_field_index`, `se_uses_step`, `sf_uses_step`,
 `finish_bool_rust`, `finish_bool_c`, `widen_rust`, `widen_c`,
 `rust_str_list`, `c_str_list`, `shift_amt_width`.

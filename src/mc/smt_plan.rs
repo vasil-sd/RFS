@@ -406,10 +406,13 @@ pub fn build_smt_spec(module: &Module, plan: &McPlan) -> Result<SmtSpec, String>
                 _ => unreachable!("enum handled above"),
             }
         };
-        // Literal inits only (v1): no var/state references. An enum var's init
-        // is a variant path - `Color::Red` (qualified) or, for a State-typed
-        // var, the bare state-variant name (both type-check per resolve_path)
-        // - and encodes as the variant's declaration-order index.
+        // Var inits (task 3H, audit rows E4/S1): exactly what exact mode
+        // accepts - constant expressions. An enum var's init is a variant path
+        // - `Color::Red` (qualified) or, for a State-typed var, the bare
+        // state-variant name (both type-check per resolve_path) - and encodes
+        // as the variant's declaration-order index. The literal fast paths are
+        // the common case; anything else is folded through the shared evaluator
+        // in the exact-mode init context (see the `other` arm).
         let init = match &v.init {
             Expr::Int { value } => *value,
             Expr::Bool { value } => u64::from(*value),
@@ -436,10 +439,45 @@ pub fn build_smt_spec(module: &Module, plan: &McPlan) -> Result<SmtSpec, String>
                 })? as u64
             }
             other => {
-                return Err(format!(
-                    "smt-bounded mode requires literal initial values (var '{}' has {:?})",
-                    v.name, other
-                ))
+                // Task 3H: constant-expression fold in the exact-mode init
+                // context - `state` = the initial state, NO vars bound
+                // (`ref_mc_exact.rs` rebuilds an empty vars map per var, so a
+                // later var's init can never reference an earlier one). The
+                // evaluator wraps arithmetic at the typed width exactly like
+                // exact mode; the width check below then guards the folded
+                // constant for the bit-vector encoding.
+                let ctx = crate::mc::ref_mc::EvalCtx {
+                    module,
+                    state: crate::mc::ref_mc::Val::Enum(states[initial_state].clone()),
+                    vars: std::collections::HashMap::new(),
+                    binds: std::collections::HashMap::new(),
+                    bind_types: std::collections::HashMap::new(),
+                };
+                match crate::mc::ref_mc::eval_expr(other, &ctx) {
+                    Ok(crate::mc::ref_mc::Val::Bit(n)) => n,
+                    Ok(crate::mc::ref_mc::Val::Bool(b)) => u64::from(b),
+                    // A state-variant path on an enum-typed var (the bare-name
+                    // form) - encode as the variant's declaration-order index,
+                    // exactly like the Expr::Path fast arm above.
+                    Ok(crate::mc::ref_mc::Val::Enum(name)) => enum_variants
+                        .iter()
+                        .position(|s| s == &name)
+                        .ok_or_else(|| {
+                            format!(
+                                "initial value of var '{}' references unknown variant '{}'",
+                                v.name, name
+                            )
+                        })? as u64,
+                    // Same message exact mode uses (ref_mc_exact.rs) - both
+                    // modes reject identically-worded. (Val has exactly the
+                    // three variants above, so every Ok case is handled.)
+                    Err(_) => {
+                        return Err(format!(
+                            "variable '{}' initializer is not a constant expression (unsupported)",
+                            v.name
+                        ))
+                    }
+                }
             }
         };
         if init >= (1u64 << width.min(64)) {

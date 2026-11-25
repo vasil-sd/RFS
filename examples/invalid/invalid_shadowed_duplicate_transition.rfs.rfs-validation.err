@@ -1,0 +1,2 @@
+RFS validation errors for examples/invalid/invalid_shadowed_duplicate_transition.rfs
+- module 'm' state 'A': duplicate transitions #0 and #1 - identical event pattern and guard; the second is unreachable

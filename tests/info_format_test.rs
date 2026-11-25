@@ -1642,7 +1642,7 @@ fn validate_json_walk_invalid_examples_both_kinds() {
     let doc = rfs::cli::info_format::validate_json_schema();
     let files = rfs::collect_rfs_files(root().join("examples/invalid"))
         .expect("invalid examples directory should exist");
-    assert_eq!(files.len(), 13, "corpus changed: update the pin");
+    assert_eq!(files.len(), 14, "corpus changed: update the pin");
 
     let mut kinds: std::collections::HashSet<&str> = std::collections::HashSet::new();
     for path in &files {
@@ -1726,12 +1726,12 @@ fn validate_json_walk_directory_mode() {
         &invalid_dir,
     )
     .expect("directory validation should run");
-    assert_eq!(failed.len(), 13, "every invalid example must fail");
+    assert_eq!(failed.len(), 14, "every invalid example must fail");
     let text = rfs::cli::commands::validate::render_validate_json(&invalid_dir, true, &failed);
     let json = rfs::json::json_rw::parse(&text).expect("directory document must be valid JSON");
     walk_validate_json(&doc, &json, "directory mode examples/invalid");
     let arr = json.as_arr().cloned().unwrap();
-    assert_eq!(arr.len(), 13);
+    assert_eq!(arr.len(), 14);
     for entry in &arr {
         assert_eq!(entry.get("ok").and_then(|v| v.as_bool()), Some(false));
         assert!(

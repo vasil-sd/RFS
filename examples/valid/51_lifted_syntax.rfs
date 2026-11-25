@@ -1,0 +1,32 @@
+# rfs 1.0
+# 51_lifted_syntax (Phase 18 task 3I): the three lifted restrictions exercised
+# together in one small machine - a job counter that increments on every Job,
+# completes on Finish, and resets on Reset. The lifts: (V17/task 3F) a named
+# field in a formula input_is pattern - `input_is(Job(J(n)))` - a labeled
+# wildcard that constrains nothing; (S4/task 3G) a bare boolean top-level
+# property (`in_states`, checked at every sample) and a top-level next
+# (`count_stays_bounded`, checked from sample 1 on); (E4/S1/task 3H) a
+# constant-expression var init (`init 2 + 3`, folded to 5 - the same constant
+# exact mode produces). The witness-var pattern (count_before set alongside
+# count) pins that every Job increments by exactly one. PASSes under exact MC
+# (complete) and smt-bounded (within bound) - pinned by
+# tests/smt_bounded_test.rs::smt_bounded_task3f_3h_lifted_restrictions.
+module lifted_syntax {
+  enum State { Idle, Busy, Done }
+  initial Idle
+
+  event Job(J(n: bit<8>))
+  event Finish
+  event Reset
+
+  var count: bit<8> init 2 + 3 ;
+  var count_before: bit<8> init 0 ;
+
+  transition Idle on Job(J(_)) { next Busy; set count_before = count; set count = count + 1; }
+  transition Busy on Finish { next Done; }
+  transition Done on Reset { next Idle; set count = 0; }
+
+  prop in_states : state == Idle || state == Busy || state == Done ;
+  prop count_stays_bounded : next (count <= 255) ;
+  prop job_increments : always (input_is(Job(J(n))) -> next (count == count_before + 1)) ;
+}

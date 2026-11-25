@@ -692,6 +692,21 @@ fn pinned(name: &str) -> Pinned {
             trigger_step: None,
             violation_step: None,
         },
+        // Phase 18 task 3I: the lifted-syntax example (named-field input_is,
+        // bare/next top forms, constant-expression init) - re-pinned from the
+        // actual exact-mode output.
+        "51_lifted_syntax.rfs" => Pinned {
+            exit_code: 0,
+            status: "pass-complete",
+            states: 7,
+            transitions: 7,
+            max_depth: 6,
+            reason: None,
+            label: None,
+            step: None,
+            trigger_step: None,
+            violation_step: None,
+        },
         other => panic!(
             "no pinned exact-mode expectation for {other} - add one (re-pin from actual output)"
         ),
@@ -741,12 +756,13 @@ fn mc_exact_results_match_re_pinned_values() {
             n_fail += 1;
         }
     }
-    // Pinned current state: 14 pass-complete, 9 fail (1 property violation on
+    // Pinned current state: 15 pass-complete, 9 fail (1 property violation on
     // 13_properties_safety, 8 deadlocks at terminal states). Example 43 is the
     // first liveness-bearing spec (task 6): pass-complete in both backends;
     // examples 44/45 are the Phase 4 benchmark specs (task 8): pass-complete;
-    // examples 47/48/49 are the Phase 6 task 6 benchmark specs: pass-complete.
-    assert_eq!((n_pass, n_fail), (14, 9), "pass/fail split drifted");
+    // examples 47/48/49 are the Phase 6 task 6 benchmark specs: pass-complete;
+    // example 51 is the Phase 18 task 3I lifted-syntax spec: pass-complete.
+    assert_eq!((n_pass, n_fail), (15, 9), "pass/fail split drifted");
 }
 
 // ---------------------------------------------------------------------------

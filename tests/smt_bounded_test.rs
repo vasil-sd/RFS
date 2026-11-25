@@ -961,3 +961,96 @@ fn smt_bounded_task3d_enum_and_wildcards() {
         }
     }
 }
+
+// ---------------------------------------------------------------------------
+// Task 3I: end-to-end parity leg for the 3F-3H lifted restrictions together.
+// ---------------------------------------------------------------------------
+
+/// One spec exercising ALL THREE lifts at once:
+/// - V17 (task 3F): a named field in a formula input_is pattern (`J(n)`);
+/// - S4 (task 3G): a bare boolean top-level property AND a top-level next;
+/// - E4/S1 (task 3H): a constant-expression var init (`2 + 3`, folds to 5).
+const T3I_LIFTS_SRC: &str = r#"
+module t3i_lifts {
+  enum State { Idle, Busy, Done }
+  initial Idle
+
+  event Job(J(n: bit<8>))
+  event Finish
+  event Reset
+
+  var count: bit<8> init 2 + 3 ;
+  var count_before: bit<8> init 0 ;
+
+  transition Idle on Job(J(_)) { next Busy; set count_before = count; set count = count + 1; }
+  transition Busy on Finish { next Done; }
+  transition Done on Reset { next Idle; set count = 0; }
+
+  prop in_states : state == Idle || state == Busy || state == Done ;
+  prop count_stays_bounded : next (count <= 255) ;
+  prop job_increments : always (input_is(Job(J(n))) -> next (count == count_before + 1)) ;
+}
+"#;
+
+#[test]
+fn smt_bounded_task3f_3h_lifted_restrictions() {
+    if !common::toolchain::z3_available() {
+        eprintln!(
+            "note: z3 not available - SMT bounded suite skipped (set RFS_Z3_DIR or install z3)"
+        );
+        return;
+    }
+    let ir = rfs::parse_source(T3I_LIFTS_SRC).expect("lifts spec must parse");
+    let module = &ir.modules[0];
+
+    // Exact mode FIRST (the Phase 18 authoring discipline): the lifted forms
+    // must model-check PASS complete before any smt-bounded verdict is pinned.
+    let exact = rfs::mc::ref_mc::run(module, &rfs::mc::ref_mc::RefConfig::default())
+        .expect("exact run failed");
+    assert!(
+        matches!(
+            exact.status,
+            rfs::codegen::mc_concepts::ExactStatus::PassComplete
+        ),
+        "the lifts spec must PASS complete under exact mode first"
+    );
+
+    // In-process smt-bounded: same verdict class (pass-within-bound), no
+    // omission warnings - all three lifted forms are DEFAULT class.
+    let smt = rfs::mc::ref_mc::run_smt(module, 6, false, false, "all")
+        .expect("in-process smt run failed");
+    assert_eq!(smt.exit_code, 0, "in-process smt verdict must be pass");
+    assert!(
+        smt.output.contains("PASS WITHIN BOUND 6"),
+        "pinned in-process summary missing:\n{}",
+        smt.output
+    );
+    assert!(
+        smt.warnings.is_empty(),
+        "lifted forms are DEFAULT class - no omission warnings expected: {:?}",
+        smt.warnings
+    );
+
+    // Generated engines (rust + c): byte-identical stdout, pinned summary.
+    let project = rust_e2e_project("task3i");
+    let dir = root().join("target").join("rfs_smt_bounded");
+    std::fs::create_dir_all(&dir).expect("create scratch dir");
+    let c_src = dir.join("smt_task3i_lifts.c");
+    std::fs::write(&c_src, generate("c", T3I_LIFTS_SRC, "task3i_lifts")).expect("write C source");
+    let c_bin = dir.join("smt_task3i_lifts_c");
+    compile_c(&c_src, &c_bin);
+    let r_bin = build_rust(&project, &generate("rust", T3I_LIFTS_SRC, "task3i_lifts"));
+    let args = ["--bound", "6"];
+    let (rc, cout) = run_bin(&c_bin, &args);
+    let (rr, rout) = run_bin(&r_bin, &args);
+    assert_eq!(rr, rc, "exit codes differ\nrust:\n{rout}\nc:\n{cout}");
+    assert_eq!(
+        rout, cout,
+        "stdout differs\n--- rust ---\n{rout}--- c ---\n{cout}"
+    );
+    assert_eq!(rc, 0, "wrong exit code:\n{cout}");
+    assert!(
+        cout.contains("PASS WITHIN BOUND 6"),
+        "pinned generated summary missing:\n{cout}"
+    );
+}

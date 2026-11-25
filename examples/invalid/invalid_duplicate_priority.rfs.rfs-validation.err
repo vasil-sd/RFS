@@ -1,0 +1,2 @@
+RFS validation errors for examples/invalid/invalid_duplicate_priority.rfs
+- module 'm' state 'A': duplicate priority 5 for the same event pattern (transitions #0 and #1)

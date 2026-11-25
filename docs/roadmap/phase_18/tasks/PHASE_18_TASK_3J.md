@@ -41,11 +41,12 @@ gone) and the "Implementation tasks" section (this is item 3J). The cancelled ta
 full original scope is preserved in `PHASE_18_TASK_3E.md` + its CANCELLED status file -
 consult them for the residual-differences detail this task now carries.
 
-### Depends on 3A-3D (closed) AND 3F-3I (lifted) being complete
-The docs describe behavior that must exist first. Do not start 3J before 3F, 3G, 3H and
-3I are done and their exit criteria met - the lifted syntax must validate/model-check and
-be test-pinned BEFORE it is documented. 3A-3D are already complete (their STATUS files
-record what they closed).
+### Depends on 3A-3D (closed) AND 3F-3I + 3L (lifted/changed) being complete
+The docs describe behavior that must exist first. Do not start 3J before 3F, 3G, 3H,
+3I and 3L are done and their exit criteria met - the lifted syntax and the new
+typing/conversion semantics must validate/model-check and be test-pinned BEFORE they
+are documented. 3A-3D are already complete (their STATUS files record what they
+closed). Execution order (user decision): 3I -> 3L -> 3J.
 
 ### What 3A-3D closed (the unification ground truth this task documents)
 - **D1 CLOSED (3A):** a `next`/shifted property body is weak at trace death - an unhandled
@@ -83,6 +84,31 @@ MUST NOT appear in the residual-differences section:
   referencing another var is still rejected by BOTH modes with the identical "not a
   constant expression" message. The old "requires literal initial values" rejection is
   gone.
+
+### Final typing/conversion rules with examples (from task 3L - record in SEMANTICS.md 2.2)
+Task 3L replaces the old "integer literal adapts to the other operand's width; two bare
+literals form a bit<8>" rule with an explicit, no-implicit-conversion rule set. This
+table is the CONTENT of the SEMANTICS.md 2.2 rewrite (action 3J.3 records it in
+normative form; LANGUAGE.md section 9 mirrors it briefly). Main principle: no implicit,
+silent conversions, no silent value precision loss, no silent value truncation - all
+effects visible and controllable by the user. The explicit `bit<N>(...)` cast is the
+ONLY explicitness mechanism - there is no syntactic mask detection (a mask is just a
+bitwise op under rule 10).
+
+| # | Rule | Example | Result + description + rationale |
+|---|------|---------|----------------------------------|
+| 1 | Constant expressions (integer literals only) are full-precision integer literals - folded at compile time with signed i128 intermediates | `prop p : 200 * 200 == 40000 ;` | **OK** - folds to 40000; under the old "two bare literals form bit<8>" rule this would have been 16. Rationale: no silent precision loss in constants (3L requirement 1). |
+| 2 | Constant-expression overflow is an error (never a silent wrap) | `var x: bit<8> init 18446744073709551615 * 18446744073709551615 ;` | **ERROR** "constant expression overflows" - the product exceeds i128. Rationale: no silent overflow/underflow (3L requirement 1). |
+| 3 | Every arithmetic/bitwise operator requires EQUAL operand widths (stated as its own rule) | `var a: bit<2>; var b: bit<4>; set c = a + b ;` | **ERROR** "bitwidth mismatch: bit<2> vs bit<4>" - no silent widening; use an explicit cast. Rationale: 3L requirement 2 (already enforced in code; now stated explicitly). |
+| 4 | Shifts are the sole width exception: result = shifted value's width | `var k: bit<3>; set x = x << k ;` (x: bit<8>) | **OK** - result is bit<8> regardless of k's width. Rationale: 3L requirement 2. |
+| 5 | Shift refinement: a constant value shifted by a VARIABLE amount takes the shift amount's width | `var k: bit<3>; set x = 1 << k ;` (x: bit<3>) | **OK** - result is bit<3> (was bit<8> before this arc). Rationale: a bare literal has no width of its own; the only width present is the shift amount's (3L requirement 2). |
+| 6 | Explicit conversion `bit<N>(expr)`: zero-extension or high-bit truncation, tightest binding, operand must be a bitvector; for any constant C, `bit<N>(C)` = C mod 2^N (the low N bits of its two's-complement representation) | `set x = bit<4>(y) ;` (y: bit<8>) / `set z = bit<16>(w) ;` (w: bit<8>) | **OK** - truncation to the low 4 bits / zero-extension to 16 bits; `bit<4> a + b` groups as `(bit<4> a) + b`. Rationale: 3L requirement 3 - the only way to change width. |
+| 7 | Cast operand restriction: bitvectors only | `bit<4>(true)` / `bit<4>(Mode::Run)` | **ERROR** "cast operand must be a bitvector". Rationale: user decision (b) - bool/enum have their own encodings. |
+| 8 | Positive constant conversion: must fit the target width or be explicitly cast | `var a: bit<4> init 3 ;` / `var a: bit<2> init (2 + 2) ;` / `var a: bit<2> init bit<2>(2 + 2) ;` | **OK** (3 fits bit<4>) / **ERROR** "constant 4 does not fit in bit<2>; use an explicit cast, e.g. bit<2>(2 + 2)" / **OK** - the explicit cast truncates 4 to 0 visibly. Rationale: user rule 1 - no silent truncation; the cast is the visible opt-in. |
+| 9 | Negative constant conversion: two's-complement fit -> warning; explicit cast -> OK; else error | `var a: bit<4> init -5 ;` / `var a: bit<3> init -5 ;` / `var a: bit<3> init bit<3>(1 - 6) ;` | **WARNING** "implicit conversion of negative constant to unsigned bit-vector: -5 becomes 11 (two's complement in bit<4>)" - the value is the two's-complement encoding; the warning forces attention / **ERROR** "constant -5 does not fit in bit<3> (its two's-complement form needs 4 bits); use an explicit cast, e.g. bit<3>(1 - 6)" - abs(-5) = 5 > 2^(3-1) = 4 / **OK** - the explicit cast truncates the two's-complement form ...1011 to 3 bits: 011 = 3, no warning. Rationale: user rule 2 - programmers often use -1 for all-bits-set; familiar, but the implicit signed->unsigned step must be visible, and the cast is always a visible opt-in. |
+| 10 | Bitwise operations on negative constants use the unsigned two's-complement representation of the constant (full precision) | `prop p : 2 + -3 == -1 ;` / `prop p : 2 + (-1) & 1 == 3 ;` / `prop p : 2 + (-4) & 3 == 2 ;` / `var a: bit<4> init (-5) & 15 ;` | All **OK** (the first three properties hold; the fourth validates with no warning) - `-3` folds signed (2 + -3 = -1); `(-1) & 1`: ...1111 & 1 = 1, so 2 + 1 = 3; `(-4) & 3`: ...1100 & 3 = 0, so 2 + 0 = 2; `(-5) & 15` folds to the POSITIVE constant 11, which then converts under rule 8 without any diagnostic. Rationale: user rule 3 - this is also why masking a negative constant works as an escape WITHOUT any syntactic mask detection. |
+| 11 | Comparison with an out-of-range constant | `var x: bit<8>; transition ... where x == 300 { ... }` | **ERROR** - same rule as row 8 (positive out-of-range); truncating to `x == 44` would silently change meaning. Rationale: user decision (d) - "any operation" includes comparisons. |
+| 12 | Init = constant expression: both modes reject identically at validation | `var x: bit<1> init 1 + 1 ;` | **ERROR** in exact AND smt-bounded with the identical message (2 does not fit bit<1>) - eliminates the task-3H divergence (exact used to carry 2 unmasked, SMT rejected). Rationale: 3L requirement 5. |
 
 ### RESIDUAL differences that REMAIN after the whole arc (the section's content)
 These CANNOT be unified - they are inherent to bounded MC or deliberate performance gates:

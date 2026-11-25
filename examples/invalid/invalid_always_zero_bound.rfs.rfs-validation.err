@@ -1,0 +1,2 @@
+RFS validation errors for examples/invalid/invalid_always_zero_bound.rfs
+- module 'always_zero_bound' property 'bad': always[N] requires N >= 1

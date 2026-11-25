@@ -1,0 +1,2 @@
+RFS validation errors for examples/invalid/invalid_bad_version_header.rfs
+- trailing input after RFS source

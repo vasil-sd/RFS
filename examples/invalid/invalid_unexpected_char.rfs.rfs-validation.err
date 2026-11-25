@@ -1,0 +1,2 @@
+RFS validation errors for examples/invalid/invalid_unexpected_char.rfs
+- trailing input after RFS source

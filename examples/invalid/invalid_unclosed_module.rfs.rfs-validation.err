@@ -1,0 +1,2 @@
+RFS validation errors for examples/invalid/invalid_unclosed_module.rfs
+- trailing input after RFS source

@@ -3047,3 +3047,9 @@ PHASE 8 IS NOW COMPLETE.
 - Verification: scratch specs - `init 5 + 1` / `init 2 * 3` / `init state == A` accepted by smt-bounded with the same verdict as exact mode; observation specs prove identical encoding (`state == A -> n == 6` after `init 2 * 3` FAILs at exactly step 2 under BOTH modes - a wrong fold would fail at step 0; `state == A -> f` after `init state == A` PASSes under both); `init a + 1` rejected by both with the byte-identical message. Matrix: cargo test 612/0 (exact baseline), --features smt 639/0 (exact), clippy 71 warning lines = documented baseline with zero new, fmt clean, dev_docs_test 9/9, inventory audit EXACT (SRC 1031 fns / 217 types - unchanged).
 - Findings: (1) the task file's exit-criterion-4 parenthetical is empirically wrong - exact mode ACCEPTS `bit<1> init 1 + 1` (eval_expr folds at the expression's own type, bare literals default to Bit(8), so 1+1=2 carried unmasked in a bit<1> var); SMT's width check rejects it as the task anticipated ("must still fail there") - the residual difference is exact-accepts-out-of-range-inits vs the BV encoding requiring a width-bit numeral (pre-existing for bare literals like `bit<1> init 3`, now also covering folds) - candidate note for task 3J; (2) an initial clippy "unreachable pattern" warning from a redundant `Ok(_)` arm fixed in-work (Val has exactly the three handled variants).
 - Status: docs/roadmap/phase_18/tasks/PHASE_18_TASK_3H_STATUS.md. All three behavior tasks of the restriction arc (3F, 3G, 3H) are now complete; next executable task: 3I (suite adoption + parity pins).
+
+## 2026-11-25 07:30 — Phase 18 task 3I (complete): tests for the 3F-3H lifted restrictions + suite adoption
+
+### Interpretation & plan
+
+- Requested: execute Phase 18 task 3I - positive AND negative test coverage for every restriction lifted by 3F-3H, plus suite adoption of the new accepted syntax (tests only; no engine/validator logic change).

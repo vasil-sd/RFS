@@ -1,0 +1,2 @@
+RFS validation errors for examples/invalid/invalid_tla_set_literal_not_rfs.rfs
+- trailing input after RFS source

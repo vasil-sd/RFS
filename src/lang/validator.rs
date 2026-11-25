@@ -1231,4 +1231,63 @@ mod tests {
         let m = liveness_module("flag until x == 0");
         assert!(!is_safety_formula(&m.properties[0].formula));
     }
+
+    // ------------------------------------------------------------------
+    // Task 3I: pins for the V17 lift (task 3F) - named fields in formula
+    // input_is patterns are labeled wildcards that constrain nothing.
+    // ------------------------------------------------------------------
+
+    #[test]
+    fn formula_input_is_named_fields_validate() {
+        // The lift: a named field in a formula input_is pattern validates -
+        // the bound name constrains nothing (both MC backends render Bind as
+        // a no-constraint match), closing the input/output asymmetry.
+        let m = module_from(
+            "module m { enum State { A, B } initial A event Recv(Ack(x: bit<8>)) \
+             prop p : always (input_is(Recv(Ack(x))) -> state == A) ; }",
+        );
+        assert!(
+            validate_module(&m).is_empty(),
+            "named-field formula input_is must validate: {:?}",
+            validate_module(&m)
+        );
+    }
+
+    #[test]
+    fn transition_pattern_field_typing_still_fires() {
+        // The V17 lift is NARROW: TRANSITION patterns keep full field typing
+        // (V8a) - an out-of-range literal there is still an error.
+        let m = module_from(
+            "module m { enum State { A, B } initial A event Recv(Ack(x: bit<8>)) \
+             transition A on Recv(Ack(300)) { next B; } \
+             transition B on Recv(Ack(_)) { next A; } }",
+        );
+        let errs = validate_module(&m);
+        assert!(
+            errs.iter()
+                .any(|e| e.message.contains("literal 300 does not fit bit<8>")),
+            "transition-pattern V8a must still fire: {errs:?}"
+        );
+    }
+
+    #[test]
+    fn formula_pattern_structural_checks_absent_by_design() {
+        // Formula patterns NEVER had structural checks (task 3F finding):
+        // check_pattern_group / check_output_pattern_group are no-ops, so an
+        // unknown group, an arity mismatch, or an out-of-range literal inside
+        // a formula input_is validates and is soundly VACUOUS in both MC modes
+        // (the atom can never match). Pin the absence so nobody "restores" a
+        // check that never existed.
+        for src in [
+            "module m { enum State { A } initial A event Recv(Ack(x: bit<8>)) prop p : always (input_is(Nope(Q(_))) -> state == A) ; }",
+            "module m { enum State { A } initial A event Recv(Ack(x: bit<8>)) prop p : always (input_is(Recv(Ack(x, y))) -> state == A) ; }",
+            "module m { enum State { A } initial A event Recv(Ack(x: bit<8>)) prop p : always (input_is(Recv(Ack(300))) -> state == A) ; }",
+        ] {
+            let m = module_from(src);
+            assert!(
+                validate_module(&m).is_empty(),
+                "formula patterns are structurally unchecked by design: {src}"
+            );
+        }
+    }
 }

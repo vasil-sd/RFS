@@ -1837,3 +1837,101 @@ fn task3d_enum_patterns_pass_and_fail() {
         "the consumed enum field must print by name {note}:\n{out}"
     );
 }
+
+// ---------------------------------------------------------------------------
+// Task 3I: planner-level pins for the 3F-3H lifts (S4 + E4/S1)
+// ---------------------------------------------------------------------------
+
+/// Parse a spec and run it through the shared SMT planner - the unit-level
+/// view of what build_smt_spec accepts, how it classifies properties, and
+/// what constants it folds.
+fn plan_spec(src: &str) -> rfs::mc::smt_plan::SmtSpec {
+    let ir = rfs::parse_source(src).unwrap_or_else(|e| panic!("spec must parse: {e}"));
+    assert_eq!(ir.modules.len(), 1);
+    let module = &ir.modules[0];
+    let plan = rfs::mc::plan::McPlan::compute(module, &rfs::codegen::AssumptionSelection::All);
+    rfs::mc::smt_plan::build_smt_spec(module, &plan)
+        .unwrap_or_else(|e| panic!("build_smt_spec failed: {e}"))
+}
+
+#[test]
+fn task3i_bare_and_next_top_forms_plan_default_class() {
+    // S4 (task 3G): a bare boolean top form and a top-level next are desugared
+    // to always(...) BEFORE the kind match - they plan without error, take the
+    // Always kind with no bound, and are DEFAULT class (no temporal inside the
+    // wrapper), so no --full-properties gate applies to them.
+    let spec = plan_spec(
+        "module m { enum State { A, B } initial A event E \
+         transition A on E { next B; } transition B on E { next A; } \
+         prop p1 : state == A || state == B ; \
+         prop p2 : next (state == A || state == B) ; }",
+    );
+    assert_eq!(spec.properties.len(), 2);
+    for p in &spec.properties {
+        assert!(
+            matches!(p.kind, rfs::mc::smt_plan::SmtPropKind::Always),
+            "{}: lifted top form must take the Always kind, got {:?}",
+            p.name,
+            p.kind
+        );
+        assert!(
+            p.bound.is_none(),
+            "{}: no bound on a desugared always",
+            p.name
+        );
+        assert!(
+            !p.full,
+            "{}: wrapped bare/next form must be DEFAULT class (gate not weakened)",
+            p.name
+        );
+    }
+}
+
+#[test]
+fn task3i_wrapped_obligation_stays_full_class() {
+    // S4 gate intact: input_is(E) -> bounded_eventually[5] (q) as a top form is
+    // wrapped in always(...) but carries a temporal inside the wrapper -> FULL
+    // class, omitted without --full-properties and checked with it.
+    let spec = plan_spec(
+        "module m { enum State { A, B } initial A event E \
+         transition A on E { next B; } transition B on E { next A; } \
+         prop p : input_is(E) -> bounded_eventually[5] (state == A) ; }",
+    );
+    assert_eq!(spec.properties.len(), 1);
+    let p = &spec.properties[0];
+    assert!(matches!(p.kind, rfs::mc::smt_plan::SmtPropKind::Always));
+    assert!(p.full, "wrapped obligation must stay FULL class");
+}
+
+#[test]
+fn task3i_constant_init_folds_and_var_ref_rejected() {
+    // E4/S1 (task 3H): a constant-expression init folds to the same constant
+    // exact mode produces (5 + 1 -> 6); a var-referencing init is rejected with
+    // the exact-mode-identical message.
+    let spec = plan_spec(
+        "module m { enum State { A, B } initial A event E \
+         var a: bit<8> init 5 + 1 ; \
+         transition A on E { next B; set a = a + 1; } transition B on E { next A; } }",
+    );
+    let v = spec
+        .vars
+        .iter()
+        .find(|v| v.name == "a")
+        .expect("var a in the plan");
+    assert_eq!(v.init, 6, "5 + 1 must fold to the constant 6");
+
+    let ir = rfs::parse_source(
+        "module m { enum State { A, B } initial A event E \
+         var a: bit<8> init 5 ; var b: bit<8> init a + 1 ; \
+         transition A on E { next B; } transition B on E { next A; } }",
+    )
+    .expect("var-ref init spec must parse");
+    let plan =
+        rfs::mc::plan::McPlan::compute(&ir.modules[0], &rfs::codegen::AssumptionSelection::All);
+    let err = rfs::mc::smt_plan::build_smt_spec(&ir.modules[0], &plan)
+        .expect_err("var-referencing init must be rejected");
+    assert_eq!(
+        err,
+        "variable 'b' initializer is not a constant expression (unsupported)"
+    );
+}

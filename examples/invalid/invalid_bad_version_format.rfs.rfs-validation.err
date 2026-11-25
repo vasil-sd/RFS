@@ -1,0 +1,2 @@
+RFS validation errors for examples/invalid/invalid_bad_version_format.rfs
+- module 'm' invalid version header '1.x' (expected X.Y or X.Y.Z)

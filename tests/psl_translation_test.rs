@@ -650,6 +650,26 @@ fn confirm(ctx: &Ctx, f: &rfs::Formula, i: usize) -> Option<(usize, i64)> {
             scan_anchors(ctx, i, end, inner)
         }
         BoundedEventually { bound, inner } => one_shot_obligation(ctx, i, *bound, inner),
+        // Top-level next (task 3G lifted form): the monitor compiles it as a
+        // RangeCheck over the SHIFTED range - inner must hold at every sample
+        // from i+1 on.
+        Next { inner } => {
+            if i + 1 < ctx.n() {
+                scan_anchors(ctx, i + 1, ctx.n(), inner)
+            } else {
+                None
+            }
+        }
+        // Bare boolean top form (task 3G lifted form): checked at every sample
+        // (exact mode's Range::all() anchoring; the monitor compiles it
+        // directly as a RangeCheck over the full range).
+        Expr { .. }
+        | Not { .. }
+        | And { .. }
+        | Or { .. }
+        | Implies { .. }
+        | InputIs { .. }
+        | OutputHas { .. } => scan_anchors(ctx, i, ctx.n(), f),
         _ => panic!("top-level formula is not a monitorable obligation shape: {f:?}"),
     }
 }

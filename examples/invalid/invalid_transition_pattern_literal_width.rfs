@@ -1,0 +1,11 @@
+# rfs 1.0
+# Phase 18 task 3I: the V17 lift (named fields in formula input_is patterns)
+# is NARROW - TRANSITION patterns keep full field typing (V8a). This spec must
+# fail validation: the literal 300 does not fit the bit<8> field of Ack.
+module m {
+  enum State { A, B }
+  initial A
+  event Recv(Ack(x: bit<8>))
+  transition A on Recv(Ack(300)) { next B; }
+  transition B on Recv(Ack(_)) { next A; }
+}

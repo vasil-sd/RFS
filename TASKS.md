@@ -3053,3 +3053,10 @@ PHASE 8 IS NOW COMPLETE.
 ### Interpretation & plan
 
 - Requested: execute Phase 18 task 3I - positive AND negative test coverage for every restriction lifted by 3F-3H, plus suite adoption of the new accepted syntax (tests only; no engine/validator logic change).
+
+### Result
+
+- 10 new tests in `tests/test_phase18_task3i.rs` (5 positive, 5 negative), all passing.
+- Suite adoption: `test_phase18_task3f.rs` and `test_phase18_task3h.rs` updated to the lifted restrictions; `test_phase18_task3g.rs` unchanged.
+- Full suite green: 207 passed, 0 failed (was 197).
+- Committed as `0e992cd`.

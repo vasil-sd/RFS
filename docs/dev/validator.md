@@ -139,10 +139,16 @@ Code: `src/lang/validator.rs::validate_ir`, `src/lang/validator.rs::validate_mod
 ## Expression and formula typing
 
 **The type lattice.** `src/lang/validator.rs::ExprType` has four shapes:
-`Bool`, `Bit(width)`, `IntLit`, and `Enum(name)`. `IntLit` is an UNTYPED
-integer literal that adapts to whatever bit width its context provides -
-literal + literal defaults to `Bit(8)`. This keeps specs readable (no
-width annotations on literals) while generated code gets concrete widths.
+`Bool`, `Bit(width)`, `IntLit`, and `Enum(name)`. `IntLit` is a FULL-PRECISION
+integer constant (task 3L rule 1): integer literals combined with
+arithmetic/bitwise operators and unary minus carry no width of their own -
+they are folded at compile time with signed i128 intermediates by the shared
+stage `src/lang/fold.rs`, overflow is an error, and a constant meeting a
+`Bit(N)` operand goes through rule 4 (`src/lang/fold.rs::const_fit`):
+positive out-of-range is an error naming the cast escape, negative
+two's-complement-fitting is a warning, negative not-fitting is an error. Two
+constants form a full-precision constant (no `Bit(8)` cap). The explicit
+conversion `bit<N>(expr)` is the only width-change mechanism.
 IR types map into the lattice via `src/lang/validator.rs::type_to_expr_type`.
 
 **The environment.** `src/lang/validator.rs::Env` holds per-module name
@@ -168,22 +174,27 @@ via `src/lang/validator.rs::with_binding`.
 **Unary and binary rules.** `src/lang/validator.rs::type_expr` dispatches:
 integers -> IntLit, booleans -> Bool, paths -> resolve_path, unary and
 binary as below. Unary: `!` requires a bool operand and yields bool; `~`
-and `-` require a bitvector (IntLit adapts to Bit(8)). Binary
-(`src/lang/validator.rs::binary_type`):
+and `-` require a bitvector - a bare constant under them stays a
+FULL-PRECISION constant (no Bit(8) default, task 3L rule 1). A cast
+(`bit<N>(expr)`) types as Bit(N); its operand must be a bitvector (a constant
+expression is legal - the cast IS the explicit conversion; bool/enum rejected).
+Binary (`src/lang/validator.rs::binary_type`), under the explicit no-implicit-
+conversion rules (task 3L):
 - logical and/or: both operands must be bool, result bool;
-- comparisons (`==`, `!=`, `<`, `<=`, `>`, `>=`): operands must be
-  compatible (`src/lang/validator.rs::compatible_with`: IntLit adapts to Bit,
-equal types ok, IntLit vs Bool is an error, anything else a mismatch),
-  result bool;
-- plus/minus/star: `src/lang/validator.rs::bit_op_type` - two bitvectors must
-  have EQUAL widths; an IntLit adapts to the other side's width; literal +
-  literal -> Bit(8);
-- shifts: the left operand is a bitvector (IntLit -> Bit(8)); the right may
-  be a bitvector or an integer literal with NO strict width equality -
-  shifting by a wider amount is legal and evaluates to 0 at runtime (the
-  wide-ops parity pins cover this);
+- comparisons (`==`, `!=`, `<`, `<=`, `>`, `>=`): `src/lang/validator.rs::compare_types`
+  - equal types ok; a constant meeting a bit<N> operand goes through rule 4
+  (`src/lang/fold.rs::const_fit`: positive out-of-range is an error, negative
+  two's-complement-fitting is a warning, negative not-fitting is an error);
+  two constants compare at full precision; IntLit vs Bool is an error;
+- plus/minus/star and bitwise: `src/lang/validator.rs::arith_bit_type` - two
+  bitvectors must have EQUAL widths; a constant meeting a bit<N> operand goes
+  through rule 4; two constants form a FULL-PRECISION constant (no Bit(8) cap);
+- shifts (`src/lang/validator.rs::shift_type`): the result takes the shifted
+  VALUE's width; a constant value shifted by a VARIABLE amount takes the shift
+  amount's width (the refinement); two constants form a full-precision constant;
+  the right operand must be a bitvector or integer literal;
 - bitwise and/or: bool + bool is allowed and yields bool (logical use),
-  otherwise bit_op_type; bitwise xor: bit_op_type only.
+  otherwise arith_bit_type; bitwise xor: arith_bit_type only.
 
 **Formula typing.** `src/lang/validator.rs::type_formula` requires every formula
 to be boolean: a bare expression must type-check as bool; `input_is` /
@@ -202,7 +213,8 @@ Code: `src/lang/validator.rs::ExprType`, `src/lang/validator.rs::Env`,
 `src/lang/validator.rs::for_module`, `src/lang/validator.rs::with_binding`,
 `src/lang/validator.rs::type_to_expr_type`, `src/lang/validator.rs::type_expr`,
 `src/lang/validator.rs::resolve_path`, `src/lang/validator.rs::binary_type`,
-`src/lang/validator.rs::bit_op_type`, `src/lang/validator.rs::compatible_with`,
+`src/lang/validator.rs::arith_bit_type`, `src/lang/validator.rs::shift_type`,
+`src/lang/validator.rs::compare_types`, `src/lang/fold.rs::const_fit`,
 `src/lang/validator.rs::type_formula`, `src/lang/validator.rs::is_safety_formula`
 
 <a id="dev:validator-warnings"></a>

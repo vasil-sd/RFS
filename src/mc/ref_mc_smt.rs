@@ -153,12 +153,13 @@ fn cmp_widths_full(l: &Se, r: &Se, spec: &SmtSpec) -> (u32, u32, u32, u32) {
             is_bool: false,
         } = side
         {
+            // Task 3L: literal values are u128 (full-precision folded constants).
             let bits = if *value == 0 {
                 1
             } else {
-                64 - value.leading_zeros()
+                128 - value.leading_zeros()
             };
-            w = w.max(bits);
+            w = w.max(bits as u32);
         }
     }
     let (wl, el) = if matches!(lt, SeType::IntLit) {
@@ -185,8 +186,9 @@ fn shift_amt_width(r: &Se, spec: &SmtSpec, wl: u32) -> u32 {
                 Se::Lit { value, .. } => *value,
                 _ => 0,
             };
-            let bits = if v == 0 { 1 } else { 64 - v.leading_zeros() };
-            wl.max(bits)
+            // Task 3L: literal values are u128 (full-precision folded constants).
+            let bits = if v == 0 { 1 } else { 128 - v.leading_zeros() };
+            wl.max(bits as u32)
         }
         _ => 8,
     }
@@ -218,8 +220,29 @@ fn se_to_z3(
             if *is_bool && !bool_as_bv {
                 SeAst::B(Bool::from_bool(*value != 0))
             } else {
+                // Task 3L: mask the (possibly full-precision folded) literal to
+                // the context width before rendering.
                 let w = expected.unwrap_or(8);
-                SeAst::V(BV::from_u64(*value, w))
+                let m = if w >= 128 {
+                    u128::MAX
+                } else {
+                    (1u128 << w) - 1
+                };
+                SeAst::V(BV::from_u64((*value & m) as u64, w))
+            }
+        }
+        // Explicit conversion cast (task 3L): zero-extension / truncation of the
+        // operand to `width` bits.
+        Se::Cast { width, inner } => {
+            let c = se_to_z3(inner, spec, sv, class, Some(*width), bool_as_bv);
+            let m = if *width >= 128 {
+                u128::MAX
+            } else {
+                (1u128 << width) - 1
+            };
+            match c {
+                SeAst::V(v) => SeAst::V(v.bvand(&BV::from_u64(m as u64, *width))),
+                SeAst::B(_) => unreachable!("cast of a bool-typed expression"),
             }
         }
         Se::State => SeAst::V(sv.s.clone()),
@@ -337,10 +360,19 @@ fn se_to_z3(
                     SeAst::V(out)
                 }
                 Sb::ShiftLeft | Sb::ShiftRight => {
-                    let wl = se_type(l, spec).width();
+                    // Task 3L: the result width is the EXPRESSION's type - the
+                    // shifted value's width, or the shift amount's width when
+                    // the value is a constant (the refinement). Using the left
+                    // operand's width here would render a constant-value shift
+                    // at 8 bits and mismatch the context in the parent ite.
+                    let wl = match (lt, rt) {
+                        (SeType::IntLit, SeType::Bit(b)) => b,
+                        (SeType::Bit(a), _) => a,
+                        _ => 8,
+                    };
                     let w_r = shift_amt_width(r, spec, wl);
                     let w_c = w_r.max(wl);
-                    let a = bv_of(se_to_z3(l, spec, sv, class, None, false));
+                    let a = bv_of(se_to_z3(l, spec, sv, class, Some(wl), false));
                     let b = bv_of(se_to_z3(r, spec, sv, class, Some(w_r), false));
                     let b_c = widen(&b, if w_c == w_r { 0 } else { w_c - w_r });
                     let glit = BV::from_u64(wl as u64, w_c);

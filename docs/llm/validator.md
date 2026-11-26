@@ -23,7 +23,7 @@ never do.
 | `src/lang/validator.rs::validate_output_expr` | emit conformance: bare output ok only for single-variant groups, arity + arg types |
 | `src/lang/validator.rs::type_expr` | expression typing entry (ExprType lattice) |
 | `src/lang/validator.rs::resolve_path` | name resolution: state special-cased; bindings > vars > State variants; qualified paths exactly 2 segments |
-| `src/lang/validator.rs::binary_type` / `src/lang/validator.rs::bit_op_type` | operator rules: width equality, IntLit adapts (lit+lit -> Bit(8)), shifts need no strict right width |
+| `src/lang/validator.rs::binary_type` / `arith_bit_type` / `shift_type` / `compare_types` / `const_fit` | task-3L explicit typing: equal widths; a constant meeting bit<N> goes through rule 4 (positive fit-or-error, negative two's-complement warning-or-error); two constants form a full-precision constant; shift result = value width (const-value + var-amount -> amount width) |
 | `src/lang/validator.rs::type_formula` | formula typing: everything must be boolean; temporal recursion |
 | `src/lang/validator.rs::is_safety_formula` | safety vs liveness classification for MC planning (D-P4-8) |
 | `src/lang/validator.rs::bounded_always_error` | always[N] requires N >= 1, nested included; bounded_eventually[0] stays legal |

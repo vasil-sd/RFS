@@ -272,6 +272,14 @@ pub enum Expr {
         left: Box<Expr>,
         right: Box<Expr>,
     },
+    /// Explicit conversion (task 3L): zero-extension or high-bit truncation to
+    /// `width` bits. The operand must be a bitvector (a constant expression is
+    /// legal - the cast IS the explicit conversion). Additive variant: old IR
+    /// documents never contain it, so `IR_VERSION` stays 1.
+    Cast {
+        width: u32,
+        expr: Box<Expr>,
+    },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -1301,6 +1309,11 @@ impl IrJson for Expr {
                 ("left".into(), left.to_json()?),
                 ("right".into(), right.to_json()?),
             ]),
+            Expr::Cast { width, expr } => Json::obj(vec![
+                ("kind".into(), Json::Str("cast".into())),
+                ("width".into(), uint_json(*width as u64, "width")?),
+                ("expr".into(), expr.to_json()?),
+            ]),
         })
     }
 
@@ -1333,11 +1346,18 @@ impl IrJson for Expr {
                     &format!("{path}.right"),
                 )?),
             }),
+            "cast" => Ok(Expr::Cast {
+                width: uint_field(v, path, "width")? as u32,
+                expr: Box::new(Expr::from_json(
+                    field(v, path, "expr")?,
+                    &format!("{path}.expr"),
+                )?),
+            }),
             got => Err(unknown_kind(
                 "Expr",
                 got,
                 path,
-                &["int", "bool", "path", "unary", "binary"],
+                &["int", "bool", "path", "unary", "binary", "cast"],
             )),
         }
     }
@@ -1524,6 +1544,11 @@ pub fn simplify_expr(e: &Expr) -> Expr {
         Expr::Path { path } => Expr::Path { path: path.clone() },
         Expr::Int { value } => Expr::Int { value: *value },
         Expr::Bool { value } => Expr::Bool { value: *value },
+        // Cast is a passthrough: simplify the operand, keep the width (task 3L).
+        Expr::Cast { width, expr } => Expr::Cast {
+            width: *width,
+            expr: Box::new(simplify_expr(expr)),
+        },
     }
 }
 

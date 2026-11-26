@@ -42,6 +42,7 @@ fn se_uses_step(se: &Se) -> bool {
         Se::Field { .. } => true,
         Se::Lit { .. } => false,
         Se::Not(i) | Se::BitNot(i) | Se::Neg(i) => se_uses_step(i),
+        Se::Cast { inner, .. } => se_uses_step(inner),
         Se::Bin(_, l, r) => se_uses_step(l) || se_uses_step(r),
     }
 }
@@ -215,9 +216,41 @@ fn render_se_rust(
                     *value != 0
                 ))
             } else {
+                // Task 3L: a folded full-precision literal that does not fit the
+                // context width is masked (two's complement); an in-range literal
+                // renders exactly as before (byte-identical pins preserved).
                 let w = expected.unwrap_or(8);
-                r.push(format!("let e{}: BV = BV::from_u64({value}u64, {w});", r.n))
+                let m = if w >= 128 {
+                    u128::MAX
+                } else {
+                    (1u128 << w) - 1
+                };
+                if *value <= m {
+                    r.push(format!(
+                        "let e{}: BV = BV::from_u64({}u64, {w});",
+                        r.n, *value as u64
+                    ))
+                } else {
+                    r.push(format!(
+                        "let e{}: BV = BV::from_u64(({}u128 & {}) as u64, {w});",
+                        r.n, value, m
+                    ))
+                }
             }
+        }
+        // Explicit conversion cast (task 3L): zero-extension / truncation of the
+        // operand to `width` bits.
+        Se::Cast { width, inner } => {
+            let c = render_se_rust(inner, spec, Some(*width), class, false, step, r);
+            let m = if *width >= 128 {
+                u128::MAX
+            } else {
+                (1u128 << width) - 1
+            };
+            r.push(format!(
+                "let e{}: BV = {c}.bvand(&BV::from_u64({}u64, {width}));",
+                r.n, m as u64
+            ))
         }
         Se::State => r.push(format!("let e{}: BV = {};", r.n, state_leaf(step))),
         Se::Var(j) => {
@@ -321,12 +354,13 @@ fn cmp_widths_full(l: &Se, rr: &Se, spec: &SmtSpec) -> (u32, u32, u32, u32) {
             is_bool: false,
         } = side
         {
+            // Task 3L: literal values are u128 (full-precision folded constants).
             let bits = if *value == 0 {
                 1
             } else {
-                64 - value.leading_zeros()
+                128 - value.leading_zeros()
             };
-            w = w.max(bits);
+            w = w.max(bits as u32);
         }
     }
     // Literals render directly at the final width (no extension); other
@@ -1536,8 +1570,9 @@ fn shift_amt_width(rr: &Se, spec: &SmtSpec, wl: u32) -> u32 {
                 Se::Lit { value, .. } => *value,
                 _ => 0,
             };
-            let bits = if v == 0 { 1 } else { 64 - v.leading_zeros() };
-            wl.max(bits)
+            // Task 3L: literal values are u128 (full-precision folded constants).
+            let bits = if v == 0 { 1 } else { 128 - v.leading_zeros() };
+            wl.max(bits as u32)
         }
         _ => 8,
     }
@@ -1556,10 +1591,20 @@ fn render_shift_rust(
     step: &str,
     r: &mut RustRender,
 ) -> String {
-    let wl = se_type(l, spec).width();
+    // Task 3L: the result width is the EXPRESSION's type - the shifted
+    // value's width, or the shift amount's width when the value is a constant
+    // (the refinement). The left operand's width would render a constant-value
+    // shift at 8 bits and mismatch the context in the parent ite.
+    let lt = se_type(l, spec);
+    let rt = se_type(rr, spec);
+    let wl = match (lt, rt) {
+        (SeType::IntLit, SeType::Bit(b)) => b,
+        (SeType::Bit(a), _) => a,
+        _ => 8,
+    };
     let w_r = shift_amt_width(rr, spec, wl);
     let w_c = w_r.max(wl);
-    let a = render_se_rust(l, spec, None, class, false, step, r);
+    let a = render_se_rust(l, spec, Some(wl), class, false, step, r);
     let b = render_se_rust(rr, spec, Some(w_r), class, false, step, r);
     let b_c = if w_c == w_r {
         b.clone()
@@ -1604,10 +1649,20 @@ fn render_shift_c(
     step: &str,
     r: &mut CRender,
 ) -> String {
-    let wl = se_type(l, spec).width();
+    // Task 3L: the result width is the EXPRESSION's type - the shifted
+    // value's width, or the shift amount's width when the value is a constant
+    // (the refinement). The left operand's width would render a constant-value
+    // shift at 8 bits and mismatch the context in the parent ite.
+    let lt = se_type(l, spec);
+    let rt = se_type(rr, spec);
+    let wl = match (lt, rt) {
+        (SeType::IntLit, SeType::Bit(b)) => b,
+        (SeType::Bit(a), _) => a,
+        _ => 8,
+    };
     let w_r = shift_amt_width(rr, spec, wl);
     let w_c = w_r.max(wl);
-    let a = render_se_c(l, spec, None, class, false, step, r);
+    let a = render_se_c(l, spec, Some(wl), class, false, step, r);
     let b = render_se_c(rr, spec, Some(w_r), class, false, step, r);
     let b_c = if w_c == w_r {
         b.clone()
@@ -1660,9 +1715,38 @@ fn render_se_c(
                     if *value != 0 { "true" } else { "false" }
                 ))
             } else {
+                // Task 3L: a folded full-precision literal that does not fit the
+                // context width is masked (two's complement); an in-range literal
+                // renders exactly as before (byte-identical pins preserved). C
+                // widths cap at 64 (audit row C1).
                 let w = expected.unwrap_or(8);
-                r.push(format!("Z3_ast e{} = z3_num(c, {w}, {value}ull);", r.n))
+                let m = if w >= 64 { u64::MAX } else { (1u64 << w) - 1 };
+                if *value <= m as u128 {
+                    r.push(format!(
+                        "Z3_ast e{} = z3_num(c, {w}, {}ull);",
+                        r.n, *value as u64
+                    ))
+                } else {
+                    r.push(format!(
+                        "Z3_ast e{} = z3_num(c, {w}, ({}u128 & {}) as u64);",
+                        r.n, value, m
+                    ))
+                }
             }
+        }
+        // Explicit conversion cast (task 3L): zero-extension / truncation of the
+        // operand to `width` bits.
+        Se::Cast { width, inner } => {
+            let c = render_se_c(inner, spec, Some(*width), class, false, step, r);
+            let m = if *width >= 64 {
+                u64::MAX
+            } else {
+                (1u64 << width) - 1
+            };
+            r.push(format!(
+                "Z3_ast e{} = Z3_mk_bvand(c, {c}, z3_num(c, {width}u, {}ull));",
+                r.n, m
+            ))
         }
         Se::State => {
             if base {

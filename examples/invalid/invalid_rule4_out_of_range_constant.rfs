@@ -1,0 +1,12 @@
+# rfs 1.0
+# Rule 4 violation (task 3L): the constant 300 does not fit bit<8>, and there is
+# no explicit cast. Under the old "integer literal adapts" rule this silently
+# truncated to 44; now it is a validation error naming the value, the width, and
+# the cast escape. (The fix would be `set count = count + bit<8>(300);`.)
+module m {
+  enum State { A }
+  initial A
+  event E
+  var count: bit<8> init 0 ;
+  transition A on E { next A; set count = count + 300; }
+}

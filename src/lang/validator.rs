@@ -1,6 +1,7 @@
 //! Semantic validation and expression typing for RFS IR.
 //! Docs: dev:validator-overview, dev:validator-fatal-pass, dev:validator-typing, dev:validator-warnings, dev:deps-fn-validator, dev:algorithms-parser-validation, llm:validator
 
+use crate::lang::fold::{const_fit, fold_const};
 use crate::lang::ir::*;
 use std::collections::{HashMap, HashSet};
 
@@ -147,13 +148,35 @@ pub fn validate_module(module: &Module) -> Vec<ValidationError> {
     }
 
     for v in &module.vars {
-        if let Err(e) = type_expr(&v.init, &env0) {
-            errors.push(ValidationError::new(format!(
+        let mut warns = Vec::new();
+        match type_expr(&v.init, &env0, &mut warns) {
+            Err(e) => errors.push(ValidationError::new(format!(
                 "module '{}' var '{}' init: {}",
                 module.name, v.name, e
-            )));
-        } else {
-            // initializer literal may adapt to var type; check compatibility loosely.
+            ))),
+            Ok(ty) => {
+                // Rule 4 / requirement 5 (task 3L): a constant-expression init
+                // must fit the var's declared width - both MC modes now reject
+                // identically at validation (the task-3H divergence is gone).
+                if matches!(ty, ExprType::IntLit) {
+                    if let Type::Bit { width } = &v.ty {
+                        match fold_const(&v.init) {
+                            Ok(c) => {
+                                if let Err(e) = const_fit(c, *width, &mut warns) {
+                                    errors.push(ValidationError::new(format!(
+                                        "module '{}' var '{}' init: {}",
+                                        module.name, v.name, e
+                                    )));
+                                }
+                            }
+                            Err(e) => errors.push(ValidationError::new(format!(
+                                "module '{}' var '{}' init: {}",
+                                module.name, v.name, e
+                            ))),
+                        }
+                    }
+                }
+            }
         }
     }
 
@@ -178,9 +201,11 @@ pub fn validate_module(module: &Module) -> Vec<ValidationError> {
         }
 
         if let Some(guard) = &t.guard {
-            if let Err(e) = type_expr(guard, &env) {
+            if let Err(e) = type_expr(guard, &env, &mut Vec::new()) {
                 errors.push(ValidationError::new(format!("{label}: guard: {e}")));
-            } else if let Err(e) = type_expr(guard, &env).and_then(|ty| ty.must_bool("guard")) {
+            } else if let Err(e) =
+                type_expr(guard, &env, &mut Vec::new()).and_then(|ty| ty.must_bool("guard"))
+            {
                 errors.push(ValidationError::new(format!(
                     "{label}: guard must be bool: {e}"
                 )));
@@ -198,7 +223,7 @@ pub fn validate_module(module: &Module) -> Vec<ValidationError> {
                     continue;
                 }
             }
-            if let Err(e) = type_expr(&a.value, &env) {
+            if let Err(e) = type_expr(&a.value, &env, &mut Vec::new()) {
                 errors.push(ValidationError::new(format!(
                     "{label}: set '{}': {e}",
                     a.var
@@ -285,7 +310,7 @@ pub fn validate_module(module: &Module) -> Vec<ValidationError> {
     }
 
     for p in module.properties.iter().chain(module.assumptions.iter()) {
-        if let Err(e) = type_formula(&p.formula, &env0) {
+        if let Err(e) = type_formula(&p.formula, &env0, &mut Vec::new()) {
             errors.push(ValidationError::new(format!(
                 "module '{}' property '{}': {}",
                 module.name, p.name, e
@@ -493,7 +518,8 @@ fn validate_output_expr(o: &OutputExpr, module: &Module, env: &Env) -> Result<()
     }
     if let ConstructorVariant::Struct { fields, .. } = decl {
         for (arg, f) in o.args.iter().zip(fields.iter()) {
-            let ty = type_expr(arg, env).map_err(|e| format!("arg for '{}': {}", f.name, e))?;
+            let ty = type_expr(arg, env, &mut Vec::new())
+                .map_err(|e| format!("arg for '{}': {}", f.name, e))?;
             let expected = type_to_expr_type(&f.ty);
             ty.compatible_with(&expected)
                 .map_err(|e| format!("arg for '{}': {}", f.name, e))?;
@@ -502,34 +528,53 @@ fn validate_output_expr(o: &OutputExpr, module: &Module, env: &Env) -> Result<()
     Ok(())
 }
 
-pub fn type_expr(e: &Expr, env: &Env) -> Result<ExprType, String> {
+/// Type an expression under the explicit no-implicit-conversion rules (task 3L).
+/// `warns` collects rule-4 negative-constant conversion warnings (non-fatal);
+/// fatal fit errors are returned as `Err`. A constant expression (`IntLit`) is
+/// a FULL-PRECISION integer literal - it carries no width of its own and is
+/// checked against a bit<N> context only where it meets one (rule 4).
+pub fn type_expr(e: &Expr, env: &Env, warns: &mut Vec<String>) -> Result<ExprType, String> {
     match e {
         Expr::Int { .. } => Ok(ExprType::IntLit),
         Expr::Bool { .. } => Ok(ExprType::Bool),
         Expr::Path { path } => resolve_path(path, env),
+        // Explicit conversion cast (task 3L): types as Bit(width); the operand
+        // must be a bitvector - a constant expression is legal (the cast IS the
+        // explicit conversion), bool/enum are rejected.
+        Expr::Cast { width, expr } => {
+            let ty = type_expr(expr, env, warns)?;
+            match ty {
+                ExprType::Bit(_) | ExprType::IntLit => Ok(ExprType::Bit(*width)),
+                _ => Err("cast operand must be a bitvector".into()),
+            }
+        }
         Expr::Unary { op, expr } => {
-            let ty = type_expr(expr, env)?;
+            let ty = type_expr(expr, env, warns)?;
             match op {
                 UnaryOp::Not => {
                     ty.must_bool("operand of !")?;
                     Ok(ExprType::Bool)
                 }
-                UnaryOp::BitNot => match ty {
+                // A bare constant under ~ / - stays a full-precision constant
+                // (no bit<8> default - task 3L rule 1).
+                UnaryOp::BitNot | UnaryOp::Neg => match ty {
                     ExprType::Bit(w) => Ok(ExprType::Bit(w)),
-                    ExprType::IntLit => Ok(ExprType::Bit(8)),
-                    _ => Err("bit_not requires bitvector".into()),
-                },
-                UnaryOp::Neg => match ty {
-                    ExprType::Bit(w) => Ok(ExprType::Bit(w)),
-                    ExprType::IntLit => Ok(ExprType::Bit(8)),
-                    _ => Err("negation requires bitvector".into()),
+                    ExprType::IntLit => Ok(ExprType::IntLit),
+                    _ => Err(format!(
+                        "{} requires bitvector",
+                        if matches!(op, UnaryOp::Neg) {
+                            "negation"
+                        } else {
+                            "bit_not"
+                        }
+                    )),
                 },
             }
         }
         Expr::Binary { op, left, right } => {
-            let l = type_expr(left, env)?;
-            let r = type_expr(right, env)?;
-            binary_type(*op, &l, &r)
+            let l = type_expr(left, env, warns)?;
+            let r = type_expr(right, env, warns)?;
+            binary_type(*op, left, right, &l, &r, warns)
         }
     }
 }
@@ -575,7 +620,14 @@ fn resolve_path(path: &[String], env: &Env) -> Result<ExprType, String> {
     Ok(ExprType::Enum(enum_name.clone()))
 }
 
-fn binary_type(op: BinOp, l: &ExprType, r: &ExprType) -> Result<ExprType, String> {
+fn binary_type(
+    op: BinOp,
+    left: &Expr,
+    right: &Expr,
+    l: &ExprType,
+    r: &ExprType,
+    warns: &mut Vec<String>,
+) -> Result<ExprType, String> {
     match op {
         BinOp::LogicAnd | BinOp::LogicOr => {
             l.must_bool("left operand")?;
@@ -583,44 +635,98 @@ fn binary_type(op: BinOp, l: &ExprType, r: &ExprType) -> Result<ExprType, String
             Ok(ExprType::Bool)
         }
         BinOp::Eq | BinOp::NotEq | BinOp::Lt | BinOp::Le | BinOp::Gt | BinOp::Ge => {
-            l.compatible_with(r).map(|_| ExprType::Bool)
+            compare_types(left, right, l, r, warns)?;
+            Ok(ExprType::Bool)
         }
-        BinOp::Plus | BinOp::Minus | BinOp::Star => bit_op_type(l, r),
-        BinOp::ShiftLeft | BinOp::ShiftRight => {
-            let w = match l {
-                ExprType::Bit(w) => *w,
-                ExprType::IntLit => 8,
-                _ => return Err("shift left operand must be bitvector".into()),
-            };
-            // right may be bit or literal; no strict width equality required.
-            if matches!(r, ExprType::Bool | ExprType::Enum(_)) {
-                return Err("shift right operand must be bitvector or integer literal".into());
-            }
-            Ok(ExprType::Bit(w))
-        }
-        BinOp::BitAnd | BinOp::BitOr => {
-            if matches!(l, ExprType::Bool) && matches!(r, ExprType::Bool) {
+        BinOp::Plus | BinOp::Minus | BinOp::Star | BinOp::BitAnd | BinOp::BitOr | BinOp::BitXor => {
+            // Bool &/| act as logical connectives (preserved from before 3L).
+            if matches!(op, BinOp::BitAnd | BinOp::BitOr)
+                && matches!(l, ExprType::Bool)
+                && matches!(r, ExprType::Bool)
+            {
                 return Ok(ExprType::Bool);
             }
-            bit_op_type(l, r)
+            arith_bit_type(left, right, l, r, warns)
         }
-        BinOp::BitXor => bit_op_type(l, r),
+        BinOp::ShiftLeft | BinOp::ShiftRight => shift_type(left, right, l, r, warns),
     }
 }
 
-fn bit_op_type(l: &ExprType, r: &ExprType) -> Result<ExprType, String> {
-    let w = match (l, r) {
+/// Arithmetic / bitwise (non-bool) operand typing: equal widths required;
+/// a constant meeting a bit<N> operand goes through rule 4; two constants form
+/// a full-precision constant (no width cap).
+fn arith_bit_type(
+    left: &Expr,
+    right: &Expr,
+    l: &ExprType,
+    r: &ExprType,
+    warns: &mut Vec<String>,
+) -> Result<ExprType, String> {
+    match (l, r) {
         (ExprType::Bit(a), ExprType::Bit(b)) => {
             if a != b {
                 return Err(format!("bitwidth mismatch: bit<{}> vs bit<{}>", a, b));
             }
-            *a
+            Ok(ExprType::Bit(*a))
         }
-        (ExprType::IntLit, ExprType::Bit(b)) | (ExprType::Bit(b), ExprType::IntLit) => *b,
-        (ExprType::IntLit, ExprType::IntLit) => 8,
-        _ => return Err("bitwise/arithmetic operator requires bitvector operands".into()),
-    };
-    Ok(ExprType::Bit(w))
+        (ExprType::IntLit, ExprType::Bit(b)) => {
+            const_fit(fold_const(left)?, *b, warns)?;
+            Ok(ExprType::Bit(*b))
+        }
+        (ExprType::Bit(b), ExprType::IntLit) => {
+            const_fit(fold_const(right)?, *b, warns)?;
+            Ok(ExprType::Bit(*b))
+        }
+        (ExprType::IntLit, ExprType::IntLit) => Ok(ExprType::IntLit),
+        _ => Err("bitwise/arithmetic operator requires bitvector operands".into()),
+    }
+}
+
+/// Shift typing: the result takes the shifted VALUE's width; a constant value
+/// shifted by a VARIABLE amount takes the shift amount's width (the refinement);
+/// two constants form a full-precision constant. The right operand must be a
+/// bitvector or integer literal.
+fn shift_type(
+    left: &Expr,
+    _right: &Expr,
+    l: &ExprType,
+    r: &ExprType,
+    warns: &mut Vec<String>,
+) -> Result<ExprType, String> {
+    if matches!(r, ExprType::Bool | ExprType::Enum(_)) {
+        return Err("shift right operand must be bitvector or integer literal".into());
+    }
+    match (l, r) {
+        (ExprType::Bit(a), _) => Ok(ExprType::Bit(*a)),
+        (ExprType::IntLit, ExprType::Bit(b)) => {
+            const_fit(fold_const(left)?, *b, warns)?;
+            Ok(ExprType::Bit(*b))
+        }
+        (ExprType::IntLit, ExprType::IntLit) => Ok(ExprType::IntLit),
+        _ => Err("shift left operand must be bitvector".into()),
+    }
+}
+
+/// Comparison typing: equal types, or a constant meeting a bit<N> operand via
+/// rule 4 (decision (d): "any operation" includes comparisons - truncating
+/// `x == 300` to `x == 44` would silently change meaning). Two constants
+/// compare at full precision.
+fn compare_types(
+    left: &Expr,
+    right: &Expr,
+    l: &ExprType,
+    r: &ExprType,
+    warns: &mut Vec<String>,
+) -> Result<(), String> {
+    match (l, r) {
+        (a, b) if a == b => Ok(()),
+        (ExprType::IntLit, ExprType::Bit(b)) => const_fit(fold_const(left)?, *b, warns),
+        (ExprType::Bit(b), ExprType::IntLit) => const_fit(fold_const(right)?, *b, warns),
+        (ExprType::IntLit, ExprType::Bool) | (ExprType::Bool, ExprType::IntLit) => {
+            Err("integer literal cannot be used as bool".into())
+        }
+        (a, b) => Err(format!("type mismatch: {:?} vs {:?}", a, b)),
+    }
 }
 
 impl ExprType {
@@ -631,6 +737,9 @@ impl ExprType {
         }
     }
 
+    /// Lenient type conformance for OUTPUT-PATTERN argument checking (the V8a/
+    /// V8b pattern-matching surface, which task 3L deliberately leaves as-is):
+    /// a literal adapts to the field's bitvector type; equal types match.
     fn compatible_with(&self, other: &ExprType) -> Result<(), String> {
         match (self, other) {
             (ExprType::IntLit, ExprType::Bit(_)) | (ExprType::Bit(_), ExprType::IntLit) => Ok(()),
@@ -660,10 +769,10 @@ pub fn is_safety_formula(f: &Formula) -> bool {
     }
 }
 
-pub fn type_formula(f: &Formula, env: &Env) -> Result<(), String> {
+pub fn type_formula(f: &Formula, env: &Env, warns: &mut Vec<String>) -> Result<(), String> {
     match f {
         Formula::Expr { expr } => {
-            let ty = type_expr(expr, env)?;
+            let ty = type_expr(expr, env, warns)?;
             ty.must_bool("formula expression")?;
             Ok(())
         }
@@ -676,15 +785,15 @@ pub fn type_formula(f: &Formula, env: &Env) -> Result<(), String> {
         | Formula::Always { inner }
         | Formula::BoundedAlways { inner, .. }
         | Formula::BoundedEventually { inner, .. }
-        | Formula::Eventually { inner } => type_formula(inner, env),
+        | Formula::Eventually { inner } => type_formula(inner, env, warns),
         // `p until q` produces a boolean formula; both operands must
         // type-check as boolean.
         Formula::And { left, right }
         | Formula::Or { left, right }
         | Formula::Implies { left, right }
         | Formula::Until { left, right } => {
-            type_formula(left, env)?;
-            type_formula(right, env)
+            type_formula(left, env, warns)?;
+            type_formula(right, env, warns)
         }
     }
 }
@@ -783,6 +892,37 @@ fn contradictory_equalities(e: &Expr) -> Option<(String, u64, u64)> {
 /// Non-fatal Phase 2 diagnostics for one module.
 pub fn module_warnings(module: &Module) -> Vec<String> {
     let mut w: Vec<String> = Vec::new();
+
+    // Rule 4 (task 3L): negative constants implicitly converted to unsigned
+    // bit-vectors are a WARNING. Re-run typing over every expression with a real
+    // collector (validate_module discards these - they are non-fatal).
+    let env0 = Env::for_module(module);
+    for v in &module.vars {
+        // A constant-expression init is also fit-checked against the var's
+        // declared width (rule 4) - validate_module does the same check but
+        // discards its warnings; this is where the negative-constant warning
+        // surfaces.
+        if let Ok(ExprType::IntLit) = type_expr(&v.init, &env0, &mut w) {
+            if let Type::Bit { width } = &v.ty {
+                if let Ok(c) = fold_const(&v.init) {
+                    let _ = const_fit(c, *width, &mut w);
+                }
+            }
+        }
+    }
+    for t in &module.transitions {
+        let mut env = env0.clone();
+        let _ = validate_event_pattern(&t.pattern, module, &mut env);
+        if let Some(guard) = &t.guard {
+            let _ = type_expr(guard, &env, &mut w);
+        }
+        for a in &t.assignments {
+            let _ = type_expr(&a.value, &env, &mut w);
+        }
+    }
+    for p in module.properties.iter().chain(module.assumptions.iter()) {
+        let _ = type_formula(&p.formula, &env0, &mut w);
+    }
 
     // Unreachable states (guards ignored: reachability is over-approximated).
     if let Some(init) = &module.initial_state {
@@ -1288,6 +1428,198 @@ mod tests {
                 validate_module(&m).is_empty(),
                 "formula patterns are structurally unchecked by design: {src}"
             );
+        }
+    }
+
+    // ------------------------------------------------------------------
+    // Task 3L: rule 4 constant conversion, the cast operator, shift refinement.
+    // ------------------------------------------------------------------
+
+    #[test]
+    fn rule4_positive_out_of_range_is_an_error_naming_the_cast() {
+        let m = module_from(
+            "module m { enum State { A } initial A event E output O var x: bit<8> init 0 \
+             transition A on E { next A; set x = x + 300; emit O; } }",
+        );
+        let errs = validate_module(&m);
+        assert!(
+            errs.iter().any(|e| e.message
+                == "module 'm' transition #0: set 'x': constant 300 does not fit in bit<8>; use an explicit cast, e.g. bit<8>(...)"),
+            "pinned rule-4 error expected: {errs:?}"
+        );
+    }
+
+    #[test]
+    fn rule4_masked_constant_folds_positive_and_validates() {
+        // (300 & 255) folds to the positive constant 44, which fits bit<8> -
+        // no diagnostic (a mask is just a bitwise op under rule 1).
+        let m = module_from(
+            "module m { enum State { A } initial A event E output O var x: bit<8> init 0 \
+             transition A on E { next A; set x = x + (300 & 255); emit O; } }",
+        );
+        assert!(validate_module(&m).is_empty());
+    }
+
+    #[test]
+    fn rule4_negative_fitting_is_a_warning_not_an_error() {
+        let m = module_from(
+            "module m { enum State { A } initial A event E output O var a: bit<4> init -5 \
+             transition A on E { next A; set a = a + 1; emit O; } }",
+        );
+        assert!(
+            validate_module(&m).is_empty(),
+            "fitting negative must validate"
+        );
+        let warns = module_warnings(&m);
+        assert!(
+            warns.iter().any(|w| w
+                == "implicit conversion of negative constant to unsigned bit-vector: -5 becomes 11 (two's complement in bit<4>)"),
+            "pinned rule-4 warning expected: {warns:?}"
+        );
+    }
+
+    #[test]
+    fn rule4_negative_not_fitting_is_an_error() {
+        let m = module_from(
+            "module m { enum State { A } initial A event E output O var a: bit<3> init -5 \
+             transition A on E { next A; set a = a + 1; emit O; } }",
+        );
+        let errs = validate_module(&m);
+        assert!(
+            errs.iter().any(|e| e.message
+                == "module 'm' var 'a' init: constant -5 does not fit in bit<3> (its two's-complement form needs 4 bits); use an explicit cast, e.g. bit<3>(...)"),
+            "pinned rule-4 negative error expected: {errs:?}"
+        );
+    }
+
+    #[test]
+    fn rule4_explicit_cast_suppresses_all_diagnostics() {
+        // Cast of a constant expression is LEGAL and the only explicitness
+        // mechanism: no error, no warning.
+        for src in [
+            "module m { enum State { A } initial A event E output O var a: bit<4> init bit<4>(-5) transition A on E { next A; set a = a + 1; emit O; } }",
+            "module m { enum State { A } initial A event E output O var b: bit<3> init bit<3>(1 - 6) transition A on E { next A; set b = b + 1; emit O; } }",
+            "module m { enum State { A } initial A event E output O var x: bit<8> init 0 transition A on E { next A; set x = x + bit<8>(300); emit O; } }",
+        ] {
+            let m = module_from(src);
+            assert!(validate_module(&m).is_empty(), "cast must validate: {src}");
+            assert!(
+                !module_warnings(&m)
+                    .iter()
+                    .any(|w| w.contains("implicit conversion")),
+                "cast must suppress the warning: {src}"
+            );
+        }
+    }
+
+    #[test]
+    fn rule4_masked_negative_folds_positive_no_warning() {
+        // (-5) & 15 folds to the positive constant 11 - converts under rule 8
+        // with no diagnostic (no syntactic mask detection needed).
+        let m = module_from(
+            "module m { enum State { A } initial A event E output O var a: bit<4> init (-5) & 15 \
+             transition A on E { next A; set a = a + 1; emit O; } }",
+        );
+        assert!(validate_module(&m).is_empty());
+        assert!(!module_warnings(&m)
+            .iter()
+            .any(|w| w.contains("implicit conversion")));
+    }
+
+    #[test]
+    fn rule4_comparison_with_out_of_range_constant_is_an_error() {
+        // "Any operation" includes comparisons (user decision d): truncating
+        // `x == 300` to `x == 44` would silently change meaning.
+        let m = module_from(
+            "module m { enum State { A, B } initial A event E output O var x: bit<8> init 0 \
+             transition A on E where x == 300 { next B; emit O; } }",
+        );
+        let errs = validate_module(&m);
+        assert!(
+            errs.iter().any(|e| e
+                .message
+                .contains("constant 300 does not fit in bit<8>; use an explicit cast")),
+            "comparison must apply rule 4: {errs:?}"
+        );
+    }
+
+    #[test]
+    fn cast_operand_must_be_a_bitvector() {
+        for (src, frag) in [
+            (
+                "module m { enum State { A } initial A event E output O var x: bit<8> init 0 transition A on E { next A; set x = bit<4>(true); emit O; } }",
+                "cast operand must be a bitvector",
+            ),
+            (
+                "module m { enum Mode { Run, Stop } enum State { A } initial A event E output O var m: Mode init Mode::Run transition A on E { next A; set m = Mode::Stop; emit O; } prop p : always (bit<4>(Mode::Run) == 0) ; }",
+                "cast operand must be a bitvector",
+            ),
+        ] {
+            let m = module_from(src);
+            let errs = validate_module(&m);
+            assert!(
+                errs.iter().any(|e| e.message.contains(frag)),
+                "expected '{frag}': {errs:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn two_bare_literals_form_a_full_precision_constant() {
+        // 200 * 200 == 40000 type-checks and holds - impossible under the old
+        // "two bare literals form bit<8>" rule (which would give 16).
+        let m = module_from(
+            "module m { enum State { A } initial A event E output O \
+             prop p : 200 * 200 == 40000 ; transition A on E { next A; emit O; } }",
+        );
+        assert!(validate_module(&m).is_empty());
+    }
+
+    #[test]
+    fn constant_expression_overflow_is_an_error() {
+        // (2^64 - 1)^2 exceeds i128::MAX - the fold must error, never wrap.
+        let m = module_from(
+            "module m { enum State { A } initial A event E output O var x: bit<8> init 0 \
+             transition A on E { next A; set x = x + (18446744073709551615 * 18446744073709551615); emit O; } }",
+        );
+        let errs = validate_module(&m);
+        assert!(
+            errs.iter()
+                .any(|e| e.message.contains("constant expression overflows")),
+            "overflow must be an error, never a silent wrap: {errs:?}"
+        );
+    }
+
+    #[test]
+    fn shift_refinement_constant_value_variable_amount_takes_amount_width() {
+        // `1 << k` with k: bit<3> types as bit<3> (was bit<8> before 3L), so it
+        // validates against a bit<3> var - the old rule would have rejected it.
+        let m = module_from(
+            "module m { enum State { A } initial A event E output O var x: bit<3> init 0 var k: bit<3> init 0 \
+             transition A on E { next A; set x = 1 << k; emit O; } }",
+        );
+        assert!(
+            validate_module(&m).is_empty(),
+            "shift refinement must type as the amount's width"
+        );
+        // And a constant value shifted by a constant stays a full-precision
+        // constant (no width at all).
+        let m = module_from(
+            "module m { enum State { A } initial A event E output O \
+             prop p : 1 << 4 == 16 ; transition A on E { next A; emit O; } }",
+        );
+        assert!(validate_module(&m).is_empty());
+    }
+
+    #[test]
+    fn bitwise_two_complement_pins_validate() {
+        // Rule 1: bitwise ops on negative constants use the unsigned
+        // two's-complement representation (full precision).
+        for prop in ["2 + -3 == -1", "2 + ((-1) & 1) == 3", "2 + (-4) & 3 == 2"] {
+            let m = module_from(&format!(
+                "module m {{ enum State {{ A }} initial A event E output O prop p : {prop} ; transition A on E {{ next A; emit O; }} }}"
+            ));
+            assert!(validate_module(&m).is_empty(), "'{prop}' must validate");
         }
     }
 }

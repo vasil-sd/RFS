@@ -15,6 +15,7 @@ use crate::codegen::fsm::{self, FsmVariants, VariantInfo};
 use crate::codegen::ident::{rust_binding_ident, rust_ident, snake};
 use crate::codegen::monitor::{self, AnchorRange, MonNode, MonitorPlan, SignalAtom, SignalExpr};
 use crate::codegen::{AssumptionSelection, BackendOptions, CodegenOutput, PropertyMonitorMode};
+use crate::lang::fold::{fold_const, is_const_expr};
 use crate::lang::ir::*;
 use crate::lang::validator::{self, Env, ExprType};
 use std::collections::{HashMap, HashSet};
@@ -1613,8 +1614,49 @@ fn gen_expr(e: &Expr, env: &Env, ctx: &ExprCtx) -> Result<String, String> {
     // Phase 15 task 2a: the same shared boolean fold as the C backend's
     // gen_expr_c entry - keeps both backends' rendered guards in parity.
     let e = &crate::lang::ir::simplify_expr(e);
-    let ty = validator::type_expr(e, env)?;
+    let ty = validator::type_expr(e, env, &mut Vec::new())?;
+    // Task 3L: fold constant subexpressions to bare literals. A const-const
+    // comparison folds to a boolean literal (signed full precision); any other
+    // maximal constant subtree folds to its exact decimal value - the parent
+    // masks it to the context width (two's complement for negatives).
+    if matches!(
+        e,
+        Expr::Binary {
+            op: BinOp::Eq | BinOp::NotEq | BinOp::Lt | BinOp::Le | BinOp::Gt | BinOp::Ge,
+            ..
+        }
+    ) {
+        if let Expr::Binary { op, left, right } = e {
+            if is_const_expr(left) && is_const_expr(right) {
+                let a = fold_const(left)?;
+                let b = fold_const(right)?;
+                let c = match op {
+                    BinOp::Eq => a == b,
+                    BinOp::NotEq => a != b,
+                    BinOp::Lt => a < b,
+                    BinOp::Le => a <= b,
+                    BinOp::Gt => a > b,
+                    _ => a >= b,
+                };
+                return Ok(if c { "true".into() } else { "false".into() });
+            }
+        }
+    }
+    if !matches!(e, Expr::Int { .. }) && is_const_expr(e) {
+        return Ok(fold_const(e)?.to_string());
+    }
     match e {
+        // Explicit conversion cast (task 3L): zero-extension or high-bit
+        // truncation to `width` bits - the `& mask(width)` handles both.
+        Expr::Cast { width, expr } => {
+            let inner = gen_expr(expr, env, ctx)?;
+            Ok(format!(
+                "{{ let x = {}; ((x as u128) & {}) as {} }}",
+                inner,
+                mask_expr(*width),
+                bit_rust_type(*width)
+            ))
+        }
         Expr::Int { value } => Ok(value.to_string()),
         Expr::Bool { value } => Ok(value.to_string()),
         Expr::Path { path } => {
@@ -1660,8 +1702,8 @@ fn gen_expr(e: &Expr, env: &Env, ctx: &ExprCtx) -> Result<String, String> {
             }
         }
         Expr::Binary { op, left, right } => {
-            let lty = validator::type_expr(left, env)?;
-            let _rty = validator::type_expr(right, env)?;
+            let lty = validator::type_expr(left, env, &mut Vec::new())?;
+            let _rty = validator::type_expr(right, env, &mut Vec::new())?;
             let l = gen_expr(left, env, ctx)?;
             let r = gen_expr(right, env, ctx)?;
             match op {

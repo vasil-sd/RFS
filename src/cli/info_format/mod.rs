@@ -163,6 +163,15 @@ pub fn spec_json_schema() -> SchemaDoc {
                 Field::req("right", FieldType::r#ref("expr"), None),
             ],
         ),
+        // Explicit conversion cast (task 3L): zero-extension / truncation to
+        // `width` bits; the operand must be a bitvector.
+        TaggedVariant::new(
+            "cast",
+            vec![
+                Field::req("width", FieldType::int(), None),
+                Field::req("expr", FieldType::r#ref("expr"), None),
+            ],
+        ),
     ]);
     let formula = FieldType::tagged_union(vec![
         TaggedVariant::new(

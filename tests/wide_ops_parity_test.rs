@@ -367,3 +367,170 @@ fn wide_ops_exact_mc_status_parity() {
 
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+// ---------------------------------------------------------------------------
+// Phase 18 task 3L: cross-backend parity for the explicit cast + folded
+// constants + the shift-width refinement. The generated Rust and C must render
+// `bit<N>(expr)` (zero-extension / truncation), full-precision folded constant
+// subexpressions, and `1 << k` (constant value, variable amount -> the
+// amount's width) BYTE-IDENTICALLY, and match pinned values independent of
+// either backend.
+// ---------------------------------------------------------------------------
+
+const CAST_SPEC: &str = r#"
+module cast_parity {
+  enum State { A, B, C }
+  initial A
+  event E1
+  event E2
+  event E3
+  var hi: bit<8> init 0
+  var lo: bit<4> init 0
+  var k: bit<3> init 0
+  var s: bit<3> init 0
+  transition A on E1 {
+    next B;
+    # Folded constant: (300 & 255) + 56 folds to the positive constant 100.
+    set hi = (300 & 255) + 56;
+  }
+  transition B on E2 {
+    next C;
+    # Truncation cast: the low 4 bits of hi (100) are 0100 = 4.
+    set lo = bit<4>(hi);
+  }
+  transition C on E3 {
+    next A;
+    # Zero-extension cast: 4 widens to a byte, +1 -> 5.
+    set hi = bit<8>(lo) + 1;
+    # Shift refinement: 1 << k with k: bit<3> is a bit<3> value. Simultaneous
+    # updates: s reads the OLD k (0), so s = 1; k becomes 1. Under the pre-3L
+    # rule this expression was bit<8> and would not validate against s.
+    set k = k + 1;
+    set s = 1 << k;
+  }
+}
+"#;
+
+fn cast_generate(backend: &str) -> (String, Option<String>) {
+    let ir = rfs::parse_source(CAST_SPEC).expect("cast spec parses");
+    let backend_def = rfs::codegen::get_backend(backend).expect("backend registered");
+    let out = rfs::codegen::CodegenCommandKind::Production
+        .run(backend_def, &ir, &rfs::codegen::BackendOptions::default())
+        .expect("codegen succeeds");
+    (
+        out.primary_code().to_string(),
+        out.fsm_header.map(|h| h.to_string()),
+    )
+}
+
+#[test]
+fn cast_fold_shift_parity_byte_identical_and_pinned() {
+    if !common::toolchain::available(rfs::cli::ext_tool::ExtTool::RUSTC)
+        || !common::toolchain::available(rfs::cli::ext_tool::ExtTool::GCC)
+    {
+        eprintln!("note: rustc/gcc not available - cast parity differential skipped");
+        return;
+    }
+    let dir = std::env::temp_dir().join(format!("rfs_cast_parity_{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+
+    // Three steps (E1, E2, E3); both drivers print the four vars before and
+    // after each step, in lockstep.
+    let (rust_code, _) = cast_generate("rust");
+    let rust_src = rust_code
+        + "\nfn main() {\n"
+        + "    let mut f = Fsm::new();\n"
+        + "    println!(\"{} {} {} {}\", f.vars.hi, f.vars.lo, f.vars.k, f.vars.s);\n"
+        + "    for input in [Input::E1, Input::E2, Input::E3] {\n"
+        + "        let out = f.step(input).expect(\"step must succeed\");\n"
+        + "        assert!(out.is_empty());\n"
+        + "        println!(\"{} {} {} {}\", f.vars.hi, f.vars.lo, f.vars.k, f.vars.s);\n"
+        + "    }\n"
+        + "}\n";
+    let rust_c = dir.join("cast_rust.rs");
+    std::fs::write(&rust_c, &rust_src).unwrap();
+    let rust_bin = dir.join("cast_rust");
+    let out = Command::new(common::toolchain::rustc())
+        .args(["--edition", "2021"])
+        .arg(&rust_c)
+        .arg("-o")
+        .arg(&rust_bin)
+        .output()
+        .expect("spawn rustc");
+    assert!(
+        out.status.success(),
+        "rustc: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let out = Command::new(&rust_bin).output().expect("run rust driver");
+    assert!(
+        out.status.success(),
+        "rust driver: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let rust_stdout = String::from_utf8_lossy(&out.stdout).to_string();
+
+    let (c_code, c_header) = cast_generate("c");
+    // Production is a header/source pair - the source includes its own header
+    // (rfs_fsm.h), so write it alongside; the quoted include resolves via the
+    // file's own directory.
+    std::fs::write(
+        dir.join("rfs_fsm.h"),
+        c_header.expect("c production fills the header slot"),
+    )
+    .unwrap();
+    let c_src = c_code
+        + "\nstatic void do_step(fsm_t* f, input_t in) {\n"
+        + "    step_result_t r = fsm_step(f, in, 0, 0);\n"
+        + "    if (r.status != RFS_OK) { fprintf(stderr, \"step failed\\n\"); exit(1); }\n"
+        + "    printf(\"%u %u %u %u\\n\", f->vars.hi, f->vars.lo, f->vars.k, f->vars.s);\n"
+        + "}\n"
+        + "int main(void) {\n"
+        + "    fsm_t f;\n"
+        + "    fsm_new(&f);\n"
+        + "    printf(\"%u %u %u %u\\n\", f.vars.hi, f.vars.lo, f.vars.k, f.vars.s);\n"
+        + "    do_step(&f, (input_t){ .kind = INPUT_E1 });\n"
+        + "    do_step(&f, (input_t){ .kind = INPUT_E2 });\n"
+        + "    do_step(&f, (input_t){ .kind = INPUT_E3 });\n"
+        + "    return 0;\n"
+        + "}\n";
+    let c_c = dir.join("cast_c.c");
+    std::fs::write(&c_c, &c_src).unwrap();
+    let c_bin = dir.join("cast_c");
+    let out = Command::new(common::toolchain::gcc())
+        .args(["-Wall", "-Werror", "-o"])
+        .arg(&c_bin)
+        .arg(&c_c)
+        .output()
+        .expect("spawn gcc");
+    assert!(
+        out.status.success(),
+        "gcc: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let out = Command::new(&c_bin).output().expect("run c driver");
+    assert!(
+        out.status.success(),
+        "c driver: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let c_stdout = String::from_utf8_lossy(&out.stdout).to_string();
+
+    // Byte-identical across backends.
+    assert_eq!(
+        rust_stdout, c_stdout,
+        "cast parity drifted\n--- rust ---\n{rust_stdout}\n--- c ---\n{c_stdout}"
+    );
+    // Pinned values independent of either backend: initial 0 0 0 0; after E1
+    // hi = folded constant 100; after E2 lo = truncation of 100 to 4 bits = 4;
+    // after E3 hi = zero-extended 4 + 1 = 5, k = 1, s = 1 << old_k(0) = 1
+    // (simultaneous updates).
+    assert_eq!(
+        rust_stdout.trim(),
+        "0 0 0 0\n100 0 0 0\n100 4 0 0\n5 4 1 1",
+        "pinned cast/fold/shift values drifted: {rust_stdout}"
+    );
+
+    let _ = std::fs::remove_dir_all(&dir);
+}

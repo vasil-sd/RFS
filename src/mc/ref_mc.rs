@@ -55,6 +55,7 @@ use crate::codegen::mc_concepts::{
     JsonIo, JsonStep, McJsonReport, ViolationSpec, EXACT_DEFAULT_MAX_STATES,
     EXACT_DEFAULT_TIMEOUT_SEC, FUZZ_DEFAULT_BOUND, FUZZ_DEFAULT_RUNS, FUZZ_DEFAULT_SEED,
 };
+use crate::lang::fold::{fold_const, is_const_expr};
 use crate::lang::ir::*;
 
 // The counterexample verification re-derives the exact engine's liveness
@@ -97,21 +98,23 @@ impl Val {
 /// Type of an expression subterm (this module's own typing, mirroring the
 /// rules documented in SEMANTICS.md section 2.2).
 #[derive(Debug, Clone, PartialEq, Eq)]
-enum RType {
+pub(crate) enum RType {
     Bool,
     Bit(u32),
     Enum(String),
-    /// Integer literal (adapts to the other operand; bare literals are bit<8>).
+    /// Full-precision integer constant (task 3L rule 1 - no width of its own;
+    /// folded at i128 precision, never silently truncated).
     IntLit,
 }
 
 impl RType {
-    /// Bit width for arithmetic/bitwise results (`IntLit` counts as bit<8>,
-    /// matching the validator's rules).
+    /// Bit width for arithmetic/bitwise results. `IntLit` has NO width
+    /// (full precision - task 3L rule 1): a constant subexpression is folded
+    /// before any masking, so the eval arms that call this never see an
+    /// `IntLit` type on a validated spec.
     fn width(&self) -> Option<u32> {
         match self {
             RType::Bit(w) => Some(*w),
-            RType::IntLit => Some(8),
             _ => None,
         }
     }
@@ -136,8 +139,13 @@ pub(crate) fn state_variants(module: &Module) -> &[String] {
 
 /// Type of one expression (own implementation of the documented typing rules;
 /// validated specs always type-check, so `Err` here marks an internal
-/// invariant failure).
-fn expr_type(e: &Expr, module: &Module, binds: &HashMap<String, Type>) -> Result<RType, String> {
+/// invariant failure). `pub(crate)` so the task-3L equivalence test can compare
+/// it word-for-word against the validator's `type_expr`.
+pub(crate) fn expr_type(
+    e: &Expr,
+    module: &Module,
+    binds: &HashMap<String, Type>,
+) -> Result<RType, String> {
     match e {
         Expr::Int { .. } => Ok(RType::IntLit),
         Expr::Bool { .. } => Ok(RType::Bool),
@@ -179,6 +187,17 @@ fn expr_type(e: &Expr, module: &Module, binds: &HashMap<String, Type>) -> Result
             }
             Ok(RType::Enum(enum_name.clone()))
         }
+        // Explicit conversion cast (task 3L): types as Bit(width); the operand
+        // must be a bitvector - a constant expression is legal (the cast IS
+        // the explicit conversion), bool/enum are rejected. WORD-FOR-WORD the
+        // validator's Cast arm.
+        Expr::Cast { width, expr } => {
+            let ty = expr_type(expr, module, binds)?;
+            match ty {
+                RType::Bit(_) | RType::IntLit => Ok(RType::Bit(*width)),
+                _ => Err("cast operand must be a bitvector".into()),
+            }
+        }
         Expr::Unary { op, expr } => {
             let ty = expr_type(expr, module, binds)?;
             match op {
@@ -188,9 +207,11 @@ fn expr_type(e: &Expr, module: &Module, binds: &HashMap<String, Type>) -> Result
                     }
                     Ok(RType::Bool)
                 }
+                // A bare constant under ~ / - stays a full-precision constant
+                // (no bit<8> default - task 3L rule 1).
                 UnaryOp::BitNot | UnaryOp::Neg => match ty {
                     RType::Bit(w) => Ok(RType::Bit(w)),
-                    RType::IntLit => Ok(RType::Bit(8)),
+                    RType::IntLit => Ok(RType::IntLit),
                     _ => Err("bit_not/neg requires a bitvector operand".into()),
                 },
             }
@@ -198,35 +219,76 @@ fn expr_type(e: &Expr, module: &Module, binds: &HashMap<String, Type>) -> Result
         Expr::Binary { op, left, right } => {
             let l = expr_type(left, module, binds)?;
             let r = expr_type(right, module, binds)?;
-            binary_type(*op, &l, &r)
+            binary_type(*op, left, right, &l, &r)
         }
     }
 }
 
-fn compatible(l: &RType, r: &RType) -> Result<(), String> {
+/// Comparison typing - WORD-FOR-WORD the validator's `compare_types` (task 3L):
+/// equal types, or a constant meeting a bit<N> operand via rule 4. Warnings
+/// are discarded here (the validator is the warning channel); errors propagate.
+fn compatible(left: &Expr, right: &Expr, l: &RType, r: &RType) -> Result<(), String> {
     match (l, r) {
-        (RType::IntLit, RType::Bit(_)) | (RType::Bit(_), RType::IntLit) => Ok(()),
         (a, b) if a == b => Ok(()),
+        (RType::IntLit, RType::Bit(b)) => {
+            crate::lang::fold::const_fit(
+                crate::lang::fold::fold_const(left)?,
+                *b,
+                &mut Vec::new(),
+            )?;
+            Ok(())
+        }
+        (RType::Bit(b), RType::IntLit) => {
+            crate::lang::fold::const_fit(
+                crate::lang::fold::fold_const(right)?,
+                *b,
+                &mut Vec::new(),
+            )?;
+            Ok(())
+        }
         _ => Err(format!("type mismatch: {l:?} vs {r:?}")),
     }
 }
 
-fn bit_op_type(l: &RType, r: &RType) -> Result<RType, String> {
-    let w = match (l, r) {
+/// Arithmetic / bitwise operand typing - WORD-FOR-WORD the validator's
+/// `arith_bit_type` (task 3L): equal widths; a constant meeting a bit<N>
+/// operand goes through rule 4; two constants form a full-precision constant.
+fn bit_op_type(left: &Expr, right: &Expr, l: &RType, r: &RType) -> Result<RType, String> {
+    match (l, r) {
         (RType::Bit(a), RType::Bit(b)) => {
             if a != b {
                 return Err(format!("bitwidth mismatch: bit<{a}> vs bit<{b}>"));
             }
-            *a
+            Ok(RType::Bit(*a))
         }
-        (RType::IntLit, RType::Bit(b)) | (RType::Bit(b), RType::IntLit) => *b,
-        (RType::IntLit, RType::IntLit) => 8,
-        _ => return Err("bitwise/arithmetic operator requires bitvector operands".into()),
-    };
-    Ok(RType::Bit(w))
+        (RType::IntLit, RType::Bit(b)) => {
+            crate::lang::fold::const_fit(
+                crate::lang::fold::fold_const(left)?,
+                *b,
+                &mut Vec::new(),
+            )?;
+            Ok(RType::Bit(*b))
+        }
+        (RType::Bit(b), RType::IntLit) => {
+            crate::lang::fold::const_fit(
+                crate::lang::fold::fold_const(right)?,
+                *b,
+                &mut Vec::new(),
+            )?;
+            Ok(RType::Bit(*b))
+        }
+        (RType::IntLit, RType::IntLit) => Ok(RType::IntLit),
+        _ => Err("bitwise/arithmetic operator requires bitvector operands".into()),
+    }
 }
 
-fn binary_type(op: BinOp, l: &RType, r: &RType) -> Result<RType, String> {
+fn binary_type(
+    op: BinOp,
+    left: &Expr,
+    right: &Expr,
+    l: &RType,
+    r: &RType,
+) -> Result<RType, String> {
     match op {
         BinOp::LogicAnd | BinOp::LogicOr => {
             if !matches!(l, RType::Bool) || !matches!(r, RType::Bool) {
@@ -235,28 +297,39 @@ fn binary_type(op: BinOp, l: &RType, r: &RType) -> Result<RType, String> {
             Ok(RType::Bool)
         }
         BinOp::Eq | BinOp::NotEq | BinOp::Lt | BinOp::Le | BinOp::Gt | BinOp::Ge => {
-            compatible(l, r)?;
+            compatible(left, right, l, r)?;
             Ok(RType::Bool)
         }
-        BinOp::Plus | BinOp::Minus | BinOp::Star => bit_op_type(l, r),
+        BinOp::Plus | BinOp::Minus | BinOp::Star => bit_op_type(left, right, l, r),
         BinOp::ShiftLeft | BinOp::ShiftRight => {
-            let w = match l {
-                RType::Bit(w) => *w,
-                RType::IntLit => 8,
-                _ => return Err("shift left operand must be a bitvector".into()),
-            };
+            // Task 3L: result = shifted value's width; a constant value shifted
+            // by a VARIABLE amount takes the shift amount's width (refinement);
+            // two constants form a full-precision constant. The constant-value
+            // case goes through rule 4 exactly like the validator's shift_type.
             if matches!(r, RType::Bool | RType::Enum(_)) {
                 return Err("shift right operand must be a bitvector or integer literal".into());
             }
-            Ok(RType::Bit(w))
+            match (l, r) {
+                (RType::Bit(a), _) => Ok(RType::Bit(*a)),
+                (RType::IntLit, RType::Bit(b)) => {
+                    crate::lang::fold::const_fit(
+                        crate::lang::fold::fold_const(left)?,
+                        *b,
+                        &mut Vec::new(),
+                    )?;
+                    Ok(RType::Bit(*b))
+                }
+                (RType::IntLit, RType::IntLit) => Ok(RType::IntLit),
+                _ => Err("shift left operand must be a bitvector".into()),
+            }
         }
         BinOp::BitAnd | BinOp::BitOr => {
             if matches!(l, RType::Bool) && matches!(r, RType::Bool) {
                 return Ok(RType::Bool);
             }
-            bit_op_type(l, r)
+            bit_op_type(left, right, l, r)
         }
-        BinOp::BitXor => bit_op_type(l, r),
+        BinOp::BitXor => bit_op_type(left, right, l, r),
     }
 }
 
@@ -280,7 +353,7 @@ pub struct EvalCtx<'a> {
     pub bind_types: HashMap<String, Type>,
 }
 
-fn mask(w: u32) -> u128 {
+pub(crate) fn mask(w: u32) -> u128 {
     if w >= 128 {
         u128::MAX
     } else {
@@ -292,6 +365,41 @@ fn mask(w: u32) -> u128 {
 pub(crate) fn eval_expr(e: &Expr, ctx: &EvalCtx) -> Result<Val, String> {
     let ty = expr_type(e, ctx.module, &ctx.bind_types)?;
     match e {
+        // Task 3L: a const-const comparison folds both sides at full precision
+        // and compares SIGNED (u64 two's-complement would misorder negatives).
+        Expr::Binary { op, left, right }
+            if matches!(
+                op,
+                BinOp::Eq | BinOp::NotEq | BinOp::Lt | BinOp::Le | BinOp::Gt | BinOp::Ge
+            ) && is_const_expr(left)
+                && is_const_expr(right) =>
+        {
+            let a = fold_const(left)?;
+            let b = fold_const(right)?;
+            let c = match op {
+                BinOp::Eq => a == b,
+                BinOp::NotEq => a != b,
+                BinOp::Lt => a < b,
+                BinOp::Le => a <= b,
+                BinOp::Gt => a > b,
+                _ => a >= b,
+            };
+            Ok(Val::Bool(c))
+        }
+        // Task 3L: a maximal constant subexpression folds at full precision;
+        // the parent masks to the context width (two's-complement in 64 bits
+        // masked to N bits is the correct N-bit two's complement).
+        _ if is_const_expr(e) => {
+            let v = fold_const(e)?;
+            Ok(Val::Bit(v as u64))
+        }
+        // Explicit conversion cast (task 3L): evaluate the operand, mask to width.
+        Expr::Cast { width, expr } => {
+            let n = eval_expr(expr, ctx)?
+                .num()
+                .ok_or("cast operand not numeric")?;
+            Ok(Val::Bit((n as u128 & mask(*width)) as u64))
+        }
         Expr::Int { value } => Ok(Val::Bit(*value)),
         Expr::Bool { value } => Ok(Val::Bool(*value)),
         Expr::Path { path } => {
@@ -367,9 +475,12 @@ pub(crate) fn eval_expr(e: &Expr, ctx: &EvalCtx) -> Result<Val, String> {
                     Ok(Val::Bit((res & mask(w)) as u64))
                 }
                 BinOp::ShiftLeft | BinOp::ShiftRight => {
-                    let w = expr_type(left, ctx.module, &ctx.bind_types)?
-                        .width()
-                        .ok_or("shift width")?;
+                    // Task 3L: the result width is the EXPRESSION's type - the
+                    // shifted value's width, or the shift amount's width when
+                    // the value is a constant (the refinement). A bare IntLit
+                    // has no width of its own, so the left operand's type must
+                    // not be used here.
+                    let w = ty.width().ok_or("shift width")?;
                     let a = l.num().ok_or("shift operand not numeric")?;
                     let b = r.num().ok_or("shift amount not numeric")? as u32;
                     // SEMANTICS 2.2: shift by >= width yields 0; >> is logical.
@@ -1798,6 +1909,7 @@ fn expr_has_boolean_op(e: &Expr) -> bool {
     match e {
         Expr::Int { .. } | Expr::Bool { .. } | Expr::Path { .. } => false,
         Expr::Unary { expr, .. } => expr_has_boolean_op(expr),
+        Expr::Cast { expr, .. } => expr_has_boolean_op(expr),
         Expr::Binary { op, left, right } => {
             matches!(op, BinOp::LogicAnd | BinOp::LogicOr)
                 || expr_has_boolean_op(left)
@@ -1864,6 +1976,15 @@ fn print_expr_min(e: &Expr, min_prec: u8) -> String {
         Expr::Int { value } => (value.to_string(), PREC_PRIMARY),
         Expr::Bool { value } => (value.to_string(), PREC_PRIMARY),
         Expr::Path { path } => (path.join("::"), PREC_PRIMARY),
+        // Explicit conversion cast (task 3L): `bit<N>(operand)`, tightest binding.
+        Expr::Cast { width, expr } => {
+            let inner = if matches!(expr.as_ref(), Expr::Path { path } if path.len() == 1) {
+                print_expr_min(expr, PREC_PRIMARY)
+            } else {
+                format!("({})", print_expr_min(expr, 0))
+            };
+            (format!("bit<{}>({})", width, inner), PREC_PRIMARY)
+        }
         Expr::Unary { op, expr } => {
             let inner = print_expr_min(expr, PREC_UNARY);
             let inner = if matches!(expr.as_ref(), Expr::Binary { .. } | Expr::Unary { .. }) {
@@ -3198,6 +3319,100 @@ mod tests {
             .modules
             .pop()
             .expect("module")
+    }
+
+    /// Task 3L: the validator's `type_expr` and this engine's `expr_type`
+    /// must agree WORD-FOR-WORD on every expression form - a drift between
+    /// the two is a bug (the third implementation, smt_plan's `se_type`, is
+    /// pinned by the same corpus end-to-end through smt-bounded runs).
+    #[test]
+    fn typing_equivalence_validator_vs_ref_mc() {
+        let m = module(
+            "module m { enum State { A } initial A event E output O \
+             enum Mode { Run, Stop } \
+             var x: bit<8> init 0 var y: bit<3> init 0 var k: bit<3> init 0 \
+             var b: bool init false var md: Mode init Mode::Run \
+             transition A on E { next A; emit O; } }",
+        );
+        let env = crate::lang::validator::Env::for_module(&m);
+        let binds: HashMap<String, Type> = HashMap::new();
+
+        // (expression source, expected validator type)
+        let corpus: &[(&str, &str)] = &[
+            ("5", "IntLit"),
+            ("-5", "IntLit"),
+            ("~5", "IntLit"),
+            ("200 * 200", "IntLit"),
+            ("(300 & 255)", "IntLit"),
+            ("1 << 4", "IntLit"),
+            ("x + 5", "Bit(8)"),
+            ("5 + x", "Bit(8)"),
+            ("x + y", "ERR"), // bitwidth mismatch: bit<8> vs bit<3>
+            ("y + y", "Bit(3)"),
+            ("x & 255", "Bit(8)"),
+            ("x == 300", "ERR"), // rule 4: positive out-of-range constant
+            ("x == 255", "Bool"),
+            ("x < y", "ERR"),
+            ("b && b", "Bool"),
+            ("!b", "Bool"),
+            ("~x", "Bit(8)"),
+            ("-x", "Bit(8)"),
+            ("x << k", "Bit(8)"), // value's width
+            ("1 << k", "Bit(3)"), // refinement: amount's width
+            ("k << x", "Bit(3)"), // value's width (k)
+            ("bit<4>(x)", "Bit(4)"),
+            ("bit<8>(y)", "Bit(8)"),
+            ("bit<2>(5 + 1)", "Bit(2)"),
+            ("bit<4> x + y", "ERR"), // (bit<4> x) + y: bit<4> vs bit<3>
+            ("bit<4>(true)", "ERR"), // cast operand must be a bitvector
+            ("bit<4>(Mode::Run)", "ERR"),
+            ("md == Mode::Run", "Bool"),
+            ("state == A", "Bool"),
+        ];
+        for &(src, want) in corpus {
+            // Guard position holds a pure Expr (no formula-level operators to
+            // confuse the extraction); parsing does not type-check.
+            let expr = parse_source(&format!(
+                "module m {{ enum State {{ A }} initial A event E output O \
+                 enum Mode {{ Run, Stop }} var x: bit<8> init 0 var y: bit<3> init 0 \
+                 var k: bit<3> init 0 var b: bool init false var md: Mode init Mode::Run \
+                 transition A on E where {src} {{ next A; emit O; }} }}"
+            ))
+            .unwrap_or_else(|err| panic!("parse '{src}': {err}"))
+            .modules
+            .pop()
+            .unwrap()
+            .transitions[0]
+                .guard
+                .clone()
+                .expect("guard present");
+            let v = crate::lang::validator::type_expr(&expr, &env, &mut Vec::new());
+            let r = expr_type(&expr, &m, &binds);
+            match want {
+                "ERR" => {
+                    assert!(v.is_err(), "validator must reject '{src}'");
+                    assert!(r.is_err(), "ref_mc must reject '{src}'");
+                }
+                _ => {
+                    let vt = v.unwrap_or_else(|e| panic!("validator '{src}': {e}"));
+                    let rt = r.unwrap_or_else(|e| panic!("ref_mc '{src}': {e}"));
+                    let vname = match vt {
+                        crate::lang::validator::ExprType::Bool => "Bool".to_string(),
+                        crate::lang::validator::ExprType::Bit(w) => format!("Bit({w})"),
+                        crate::lang::validator::ExprType::IntLit => "IntLit".to_string(),
+                        crate::lang::validator::ExprType::Enum(n) => format!("Enum({n})"),
+                    };
+                    let rname = match rt {
+                        RType::Bool => "Bool".to_string(),
+                        RType::Bit(w) => format!("Bit({w})"),
+                        RType::IntLit => "IntLit".to_string(),
+                        RType::Enum(n) => format!("Enum({n})"),
+                    };
+                    assert_eq!(vname, want, "validator '{src}'");
+                    assert_eq!(rname, want, "ref_mc '{src}' (drift from validator)");
+                }
+            }
+        }
     }
 
     fn cfg() -> RefConfig {

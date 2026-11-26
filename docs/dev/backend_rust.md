@@ -273,11 +273,13 @@ typing every subexpression via `src/lang/validator.rs::type_expr`:
 - shifts saturate to 0 when the shift amount >= width;
 - BitAnd/BitOr/BitXor on bool operands are LOGICAL (& | ^), else u128 + mask.
 
-width_from_type: an expected Bit(w) from the context wins; IntLit adapts to
-8; anything else is an error ("expected bitvector"). This width semantics
-must stay in lockstep with the planner's static evaluator (u128 wrapping +
-mask, shift saturation, bool bitwise = logical) - drift makes planned test
-cases disagree with generated runtime behavior.
+width_from_type: an expected Bit(w) from the context wins; a bare IntLit is
+unreachable in the eval arms (maximal constant subexpressions fold to literals
+first - task 3L rule 1) and falls back to 8 defensively; anything else is an
+error ("expected bitvector"). This width semantics must stay in lockstep with
+the planner's static evaluator (u128 wrapping + mask, shift saturation, bool
+bitwise = logical) - drift makes planned test cases disagree with generated
+runtime behavior.
 
 **MC/test shared renderers.** `src/codegen/backends/rust/fsm.rs::render_mc_step_all`
 (pub(crate)) renders mc_step_all(state, vars, input) -> Vec<McEffect> for the

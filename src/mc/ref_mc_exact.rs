@@ -341,7 +341,21 @@ pub(crate) fn run(module: &Module, cfg: &RefConfig) -> Result<RefResult, String>
             bind_types: HashMap::new(),
         };
         match eval_expr(&v.init, &ctx) {
-            Ok(val) => init_vars.push(val),
+            // Task 3L rule 4: the folded constant is masked to the var's
+            // declared width - a two's-complement-fitting negative init (e.g.
+            // `init -5` on bit<4>) becomes its encoding (11). Validated specs
+            // always fit, so this never changes a positive value.
+            Ok(val) => {
+                let val = match (&v.ty, val) {
+                    (crate::lang::ir::Type::Bit { width }, crate::mc::ref_mc::Val::Bit(n)) => {
+                        crate::mc::ref_mc::Val::Bit(
+                            (n as u128 & crate::mc::ref_mc::mask(*width)) as u64,
+                        )
+                    }
+                    (_, val) => val,
+                };
+                init_vars.push(val);
+            }
             Err(_) => {
                 return Err(format!(
                     "variable '{}' initializer is not a constant expression (unsupported)",

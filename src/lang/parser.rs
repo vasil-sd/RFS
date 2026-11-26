@@ -1235,6 +1235,29 @@ fn primary_expr(i: &str) -> IResult<&str, Expr> {
         let (i4, _) = p_tag(")", i3)?;
         return Ok((i4, e));
     }
+    // Explicit conversion cast (task 3L): `bit<N> <primary>` - the tightest
+    // binding level. The operand is exactly ONE primary (identifier, literal,
+    // parenthesized expression, or a nested cast), so `bit<4> a + b` groups as
+    // `(bit<4> a) + b`. `bit` is reserved in expression position: when the
+    // whole-token `bit` is followed by `<N>` it is always a cast.
+    if let Ok((i2, _)) = soft_keyword(i, "bit") {
+        let (i3, _) = p_space0(i2)?;
+        if let Ok((i4, _)) = p_tag("<", i3) {
+            let (i5, _) = p_space0(i4)?;
+            let (i6, width) = int_lit(i5)?;
+            let (i7, _) = p_space0(i6)?;
+            let (i8, _) = p_tag(">", i7)?;
+            let (i9, _) = p_space0(i8)?;
+            let (i10, operand) = primary_expr(i9)?;
+            return Ok((
+                i10,
+                Expr::Cast {
+                    width: width as u32,
+                    expr: Box::new(operand),
+                },
+            ));
+        }
+    }
     let (i2, path) = ident_path(i)?;
     Ok((i2, Expr::Path { path }))
 }
@@ -2101,6 +2124,123 @@ mod tests {
             assert!(
                 KEYWORDS.contains(&kw),
                 "action keyword '{kw}' missing from KEYWORDS"
+            );
+        }
+    }
+
+    // ------------------------------------------------------------------
+    // Task 3L: the explicit conversion cast `bit<N>(expr)` - tightest binding.
+    // ------------------------------------------------------------------
+
+    fn set_expr(source: &str) -> Expr {
+        let full = format!(
+            "module m {{ enum State {{ A }} initial A event E output O \
+             var a: bit<8> init 0 var b: bit<8> init 0 var k: bit<3> init 0 \
+             transition A on E {{ next A; set a = {}; emit O; }} }}",
+            source
+        );
+        parse_source(&full)
+            .unwrap_or_else(|e| panic!("must parse 'set a = {}': {}", source, e))
+            .modules[0]
+            .transitions[0]
+            .assignments[0]
+            .value
+            .clone()
+    }
+
+    #[test]
+    fn cast_groups_tightest_before_additive() {
+        // `bit<4> a + b` = `(bit<4> a) + b`, NOT `bit<4> (a + b)`.
+        let e = set_expr("bit<4> a + b");
+        match &e {
+            Expr::Binary {
+                op: BinOp::Plus,
+                left,
+                right,
+            } => {
+                assert!(matches!(left.as_ref(), Expr::Cast { width: 4, .. }));
+                assert!(matches!(right.as_ref(), Expr::Path { .. }));
+            }
+            other => panic!("expected (cast a) + b, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn cast_groups_tightest_before_multiplicative() {
+        // `bit<4> a * b` = `(bit<4> a) * b`.
+        let e = set_expr("bit<4> a * b");
+        match &e {
+            Expr::Binary {
+                op: BinOp::Star,
+                left,
+                ..
+            } => {
+                assert!(matches!(left.as_ref(), Expr::Cast { width: 4, .. }));
+            }
+            other => panic!("expected (cast a) * b, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn cast_operand_is_exactly_one_primary() {
+        // A parenthesized expression is one primary: `bit<2>(5 + 1)` parses.
+        let e = set_expr("bit<2>(5 + 1)");
+        match &e {
+            Expr::Cast { width: 2, expr } => {
+                assert!(matches!(
+                    expr.as_ref(),
+                    Expr::Binary {
+                        op: BinOp::Plus,
+                        ..
+                    }
+                ));
+            }
+            other => panic!("expected cast(5 + 1), got {:?}", other),
+        }
+        // A bare binary is NOT one primary: `bit<2> 5 + 1` must not parse as
+        // a cast of the sum (it would be `(bit<2> 5) + 1`, which the operand
+        // grammar rejects - a literal is a primary, so this actually parses as
+        // the cast of 5 followed by `+ 1`; pin that grouping).
+        let e = set_expr("bit<2> 5 + 1");
+        match &e {
+            Expr::Binary {
+                op: BinOp::Plus,
+                left,
+                ..
+            } => {
+                assert!(matches!(left.as_ref(), Expr::Cast { width: 2, .. }));
+            }
+            other => panic!("expected (cast 5) + 1, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn cast_rejects_unary_operand_without_parens() {
+        // `bit<4> -a` does NOT parse (write `bit<4> (-a)`): the operand is
+        // exactly one primary, and unary minus is not a primary.
+        let bad = "module m { enum State { A } initial A event E output O var a: bit<8> init 0 transition A on E { next A; set a = bit<4> -a; emit O; } }";
+        assert!(parse_source(bad).is_err(), "bit<4> -a must not parse");
+        let good = set_expr("bit<4> (-a)");
+        assert!(matches!(good, Expr::Cast { width: 4, .. }));
+    }
+
+    #[test]
+    fn cast_roundtrips_through_printer() {
+        for src in [
+            "bit<4> a + b",
+            "bit<2>(5 + 1)",
+            "bit<4> (-a)",
+            "bit<8>(1) << k",
+        ] {
+            let e = set_expr(src);
+            let printed = crate::lang::printer::print_expr(&e);
+            // Re-parsing the printed form yields a structurally identical expr.
+            let again = set_expr(&printed);
+            assert_eq!(
+                crate::lang::printer::print_expr(&again),
+                printed,
+                "round-trip drifted for '{}'",
+                src
             );
         }
     }

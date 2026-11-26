@@ -13,6 +13,7 @@ use crate::codegen::backends::c::{c_binding_ident, c_ident, c_type, int_c_litera
 use crate::codegen::fsm::{self, FsmVariants, VariantInfo};
 use crate::codegen::monitor::{self, AnchorRange, MonNode, MonitorPlan, SignalAtom, SignalExpr};
 use crate::codegen::{self, BackendOptions, PropertyMonitorMode};
+use crate::lang::fold::{fold_const, is_const_expr};
 use crate::lang::ir::*;
 use crate::lang::validator::{self, Env, ExprType};
 use std::fmt::Write as _;
@@ -799,7 +800,37 @@ fn gen_expr_c(e: &Expr, env: &Env, ctx: &Ctx, module: &Module) -> Result<String,
     // clang's -Wtautological-overlap-compare and in parity with the Rust
     // backend (which applies the same fold at its gen_expr entry).
     let e = &crate::lang::ir::simplify_expr(e);
-    let ty = validator::type_expr(e, env)?;
+    let ty = validator::type_expr(e, env, &mut Vec::new())?;
+    // Task 3L: fold constant subexpressions to bare literals. A const-const
+    // comparison folds to a boolean literal (signed full precision); any other
+    // maximal constant subtree folds to its exact decimal value - the parent
+    // masks it to the context width (two's complement for negatives).
+    if matches!(
+        e,
+        Expr::Binary {
+            op: BinOp::Eq | BinOp::NotEq | BinOp::Lt | BinOp::Le | BinOp::Gt | BinOp::Ge,
+            ..
+        }
+    ) {
+        if let Expr::Binary { op, left, right } = e {
+            if is_const_expr(left) && is_const_expr(right) {
+                let a = fold_const(left)?;
+                let b = fold_const(right)?;
+                let c = match op {
+                    BinOp::Eq => a == b,
+                    BinOp::NotEq => a != b,
+                    BinOp::Lt => a < b,
+                    BinOp::Le => a <= b,
+                    BinOp::Gt => a > b,
+                    _ => a >= b,
+                };
+                return Ok(if c { "true".into() } else { "false".into() });
+            }
+        }
+    }
+    if !matches!(e, Expr::Int { .. }) && is_const_expr(e) {
+        return Ok(fold_const(e)?.to_string());
+    }
     let width = match &ty {
         ExprType::Bit(w) => Some(*w),
         _ => None,
@@ -815,6 +846,17 @@ fn gen_expr_c(e: &Expr, env: &Env, ctx: &Ctx, module: &Module) -> Result<String,
         }
     };
     match e {
+        // Explicit conversion cast (task 3L): zero-extension or high-bit
+        // truncation to `width` bits - the mask handles both, mirroring Rust.
+        Expr::Cast { width: w, expr } => {
+            let inner = gen_expr_c(expr, env, ctx, module)?;
+            Ok(format!(
+                "({})((((uint64_t)({})) & ({})))",
+                crate::codegen::backends::c::bit_c_type(*w).unwrap_or("uint64_t"),
+                inner,
+                mask_c_expr(*w)
+            ))
+        }
         Expr::Int { value } => Ok(int_c_literal(*value, width)),
         Expr::Bool { value } => Ok(if *value {
             "true".into()

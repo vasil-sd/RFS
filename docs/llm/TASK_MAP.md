@@ -36,7 +36,7 @@ Shared infrastructure: external tools `src/cli/ext_tool.rs::ExtTool` / `resolve`
 | Concern | Read fragment | Files/functions |
 |---|---|---|
 | Parsing RFS v0 | dev:parser-overview (+ -grammar / -expressions / -entry-error / -ebnf-model) | `src/lang/parser.rs::parse_source`, `parse_file`; grammar model `src/cli/info_format/ebnf_grammar.rs` (canonical text of DESIGN.md section 6) |
-| Semantic validation | dev:validator-overview (+ -fatal-pass / -typing / -warnings) | `src/lang/validator.rs::validate_ir`, `validate_module`, `module_warnings` |
+| Semantic validation | dev:validator-overview (+ -fatal-pass / -typing / -warnings) | `src/lang/validator.rs::validate_ir`, `validate_module`, `module_warnings`; constant folding `src/lang/fold.rs::is_const_expr`, `fold_const`, `fold_tree` (task 3L rule 1/4) |
 | IR + wire format | dev:ir-model, dev:ir-wire-format | `src/lang/ir.rs::Ir`, `to_json`, `from_json`; `IR_VERSION` read policy {0,1} (D-P5-2) |
 | JSON reader/writer | dev:json-rw | `src/json/json_rw.rs::parse`, `Json` (hand-rolled; the only JSON impl in the toolchain) |
 | JSON Schema emitter | dev:json-schema | `src/json/json_schema.rs` (draft-07 emitter + markdown renderer + sync walker, used by rfs info format) |
@@ -144,6 +144,7 @@ above.
 - `src/cli/commands/mc_ref.rs` - rfs mc-ref: run the reference model checker in-process
 - `src/cli/commands/info.rs` - rfs info: static spec introspection
 - `src/lang/error.rs` - shared source spans and parse-error types
+- `src/lang/fold.rs` - shared full-precision constant folding (task 3L): is_const_expr / fold_const / fold_tree
 - `src/lang/printer.rs` - IR-to-RFS source printer (unparser) and round-trip helpers
 - `src/lang/parser.rs` - RFS v0 source parser (nom-based): spec text to IR
 - `src/lang/validator.rs` - semantic validation and expression typing for RFS IR

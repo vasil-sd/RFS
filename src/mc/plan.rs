@@ -391,6 +391,8 @@ fn collect_paths(e: &Expr, out: &mut HashSet<String>) {
             collect_paths(left, out);
             collect_paths(right, out);
         }
+        // A cast wraps its operand - the reference inside still counts.
+        Expr::Cast { expr, .. } => collect_paths(expr, out),
         _ => {}
     }
 }

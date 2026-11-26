@@ -530,6 +530,14 @@ const UNARY_EXPR: RuleNode = RuleNode::Choice(&[
 const PRIMARY_EXPR: RuleNode = RuleNode::Choice(&[
     RuleNode::NonTerminal("literal"),
     RuleNode::NonTerminal("identifier_path"),
+    // Explicit conversion cast (task 3L): `bit<N> <primary>` - tightest binding.
+    RuleNode::Sequence(&[
+        RuleNode::Terminal("bit"),
+        RuleNode::Terminal("<"),
+        RuleNode::NonTerminal("unsigned_integer_literal"),
+        RuleNode::Terminal(">"),
+        RuleNode::NonTerminal("primary_expr"),
+    ]),
     RuleNode::Sequence(&[
         RuleNode::Terminal("("),
         RuleNode::NonTerminal("expression"),
@@ -696,7 +704,10 @@ pub static RULE_NOTES: &[(&str, &str)] = &[
     ("add_expr", "+ / -"),
     ("mul_expr", "*"),
     ("unary_expr", "Prefix ! ~ -"),
-    ("primary_expr", "Literal, identifier path, or parenthesized expression"),
+    (
+        "primary_expr",
+        "Literal, identifier path, cast `bit<N> <primary>`, or parenthesized expression",
+    ),
     ("literal", "Unsigned integer, true, or false"),
     ("identifier_path", "Identifier with optional :: segments (enum variant paths)"),
     ("identifier", "Letter followed by letters, digits, underscores"),

@@ -78,6 +78,7 @@ src/json/json_rw.rs
 src/json/json_schema.rs
 src/json/mod.rs
 src/lang/error.rs
+src/lang/fold.rs
 src/lang/ir.rs
 src/lang/mod.rs
 src/lang/parser.rs

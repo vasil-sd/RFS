@@ -1888,7 +1888,7 @@ fn no_std_compile_sweep_and_body_parity_all_valid_examples() {
     // diagram tests); generation + body parity run unconditionally.
     let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
     let specs = rfs::collect_rfs_files(root.join("examples/valid")).expect("examples/valid");
-    assert_eq!(specs.len(), 51, "sweep must cover all valid examples");
+    assert_eq!(specs.len(), 52, "sweep must cover all valid examples");
     let have_rustc = common::toolchain::available(rfs::cli::ext_tool::ExtTool::RUSTC);
 
     let dir = std::env::temp_dir().join(format!("rfs_nostd_sweep_{}", std::process::id()));

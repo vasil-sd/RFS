@@ -1227,6 +1227,11 @@ fn eval_expr(e: &Expr, env: &EvalEnv) -> Option<VarValue> {
     match e {
         Expr::Int { value } => Some(VarValue::Int(*value)),
         Expr::Bool { value } => Some(VarValue::Bool(*value)),
+        // Explicit conversion cast (task 3L): evaluate the operand, mask to width.
+        Expr::Cast { width: w, expr } => match eval_expr(expr, env)? {
+            VarValue::Int(x) => Some(VarValue::Int((x as u128 & mask(*w)) as u64)),
+            other => Some(other),
+        },
         Expr::Path { path } => {
             if path.len() == 1 {
                 let name = &path[0];
@@ -1348,7 +1353,7 @@ fn is_state_variant(module: &Module, name: &str) -> bool {
 /// backend's `width_from_type` with no expected context: the expression's
 /// validator type (Bit(w)), or 8 for integer literals.
 fn width_of(e: &Expr, env: &EvalEnv) -> Option<u32> {
-    match validator::type_expr(e, &env.venv).ok()? {
+    match validator::type_expr(e, &env.venv, &mut Vec::new()).ok()? {
         ExprType::Bit(w) => Some(w),
         ExprType::IntLit => Some(8),
         _ => None,
@@ -1357,7 +1362,7 @@ fn width_of(e: &Expr, env: &EvalEnv) -> Option<u32> {
 
 fn is_bool_expr(e: &Expr, env: &EvalEnv) -> bool {
     matches!(
-        validator::type_expr(e, &env.venv).ok(),
+        validator::type_expr(e, &env.venv, &mut Vec::new()).ok(),
         Some(ExprType::Bool)
     )
 }
@@ -2051,7 +2056,7 @@ mod tests {
         let root = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
         let files: Vec<std::path::PathBuf> =
             crate::collect_rfs_files(root.join("examples/valid")).expect("examples");
-        assert_eq!(files.len(), 51, "corpus size");
+        assert_eq!(files.len(), 52, "corpus size");
         for file in &files {
             let src = std::fs::read_to_string(file).expect("read spec");
             let ir = parse_source(&src).expect("parse spec");
@@ -2193,7 +2198,7 @@ mod tests {
         let root = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
         let files: Vec<std::path::PathBuf> =
             crate::collect_rfs_files(root.join("examples/valid")).expect("examples");
-        assert_eq!(files.len(), 51, "corpus size");
+        assert_eq!(files.len(), 52, "corpus size");
         // Recursive signal evaluator for the reference monitors (VarExpr atoms
         // only - the planned traces carry no input/output samples beyond the
         // step input, which is not part of a state/vars atom).

@@ -1035,6 +1035,29 @@
             "right"
           ],
           "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "enum": [
+                "cast"
+              ]
+            },
+            "width": {
+              "type": "integer"
+            },
+            "expr": {
+              "$ref": "#/definitions/expr"
+            }
+          },
+          "required": [
+            "kind",
+            "width",
+            "expr"
+          ],
+          "additionalProperties": false
         }
       ]
     },

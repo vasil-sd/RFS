@@ -1,0 +1,2 @@
+RFS validation errors for examples/invalid/invalid_rule4_out_of_range_constant.rfs
+- module 'm' transition #0: set 'count': constant 300 does not fit in bit<8>; use an explicit cast, e.g. bit<8>(...)

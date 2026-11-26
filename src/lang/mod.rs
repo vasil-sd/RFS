@@ -1,5 +1,6 @@
 //! Docs: dev:code-map-lang
 pub mod error;
+pub mod fold;
 pub mod ir;
 pub mod parser;
 pub mod printer;

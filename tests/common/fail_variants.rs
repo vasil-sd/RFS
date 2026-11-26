@@ -75,7 +75,7 @@ module token_ring {
 
   # Safety: the current holder never has a pending request - flags are only
   # cleared on grant, at the granting step.
-  prop holder_no_request : always (req & (1 << holder) == 0) ;
+  prop holder_no_request : always (req & (bit<8>(1) << holder) == 0) ;
 
   # Liveness: every startup request is eventually granted (nodes 1-3).
   prop req_granted_1 : eventually (req & 2 == 0) ;
@@ -90,7 +90,7 @@ module token_ring {
   # is never inspected - input abstraction collapses it to one value.
   transition Running on Request(R(node, payload)) where node != holder {
     next Running;
-    set req = req | (1 << node);
+    set req = req | (bit<8>(1) << node);
   }
 
   # Token passes to the next node in ring order. If that node has a pending
@@ -159,7 +159,7 @@ module elevator {
   # Safety: the elevator never idles while a passenger waits at its floor
   # (holds at every sample: presses at the current floor are served in the
   # same step, and stops clear both call vectors there).
-  prop idle_no_local_call : always (state == Idle -> up_calls & (1 << pos) == 0 && down_calls & (1 << pos) == 0) ;
+  prop idle_no_local_call : always (state == Idle -> up_calls & (bit<8>(1) << pos) == 0 && down_calls & (bit<8>(1) << pos) == 0) ;
 
   # Liveness: the two startup calls are eventually served.
   prop up2_served : eventually (up_calls & 4 == 0) ;
@@ -177,92 +177,92 @@ module elevator {
     priority 2;
     next Idle;
     emit Serve(S(pos));
-    set up_calls = up_calls & ~(1 << pos);
-    set down_calls = down_calls & ~(1 << pos);
+    set up_calls = up_calls & ~(bit<8>(1) << pos);
+    set down_calls = down_calls & ~(bit<8>(1) << pos);
   }
   transition Idle on CallUp(F(floor, user_id)) where floor != pos {
     priority 1;
     next Idle;
-    set up_calls = up_calls | (1 << floor);
+    set up_calls = up_calls | (bit<8>(1) << floor);
   }
   transition Up on CallUp(F(floor, user_id)) where floor == pos {
     priority 2;
     next Up;
     emit Serve(S(pos));
-    set up_calls = up_calls & ~(1 << pos);
-    set down_calls = down_calls & ~(1 << pos);
+    set up_calls = up_calls & ~(bit<8>(1) << pos);
+    set down_calls = down_calls & ~(bit<8>(1) << pos);
   }
   transition Up on CallUp(F(floor, user_id)) where floor != pos {
     priority 1;
     next Up;
-    set up_calls = up_calls | (1 << floor);
+    set up_calls = up_calls | (bit<8>(1) << floor);
   }
   transition Down on CallUp(F(floor, user_id)) where floor == pos {
     priority 2;
     next Down;
     emit Serve(S(pos));
-    set up_calls = up_calls & ~(1 << pos);
-    set down_calls = down_calls & ~(1 << pos);
+    set up_calls = up_calls & ~(bit<8>(1) << pos);
+    set down_calls = down_calls & ~(bit<8>(1) << pos);
   }
   transition Down on CallUp(F(floor, user_id)) where floor != pos {
     priority 1;
     next Down;
-    set up_calls = up_calls | (1 << floor);
+    set up_calls = up_calls | (bit<8>(1) << floor);
   }
   transition Idle on CallDown(F(floor, user_id)) where floor == pos {
     priority 2;
     next Idle;
     emit Serve(S(pos));
-    set up_calls = up_calls & ~(1 << pos);
-    set down_calls = down_calls & ~(1 << pos);
+    set up_calls = up_calls & ~(bit<8>(1) << pos);
+    set down_calls = down_calls & ~(bit<8>(1) << pos);
   }
   transition Idle on CallDown(F(floor, user_id)) where floor != pos {
     priority 1;
     next Idle;
-    set down_calls = down_calls | (1 << floor);
+    set down_calls = down_calls | (bit<8>(1) << floor);
   }
   transition Up on CallDown(F(floor, user_id)) where floor == pos {
     priority 2;
     next Up;
     emit Serve(S(pos));
-    set up_calls = up_calls & ~(1 << pos);
-    set down_calls = down_calls & ~(1 << pos);
+    set up_calls = up_calls & ~(bit<8>(1) << pos);
+    set down_calls = down_calls & ~(bit<8>(1) << pos);
   }
   transition Up on CallDown(F(floor, user_id)) where floor != pos {
     priority 1;
     next Up;
-    set down_calls = down_calls | (1 << floor);
+    set down_calls = down_calls | (bit<8>(1) << floor);
   }
   transition Down on CallDown(F(floor, user_id)) where floor == pos {
     priority 2;
     next Down;
     emit Serve(S(pos));
-    set up_calls = up_calls & ~(1 << pos);
-    set down_calls = down_calls & ~(1 << pos);
+    set up_calls = up_calls & ~(bit<8>(1) << pos);
+    set down_calls = down_calls & ~(bit<8>(1) << pos);
   }
   transition Down on CallDown(F(floor, user_id)) where floor != pos {
     priority 1;
     next Down;
-    set down_calls = down_calls | (1 << floor);
+    set down_calls = down_calls | (bit<8>(1) << floor);
   }
 
   # Moving up: stop to serve a call at the current floor (arrived with it
   # pending); otherwise keep going up. After serving the last demand the
   # elevator finishes its ascent to the top before reversing or waiting - a
   # documented simplification; at the top, reverse if a call waits below.
-  transition Up on Tick where ((up_calls | down_calls) & (1 << pos)) != 0 {
+  transition Up on Tick where ((up_calls | down_calls) & (bit<8>(1) << pos)) != 0 {
     priority 3;
     next Idle;
     emit Serve(S(pos));
-    set up_calls = up_calls & ~(1 << pos);
-    set down_calls = down_calls & ~(1 << pos);
+    set up_calls = up_calls & ~(bit<8>(1) << pos);
+    set down_calls = down_calls & ~(bit<8>(1) << pos);
   }
   transition Up on Tick where pos < 3 {
     priority 2;
     next Up;
     set pos = pos + 1;
   }
-  transition Up on Tick where pos == 3 && ((up_calls | down_calls) & ((1 << pos) - 1)) != 0 {
+  transition Up on Tick where pos == 3 && ((up_calls | down_calls) & ((bit<8>(1) << pos) - 1)) != 0 {
     priority 1;
     next Down;
   }
@@ -271,19 +271,19 @@ module elevator {
   }
 
   # Moving down: mirror image of the Up arms.
-  transition Down on Tick where ((up_calls | down_calls) & (1 << pos)) != 0 {
+  transition Down on Tick where ((up_calls | down_calls) & (bit<8>(1) << pos)) != 0 {
     priority 3;
     next Idle;
     emit Serve(S(pos));
-    set up_calls = up_calls & ~(1 << pos);
-    set down_calls = down_calls & ~(1 << pos);
+    set up_calls = up_calls & ~(bit<8>(1) << pos);
+    set down_calls = down_calls & ~(bit<8>(1) << pos);
   }
   transition Down on Tick where pos > 0 {
     priority 2;
     next Down;
     set pos = pos - 1;
   }
-  transition Down on Tick where pos == 0 && ((up_calls | down_calls) & ~((1 << (pos + 1)) - 1)) != 0 {
+  transition Down on Tick where pos == 0 && ((up_calls | down_calls) & ~((bit<8>(1) << (pos + 1)) - 1)) != 0 {
     priority 1;
     next Up;
   }
@@ -295,8 +295,8 @@ module elevator {
   # anywhere. No serve arm here: state Idle never has a pending call at the
   # current floor (idle_no_local_call).
   # Call at some floor strictly above pos: floors >= pos minus the current
-  # floor (built from `1 << pos` - `pos + 1` would wrap at the top floor).
-  transition Idle on Tick where ((up_calls | down_calls) & ((1 << pos) - 1)) != 0 {
+  # floor (built from `bit<8>(1) << pos` - `pos + 1` would wrap at the top floor).
+  transition Idle on Tick where ((up_calls | down_calls) & ((bit<8>(1) << pos) - 1)) != 0 {
     priority 1;
     next Down;
   }

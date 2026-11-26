@@ -102,9 +102,10 @@ unqualified identifier in the generated body), `state_variants`, and
 transition, codegen fills `binding_idents`.
 
 **Expression type lattice.** `ExprType = Bool | Bit(width) | IntLit |
-Enum(name)`. `IntLit` is an untyped literal that adapts to any bit
-width in arithmetic (literal + literal -> Bit(8)); the compatibility
-rules live in `compatible_with` / `bit_op_type`.
+Enum(name)`. `IntLit` is a FULL-PRECISION integer constant (task 3L rule 1 -
+no width of its own; folded at i128 precision by `src/lang/fold.rs`, two
+constants stay a full-precision constant); the compatibility rules live in
+`compatible_with` / `bit_op_type` / `const_fit`.
 
 **Fatal invariants (errors).** State enum non-empty; initial state is a
 State variant (and required when transitions exist); version header, if

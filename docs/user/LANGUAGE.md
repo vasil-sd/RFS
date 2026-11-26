@@ -326,6 +326,7 @@ Expressions are pure and total. Operators:
 | `<<`, `>>` | logical shift; amount >= w gives 0; `>>` never sign-extends |
 | `~`, unary `-` | bitwise complement / two's complement (`-x = 0 - x mod 2^w`) |
 | `&`, `\|`, `^` | bitwise; on `bool` operands `&`/`\|` act as logical connectives |
+| `bit<N>(e)` | explicit conversion: zero-extension or high-bit truncation of a bitvector (or constant) to N bits |
 | `==`, `!=` | equality (enums by variant identity) |
 | `<`, `<=`, `>`, `>=` | unsigned comparison of the full values |
 | `!` | boolean negation |
@@ -333,19 +334,53 @@ Expressions are pure and total. Operators:
 
 There is NO division.
 
-Precedence, tightest first: unary (`!` `~` `-`) > `*` > `+` `-` > `<<` `>>`
-> `&` > `^` > `|` > relational (`<` `<=` `>` `>=`) > equality (`==` `!=`) >
-`&&` > `||`. (Relational binds TIGHTER than equality - a parser design detail;
-parenthesize when mixing comparison and equality in nontrivial ways.)
+Precedence, tightest first: the cast `bit<N>(...)` > unary (`!` `~` `-`) > `*`
+> `+` `-` > `<<` `>>` > `&` > `^` > `|` > relational (`<` `<=` `>` `>=`) >
+equality (`==` `!=`) > `&&` > `||`. The cast binds MOST tightly and takes
+exactly one primary operand: `bit<4> a + b` groups as `(bit<4> a) + b`, and
+`bit<4> -a` does not parse (write `bit<4> (-a)`). (Relational binds TIGHTER
+than equality - a parser design detail; parenthesize when mixing comparison
+and equality in nontrivial ways.)
 
-Typing rules:
+Typing rules (explicit - no implicit conversions, no silent precision loss):
 
-- arithmetic/bitwise: both operands the same bitvector width (an integer
-  literal adapts to the other operand's width; two bare literals form `bit<8>`);
-- comparisons: identical types, or a literal against a vector;
-- shifts: bitvector left operand, bitvector-or-literal right operand (no width
-  equality required);
-- logical operators: boolean operands.
+- constant expressions (integer literals combined with arithmetic/bitwise ops
+  and unary minus) are FULL-PRECISION integer literals, folded at compile time
+  with signed i128 intermediates; overflow is an error, never a silent wrap;
+- every arithmetic/bitwise operator requires EQUAL operand widths - a constant
+  meeting a `bit<N>` operand is checked against that width (the rule below),
+  and two constants form a full-precision constant;
+- shifts are the sole width exception: the result takes the shifted VALUE's
+  width, except a constant value shifted by a VARIABLE amount, which takes the
+  shift amount's width (`1 << k` with `k: bit<3>` is a `bit<3>`);
+- comparisons require identical types or a constant against a vector (the
+  constant must fit - see below);
+- logical operators require boolean operands.
+
+### Explicit conversion and constant-to-bitvector rules
+
+The `bit<N>(expr)` cast is the ONLY way to change a value's width: it
+zero-extends or truncates to the low N bits, and its operand must be a
+bitvector (a constant expression IS a legal operand - the cast is an explicit
+conversion; for any constant C, `bit<N>(C)` = C mod 2^N). Converting a
+constant to a bitvector WITHOUT a cast follows strict rules:
+
+- a POSITIVE constant that does not fit the target width is an ERROR unless
+  explicitly cast: `var a: bit<2> init (2 + 2);` is rejected, while
+  `init bit<2>(2 + 2);` truncates 4 to 0 visibly;
+- a NEGATIVE constant whose two's-complement form fits (`abs(C) <= 2^(N-1)`)
+  converts with a WARNING ("implicit conversion of negative constant to
+  unsigned bit-vector") - the value is the two's-complement encoding, and an
+  explicit cast suppresses the warning: `var a: bit<4> init -5;` warns and
+  stores 11, while `init bit<4>(-5);` is silent;
+- a NEGATIVE constant whose two's-complement form does not fit is an ERROR
+  unless explicitly cast: `var a: bit<3> init -5;` is rejected, while
+  `init bit<3>(1 - 6);` truncates ...1011 to 011 = 3;
+- bitwise operations on negative constants use the unsigned two's-complement
+  representation of the constant (full precision): `2 + (-1) & 1 == 3` and
+  `2 + (-4) & 3 == 2` hold, and masking a negative constant folds to an
+  ordinary positive constant - `(-5) & 15` is 11, which then converts without
+  any diagnostic (no syntactic mask detection is needed).
 
 ## 10. A complete example, line by line
 

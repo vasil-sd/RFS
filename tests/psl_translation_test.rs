@@ -337,6 +337,14 @@ fn eval_expr(ctx: &Ctx, e: &rfs::Expr, s: &PslSample) -> Val {
                 Val::Ident(name.clone())
             }
         }
+        // Explicit conversion cast (task 3L): evaluate the operand, mask to width.
+        Cast { width, expr } => match eval_expr(ctx, expr, s) {
+            Val::Bit { value, .. } => Val::Bit {
+                width: *width,
+                value: value & Ctx::mask(*width),
+            },
+            other => other,
+        },
         Unary { op, expr } => {
             let v = eval_expr(ctx, expr, s);
             match (*op, &v) {

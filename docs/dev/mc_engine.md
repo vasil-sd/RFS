@@ -447,9 +447,12 @@ walks property formulas with NO payload context (an empty variant view).
 
 **Typing.** `src/mc/smt_plan.rs::SeType` (Bool / Bit(w) / IntLit) +
 `src/mc/smt_plan.rs::se_type`: bottom-up typing computed with EXACTLY the validator's
-rules - integer literals default to Bit(8) and are lifted by their parent per the
-binary-op rules (`src/mc/smt_plan.rs::bit_op_type`: (Bit(a), Bit(b)) requires a == b,
-IntLit lifts to the sibling's width, (IntLit, IntLit) -> Bit(8)). The spec is already
+rules - integer constants are FULL-PRECISION (task 3L rule 1: no Bit(8) default;
+`convert_expr` folds maximal constant subexpressions to single literals first, so
+(IntLit, IntLit) binary nodes never occur) and lift to a bitvector operand's width
+per the binary-op rules (`src/mc/smt_plan.rs::bit_op_type`: (Bit(a), Bit(b)) requires
+a == b, IntLit lifts to the sibling's width); a constant value shifted by a VARIABLE
+amount takes the shift amount's width (the refinement). The spec is already
 validated, so this never fails; both emitters use it to pick z3 constructors (Bool vs
 bitvector) and to mask literals to the right width.
 

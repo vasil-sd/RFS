@@ -3060,3 +3060,22 @@ PHASE 8 IS NOW COMPLETE.
 - Suite adoption: `test_phase18_task3f.rs` and `test_phase18_task3h.rs` updated to the lifted restrictions; `test_phase18_task3g.rs` unchanged.
 - Full suite green: 207 passed, 0 failed (was 197).
 - Committed as `0e992cd`.
+
+## 2026-11-26 13:39 — Phase 18 task 3L (complete): exact semantics for arithmetic + value conversion (constant folding, explicit typing, explicit casts)
+
+### Interpretation & plan
+
+- Requested: give the expression language an EXACT, no-implicit-conversion semantics. (1) constant expressions (integer literals only) are full-precision integer literals folded at compile time (signed i128, overflow = error, never a silent wrap); bitwise ops on negative constants use the unsigned two's-complement representation (`2 + -3 == -1`, `2 + (-1) & 1 == 3`, `2 + (-4) & 3 == 2`). (2) typing stated as separate explicit rules: equal operand widths; shifts the sole exception (result = shifted value's width; constant value + variable amount -> the amount's width). (3) a new explicit conversion operator `bit<N>(expr)` - tightest binding, zero-extension/truncation, bitvector operands only (a constant IS legal - the cast is the only explicitness mechanism). (4) rule 4 constant-to-bitvector conversion: positive out-of-range = error unless cast; negative two's-complement-fitting = warning (value = two's complement); negative not fitting = error unless cast. (5) eliminate the task-3H init divergence at validation level.
+- Plan: shared fold stage -> Cast IR variant + parser + printer -> rewrite typing in all three implementations (validator/ref_mc/smt_plan, word-for-word) + rule 4 -> both codegen backends -> remaining Expr consumers + grammar model -> examples first + corpus sweep -> normative docs -> inventory sync + full matrix.
+
+### Report
+
+- New `src/lang/fold.rs`: `is_const_expr` / `fold_const` (i128, overflow->Err, native two's-complement) / `fold_tree` / `const_fit` (rule 4, moved here from validator.rs as the shared check).
+- `Expr::Cast { width, expr }` added to the IR (additive - IR_VERSION stays 1), parser `primary_expr` arm (`bit<N>` + exactly one primary; `bit<4> a + b` = `(bit<4> a) + b`; `bit<4> -a` does not parse), printer form with paren rules, JSON arms.
+- Typing rewritten in ALL THREE implementations to the explicit no-implicit-conversion rules (IntLit full-precision, rule-4 const_fit at compare/arith/shift sites, Cast typing, shift refinement) and kept word-for-word equivalent - a new 27-expression equivalence test pins validator vs ref_mc; smt se_type pinned end-to-end.
+- Both codegen backends render Cast (u128 intermediate + mask) and fold constants to bare literals; SMT executor + both emitters fixed so a constant-value shift renders at the EXPRESSION's type width (was the left operand's - the refinement made `set x = 1 << k` on a narrow x reachable and it panicked/mismatched before).
+- Rule 4 init fit check in validate_module (requirement 5) + the negative-constant WARNING surfaced through module_warnings (it was discarded before); both engines mask two's-complement-fitting negative inits to the declared width (exact no longer carries the unmasked 64-bit value, SMT no longer rejects what exact accepted).
+- Examples: new `examples/valid/52_explicit_casts.rfs` + `examples/invalid/invalid_rule4_out_of_range_constant.rfs`; corpus sweep fixed `44_token_ring.rfs` / `45_elevator.rfs` (`1 << node` -> `bit<8>(1) << node`).
+- Docs: SEMANTICS.md 2.2 rewritten as explicit rules R1-R5 + 2.4 init semantics (retiring `[^init-order]`); DESIGN.md 5.9/6 (cast in supported list + precedence table + EBNF production); LANGUAGE.md section 9 (explicit rule list + worked examples); dev fragments (validator/backend_rust/ALGORITHMS/mc_engine) updated; inventory rows synced (SRC 1037 fns / 217 types, TEST 1146 fns / 35 types - audit EXACT).
+- Task correction recorded: the user's rule-1 example `2 + (-1) & 1 == 3` assumes bitwise AND binds tighter than addition, but RFS's documented precedence is C-style (`+` tighter) - pinned the parenthesized equivalent `2 + ((-1) & 1) == 3`; a precedence change would be a separate breaking task.
+- Verification: cargo test 639/0; --features smt 672/0; test-generated-code 1734/0 (baseline 1683, +51 from new valid examples fenced into training - recorded, not a regression); clippy no errors (warning baseline unchanged); fmt clean; inventory audit EXACT; sync-check clean; corpus sweep all validate / all 15 invalid fail.

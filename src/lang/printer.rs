@@ -295,6 +295,17 @@ fn print_expr_min(e: &Expr, min_prec: u8) -> String {
             let r = print_expr_min(right, p + 1);
             (format!("{} {} {}", l, bin_str(*op), r), p)
         }
+        // Explicit conversion cast (task 3L): `bit<N>(operand)`. The operand is
+        // exactly one primary, so it is parenthesized unless it is a bare
+        // identifier (round-trip fidelity: parse(print(e)) == e).
+        Expr::Cast { width, expr } => {
+            let inner = if matches!(expr.as_ref(), Expr::Path { path } if path.len() == 1) {
+                print_expr_min(expr, PREC_PRIMARY)
+            } else {
+                format!("({})", print_expr_min(expr, 0))
+            };
+            (format!("bit<{}>({})", width, inner), PREC_PRIMARY)
+        }
     };
     if prec < min_prec {
         format!("({})", core)
@@ -341,6 +352,7 @@ fn expr_has_boolean_op(e: &Expr) -> bool {
     match e {
         Expr::Int { .. } | Expr::Bool { .. } | Expr::Path { .. } => false,
         Expr::Unary { expr, .. } => expr_has_boolean_op(expr),
+        Expr::Cast { expr, .. } => expr_has_boolean_op(expr),
         Expr::Binary { op, left, right } => {
             matches!(op, BinOp::LogicAnd | BinOp::LogicOr)
                 || expr_has_boolean_op(left)

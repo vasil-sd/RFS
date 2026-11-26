@@ -492,6 +492,10 @@ Supported:
 - boolean literals: `true`, `false`;
 - identifiers: variables, event bindings, enum variants such as `Mode::Normal`;
 - parenthesized expressions;
+- the explicit conversion cast: `bit<N>(expr)` - zero-extension or high-bit
+  truncation of a bitvector (a constant expression is a legal operand - the
+  cast IS the explicit conversion); tightest binding, exactly one primary
+  operand (`bit<4> a + b` = `(bit<4> a) + b`; `bit<4> -a` does not parse);
 - boolean operators: `!`, `&&`, `||`;
 - equality/inequality: `==`, `!=`;
 - comparisons: `<`, `<=`, `>`, `>=`;
@@ -503,17 +507,18 @@ Precedence, from tighter to looser (pinned against the `src/lang/parser.rs` expr
 
 | Precedence | Operators | Notes |
 |---:|---|---|
-| 1 | `!`, `~`, unary `-` | Unary operators. |
-| 2 | `*` | Multiplication. Division is not part of the language. |
-| 3 | `+`, `-` | Additive. `-` stops before `->`. |
-| 4 | `<<`, `>>` | Shifts. |
-| 5 | `&` | Bitwise and. Does not consume `&&`. |
-| 6 | `^` | Bitwise xor. |
-| 7 | `|` | Bitwise or. Does not consume `\|\|`. |
-| 8 | `<`, `<=`, `>`, `>=` | Relational. |
-| 9 | `==`, `!=` | Equality. |
-| 10 | `&&` | Logical and. |
-| 11 | `\|\|` | Logical or. |
+| 1 | `bit<N>(...)` | Explicit conversion cast (task 3L). Binds tighter than unary; the operand is exactly one primary. |
+| 2 | `!`, `~`, unary `-` | Unary operators. |
+| 3 | `*` | Multiplication. Division is not part of the language. |
+| 4 | `+`, `-` | Additive. `-` stops before `->`. |
+| 5 | `<<`, `>>` | Shifts. |
+| 6 | `&` | Bitwise and. Does not consume `&&`. |
+| 7 | `^` | Bitwise xor. |
+| 8 | `|` | Bitwise or. Does not consume `\|\|`. |
+| 9 | `<`, `<=`, `>`, `>=` | Relational. |
+| 10 | `==`, `!=` | Equality. |
+| 11 | `&&` | Logical and. |
+| 12 | `\|\|` | Logical or. |
 
 Note: relational operators bind tighter than equality. Use parentheses when mixing comparison/equality in nontrivial ways.
 
@@ -644,7 +649,7 @@ shift_expr = add_expr { ("<<" | ">>") add_expr } ;
 add_expr = mul_expr { ("+" | "-") mul_expr } ;
 mul_expr = unary_expr { "*" unary_expr } ;
 unary_expr = ("!" | "~" | "-") unary_expr | primary_expr ;
-primary_expr = literal | identifier_path | "(" expression ")" ;
+primary_expr = literal | identifier_path | "bit" "<" unsigned_integer_literal ">" primary_expr | "(" expression ")" ;
 literal = unsigned_integer_literal | "true" | "false" ;
 identifier_path = identifier { "::" identifier } ;
 identifier = letter { letter | digit | "_" } ;

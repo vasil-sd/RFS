@@ -1935,3 +1935,59 @@ fn task3i_constant_init_folds_and_var_ref_rejected() {
         "variable 'b' initializer is not a constant expression (unsupported)"
     );
 }
+
+// ---------------------------------------------------------------------------
+// Task 3L requirement 5: the task-3H init divergence is eliminated at
+// VALIDATION level - both modes reject identically before any engine runs.
+// ---------------------------------------------------------------------------
+
+#[test]
+fn rule5_task3h_divergent_inits_rejected_identically_at_validation() {
+    // The exact specs that diverged before 3L: exact mode carried the
+    // unmasked out-of-range value, SMT's width check rejected it. Now BOTH
+    // modes surface the identical validation error (validation runs before
+    // mode dispatch, so the message is mode-independent by construction).
+    for (src, msg) in [
+        (
+            "module d1 { enum State { A } initial A event E output O var x: bit<1> init 1 + 1 transition A on E { next A; emit O; } }",
+            "module 'd1' var 'x' init: constant 2 does not fit in bit<1>; use an explicit cast, e.g. bit<1>(...)",
+        ),
+        (
+            "module d2 { enum State { A } initial A event E output O var x: bit<1> init 3 transition A on E { next A; emit O; } }",
+            "module 'd2' var 'x' init: constant 3 does not fit in bit<1>; use an explicit cast, e.g. bit<1>(...)",
+        ),
+    ] {
+        let ir = rfs::parse_source(src).expect("divergent-init spec must parse");
+        let errs = rfs::lang::validator::validate_module(&ir.modules[0]);
+        assert!(
+            errs.iter().any(|e| e.message == msg),
+            "pinned rule-5 validation error expected, got: {errs:?}"
+        );
+    }
+}
+
+#[test]
+fn rule5_engine_level_divergence_is_gone() {
+    // Bypassing validation (defensive path only - the CLI never does this),
+    // the two engines now AGREE on the out-of-range init instead of diverging:
+    // both mask the folded constant to the var's width (2 -> 0 in bit<1>),
+    // so exact mode no longer carries an unmasked 2 and SMT's width check no
+    // longer rejects what exact accepted.
+    let src = "module d3 { enum State { A } initial A event E output O var x: bit<1> init 1 + 1 transition A on E { next A; emit O; } }";
+    let ir = rfs::parse_source(src).expect("parses");
+    let module = &ir.modules[0];
+
+    // Exact mode: the init folds to 2 and is masked to bit<1> -> 0.
+    let exact = rfs::mc::ref_mc::run(module, &rfs::mc::ref_mc::RefConfig::default())
+        .expect("exact mode masks the out-of-range init instead of carrying it");
+    assert_eq!(
+        exact.status,
+        rfs::codegen::mc_concepts::ExactStatus::PassComplete
+    );
+
+    // SMT: the same mask applies before the defensive width check, so the
+    // old "does not fit in 1 bits" rejection is unreachable for this spec.
+    let smt = rfs::mc::ref_mc::run_smt(module, 3, false, false, "all")
+        .expect("smt mode masks the out-of-range init identically");
+    assert_eq!(smt.exit_code, 0);
+}

@@ -1,0 +1,44 @@
+# rfs 1.0
+# 52_explicit_casts (Phase 18 task 3L): the explicit-conversion semantics in one
+# small machine - a byte counter with a nibble view, a masked constant, and a
+# shift refinement. Demonstrates: (rule 3) the `bit<N>(expr)` cast as the ONLY
+# width-change mechanism - truncation `bit<4>(count)` and zero-extension
+# `bit<8>(nibble)`; (rule 1/10) a masked constant `(200 & 15)` that folds to the
+# positive constant 8 before any conversion; (rule 5) the shift refinement -
+# `bit<8>(1) << k` where k: bit<3> takes its width from the explicit cast on the
+# value; (rule 1) a full-precision constant property `200 * 200 == 40000` that
+# would have been 16 under the old "two bare literals form bit<8>" rule.
+module explicit_casts {
+  enum State { Run }
+  initial Run
+
+  event Tick
+  event Bump(R(k: bit<3>))
+
+  var count: bit<8> init 0
+  var nibble: bit<4> init 0
+
+  transition Run on Tick {
+    next Run;
+    # Truncation cast: the low 4 bits of count become the nibble view.
+    set nibble = bit<4>(count);
+    # Masked constant: (200 & 15) folds to the positive constant 8, which fits
+    # bit<8> - no diagnostic, no silent truncation.
+    set count = count + (200 & 15);
+  }
+  transition Run on Bump(R(k)) {
+    next Run;
+    # Shift refinement: bit<8>(1) << k is a bit<8> value shifted by k's amount.
+    set count = count | (bit<8>(1) << k);
+    # Zero-extension cast: the nibble widens back to a byte for the OR.
+    set nibble = bit<4>(count + bit<8>(nibble));
+  }
+
+  # Full-precision constant: 200 * 200 == 40000 holds exactly (not 16).
+  prop full_precision : 200 * 200 == 40000 ;
+  # Masked constant folds to the positive 8 (200's low nibble is 1000) before
+  # any conversion (& binds tighter than ==, so no parentheses are needed).
+  prop masked_constant : 200 & 15 == 8 ;
+  # A nibble is always within its 4-bit range.
+  prop nibble_in_range : always (nibble <= 15) ;
+}

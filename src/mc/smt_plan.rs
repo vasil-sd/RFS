@@ -32,6 +32,7 @@
 //!
 //! Docs: dev:mc-engine-overview, dev:mc-engine-smt, dev:algorithms-mc-engine, llm:mc-engine
 
+use crate::lang::fold::{fold_const, is_const_expr};
 use crate::lang::ir::{Expr, Formula, Module};
 use crate::mc::plan::{McPlan, ValueDomain};
 
@@ -41,8 +42,10 @@ use crate::mc::plan::{McPlan, ValueDomain};
 pub enum Se {
     /// Literal. `is_bool` distinguishes a bool literal (z3 Bool in boolean
     /// contexts) from an integer literal (IntLit, lifted by parent context).
+    /// The value is `u128` so folded full-precision constants (task 3L) up to
+    /// bit<128> survive; the emitter masks to the context width.
     Lit {
-        value: u64,
+        value: u128,
         is_bool: bool,
     },
     /// Current state (BV of `state_bits`).
@@ -61,6 +64,12 @@ pub enum Se {
     Not(Box<Se>),
     BitNot(Box<Se>),
     Neg(Box<Se>),
+    /// Explicit conversion cast (task 3L): zero-extension or high-bit
+    /// truncation of `inner` to `width` bits.
+    Cast {
+        width: u32,
+        inner: Box<Se>,
+    },
     Bin(Sb, Box<Se>, Box<Se>),
 }
 
@@ -454,7 +463,14 @@ pub fn build_smt_spec(module: &Module, plan: &McPlan) -> Result<SmtSpec, String>
                     bind_types: std::collections::HashMap::new(),
                 };
                 match crate::mc::ref_mc::eval_expr(other, &ctx) {
-                    Ok(crate::mc::ref_mc::Val::Bit(n)) => n,
+                    // Task 3L rule 4: mask the folded constant to the var's
+                    // width - a two's-complement-fitting negative init (e.g.
+                    // `init -5` on bit<4>) becomes its encoding (11), exactly
+                    // as exact mode stores it. Validated specs always fit, so
+                    // the defensive check below then passes trivially.
+                    Ok(crate::mc::ref_mc::Val::Bit(n)) => {
+                        (n as u128 & crate::mc::ref_mc::mask(width.min(64))) as u64
+                    }
                     Ok(crate::mc::ref_mc::Val::Bool(b)) => u64::from(b),
                     // A state-variant path on an enum-typed var (the bare-name
                     // form) - encode as the variant's declaration-order index,
@@ -980,13 +996,29 @@ fn convert_expr(
     ctx: &ExprCtx,
     variant: &crate::mc::plan::VariantInputSpec,
 ) -> Result<Se, String> {
+    // Task 3L: fold a maximal constant subexpression to a SINGLE literal (full
+    // precision; the emitter masks it to the context width). A bare Int is
+    // already one literal, so only compound constant trees are rewritten.
+    if !matches!(e, Expr::Int { .. }) && is_const_expr(e) {
+        let v = fold_const(e)?;
+        return Ok(Se::Lit {
+            value: v as u128,
+            is_bool: false,
+        });
+    }
     match e {
+        // Explicit conversion cast (task 3L): zero-extension / truncation to
+        // `width` bits - the emitter masks the operand.
+        Expr::Cast { width, expr } => Ok(Se::Cast {
+            width: *width,
+            inner: Box::new(convert_expr(expr, ctx, variant)?),
+        }),
         Expr::Int { value } => Ok(Se::Lit {
-            value: *value,
+            value: *value as u128,
             is_bool: false,
         }),
         Expr::Bool { value } => Ok(Se::Lit {
-            value: u64::from(*value),
+            value: u128::from(*value),
             is_bool: true,
         }),
         Expr::Path { path } => {
@@ -1004,7 +1036,7 @@ fn convert_expr(
                     .iter()
                     .position(|s| s == &path[1])
                     .map(|i| Se::Lit {
-                        value: i as u64,
+                        value: i as u128,
                         is_bool: false,
                     })
                     .ok_or_else(|| format!("unknown variant '{}' in enum '{}'", path[1], path[0]));
@@ -1052,10 +1084,10 @@ fn convert_expr(
                             .ok_or_else(|| format!("unknown payload field '{name}'"))?;
                         return match &spec.representative {
                             Some(crate::codegen::fsm::RepValue::Bool(b)) => {
-                                Ok(Se::Lit { value: u64::from(*b), is_bool: true })
+                                Ok(Se::Lit { value: u128::from(*b), is_bool: true })
                             }
                             Some(crate::codegen::fsm::RepValue::Int(v)) => {
-                                Ok(Se::Lit { value: *v, is_bool: false })
+                                Ok(Se::Lit { value: *v as u128, is_bool: false })
                             }
                             other => Err(format!(
                                 "smt-bounded mode cannot substitute representative {:?} for field '{name}'",
@@ -1070,7 +1102,7 @@ fn convert_expr(
             }
             if let Some(si) = ctx.state_variant_idx.get(name) {
                 return Ok(Se::Lit {
-                    value: *si as u64,
+                    value: *si as u128,
                     is_bool: false,
                 });
             }
@@ -1408,11 +1440,11 @@ impl SeType {
 }
 
 /// Bottom-up type of an expression node, computed with EXACTLY the validator's
-/// rules (`type_expr`/`binary_type`/`bit_op_type`): integer literals default
-/// to `Bit(8)` and are lifted by their parent per the binary-op rules. The
-/// spec is already validated, so this never fails; both emitters use it to
-/// pick z3 constructors (Bool vs bitvector) and to mask literals to the right
-/// width.
+/// rules (`type_expr`/`binary_type`/`bit_op_type`): integer constants are
+/// FULL-PRECISION (task 3L rule 1 - no bit<8> default) and lift to a
+/// bitvector operand's width per the binary-op rules. The spec is already
+/// validated, so this never fails; both emitters use it to pick z3
+/// constructors (Bool vs bitvector) and to mask literals to the right width.
 pub fn se_type(se: &Se, spec: &SmtSpec) -> SeType {
     match se {
         Se::Lit { is_bool: true, .. } => SeType::Bool,
@@ -1433,9 +1465,22 @@ pub fn se_type(se: &Se, spec: &SmtSpec) -> SeType {
             }
         }
         Se::Not(_) => SeType::Bool,
+        // Explicit conversion cast (task 3L): the result is Bit(width); the
+        // operand must be a bitvector (a constant is legal - the validator
+        // rejects bool/enum before SMT ever sees the spec).
+        Se::Cast { width, inner } => {
+            let t = se_type(inner, spec);
+            debug_assert!(
+                matches!(t, SeType::Bit(_) | SeType::IntLit),
+                "validated spec: cast operand must be a bitvector"
+            );
+            SeType::Bit(*width)
+        }
         Se::BitNot(inner) | Se::Neg(inner) => match se_type(inner, spec) {
-            // IntLit under bit_not/neg defaults to Bit(8) (validator rule).
-            SeType::IntLit => SeType::Bit(8),
+            // A constant under ~ / - stays a full-precision constant (task 3L
+            // rule 1 - no bit<8> default). Unreachable in practice: convert_expr
+            // folds such trees to a single literal first.
+            SeType::IntLit => SeType::IntLit,
             t @ SeType::Bit(_) => t,
             _ => SeType::Bit(8),
         },
@@ -1446,13 +1491,18 @@ pub fn se_type(se: &Se, spec: &SmtSpec) -> SeType {
                 Sb::LogicAnd | Sb::LogicOr => SeType::Bool,
                 Sb::Eq | Sb::NotEq | Sb::Lt | Sb::Le | Sb::Gt | Sb::Ge => SeType::Bool,
                 Sb::Plus | Sb::Minus | Sb::Star | Sb::BitXor => bit_op_type(lt, rt),
-                Sb::ShiftLeft | Sb::ShiftRight => match lt {
-                    // Width comes from the LEFT operand; the right may be any
-                    // width (validator rule).
-                    SeType::IntLit => SeType::Bit(8),
-                    t @ SeType::Bit(_) => t,
-                    _ => SeType::Bit(8),
-                },
+                Sb::ShiftLeft | Sb::ShiftRight => {
+                    // Task 3L: result = shifted value's width; a constant
+                    // value shifted by a VARIABLE amount takes the shift
+                    // amount's width (refinement); two constants form a
+                    // full-precision constant.
+                    match (lt, rt) {
+                        (SeType::IntLit, SeType::Bit(b)) => SeType::Bit(b),
+                        (SeType::IntLit, SeType::IntLit) => SeType::IntLit,
+                        t @ (SeType::Bit(_), _) => t.0,
+                        _ => SeType::Bit(8),
+                    }
+                }
                 Sb::BitAnd | Sb::BitOr => {
                     if lt == SeType::Bool && rt == SeType::Bool {
                         SeType::Bool
@@ -1466,7 +1516,8 @@ pub fn se_type(se: &Se, spec: &SmtSpec) -> SeType {
 }
 
 /// Validator `bit_op_type`: (Bit(a),Bit(b)) requires a==b; IntLit lifts to the
-/// other operand's width; (IntLit,IntLit) -> Bit(8).
+/// other operand's width; (IntLit,IntLit) -> full-precision IntLit (task 3L
+/// rule 1 - unreachable: convert_expr folds constant pairs first).
 fn bit_op_type(lt: SeType, rt: SeType) -> SeType {
     match (lt, rt) {
         (SeType::Bit(a), SeType::Bit(b)) => {
@@ -1474,7 +1525,7 @@ fn bit_op_type(lt: SeType, rt: SeType) -> SeType {
             SeType::Bit(a)
         }
         (SeType::IntLit, SeType::Bit(b)) | (SeType::Bit(b), SeType::IntLit) => SeType::Bit(b),
-        (SeType::IntLit, SeType::IntLit) => SeType::Bit(8),
+        (SeType::IntLit, SeType::IntLit) => SeType::IntLit,
         // Bool operands are rejected by the validator for these ops; a
         // validated spec never reaches this arm.
         _ => SeType::Bit(8),

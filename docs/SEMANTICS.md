@@ -94,13 +94,31 @@ results of a bitvector operation are reduced mod 2^w of the result width):
 | `!` | boolean negation |
 | `&&`, `\|\|` | boolean connectives, short-circuit in generated code; truth-functional for model checking |
 
-There is NO division. Typing rules: arithmetic and bitwise operators require
-both operands to have the same bitvector width (an integer literal adapts to
-the other operand's width; two bare literals form a `bit<8>`); comparisons
-require identical types or a literal against a vector; shifts require a
-bitvector left operand and a bitvector-or-literal right operand (no width
-equality required); logical operators require boolean operands. Guard, formula
-expression atoms, and assignment values must type-check as shown above.
+There is NO division. Typing follows explicit, no-implicit-conversion rules
+(task 3L): (R1) constant expressions - integer literals combined with
+arithmetic/bitwise operators and unary minus - are FULL-PRECISION integer
+literals, folded at compile time with signed i128 intermediates by the shared
+stage `src/lang/fold.rs`; overflow is an error, never a silent wrap. (R2) every
+arithmetic and bitwise operator requires EQUAL operand widths; a constant
+meeting a `bit<N>` operand is checked against that width (rule R4), and two
+constants form a full-precision constant. (R3) shifts are the sole width
+exception: the result takes the shifted VALUE's width, except a constant value
+shifted by a VARIABLE amount, which takes the shift amount's width; the right
+operand must be a bitvector or integer literal. (R4) constant-to-bitvector
+conversion: a positive constant that does not fit `bit<N>` is an ERROR unless
+explicitly cast; a negative constant whose two's-complement form fits
+(`abs(C) <= 2^(N-1)`) is a WARNING ("implicit conversion of negative constant
+to unsigned bit-vector") with the value being the two's-complement encoding; a
+negative constant that does not fit is an ERROR unless explicitly cast. (R5)
+the explicit conversion `bit<N>(expr)` - tightest binding, zero-extension or
+high-bit truncation, operand must be a bitvector (a constant expression is
+legal - the cast IS the explicit conversion; for any constant C, `bit<N>(C)` =
+C mod 2^N) - is the ONLY explicitness mechanism and suppresses R4 diagnostics.
+Bitwise operations on negative constants use the unsigned two's-complement
+representation of the constant (full precision). Comparisons require identical
+types or a constant against a vector (rule R4 applies); logical operators
+require boolean operands. Guard, formula expression atoms, and assignment
+values must type-check as shown above.
 
 [^c-ub]: Historical divergence, RESOLVED by Phase 6 task 2a (found in the
     Phase 6 task 1 cross-check pass). The RUST backend implements the table
@@ -154,17 +172,16 @@ Each variable has a type (`bool`, `bit<N>`, enum) and an initializer expression.
 The initial configuration `c0` is `(q0, v0, m0)` where `v0[x]` is the value of
 x's initializer and `m0` is the monitors' initial state (section 9.2).
 
-Initializer expressions are typed against the FULL module environment (all
-variables visible, no pattern bindings). In practice they are constants or enum
-paths; an initializer that references another variable does not type-error but
-generates code that cannot compile, so such specs are ill-formed in effect.
-[^init-order]
-
-[^init-order]: IMPLEMENTED BEHAVIOR, flagged ambiguity: the validator types each
-`init` expression with every module variable in scope (declaration order is
-ignored), and codegen renders initializers as a struct literal over constants -
-there is no defined cross-variable evaluation order. Specs should use constant
-initializers; this document treats `v0` as well-defined exactly for such specs.
+Initializer expressions are CONSTANT EXPRESSIONS (or enum paths / boolean
+literals): both MC modes evaluate them with NO variables bound, so an
+initializer that references another variable is rejected by BOTH engines at
+entry with the identical message "not a constant expression" - there is no
+cross-variable evaluation order to define. A constant-expression initializer is
+folded at full precision (rule R1) and must fit the var's declared width under
+rule R4: an out-of-range init is a validation error in both modes, before any
+engine runs. Codegen renders initializers as a struct literal over the folded
+constants; this document treats `v0` as well-defined for every spec that
+passes validation AND both engines' constant-init check.
 
 ---
 

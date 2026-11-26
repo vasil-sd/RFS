@@ -121,6 +121,7 @@ pub(crate) fn render_expr(e: &Expr) -> String {
                 render_expr(right)
             )
         }
+        Expr::Cast { width, expr } => format!("bit<{}>({})", width, render_expr(expr)),
     }
 }
 

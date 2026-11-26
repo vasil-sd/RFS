@@ -161,6 +161,11 @@ prop bound_until_done : (next_seq - acked <= 4) until (state == Done) ;
   with the identical warning in every backend; only the model checker checks
   them. A liveness violation is reported as a LASSO (prefix + cycle) - see
   [MODEL_CHECKING.md](MODEL_CHECKING.md#counterexamples).
+- **Under smt-bounded:** every temporal form above is checkable under
+  `--mode smt-bounded` - `next` and one-shot `bounded_eventually[N]` in the
+  default class (weak at trace death, matching exact mode), and the FULL class
+  (`until`, nested temporals) behind `--full-properties`. What still differs
+  from exact mode: [MODEL_CHECKING.md section 10](MODEL_CHECKING.md#10-smt-bounded-vs-exact-mode-residual-differences).
 
 ## 7. The monitor subset and skip reasons
 

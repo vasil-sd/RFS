@@ -474,8 +474,14 @@ witness (prefix + one cycle iteration).
 
 **SMT bounded.** k-step unrolling over z3 bitvectors: first-match firing
 is encoded as prefix-OR constraints, properties are asserted per live
-step. Sound FAIL within the bound; PASS is always incomplete ("pass-
-within-bound"); solver-inconclusive is a distinct unknown status.
+step. The alive[] liveness gate weakens temporal shifts at trace death (a
+`next` body is never checked against a frozen successor - task 3A); an on_error
+block routes unmatched inputs through the fallback in the next-state ITE,
+keeping the path alive (task 3C); each selected assumption is asserted as a
+per-step base constraint (successor pruning, task 3C); enum values encode as
+declaration-order indices (task 3D). Sound FAIL within the bound; PASS is
+always incomplete ("pass-within-bound"); solver-inconclusive is a distinct
+unknown status.
 
 **Reference MC.** A deliberate reimplementation with different data
 structures and algorithms (structured configuration keys instead of bit-
@@ -487,7 +493,7 @@ can confirm or refute the generated engines' verdicts independently.
 flowchart TD
     SPEC["validated module + assumption selection"] --> PLAN["McPlan::compute - pure function of module + selection: input abstraction, configuration encoding, traversal spec"]
     PLAN --> WHICH{engine?}
-    WHICH -->|SMT bounded| SMT["k-step unrolling over z3 bitvectors: first-match as prefix-OR, properties asserted per live step"]
+    WHICH -->|SMT bounded| SMT["k-step unrolling over z3 bitvectors: first-match as prefix-OR, properties asserted per live step, alive-gated temporal shifts, on_error fallback, per-step assumption constraints, enum index encoding"]
     SMT --> SMTR{solver verdict?}
     SMTR -->|SAT| BFAIL["sound FAIL within bound k"]
     SMTR -->|UNSAT| BPASS["pass-within-bound - always incomplete"]

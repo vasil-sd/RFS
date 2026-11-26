@@ -421,8 +421,10 @@ by construction). The spec carries:
 
 - states in declaration order + initial_state index + state_bits = max(1, ceil_log2(n))
   (`src/mc/smt_plan.rs::ceil_log2_pub`);
-- `src/mc/smt_plan.rs::SmtVar`s - bit<N>/bool only (width 1 for bool; is_bool is witness
-  display only: true/false vs 0/1), literal inits only (v1);
+- `src/mc/smt_plan.rs::SmtVar`s - bit<N>/bool/enum (task 3D: an enum var's width is
+  ceil_log2(variant_count); witness display prints the variant name, not the index),
+  inits are constant expressions folded to a single constant before encoding
+  (tasks 3H/3L; is_bool is witness display only: true/false vs 0/1);
 - `src/mc/smt_plan.rs::SmtClass`es from the plan's abstraction table - one canonical input
   class per event variant, CONCRETE fields only (name, bit width, is_bool); abstracted
   fields are substituted as their representative literal during expression conversion;
@@ -430,8 +432,10 @@ by construction). The spec carries:
   for ties via stable sort - the same order the exact engine uses for first-match
   selection): state/next_state/class indices, guard Option<Se>, assignments (var index,
   expr) - vars absent are unchanged;
-- `src/mc/smt_plan.rs::SmtProp`s: top-level always / eventually only
-  (`src/mc/smt_plan.rs::SmtPropKind`), formula in the boolean layer `src/mc/smt_plan.rs::Sf`
+- `src/mc/smt_plan.rs::SmtProp`s: top-level always / eventually kinds
+  (`src/mc/smt_plan.rs::SmtPropKind`) - bare boolean and top-level `next` forms are
+  desugared to `always(...)` BEFORE the kind match (task 3G), so no new kind was
+  needed; formula in the boolean layer `src/mc/smt_plan.rs::Sf`
   (Se/Not/And/Or/Implies) over configuration expressions.
 
 **Expression model.** `src/mc/smt_plan.rs::Se` mirrors the IR expression language with
@@ -456,15 +460,17 @@ amount takes the shift amount's width (the refinement). The spec is already
 validated, so this never fails; both emitters use it to pick z3 constructors (Bool vs
 bitvector) and to mask literals to the right width.
 
-**v1 scope diagnostics.** `src/mc/smt_plan.rs::build_smt_spec` rejects unsupported
-constructs with a shared error string - IDENTICAL in both backends (codegen behavior
-is parity-safe), surfaced as a codegen error (exit 1): assumptions present; on_error
-blocks; enum-typed variables; non-literal initial values; an init that does not fit
-its width; concrete payload fields wider than 64 bits (the plan's saturated u64::MAX
-domain); non-power-of-two domains (not a bit<N> type); enum-typed payload fields;
-wildcard event patterns over multi-variant groups (a bare group pattern names exactly
-one variant only for single-variant groups); unknown state/next-state/var references;
-enum paths in expressions.
+**Remaining rejections.** `src/mc/smt_plan.rs::build_smt_spec` rejects, with a shared
+error string IDENTICAL in both backends (codegen behavior is parity-safe), surfaced as
+a codegen error (exit 1): a var initializer that references another var ("not a constant
+expression" - the identical message exact mode uses, task 3H); concrete payload fields
+wider than 64 bits (the plan's saturated u64::MAX domain - audit row S2); plus defensive
+checks validated specs never reach (an init that does not fit its width after folding,
+and internal class-matching invariants). Everything the v1 scope once rejected is now
+supported: assumptions (task 3C), on_error blocks (task 3C), enum-typed variables and
+payload fields, enum paths in expressions, wildcard patterns over multi-variant groups
+(task 3D), bare/top-level-next property forms (task 3G), constant-expression inits
+(tasks 3H/3L); the dead power-of-two domain check is deleted (task 3F, audit row S3).
 
 **Shared emitter.** `src/mc/smt_emit.rs::emit_rust_spec` / `src/mc/smt_emit.rs::emit_c_spec`
 render the spec section: constants (STATE_BITS, INITIAL_STATE, STATES,

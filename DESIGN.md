@@ -441,15 +441,19 @@ Pattern field forms:
 | `_` | wildcard |
 | `name` | bind field to `name` |
 | `0`, `1`, `true`, `false` | literal match |
+| `Enum::Variant` | anonymous enum-variant pattern (task 3D): constrains the field to that variant WITHOUT binding it - a qualified path in the pattern position, like the unnamed literals above |
 | `name: expr-pattern` | named pattern match |
 | `name: Enum::Variant` | named enum-variant pattern |
 
 Corner case:
 
 ```rfs
-on E(Mode::Normal)       # currently NOT supported as anonymous field pattern
-on E(x: Mode::Normal)    # supported
+on E(V(Mode::Normal))    # supported (task 3D) - constrains the field to Mode::Normal, binds nothing
+on E(V(x: Mode::Normal)) # supported - same constraint, plus the binding x for guards
 ```
+
+(The constructor name is required in both forms; a bare `E(Mode::Normal)` does
+not parse.)
 
 #### Guards
 
@@ -557,6 +561,12 @@ input_is(Recv(Ack(_)))
 output_has(Drop)
 output_has(Send(SynAck))
 ```
+
+Named fields in formula patterns are legal and constrain nothing (a labeled
+wildcard - task 3F): `input_is(Recv(Ack(x)))` is equivalent to
+`input_is(Recv(Ack(_)))`. This mirrors `output_has`, whose named fields were
+always legal; unlike transition-pattern binds, a formula-pattern bind feeds no
+guard.
 
 Examples:
 

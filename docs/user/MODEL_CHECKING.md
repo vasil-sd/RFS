@@ -17,6 +17,7 @@ Property language: [PROPERTIES.md](PROPERTIES.md).
 7. [Forced violations (--violate)](#7-forced-violations---violate)
 8. [Reading a report step by step](#8-reading-a-report-step-by-step)
 9. [When do MC results transfer to the real system?](#9-when-do-mc-results-transfer-to-the-real-system)
+10. [smt-bounded vs exact mode: residual differences](#10-smt-bounded-vs-exact-mode-residual-differences)
 
 ## 1. The three modes
 
@@ -103,10 +104,14 @@ Exit codes: 0 pass-within-bound / 1 fail / 2 unknown.
 
 **What it checks.** The DEFAULT property class is checked unconditionally:
 top-level `always`, `always[N]`, `eventually` and one-shot
-`bounded_eventually[N]`, with bodies using boolean combinations of expressions
+`bounded_eventually[N]`, plus bare boolean top-level properties and top-level
+`next (...)` - the latter two desugared to `always(...)` exactly as exact mode
+anchors them (task 3G) - with bodies using boolean combinations of expressions
 plus `input_is(...)`, `output_has(...)` and `next (...)` - the same matching
 semantics as exact mode (wildcards/bindings constrain nothing, literal field
-arguments compare). `next` anchors within one step of the horizon are dropped
+arguments compare). Variable initializers may be constant expressions
+(`init 2 + 3`), folded to the same constant exact mode produces (tasks 3H/3L).
+Section 10 lists what still differs from exact mode and how to close each gap. `next` anchors within one step of the horizon are dropped
 (sound: they can only miss a violation, never create a false FAIL), and a
 `next` obligation is weak when the path has died - if an unhandled input
 freezes the configuration before the successor sample, the body is not
@@ -427,3 +432,252 @@ protocol. The main gaps:
   an `on_error` block.
 
 See [FAQ.md](FAQ.md) for the full Q&A on abstraction and assumptions.
+
+## 10. smt-bounded vs exact mode: residual differences
+
+The Phase 18 unification arc made smt-bounded a near-drop-in analysis mode for
+exact-mode specs. What it closed and lifted:
+
+- **D1/D2 CLOSED (task 3A):** a `next`/shifted property body is weak at trace
+  death - an unhandled input that freezes the successor configuration no longer
+  false-fails it (SEMANTICS 8.3) - and a top-level `bounded_eventually[N]` is
+  unconfirmable when the path dies before its deadline (SEMANTICS 5.5). The
+  in-process engine and both generated SMT runtimes encode these identically.
+- **D3 SUPPORTED (task 3C):** assumptions work - cheap input-guard forms by
+  default, expensive temporal forms behind `--full-assumptions`, with
+  `--assumes all|none|labels` selection on both smt surfaces.
+- **D4 SUPPORTED (task 3C):** `on_error` blocks work - an unmatched input takes
+  the catch-all fallback (SEMANTICS 3.6) instead of killing the path.
+- **D8 SUPPORTED (task 3D):** enum-typed variables, enum payload fields,
+  multi-variant wildcard transitions, enum paths in expressions, and
+  enum-variant input/output patterns all encode as declaration-order indices -
+  faithful to exact mode. Large-group wildcards are enabled by default
+  (profiling found no formula blowup at the twins' bounds).
+- **V17 LIFTED (task 3F):** named fields in formula `input_is` patterns are
+  legal - a labeled wildcard that constrains nothing, mirroring
+  `output_has`.
+- **S4 LIFTED (task 3G):** bare boolean and top-level `next` property/assumption
+  forms are accepted, desugared to `always(...)` - matching exact mode's
+  anchoring of a bare signal at every sample.
+- **E4/S1 LIFTED (task 3H):** constant-expression variable initializers
+  (`init 5 + 1`) are accepted and folded to the same constant exact mode
+  produces; an init referencing another var is rejected by BOTH modes with the
+  identical message.
+
+What REMAINS are the differences below - each inherent to k-step bounded
+unrolling or a deliberate performance gate, none removable without changing what
+the mode is. The closed/lifted items above are NOT differences: for every
+construct they cover, a spec that validates and checks under exact mode checks
+identically under smt-bounded.
+
+### 10.1 D5 - Completeness of PASS
+
+**The difference.** Exact mode's `PASS (complete)` is an exhaustive proof over
+ALL reachable configurations; smt-bounded's `PASS WITHIN BOUND k (incomplete -
+no completeness claim)` covers only paths of length <= k. A violation first
+reachable at step k+1 or later is invisible to the bounded run - the verdict
+can be a passing one that exact mode would refute.
+
+**Exact-mode snippet.**
+
+```rfs
+module counter {
+  enum State { Run }
+  initial Run
+  event Tick
+  var n: bit<4> init 0 ;
+  transition Run on Tick { next Run; set n = n + 1; }
+  prop never_13 : always (n != 13) ;
+}
+```
+
+**smt-bounded alternative.** `rfs mc-ref --mode smt-bounded --bound 10` reports
+`PASS WITHIN BOUND 10 (incomplete - no completeness claim)` - the counter
+reaches 13 at step 13, outside the unrolled window. At `--bound 14` the same
+run FAILs with a witness reaching n = 13. The spec and the property are fully
+supported; only the verdict's strength differs.
+
+**Rationale.** k-step unrolling asserts the property over exactly k+1 samples;
+no choice of k makes that exhaustive for a system with cycles (SEMANTICS 9.9:
+PASS results are ALWAYS labeled INCOMPLETE). This is the fundamental difference
+and the reason the mode exists - it analyzes specs whose state space exact mode
+cannot explore.
+
+**How to get closer.** Raise `--bound` until the verdict stabilizes across two
+consecutive bound increases (a PASS at k that is still a PASS at k+m with no new
+violation found in between is strong, though not complete, evidence), and run
+`--mode fuzz` as a complement - random testing explores long paths bounded MC
+cannot unroll. Never phrase the result as equivalent to exact mode's
+completeness claim.
+
+### 10.2 D6 - Counterexample form
+
+**The difference.** Exact mode's counterexample is a REAL execution trace -
+every step an enabled transition, inputs concrete (canonical traversal order).
+smt-bounded's witness is a SOLVER MODEL: the state/variable sequence is a valid
+unrolled path, but payload field values are solver-chosen free variables -
+consistent with the fired transitions' guards, not "real" input data.
+
+**Exact-mode snippet.**
+
+```rfs
+module m {
+  enum State { A, B }
+  initial A
+  event Go(G(v: bit<8>))
+  event Ping
+  transition A on Go(G(v)) where v > 0 { next B; }
+  transition B on Ping { next A; }
+  prop never_b : always (state != B) ;
+}
+```
+
+**smt-bounded alternative.** Both modes FAIL. Exact mode's trace shows the
+concrete input `Go(G(1))` - canonical order picks the smallest value that
+satisfies the guard. The smt-bounded witness shows the same state sequence with
+a payload value the solver chose to satisfy the guard (in practice z3 returns
+`event=Go_G(v=255)`): read it as "some consistent assignment", not measured
+data. After tasks 3A/3C the violation-relevant PREFIX of the witness is
+executable (every step an enabled transition, or the `on_error` fallback marked
+`[on_error]` in the trace); steps past a path death in a spec WITHOUT an
+`on_error` block are frozen and non-executable.
+
+**Rationale.** The SMT encoding quantifies over payload values as free
+variables constrained only by the fired transitions' guards (SEMANTICS 9.9);
+z3 returns one satisfying assignment, not the canonical one exact mode's
+traversal would pick.
+
+**How to get closer.** Add an `on_error` block so every input takes a real
+transition - the witness then stays executable end to end. To pin payload
+values, constrain them in guards (a guard `where v == 0` forces the witness's
+payload to 0) or mirror the check as a witness variable set by the transition
+and asserted by a property. Note that payload fields no guard/emit/assignment/
+property references are ABSTRACTED away entirely (representative-input
+abstraction, FAQ section 1) - they do not appear in the witness at all.
+
+### 10.3 Declared omission - FULL properties without `--full-properties`
+
+**The difference.** The FULL property class - top-level `until`,
+`bounded_eventually[N]` under another temporal operator, and any temporal
+operator nested under another (including under `next`) - is OMITTED by default:
+each omitted property raises a per-property stderr warning naming it and the
+flag, and the summary line gains `properties_omitted=M` (only when M > 0). The
+verdict then covers only the remaining properties.
+
+**Exact-mode snippet.**
+
+```rfs
+module m {
+  enum State { A, B }
+  initial A
+  event Tick
+  transition A on Tick { next B; }
+  transition B on Tick { next B; }
+  prop reaches_b : (state == A) until (state == B) ;
+}
+```
+
+Exact mode: `PASS (complete)` - the weak-until is satisfied at step 1.
+
+**smt-bounded alternative.** Without the flag: the property is omitted with a
+warning, and the run checks everything else. With `--full-properties`: checked
+via a horizon-truncated quantifier-free expansion - sound (no false FAILs; no
+completeness claim either way), at O(k*N) formula growth.
+
+**Rationale.** The expansions blow up solver time/memory at large bounds
+(SEMANTICS 9.9) - a deliberate performance gate, not a language limitation: the
+construct is fully supported, opt-in.
+
+**How to get closer.** Pass `--full-properties` (both surfaces: `rfs mc-ref
+--mode smt-bounded --full-properties` and the generated SMT binaries). Check
+the summary line for `properties_omitted=M` - a non-zero M means the verdict
+does not cover M properties.
+
+### 10.4 Declared omission - expensive assumptions without `--full-assumptions`
+
+**The difference.** The EXPENSIVE assumption class - top-level
+`eventually`/`bounded_eventually`/`until`, or a temporal operator nested under
+another - is OMITTED by default, with a per-assumption warning and an
+`assumptions_omitted=M` summary suffix. Cheap input-guard assumptions
+(`assume always (input_is(...))`) are asserted by default. Large-group
+wildcards are NOT gated - task 3D's profiling found no formula blowup, so they
+are supported by default.
+
+**Exact-mode snippet.**
+
+```rfs
+module m {
+  enum State { A, B }
+  initial A
+  event Tick
+  transition A on Tick { next B; }
+  transition B on Tick { next B; }
+  assume env_eventually_ticks : eventually (input_is(Tick)) ;
+}
+```
+
+Exact mode: `PASS (complete)` - the environment liveness is enforced by
+successor pruning.
+
+**smt-bounded alternative.** Without the flag: the assumption is omitted with a
+warning - the run explores inputs exact mode would prune. With
+`--full-assumptions`: asserted as per-step base constraints, exactly exact
+mode's successor pruning (SEMANTICS 7.5). The gate is DISTINCT from
+`--full-properties`, so expensive properties and cheap assumptions (or the
+reverse) can be combined.
+
+**Rationale.** Same performance reasoning as the FULL property class - temporal
+assumptions unroll to O(k*N) constraints.
+
+**How to get closer.** Pass `--full-assumptions`; check the summary line for
+`assumptions_omitted=M`.
+
+### 10.5 Sample-0 assumptions: vacuous PASS vs initial-configuration failure
+
+**The difference.** An input-constraining assumption that is already false at
+the initial configuration - where no input has been consumed, so every
+`input_is`/`output_has` atom is statically false - makes smt-bounded's base
+constraint UNSAT at sample 0: the run reports a VACUOUS `PASS WITHIN BOUND`.
+Exact mode instead rejects the run (exit 1) with `assumption '<label>'
+violated at initial configuration (sample 0)` (the generated exact binaries
+panic in their constructor on the same condition).
+
+**Exact-mode snippet.**
+
+```rfs
+assume force_tick : input_is(Tick) ;   # desugared to always(input_is(Tick)) - cheap class
+```
+
+**smt-bounded alternative.** `PASS WITHIN BOUND k (incomplete)` with no
+violations - every sample is pruned by the unsatisfiable base constraint. Exact
+mode: rejected at sample 0. The two modes DISAGREE on this spec shape.
+
+**Rationale.** smt-bounded expresses assumptions as per-step SMT facts gated by
+`alive[i]`; at sample 0 the fact `input_is(Tick)` is false by construction (no
+transition just taken), so the conjunction is unsatisfiable and the solver
+returns a trivial model (SEMANTICS 9.9, Assumptions). Exact mode checks the
+initial configuration explicitly before exploring successors.
+
+**How to get closer.** Write the obligation shifted off sample 0:
+`assume force_tick : always (next (input_is(Tick))) ;` - still the cheap class,
+satisfiable at sample 0 (the `next` drops the anchor there), and it forces a
+Tick-consumed transition at every step from 1 on. Reserve bare sample-0
+input-constraining assumptions for specs where "the environment must already be
+mid-stream" is the intent - and know that smt-bounded will read it as vacuous.
+
+### Summary - construct by construct
+
+| Construct | Exact mode | smt-bounded | How to close the gap |
+|---|---|---|---|
+| Safety properties (default class) | PASS (complete) / FAIL with a concrete execution trace | PASS WITHIN BOUND k (incomplete) / FAIL with a solver-model witness | raise `--bound` until the verdict stabilizes + `--mode fuzz` complement; read witness payloads as consistent assignments |
+| `next` / one-shot `bounded_eventually[N]` | checked, weak at trace death (SEMANTICS 8.3/5.5) | identical encoding (task 3A) | none - unified |
+| `until` / nested temporals | checked | omitted without `--full-properties` (warning + `properties_omitted=M`) | pass `--full-properties` |
+| Cheap input-guard assumptions | successor pruning (SEMANTICS 7.5) | per-step base constraints, identical (task 3C) | none - unified |
+| Expensive temporal assumptions | successor pruning | omitted without `--full-assumptions` (warning + `assumptions_omitted=M`) | pass `--full-assumptions` |
+| `on_error` fallback | SEMANTICS 3.6 catch-all | identical encoding, `[on_error]` trace markers (task 3C) | none - unified; adding one also makes D6 witnesses fully executable |
+| Enums / wildcard groups / enum patterns | full support | declaration-order index encoding, faithful (task 3D); large groups default | none - unified |
+| Named fields in formula `input_is` | legal, constrain nothing (task 3F) | identical | none - unified |
+| Bare / top-level `next` property forms | anchored at every sample | desugared to `always(...)` (task 3G) | none - unified |
+| Constant-expression var initializers | folded at init, rule-4 fit check (tasks 3H/3L) | identical fold + fit check | none - unified |
+| Sample-0 input-constraining assumption | rejected, exit 1: "violated at initial configuration" (mc-ref) / constructor panic (generated) | vacuous PASS (UNSAT base) | write `always (next (input_is(...)))` to shift the obligation off sample 0 |
+| Completeness of a passing verdict | exhaustive over all reachable configurations | paths of length <= k only | inherent - no bound makes bounded MC complete; use fuzz as a complement |

@@ -408,9 +408,9 @@ configuration itself (`state`, `vars`, `depth`) rather than a step-by-step trace
   deciding - raise `--max-states` / `--timeout-sec`, or the spec is too large for
   exact mode (try `--mode fuzz` for a sampled answer).
 - **A usage error** (an exact-only flag under `--mode fuzz`, any flag but
-  `--bound`/`--full-properties` under `--mode smt-bounded`, `--full-properties`
-  under the other modes, an assumption-bearing spec under smt-bounded) exits 1
-  naming the offending flag/spec.
+  `--bound`/`--full-properties`/`--full-assumptions`/`--assumes` under
+  `--mode smt-bounded`, `--full-properties` or `--full-assumptions` under the
+  other modes) exits 1 naming the offending flag.
 - **A parse/validation error** exits 1 with the section-4 diagnostics - validate
   the spec first.
 

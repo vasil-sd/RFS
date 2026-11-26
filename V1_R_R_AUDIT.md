@@ -141,5 +141,11 @@ The cheap removals above are scheduled as Phase 18 plan-correction tasks
   the new accepted syntax.
 - **3J** - update all documentation and the example/test README files.
 
+Status: implemented. 3F (2026-11-24), 3G (2026-11-24), 3H (2026-11-25),
+3I (2026-11-25), 3J (2026-11-26) - all complete per their status files in
+docs/roadmap/phase_18/tasks/. The audit is closed out as a completed loop:
+every "Remove" verdict in Table 2 (V17, S3, S4, E4/S1) was lifted by code,
+pinned by tests (3I), and documented (3J - the merged end-of-arc documentation
+pass that also subsumed the cancelled task 3E's residual-differences overhaul).
 Each task file carries enough context to start in a fresh session without
 re-reading large parts of the source tree.

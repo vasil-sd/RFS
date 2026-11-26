@@ -334,16 +334,18 @@ Code: `src/cli/commands/test.rs::TestSuite`, `src/cli/commands/test.rs::TestOpti
 **rfs mc-ref.** `src/cli/commands/mc_ref.rs::McMode` (Exact | Fuzz |
 SmtBounded) + parse; `src/cli/commands/mc_ref.rs::CeFormat` (Text | Json);
 `src/cli/commands/mc_ref.rs::McRefOptions { mode, max_states, timeout_sec,
-assumes, ce_format, nondet, bound, runs, seed, violate, unexpected_prob }` -
+assumes, ce_format, nondet, bound, runs, seed, violate, unexpected_prob,
+full_properties, full_assumptions }` -
 one struct with mode-dependent fields, Default = exact mode with the shared
 defaults (`EXACT_DEFAULT_MAX_STATES`, `FUZZ_DEFAULT_BOUND/RUNS/SEED`,
 `SMT_DEFAULT_BOUND` in `src/codegen/mc_concepts.rs`).
 `src/cli/commands/mc_ref.rs::run_mc_ref` applies the shared file contract on
 the FIRST module, then dispatches by mode (D-P16-4): smt-bounded first - every
-flag other than `--bound` is a usage error, requires the `smt` cargo feature
-(a non-smt build returns a clear diagnostic), routes to
-`src/mc/ref_mc.rs::run_smt`, exit codes 0 pass-within-bound / 1 fail / 2
-unknown mirror the generated SMT binaries; fuzz next - exact-only flags are
+flag other than `--bound`/`--full-properties`/`--full-assumptions`/`--assumes`
+is a usage error (`--full-properties`/`--full-assumptions` are usage errors
+under the other modes too), requires the `smt` cargo feature (a non-smt build
+returns a clear diagnostic), routes to `src/mc/ref_mc.rs::run_smt`, exit codes
+0 pass-within-bound / 1 fail / 2 unknown mirror the generated SMT binaries; fuzz next - exact-only flags are
 usage errors, builds `src/mc/ref_mc.rs::FuzzConfig` and routes to
 `src/mc/ref_mc.rs::run_fuzz` (the generated runtimes' exact LCG draw sequence),
 exit codes 0 no violation (summary line) / 1 violation (per-run report, NO

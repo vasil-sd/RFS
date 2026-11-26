@@ -514,8 +514,9 @@ Typing resolves paths against the `src/lang/validator.rs::Env` environment
 (`resolve_path`), combines operand types in `binary_type` (which dispatches
 to `bit_op_type` for the bit-level operators), and converts IR types via
 `type_to_expr_type`. `type_formula` delegates pattern-group checks to
-`check_pattern_group` / `check_output_pattern_group` - both are Phase 1
-stubs (formula patterns do not bind variables yet). `src/lang/validator.rs::is_safety_formula`
+`check_pattern_group` / `check_output_pattern_group` - both are documented
+no-ops (task 3F): formula patterns introduce no usable bindings, a named field
+is a labeled wildcard that constrains nothing. `src/lang/validator.rs::is_safety_formula`
 is a public utility with no internal callers (used by tests and external
 tooling).
 
@@ -540,8 +541,8 @@ flowchart TD
         bt2["binary_type"]
         bot["bit_op_type"]
         tf["type_formula"]
-        cpg["check_pattern_group (Phase 1 stub)"]
-        cogp["check_output_pattern_group (Phase 1 stub)"]
+        cpg["check_pattern_group (no-op, task 3F)"]
+        cogp["check_output_pattern_group (no-op, task 3F)"]
         tte["type_to_expr_type"]
         isf["is_safety_formula (public utility)"]
     end

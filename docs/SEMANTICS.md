@@ -902,11 +902,17 @@ bitvectors with a shared z3 spec rendered identically by both backends. Exit
 codes 0/1/2; PASS results are ALWAYS labeled INCOMPLETE (`PASS WITHIN BOUND k
 (incomplete - no completeness claim)`).
 
-**Property support (task 1A).** The DEFAULT class is checked unconditionally:
-top-level `always`, `always[N]`, `eventually`, and one-shot
-`bounded_eventually[N]`, whose bodies may use boolean combinations of
-expressions plus the cheap step operators `input_is(...)`, `output_has(...)`
-and `next (...)`. A top-level one-shot `bounded_eventually[N] (f)` is
+**Property support (tasks 1A, 3G).** The DEFAULT class is checked
+unconditionally: top-level `always`, `always[N]`, `eventually`, and one-shot
+`bounded_eventually[N]`, plus bare boolean top-level properties and top-level
+`next (...)` - the latter two desugared to `always(...)` before encoding,
+exactly as exact mode anchors a bare signal at every sample (task 3G) - whose
+bodies may use boolean combinations of expressions plus the cheap step
+operators `input_is(...)`, `output_has(...)` and `next (...)`. Variable
+initializers may be constant expressions: each is folded to the same constant
+exact mode produces, with the rule-4 fit check applied at validation (tasks
+3H/3L); an init referencing another var is rejected by both modes with the
+identical message. A top-level one-shot `bounded_eventually[N] (f)` is
 violated only if the path SURVIVES to its deadline sample N-1 and f holds at
 no sample in 0..N; if the path dies earlier (an unhandled input freezes the
 configuration before the deadline), the deadline sample does not exist and
@@ -996,7 +1002,10 @@ are enabled by default - profiling a 16-variant group at bound 5 solves in
 milliseconds, so no `--full-properties` gating is triggered.
 
 This mode is a bug-hunting extension; the v1.0 completeness guarantees above
-apply to exact mode only.
+apply to exact mode only. The residual differences between the modes -
+completeness of PASS, counterexample form, the declared flag-gated omissions,
+and the sample-0 assumption divergence - are documented in
+docs/user/MODEL_CHECKING.md section 10.
 
 ---
 

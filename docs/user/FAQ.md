@@ -55,6 +55,13 @@ benchmark specs' header comments (43/44/45/49) are the pattern.
   from the same configuration are still explored). Pruning is checked BEFORE
   property violations: a successor violating both an active assumption and a
   property is PRUNED, not reported. `--assumes none` explores everything.
+- **In smt-bounded MC:** assumptions work the same way - each SELECTED
+  assumption is asserted as a per-step base constraint (exact-mode successor
+  pruning). Cheap input-guard forms are default; expensive temporal forms
+  (`eventually`/`bounded_eventually`/`until`, nested temporals) need
+  `--full-assumptions`. One difference: an input-constraining assumption already
+  false at sample 0 makes the bounded run a VACUOUS pass, while exact mode
+  rejects it - see [MODEL_CHECKING.md section 10](MODEL_CHECKING.md#10-smt-bounded-vs-exact-mode-residual-differences).
 - **Selection:** `--assumes all|none|labels` (default `all`). Labels are
   comma-separated and filtered against the module's known assumption labels -
   UNKNOWN LABELS ARE SILENTLY DROPPED (no error; double-check typos).
@@ -137,7 +144,11 @@ flowchart TD
   pass-complete - if it found a counterexample inside the explored subgraph it
   reports `fail` (sound), otherwise it says unknown. Never read "it didn't fail
   yet" as "it passed".
-- SMT bounded mode PASSes are ALWAYS labeled incomplete (`PASS WITHIN BOUND k`).
+- SMT bounded mode PASSes are ALWAYS labeled incomplete (`PASS WITHIN BOUND k`)
+  - no bound makes bounded MC complete. How to get as close to exact mode as
+  possible (raising the bound until the verdict stabilizes, fuzz as a
+  complement, reading solver-model witnesses): [MODEL_CHECKING.md section
+  10](MODEL_CHECKING.md#10-smt-bounded-vs-exact-mode-residual-differences).
 - `--fast` is sound (never a false pass) but run-dependent - use plain exact
   mode for results you cite.
 - The same spec + flags give BYTE-IDENTICAL reports in both backends (exact

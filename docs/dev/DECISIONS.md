@@ -592,9 +592,12 @@ Gate PASSED, IMPLEMENTED in task 11. z3 5.3.1 at `/workspace/host/z3`
 z3-sys 0.13.1) - default builds unaffected. `--mode smt-bounded`: k-step
 unrolling over bitvectors from the shared plan/emitter (parity by
 construction), k-liveness, exit codes 0/1/2, PASS always labeled incomplete.
-v1 scope rejections: assumptions, on_error blocks, enum-typed vars, property
-formulas beyond top-level always/eventually over boolean combinations of
-expressions. Details: [DESIGN.md](../../DESIGN.md) section 11 + [PHASE_4_TASK_11_STATUS.md](../roadmap/phase_4/tasks/PHASE_4_TASK_11_STATUS.md)
+v1 scope rejections (SUPERSEDED by the Phase 18 tasks 3A-3H corrections -
+assumptions + on_error supported with flag-gated expensive classes, enum-typed
+vars/payloads/paths/wildcards supported, bare/top-level-next property forms
+desugared, constant-expression inits folded; see PHASE_18_PLAN.md): assumptions,
+on_error blocks, enum-typed vars, property formulas beyond top-level
+always/eventually over boolean combinations of expressions. Details: [DESIGN.md](../../DESIGN.md) section 11 + [PHASE_4_TASK_11_STATUS.md](../roadmap/phase_4/tasks/PHASE_4_TASK_11_STATUS.md)
 (incl. semantic bugs found/fixed: shift-amount width mismatch,
 oversized-literal comparison wrap, z3 5.3.1 C API deltas).
 **Why:** SMT unrolling finds bugs beyond the reachable-state budget with wider

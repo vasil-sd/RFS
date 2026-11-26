@@ -199,9 +199,12 @@ conversion rules (task 3L):
 **Formula typing.** `src/lang/validator.rs::type_formula` requires every formula
 to be boolean: a bare expression must type-check as bool; `input_is` /
 `output_has` delegate to `src/lang/validator.rs::check_pattern_group` /
-`src/lang/validator.rs::check_output_pattern_group` - both are Phase 1 stubs:
-formula patterns do NOT introduce bindings (a struct field with a name is
-rejected), only group/variant plausibility is checked; every temporal
+`src/lang/validator.rs::check_output_pattern_group` - both are documented no-ops
+(task 3F, audit row V17): formula patterns introduce no usable bindings - a
+named struct field is a LABELED WILDCARD that constrains nothing (both MC
+backends render a `Bind` pattern field as a no-constraint match), unlike
+transition-pattern binds which DO feed guards; only group/variant plausibility
+is checked; every temporal
 operator (not/next/always/bounded_always/bounded_eventually/eventually and
 the binary and/or/implies/until) recurses into its operands. The public
 utility `src/lang/validator.rs::is_safety_formula` classifies formulas for model-

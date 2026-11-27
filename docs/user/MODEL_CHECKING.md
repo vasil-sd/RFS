@@ -463,12 +463,18 @@ exact-mode specs. What it closed and lifted:
   (`init 5 + 1`) are accepted and folded to the same constant exact mode
   produces; an init referencing another var is rejected by BOTH modes with the
   identical message.
+- **Sample-0 assumption divergence CLOSED (task 3M):** a selected assumption
+  that is already violated at the initial configuration is rejected by ALL
+  THREE smt-bounded engines with exact mode's byte-identical `assumption
+  '<label>' violated at initial configuration (sample 0)` error (exit 1) -
+  before any solver work - instead of reporting a vacuous PASS WITHIN BOUND.
 
-What REMAINS are the differences below - each inherent to k-step bounded
-unrolling or a deliberate performance gate, none removable without changing what
-the mode is. The closed/lifted items above are NOT differences: for every
-construct they cover, a spec that validates and checks under exact mode checks
-identically under smt-bounded.
+What REMAINS are D5 (completeness of a passing verdict) and D6 (counterexample
+form) - each inherent to k-step bounded unrolling, none removable without
+changing what the mode is - plus the two declared omissions below, which are
+deliberate performance gates with explicit flags. The closed/lifted items above
+are NOT differences: for every construct they cover, a spec that validates and
+checks under exact mode checks identically under smt-bounded.
 
 ### 10.1 D5 - Completeness of PASS
 
@@ -632,38 +638,6 @@ assumptions unroll to O(k*N) constraints.
 **How to get closer.** Pass `--full-assumptions`; check the summary line for
 `assumptions_omitted=M`.
 
-### 10.5 Sample-0 assumptions: vacuous PASS vs initial-configuration failure
-
-**The difference.** An input-constraining assumption that is already false at
-the initial configuration - where no input has been consumed, so every
-`input_is`/`output_has` atom is statically false - makes smt-bounded's base
-constraint UNSAT at sample 0: the run reports a VACUOUS `PASS WITHIN BOUND`.
-Exact mode instead rejects the run (exit 1) with `assumption '<label>'
-violated at initial configuration (sample 0)` (the generated exact binaries
-panic in their constructor on the same condition).
-
-**Exact-mode snippet.**
-
-```rfs
-assume force_tick : input_is(Tick) ;   # desugared to always(input_is(Tick)) - cheap class
-```
-
-**smt-bounded alternative.** `PASS WITHIN BOUND k (incomplete)` with no
-violations - every sample is pruned by the unsatisfiable base constraint. Exact
-mode: rejected at sample 0. The two modes DISAGREE on this spec shape.
-
-**Rationale.** smt-bounded expresses assumptions as per-step SMT facts gated by
-`alive[i]`; at sample 0 the fact `input_is(Tick)` is false by construction (no
-transition just taken), so the conjunction is unsatisfiable and the solver
-returns a trivial model (SEMANTICS 9.9, Assumptions). Exact mode checks the
-initial configuration explicitly before exploring successors.
-
-**How to get closer.** Write the obligation shifted off sample 0:
-`assume force_tick : always (next (input_is(Tick))) ;` - still the cheap class,
-satisfiable at sample 0 (the `next` drops the anchor there), and it forces a
-Tick-consumed transition at every step from 1 on. Reserve bare sample-0
-input-constraining assumptions for specs where "the environment must already be
-mid-stream" is the intent - and know that smt-bounded will read it as vacuous.
 
 ### Summary - construct by construct
 
@@ -679,5 +653,5 @@ mid-stream" is the intent - and know that smt-bounded will read it as vacuous.
 | Named fields in formula `input_is` | legal, constrain nothing (task 3F) | identical | none - unified |
 | Bare / top-level `next` property forms | anchored at every sample | desugared to `always(...)` (task 3G) | none - unified |
 | Constant-expression var initializers | folded at init, rule-4 fit check (tasks 3H/3L) | identical fold + fit check | none - unified |
-| Sample-0 input-constraining assumption | rejected, exit 1: "violated at initial configuration" (mc-ref) / constructor panic (generated) | vacuous PASS (UNSAT base) | write `always (next (input_is(...)))` to shift the obligation off sample 0 |
+| Sample-0 input-constraining assumption | rejected, exit 1: "violated at initial configuration" (mc-ref) / constructor panic (generated) | identical pre-solve rejection, byte-identical line (task 3M) | none - unified (task 3M) |
 | Completeness of a passing verdict | exhaustive over all reachable configurations | paths of length <= k only | inherent - no bound makes bounded MC complete; use fuzz as a complement |

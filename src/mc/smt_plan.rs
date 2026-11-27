@@ -316,6 +316,13 @@ pub struct SmtSpec {
     /// mode uses, where generated binaries carry every assumption's monitor
     /// and activate a subset per run).
     pub assumptions: Vec<SmtAssumption>,
+    /// Task 3M: per-assumption (parallel to `assumptions`) sample-0 violation
+    /// status - true when the assumption monitor already fails at the initial
+    /// configuration (no input consumed). Computed with the exact-mode monitor
+    /// compiler; every engine rejects a SELECTED assumption with this flag set
+    /// before any solver work, byte-identically to exact mode (instead of the
+    /// vacuous pass an UNSAT sample-0 base constraint used to produce).
+    pub assumption_sample0_violated: Vec<bool>,
     /// input_is atom definitions, indexed by `Sf::InputIs.id` (formula walk
     /// order over all properties, then all assumptions). Each: (class index,
     /// literal field constraints as (GLOBAL field index, value, is_bool)).
@@ -890,6 +897,22 @@ pub fn build_smt_spec(module: &Module, plan: &McPlan) -> Result<SmtSpec, String>
     }
 
     let state_bits = ceil_log2(states.len());
+    // Task 3M: sample-0 violation status of every assumption (selection = all
+    // - runtime --assumes filtering happens in each engine). Computed with the
+    // exact-mode monitor compiler, so all three SMT engines reject a selected
+    // assumption already violated at the initial configuration identically to
+    // exact mode instead of returning a vacuous pass.
+    let violated0 = crate::mc::ref_mc::sample0_violated_assumptions(
+        module,
+        &assumptions
+            .iter()
+            .map(|a| a.name.clone())
+            .collect::<Vec<String>>(),
+    )?;
+    let assumption_sample0_violated: Vec<bool> = assumptions
+        .iter()
+        .map(|a| violated0.iter().any(|v| v == &a.name))
+        .collect();
     Ok(SmtSpec {
         states,
         initial_state,
@@ -900,6 +923,7 @@ pub fn build_smt_spec(module: &Module, plan: &McPlan) -> Result<SmtSpec, String>
         properties,
         on_error,
         assumptions,
+        assumption_sample0_violated,
         input_atoms,
         output_atoms,
     })

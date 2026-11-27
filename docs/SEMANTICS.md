@@ -968,7 +968,12 @@ per-assumption stderr warning naming it and the flag, and the summary line
 gains `assumptions_omitted=M` only when M > 0. Selection follows section 7.4:
 `--assumes all|none|labels` (default `all`, unknown labels silently dropped);
 `none` encodes zero assumptions and reproduces the assumption-free verdict
-byte-for-byte.
+byte-for-byte. A SELECTED assumption already violated at the initial
+configuration is rejected by ALL THREE smt-bounded engines before any solver
+work with exact mode's byte-identical error - `assumption '<label>' violated
+at initial configuration (sample 0)`, exit 1 (task 3M; the check compiles each
+selected assumption with the section 5 monitor compiler, so an out-of-subset
+assumption is skipped exactly as exact mode skips it).
 
 **on_error blocks (task 3C).** An `on_error` block adds the section 3.6
 catch-all fallback as a lowest-priority transition from ANY state: any input
@@ -1003,9 +1008,8 @@ milliseconds, so no `--full-properties` gating is triggered.
 
 This mode is a bug-hunting extension; the v1.0 completeness guarantees above
 apply to exact mode only. The residual differences between the modes -
-completeness of PASS, counterexample form, the declared flag-gated omissions,
-and the sample-0 assumption divergence - are documented in
-docs/user/MODEL_CHECKING.md section 10.
+completeness of PASS, counterexample form, and the declared flag-gated
+omissions - are documented in docs/user/MODEL_CHECKING.md section 10.
 
 ---
 

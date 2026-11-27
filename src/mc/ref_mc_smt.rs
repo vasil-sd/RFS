@@ -802,6 +802,19 @@ pub fn run(
     let k = bound.max(1);
     let known: Vec<&str> = spec.assumptions.iter().map(|a| a.name.as_str()).collect();
     let selected = parse_assume_selection(assumes_arg, &known);
+    // Task 3M: a SELECTED assumption already violated at the initial
+    // configuration rejects the run BEFORE any solver work - byte-identical to
+    // exact mode's clean error (the generated SMT binaries perform the same
+    // check from their embedded table). Without it, the sample-0 base
+    // constraint is UNSAT and z3 returns a vacuous pass.
+    for (i, a) in spec.assumptions.iter().enumerate() {
+        if selected.iter().any(|x| x == &a.name) && spec.assumption_sample0_violated[i] {
+            return Err(format!(
+                "assumption '{}' violated at initial configuration (sample 0)",
+                a.name
+            ));
+        }
+    }
     let cfg = Config::new();
     with_z3_config(&cfg, || {
         run_unrolled(&spec, k, full_properties, full_assumptions, &selected)

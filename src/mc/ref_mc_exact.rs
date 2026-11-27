@@ -21,10 +21,11 @@ use std::time::Instant;
 
 use super::ref_mc::{
     all_inputs, bool_of, ceil_log2, compile_formula, compile_signal, contains_liveness,
-    decompose_properties, eval_expr, eval_sig, flatten, input_group, input_matches_variant,
-    match_effect, mon_bits, mon_init, mon_key, mon_step, output_variant_idx, pattern_bindings,
-    state_index, state_variants, var_map, CeData, Effect, EvalCtx, FlatVariant, InputVal, IoRec,
-    Leaf, LivProp, Mon, MonSt, OutputVal, RefConfig, RefResult, Sample, Sig, Skel, StepRec, Val,
+    decompose_properties, eval_expr, eval_sig, flatten, initial_configuration, input_group,
+    input_matches_variant, match_effect, mon_bits, mon_init, mon_key, mon_step, output_variant_idx,
+    pattern_bindings, sample0_violated_assumptions, state_index, state_variants, var_map, CeData,
+    Effect, EvalCtx, FlatVariant, InputVal, IoRec, Leaf, LivProp, Mon, MonSt, OutputVal, RefConfig,
+    RefResult, Sample, Sig, Skel, StepRec, Val,
 };
 use crate::codegen::mc_concepts::{parse_assume_selection, ExactStatus, FailReason};
 use crate::lang::ir::*;
@@ -324,46 +325,10 @@ pub(crate) fn run(module: &Module, cfg: &RefConfig) -> Result<RefResult, String>
         .sum();
     let total_bytes = ((state_bits + vars_bits + monitors_bits) as usize).div_ceil(8);
 
-    // --- Initial configuration. ---
+    // --- Initial configuration (shared with the sample-0 assumption check,
+    //     task 3M). ---
     let states = state_variants(module).to_vec();
-    let q0 = module
-        .initial_state
-        .as_ref()
-        .and_then(|s| states.iter().position(|x| x == s))
-        .ok_or_else(|| "module has no initial state".to_string())?;
-    let mut init_vars: Vec<Val> = Vec::new();
-    for v in &module.vars {
-        let ctx = EvalCtx {
-            module,
-            state: Val::Enum(states[q0].clone()),
-            vars: HashMap::new(),
-            binds: HashMap::new(),
-            bind_types: HashMap::new(),
-        };
-        match eval_expr(&v.init, &ctx) {
-            // Task 3L rule 4: the folded constant is masked to the var's
-            // declared width - a two's-complement-fitting negative init (e.g.
-            // `init -5` on bit<4>) becomes its encoding (11). Validated specs
-            // always fit, so this never changes a positive value.
-            Ok(val) => {
-                let val = match (&v.ty, val) {
-                    (crate::lang::ir::Type::Bit { width }, crate::mc::ref_mc::Val::Bit(n)) => {
-                        crate::mc::ref_mc::Val::Bit(
-                            (n as u128 & crate::mc::ref_mc::mask(*width)) as u64,
-                        )
-                    }
-                    (_, val) => val,
-                };
-                init_vars.push(val);
-            }
-            Err(_) => {
-                return Err(format!(
-                    "variable '{}' initializer is not a constant expression (unsupported)",
-                    v.name
-                ))
-            }
-        }
-    }
+    let (q0, init_vars) = initial_configuration(module)?;
 
     let all_mons: Vec<(String, Mon)> = prop_mons
         .iter()
@@ -382,11 +347,29 @@ pub(crate) fn run(module: &Module, cfg: &RefConfig) -> Result<RefResult, String>
         vars: init_vars.clone(),
     };
     // Assumptions first (the generated constructors panic on a sample-0
-    // assumption violation; here: a clean error).
-    for (i, (label, spec)) in all_mons.iter().enumerate().skip(n_props) {
+    // assumption violation; here: a clean error). The shared helper computes
+    // the violated labels - the same computation the SMT-bounded engines use
+    // for their pre-solve rejection (task 3M) - but it steps its OWN monitor
+    // copies, so we ALSO step our own assumption monitors in place below: the
+    // BFS carries them, and a countdown-bearing assumption (e.g.
+    // bounded_eventually[N]) observes a different obligation from sample 1 on
+    // depending on whether sample 0 was stepped.
+    if let Some(label) = sample0_violated_assumptions(module, &selected)?
+        .into_iter()
+        .next()
+    {
+        return Err(format!(
+            "assumption '{label}' violated at initial configuration (sample 0)"
+        ));
+    }
+    for i in n_props..all_mons.len() {
+        let (_, spec) = &all_mons[i];
         if mon_step(&mut mons[i], spec, 0, &sample0, module)? {
+            // Unreachable: the helper just proved no selected assumption is
+            // violated at sample 0 (same compiler, same sample).
             return Err(format!(
-                "assumption '{label}' violated at initial configuration (sample 0)"
+                "assumption '{}' violated at initial configuration (sample 0)",
+                all_mons[i].0
             ));
         }
     }

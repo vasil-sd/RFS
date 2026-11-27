@@ -1991,3 +1991,149 @@ fn rule5_engine_level_divergence_is_gone() {
         .expect("smt mode masks the out-of-range init identically");
     assert_eq!(smt.exit_code, 0);
 }
+
+// ---------------------------------------------------------------------------
+// Task 3M - sample-0 assumption violation: all three SMT engines reject a
+// selected assumption that is already violated at the initial configuration
+// with the byte-identical exact-mode error, before any solver work.
+// ---------------------------------------------------------------------------
+
+/// An assumption that is false at sample 0: no input has been consumed yet, so
+/// `input_is(Tick)` is statically false there. Exact mode rejects this in its
+/// constructor; task 3M makes all three SMT engines do the same instead of
+/// returning a vacuous PASS WITHIN BOUND.
+const SMT_S0_VIOLATE_SRC: &str = r#"
+module smt_s0_violate {
+  enum State { A, B }
+  initial A
+  event Tick
+  transition A on Tick { next B; }
+  transition B on Tick { next A; }
+  assume force_tick : input_is(Tick) ;
+}
+"#;
+
+/// The documented workaround: `next` shifts the check to sample 1, where a Tick
+/// HAS been consumed - the monitor is pending at sample 0, so no violation.
+const SMT_S0_WORKAROUND_SRC: &str = r#"
+module smt_s0_workaround {
+  enum State { A, B }
+  initial A
+  event Tick
+  transition A on Tick { next B; }
+  transition B on Tick { next A; }
+  assume force_tick : always (next (input_is(Tick))) ;
+}
+"#;
+
+/// Out-of-monitor-subset assumption (nested temporal -> FULL class): the
+/// monitor compiler cannot compile it, so exact mode skips it with a warning
+/// and the sample-0 check must skip it too - even with --full-assumptions.
+const SMT_S0_OUTOF_SUBSET_SRC: &str = r#"
+module smt_s0_outofsubset {
+  enum State { A }
+  initial A
+  event Tick
+  transition A on Tick { next A; }
+  assume r3 : always (always[2] (input_is(Tick))) ;
+}
+"#;
+
+/// The byte-identical error line all three engines must surface (exact mode's
+/// message, verbatim - the generated binaries prefix it with `error: `).
+const S0_ERROR: &str = "assumption 'force_tick' violated at initial configuration (sample 0)";
+
+#[test]
+fn ref_smt_vs_generated_sample0_violated_assumption() {
+    let note = version_note();
+    // In-process: run_smt returns the exact-mode Err before any solver work.
+    let ir = rfs::parse_source(SMT_S0_VIOLATE_SRC).expect("parses");
+    let err = rfs::mc::ref_mc::run_smt(&ir.modules[0], 5, false, false, "all")
+        .expect_err("a sample-0-violating assumption must be rejected");
+    assert_eq!(err, S0_ERROR, "in-process error line {note}");
+
+    // Both generated backends: the identical line on stderr, EMPTY stdout,
+    // exit 1 - at every bound (the check fires before any solver work).
+    for &bound in &BOUNDS {
+        for backend in ["rust", "c"] {
+            let bin = smt_binary(backend, SMT_S0_VIOLATE_SRC, "s0_violate");
+            let (code, out, err_out) = run_bin_full(&bin, &["--bound", &bound.to_string()]);
+            assert_eq!(code, 1, "{backend} exit at bound {bound} {note}");
+            assert_eq!(
+                out, "",
+                "{backend} stdout must be empty at bound {bound}:\n{out}"
+            );
+            assert_eq!(
+                err_out,
+                format!("error: {S0_ERROR}\n"),
+                "{backend} stderr at bound {bound} {note}"
+            );
+        }
+    }
+}
+
+#[test]
+fn ref_smt_sample0_negative_controls() {
+    let note = version_note();
+
+    // (a) Workaround form: `next` shifts the check to sample 1 - PASS WITHIN
+    // BOUND on all three engines, parity-pinned.
+    for &bound in &BOUNDS {
+        let (code, out, _warnings) = ref_smt(SMT_S0_WORKAROUND_SRC, bound, false, false, "all");
+        assert_eq!(code, 0, "workaround form must pass at bound {bound} {note}");
+        for backend in ["rust", "c"] {
+            let bin = smt_binary(backend, SMT_S0_WORKAROUND_SRC, "s0_workaround");
+            let (gcode, gout) = run_bin(&bin, &["--bound", &bound.to_string()]);
+            assert_eq!(code, gcode, "{backend} exit at bound {bound} {note}");
+            assert_eq!(out, gout, "{backend} stdout at bound {bound} {note}");
+        }
+    }
+
+    // (b) --assumes none on the violating spec: the check is selection-gated -
+    // PASS WITHIN BOUND, no error.
+    let (code, out, _warnings) = ref_smt(SMT_S0_VIOLATE_SRC, 5, false, false, "none");
+    assert_eq!(
+        code, 0,
+        "--assumes none must skip the sample-0 check {note}"
+    );
+    for backend in ["rust", "c"] {
+        let bin = smt_binary(backend, SMT_S0_VIOLATE_SRC, "s0_violate");
+        let (gcode, gout) = run_bin(&bin, &["--bound", "5", "--assumes", "none"]);
+        assert_eq!(code, gcode, "{backend} --assumes none exit {note}");
+        assert_eq!(out, gout, "{backend} --assumes none stdout {note}");
+    }
+
+    // (c) Out-of-subset assumption: skipped by the monitor compiler - never a
+    // sample-0 error, even with --full-assumptions.
+    for full in [false, true] {
+        let what = if full {
+            "--full-assumptions"
+        } else {
+            "default"
+        };
+        let (code, out, _warnings) = ref_smt(SMT_S0_OUTOF_SUBSET_SRC, 5, false, full, "all");
+        assert_eq!(
+            code, 0,
+            "out-of-subset assumption must pass ({what}) {note}"
+        );
+        assert!(
+            !out.contains("violated at initial configuration"),
+            "out-of-subset assumption must not trigger the sample-0 error ({what}):\n{out}"
+        );
+        for backend in ["rust", "c"] {
+            let bin = smt_binary(backend, SMT_S0_OUTOF_SUBSET_SRC, "s0_outofsubset");
+            let args: &[&str] = if full {
+                &["--bound", "5", "--full-assumptions"][..]
+            } else {
+                &["--bound", "5"][..]
+            };
+            let (gcode, gout, gerr) = run_bin_full(&bin, args);
+            assert_eq!(code, gcode, "{backend} out-of-subset exit ({what}) {note}");
+            assert!(
+                !gout.contains("violated at initial configuration")
+                    && !gerr.contains("violated at initial configuration"),
+                "{backend} out-of-subset must not trigger the sample-0 error ({what}):\n{gout}\n{gerr}"
+            );
+        }
+    }
+}

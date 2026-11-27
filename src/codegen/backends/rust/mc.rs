@@ -1863,7 +1863,7 @@ fn smt_engine_replacements(spec: &crate::mc::smt_plan::SmtSpec) -> Vec<(&'static
             "{ASSUME_SELECTION}",
             if has_assumptions {
                 Some(
-                    "    let selected_assumes: Vec<String> = match assumes_arg.as_str() {\n        \"all\" => ASSUME_NAMES.iter().map(|x| x.to_string()).collect(),\n        \"none\" => Vec::new(),\n        other => other.split(',').map(|x| x.trim().to_string()).filter(|x| !x.is_empty() && ASSUME_NAMES.contains(&x.as_str())).collect(),\n    };\n",
+                    "    let selected_assumes: Vec<String> = match assumes_arg.as_str() {\n        \"all\" => ASSUME_NAMES.iter().map(|x| x.to_string()).collect(),\n        \"none\" => Vec::new(),\n        other => other.split(',').map(|x| x.trim().to_string()).filter(|x| !x.is_empty() && ASSUME_NAMES.contains(&x.as_str())).collect(),\n    };\n    // Task 3M: a selected assumption already violated at the initial configuration rejects the run before any solver work - byte-identical to exact mode's clean error (the in-process engine does the same check).\n    for a in 0..ASSUME_NAMES.len() {\n        if selected_assumes.iter().any(|x| x == ASSUME_NAMES[a]) && ASSUME_SAMPLE0_VIOLATED[a] {\n            eprintln!(\"error: assumption '{}' violated at initial configuration (sample 0)\", ASSUME_NAMES[a]);\n            std::process::exit(1);\n        }\n    }\n",
                 )
             } else {
                 None

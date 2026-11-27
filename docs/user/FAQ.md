@@ -59,9 +59,10 @@ benchmark specs' header comments (43/44/45/49) are the pattern.
   assumption is asserted as a per-step base constraint (exact-mode successor
   pruning). Cheap input-guard forms are default; expensive temporal forms
   (`eventually`/`bounded_eventually`/`until`, nested temporals) need
-  `--full-assumptions`. One difference: an input-constraining assumption already
-  false at sample 0 makes the bounded run a VACUOUS pass, while exact mode
-  rejects it - see [MODEL_CHECKING.md section 10](MODEL_CHECKING.md#10-smt-bounded-vs-exact-mode-residual-differences).
+  `--full-assumptions`. A selected assumption already violated at sample 0 is
+  rejected by ALL THREE smt-bounded engines with exact mode's byte-identical
+  error (exit 1, before any solver work) - task 3M closed the old vacuous-pass
+  divergence; see [MODEL_CHECKING.md section 10](MODEL_CHECKING.md#10-smt-bounded-vs-exact-mode-residual-differences).
 - **Selection:** `--assumes all|none|labels` (default `all`). Labels are
   comma-separated and filtered against the module's known assumption labels -
   UNKNOWN LABELS ARE SILENTLY DROPPED (no error; double-check typos).

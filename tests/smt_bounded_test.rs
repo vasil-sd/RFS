@@ -170,6 +170,21 @@ module smt_assume_full {
 }
 "#;
 
+/// Task 3M: an assumption already violated at the initial configuration -
+/// `input_is(Tick)` is statically false at sample 0 (no input consumed). Both
+/// generated backends must reject it with the byte-identical exact-mode error
+/// line on stderr, EMPTY stdout, exit 1.
+const SMT_S0_VIOLATE_SRC: &str = r#"
+module smt_s0_violate {
+  enum State { A, B }
+  initial A
+  event Tick
+  transition A on Tick { next B; }
+  transition B on Tick { next A; }
+  assume force_tick : input_is(Tick) ;
+}
+"#;
+
 // ---------------------------------------------------------------------------
 // Codegen + build helpers
 // ---------------------------------------------------------------------------
@@ -1053,4 +1068,45 @@ fn smt_bounded_task3f_3h_lifted_restrictions() {
         cout.contains("PASS WITHIN BOUND 6"),
         "pinned generated summary missing:\n{cout}"
     );
+}
+
+/// Task 3M: both generated backends run the sample-0-violating spec -
+/// identical error line + exit 1, C output gcc -Wall clean (compile_c's hard
+/// bar).
+#[test]
+fn smt_bounded_task3m_sample0_violated_assumption() {
+    if !common::toolchain::z3_available() {
+        eprintln!(
+            "note: z3 not available - SMT bounded suite skipped (set RFS_Z3_DIR or install z3)"
+        );
+        return;
+    }
+    let project = rust_e2e_project("task3m");
+    let dir = root().join("target").join("rfs_smt_bounded");
+    std::fs::create_dir_all(&dir).expect("create scratch dir");
+
+    let c_src = dir.join("smt_s0_violate.c");
+    std::fs::write(&c_src, generate("c", SMT_S0_VIOLATE_SRC, "s0_violate"))
+        .expect("write C source");
+    let c_bin = dir.join("smt_s0_violate_c");
+    compile_c(&c_src, &c_bin);
+    let r_bin = build_rust(
+        &project,
+        &generate("rust", SMT_S0_VIOLATE_SRC, "s0_violate"),
+    );
+
+    const EXPECTED: &str =
+        "error: assumption 'force_tick' violated at initial configuration (sample 0)\n";
+    for (name, bin) in [("c", &c_bin), ("rust", &r_bin)] {
+        let (code, out, err) = run_bin_full(bin, &["--bound", "5"]);
+        assert_eq!(
+            code, 1,
+            "{name}: sample-0-violating assumption must exit 1:\n{out}\n{err}"
+        );
+        assert_eq!(out, "", "{name}: stdout must be empty:\n{out}");
+        assert_eq!(
+            err, EXPECTED,
+            "{name}: stderr must be the byte-identical error line:\n{err}"
+        );
+    }
 }

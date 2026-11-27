@@ -1144,6 +1144,89 @@ fn min_trigger(news: &[bool], children: &[MonSt]) -> i64 {
         .unwrap_or(-1)
 }
 
+/// The module's initial configuration: (initial-state index, variable values).
+/// Shared by the exact engine and the sample-0 assumption check (task 3M):
+/// every var initializer is evaluated as a constant expression in the
+/// initial-state context with NO vars bound (a later var's init can never
+/// reference an earlier one), and the task-3L rule-4 masking applies - a
+/// two's-complement-fitting negative init (e.g. `init -5` on bit<4>) becomes
+/// its encoding (11). Validated specs always fit, so this never changes a
+/// positive value.
+pub(crate) fn initial_configuration(module: &Module) -> Result<(usize, Vec<Val>), String> {
+    let states = state_variants(module).to_vec();
+    let q0 = module
+        .initial_state
+        .as_ref()
+        .and_then(|s| states.iter().position(|x| x == s))
+        .ok_or_else(|| "module has no initial state".to_string())?;
+    let mut init_vars: Vec<Val> = Vec::new();
+    for v in &module.vars {
+        let ctx = EvalCtx {
+            module,
+            state: Val::Enum(states[q0].clone()),
+            vars: HashMap::new(),
+            binds: HashMap::new(),
+            bind_types: HashMap::new(),
+        };
+        match eval_expr(&v.init, &ctx) {
+            Ok(val) => {
+                let val = match (&v.ty, val) {
+                    (crate::lang::ir::Type::Bit { width }, Val::Bit(n)) => {
+                        Val::Bit((n as u128 & mask(*width)) as u64)
+                    }
+                    (_, val) => val,
+                };
+                init_vars.push(val);
+            }
+            Err(_) => {
+                return Err(format!(
+                    "variable '{}' initializer is not a constant expression (unsupported)",
+                    v.name
+                ))
+            }
+        }
+    }
+    Ok((q0, init_vars))
+}
+
+/// The exact-mode initial-configuration assumption check (task 3M): step each
+/// SELECTED, monitorable assumption once at sample 0 (no input consumed) and
+/// return the violated labels in declaration order. This is the single shared
+/// computation behind three surfaces - ref_mc_exact's clean error (exit 1),
+/// the in-process SMT engine's pre-solve rejection, and both generated SMT
+/// runtimes' embedded constant table - so all of them agree by construction.
+/// Out-of-monitor-subset assumptions (compile failure) are SKIPPED here,
+/// matching exact mode's warning+skip: they are not enforced anywhere in exact
+/// mode, so they can never trigger the sample-0 error. The temporal semantics
+/// (next = pending at 0, bounded_eventually[0] = body-at-0, until/eventually =
+/// pending) live in the monitor compiler itself - nothing is re-derived.
+pub(crate) fn sample0_violated_assumptions(
+    module: &Module,
+    selected: &[String],
+) -> Result<Vec<String>, String> {
+    let (q0, init_vars) = initial_configuration(module)?;
+    let sample0 = Sample {
+        input: None,
+        outputs: Vec::new(),
+        to_state: q0,
+        vars: init_vars,
+    };
+    let mut violated = Vec::new();
+    for a in &module.assumptions {
+        if !selected.iter().any(|x| x == &a.name) {
+            continue;
+        }
+        let Ok(mon) = compile_formula(&a.formula) else {
+            continue; // outside the monitor subset - exact mode skips it too
+        };
+        let mut st = mon_init(&mon);
+        if mon_step(&mut st, &mon, 0, &sample0, module)? {
+            violated.push(a.name.clone());
+        }
+    }
+    Ok(violated)
+}
+
 /// The persistent projection of one monitor's state - the part that belongs
 /// in the configuration key (SEMANTICS.md section 9.2): obligation pending +
 /// remaining (bound >= 1 only), delayed-check antecedent register. Preorder;

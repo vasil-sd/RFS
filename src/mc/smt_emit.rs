@@ -1490,6 +1490,10 @@ pub fn emit_rust_spec(spec: &SmtSpec) -> String {
             "/// next_depth anchor clip: the last N anchors have no shifted horizon and are dropped (same clipping as properties).\nconst ASSUME_NEXT_DEPTH: &[usize] = &{:?};\n",
             spec.assumptions.iter().map(|a| a.next_depth).collect::<Vec<_>>()
         ));
+        s.push_str(&format!(
+            "/// Sample-0 violation status (task 3M): true when this assumption's monitor already fails at the initial configuration - a SELECTED assumption with this flag set rejects the run before solving, byte-identically to exact mode.\nconst ASSUME_SAMPLE0_VIOLATED: &[bool] = &{:?};\n",
+            spec.assumption_sample0_violated.clone()
+        ));
         // One builder fn per assumption - same signature as the property fns
         // (FULL-class bodies render horizon loops that need k; next bodies
         // need the D1 alive gate).
@@ -3095,6 +3099,14 @@ pub fn emit_c_spec(spec: &SmtSpec) -> String {
                 .collect::<Vec<_>>()
                 .join(", ")
         ));
+        s.push_str(&format!(
+            "/* Sample-0 violation status (task 3M): true when this assumption's monitor already fails at the initial configuration - a SELECTED assumption with this flag set rejects the run before solving, byte-identically to exact mode. */\nstatic const unsigned char ASSUME_SAMPLE0_VIOLATED[] = {{{}}};\n",
+            spec.assumption_sample0_violated
+                .iter()
+                .map(|v| if *v { "1" } else { "0" })
+                .collect::<Vec<_>>()
+                .join(", ")
+        ));
         // One builder fn per assumption - same signature as the property fns
         // (FULL-class bodies render horizon loops that need k; next bodies
         // need the D1 alive gate). Unused parameters get void-casts exactly
@@ -3381,6 +3393,7 @@ mod tests {
             input_atoms: Vec::new(),
             output_atoms: Vec::new(),
             assumptions: Vec::new(),
+            assumption_sample0_violated: Vec::new(),
             on_error: None,
         }
     }

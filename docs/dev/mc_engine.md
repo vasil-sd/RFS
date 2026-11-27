@@ -530,7 +530,10 @@ SMT_ENGINE_C ([backend_c.md](backend_c.md)): first-match firing as a prefix-OR c
 firing order, alive tracking, safety query (exists i < k: alive_i and not phi_p(i))
 and liveness via k-liveness (never + cycle query). Verdicts: SAT -> sound FAIL within
 bound k; all UNSAT -> PASS WITHIN BOUND k (always labeled incomplete - no completeness
-claim); inconclusive -> UNKNOWN; exit codes 0/1/2. One libz3 build (5.3.1,
+claim); inconclusive -> UNKNOWN; exit codes 0/1/2. Before any solver work, a SELECTED
+assumption already violated at the initial configuration is rejected with exact mode's
+byte-identical error line (task 3M - `src/mc/ref_mc.rs::sample0_violated_assumptions`,
+shared by all three engines). One libz3 build (5.3.1,
 [TOOLCHAIN.md](../../TOOLCHAIN.md) section 5) is shared by both backends; the mode is feature-gated (smt
 cargo feature), codegen flag --smt-bound N (default 10) overridable at runtime.
 Algorithm views L1-L3: dev:algorithms-mc-engine; external references:

@@ -1,0 +1,13 @@
+FAIL
+model-check summary: status=fail states=39 transitions=49 max_depth=1 reason=property-violation label=no_arm_unready step=2
+  unexpected terminations: 9
+  first unexpected: config 0 input index 8
+  monitor size: 0 bits
+  memory estimate: 1326 bytes
+property violation: no_arm_unready
+  violation step: 2
+  vars at violation step: Vars { gps_sats: 1, batt: 31 }
+counterexample trace:
+  initial state=State::Disarmed vars=Vars { gps_sats: 0, batt: 31 }
+  step 0 input=Input::GpsUpdate_G { s: 1 } outputs=[] from=State::Disarmed to=State::Disarmed vars=Vars { gps_sats: 1, batt: 31 }
+  step 1 input=Input::Arm outputs=[Output::ArmCmd] from=State::Disarmed to=State::ArmedIdle vars=Vars { gps_sats: 1, batt: 31 }

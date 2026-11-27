@@ -1,0 +1,51 @@
+# rfs 1.0
+# plc_conveyor_seq - FAILING VARIANT (Phase 18 B14): the downstream-clear check is
+# removed from station A - it starts processing into an occupied B. The original spec
+# is pass.rfs.
+module plc_conveyor_seq {
+  enum State { Idle, Running }
+  initial Idle
+
+  event LoadAtA
+  event ADone
+  event BReady
+  event BDone
+  event CReady
+  event CDone
+  event LineClear
+
+  output AProcessCmd
+  output BProcessCmd
+  output CProcessCmd
+  output UnloadCmd
+
+  var a_mode: bit<2> init 0
+  var b_mode: bit<2> init 0
+  var c_mode: bit<2> init 0
+  var loads_in: bit<3> init 0
+
+  # Interlock: A never processes while B is occupied.
+  prop a_interlock : always (output_has(AProcessCmd) -> b_mode == 0) ;
+  # Interlock: B never processes while C is occupied.
+  prop b_interlock : always (output_has(BProcessCmd) -> c_mode == 0) ;
+  # Conservation: no load is lost - an idle line holds zero loads.
+  prop none_lost : always (state == Idle -> loads_in == 0) ;
+
+  # The first load wakes the line: A is clear and B is clear in IDLE.
+  transition Idle on LoadAtA { next Running; set a_mode = 2; emit AProcessCmd; set loads_in = loads_in + 1; }
+  # The downstream-clear interlock: A starts only when A is clear AND B is clear.
+  // DEFECT: the downstream-clear check is gone - A processes into an occupied B.
+  transition Running on LoadAtA where a_mode == 0 { next Running; set a_mode = 2; emit AProcessCmd; set loads_in = loads_in + 1; }
+  # A done: the load moves to B (B becomes loaded, waiting for C to clear).
+  transition Running on ADone where a_mode == 2 { next Running; set a_mode = 0; set b_mode = 1; }
+  # The downstream-clear interlock: B starts only when C is clear.
+  transition Running on BReady where b_mode == 1 && c_mode == 0 { next Running; set b_mode = 2; emit BProcessCmd; }
+  # B done: the load moves to C.
+  transition Running on BDone where b_mode == 2 { next Running; set b_mode = 0; set c_mode = 1; }
+  # C is the last station - no downstream interlock.
+  transition Running on CReady where c_mode == 1 { next Running; set c_mode = 2; emit CProcessCmd; }
+  # C done: the load leaves the line (the count drops).
+  transition Running on CDone where c_mode == 2 { next Running; set c_mode = 0; emit UnloadCmd; set loads_in = loads_in - 1; }
+  # A fully clear line returns to IDLE.
+  transition Running on LineClear where a_mode == 0 && b_mode == 0 && c_mode == 0 { next Idle; }
+}

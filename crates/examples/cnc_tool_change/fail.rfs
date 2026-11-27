@@ -1,0 +1,55 @@
+# rfs 1.0
+# cnc_tool_change - FAILING VARIANT (Phase 18 B12): the single-tool guard is
+# removed - a second EngageCmd is honored while a tool is already in the spindle,
+# so two tools end up engaged. The original spec is pass.rfs.
+module cnc_tool_change {
+  enum State { Home, MoveTo, Engage, Operate, Retract, Return }
+  initial Home
+
+  event M06(M(t: bit<3>))
+  event MoveDone
+  event EngageCmd
+  event CutDone
+  event RetractDone
+  event HomeDone
+  event AxisPos(A(x: bit<5>))
+
+  output TurretMove
+  output SpindleOn
+  output SpindleOff
+  output AxisGo
+
+  var tool_count: bit<2> init 0
+  var pending_tool: bit<3> init 0
+  var axis_x: bit<5> init 0
+
+  # Mutual exclusion: at most one tool is engaged - the spindle-on emission never
+  # happens with a second tool already in the spindle.
+  prop one_tool_engaged : always (output_has(SpindleOn) -> tool_count <= 1) ;
+  # Ordering: the M06 cycle starts only from HOME - no motion before homing. Stated
+  # over the post-transition sample: an M06 request is honored by exactly one
+  # transition (the Home one) and always lands the machine in MoveTo; an M06 in any
+  # other state is unhandled and terminates the path without a sample.
+  prop home_before_motion : always (input_is(M06(M(t))) -> state == MoveTo) ;
+  # Invariant: every axis position stays inside the soft limit.
+  prop axis_in_limits : always (axis_x < 30) ;
+
+  transition Home on M06(M(t)) { next MoveTo; set pending_tool = t; emit TurretMove; }
+  transition Home on AxisPos(A(x)) where x < 30 { next Home; set axis_x = x; emit AxisGo; }
+  transition MoveTo on MoveDone { next Engage; }
+  # The single-tool guard: engage only when the spindle is empty.
+  // DEFECT: the single-tool guard is gone - engage is honored with a full spindle.
+  transition Engage on EngageCmd { next Operate; emit SpindleOn; set tool_count = tool_count + 1; }
+  # A re-engage mid-operation (turret swap) is legal only with an empty spindle too.
+  transition Operate on EngageCmd { next Operate; emit SpindleOn; set tool_count = tool_count + 1; }
+  transition Operate on CutDone { next Retract; }
+  # Retract clears the spindle (the count returns to 0).
+  transition Retract on RetractDone { next Return; emit SpindleOff; set tool_count = tool_count - 1; }
+  transition Return on HomeDone { next Home; }
+  # Axis moves during the cycle stay inside the soft limit.
+  transition MoveTo on AxisPos(A(x)) where x < 30 { next MoveTo; set axis_x = x; emit AxisGo; }
+  transition Engage on AxisPos(A(x)) where x < 30 { next Engage; set axis_x = x; emit AxisGo; }
+  transition Operate on AxisPos(A(x)) where x < 30 { next Operate; set axis_x = x; emit AxisGo; }
+  transition Retract on AxisPos(A(x)) where x < 30 { next Retract; set axis_x = x; emit AxisGo; }
+  transition Return on AxisPos(A(x)) where x < 30 { next Return; set axis_x = x; emit AxisGo; }
+}

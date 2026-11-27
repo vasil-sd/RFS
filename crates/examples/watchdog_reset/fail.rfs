@@ -1,0 +1,50 @@
+# rfs 1.0
+# watchdog_reset - FAILING VARIANT (Phase 18 B15): the window guard is widened - a feed
+# is accepted almost any time before the firing tick, so an out-of-window (too-early)
+# feed is petted through instead of faulting. The original spec is pass.rfs.
+module watchdog_reset {
+  enum State { Running, WindowViolation, Reset }
+  initial Running
+
+  event Feed
+  event Tick
+  event Brownout(B(v: bit<6>))
+  event Restore(R(v: bit<6>))
+
+  output AssertReset
+  output WindowFault
+
+  var remaining: bit<8> init 8
+  var vdd: bit<6> init 33
+  # Witness: the countdown captured at the last Feed (before any re-arm) - this is what
+  # makes "the feed was too early" observable after the transition has run.
+  var last_feed_rem: bit<8> init 8
+
+  # Safety: a reset asserts only on a genuine timeout (the firing tick, remaining == 1)
+  # or a brown-out (vdd < 28) - never while being fed in-window.
+  prop no_spurious_reset : always (output_has(AssertReset) -> remaining == 1 || vdd < 28) ;
+  # Window enforced: a feed that arrived too early (countdown still above the valid
+  # window, last_feed_rem > 8) lands the watchdog in WindowViolation.
+  prop window_enforced : always (input_is(Feed) && last_feed_rem > 5 -> state == WindowViolation) ;
+
+  # The countdown runs down; the firing tick (remaining == 1) asserts the reset.
+  transition Running on Tick where remaining > 1 { priority 1; next Running; set remaining = remaining - 1; }
+  transition Running on Tick where remaining == 1 { priority 2; next Reset; emit AssertReset; }
+  # The window guard: a feed with less than win_lo ticks elapsed is TOO EARLY.
+  // DEFECT: the window guard is widened - only a feed with less than one tick elapsed
+  // faults; everything else (including too-early feeds) is accepted.
+  transition Running on Feed where remaining > 7 { priority 1; next WindowViolation; emit WindowFault; set last_feed_rem = remaining; }
+  # An in-window feed re-arms the countdown.
+  transition Running on Feed where remaining <= 7 { priority 2; next Running; set remaining = 8; set last_feed_rem = remaining; }
+  # A brown-out below 2.8V asserts the reset regardless of the feed window.
+  transition Running on Brownout(B(v)) where v < 28 { priority 1; next Reset; emit AssertReset; set vdd = v; }
+  transition Running on Brownout(B(v)) where v >= 28 { priority 2; next Running; set vdd = v; }
+  # In window-violation the countdown keeps running (a genuine timeout still fires) and
+  # only an in-window feed recovers.
+  transition WindowViolation on Tick where remaining > 1 { priority 1; next WindowViolation; set remaining = remaining - 1; }
+  transition WindowViolation on Tick where remaining == 1 { priority 2; next Reset; emit AssertReset; }
+  transition WindowViolation on Feed where remaining > 5 { priority 1; next WindowViolation; emit WindowFault; set last_feed_rem = remaining; }
+  transition WindowViolation on Feed where remaining <= 5 { priority 2; next Running; set remaining = 8; set last_feed_rem = remaining; }
+  # Recovery: a restored supply re-arms the watchdog.
+  transition Reset on Restore(R(v)) where v >= 28 { next Running; set vdd = v; set remaining = 8; }
+}

@@ -1,0 +1,28 @@
+module cnc_tool_change
+  initial state: Home
+  enums:
+    State: Home, MoveTo, Engage, Operate, Retract, Return
+  events:
+    M06: M(t: bit<3>)
+    MoveDone: MoveDone
+    EngageCmd: EngageCmd
+    CutDone: CutDone
+    RetractDone: RetractDone
+    HomeDone: HomeDone
+    AxisPos: A(x: bit<5>)
+  outputs:
+    TurretMove: TurretMove
+    SpindleOn: SpindleOn
+    SpindleOff: SpindleOff
+    AxisGo: AxisGo
+  variables:
+    tool_count: bit<2> = 0
+    pending_tool: bit<3> = 0
+    axis_x: bit<5> = 0
+  transitions: 13
+  properties:
+    one_tool_engaged: always (output_has(SpindleOn) -> (tool_count <= 1)) - monitored
+    home_before_motion: always (input_is(M06(M(t))) -> (state == MoveTo)) - monitored
+    axis_in_limits: always ((axis_x < 30)) - monitored
+  assumptions: (none)
+

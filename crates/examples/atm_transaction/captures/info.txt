@@ -1,0 +1,32 @@
+module atm_transaction
+  initial state: Idle
+  enums:
+    State: Idle, CardRead, PinEntry, Session, Dispensing, Printing, Lockout, Jam
+  events:
+    InsertCard: InsertCard
+    Pin: P(p: bit<8>)
+    PinOk: PinOk
+    PinBad: PinBad
+    Timeout: Timeout
+    DispenseReq: D(amt: bit<6>)
+    DispenseDone: DispenseDone
+    PrintReceipt: PrintReceipt
+    Done: Done
+    JamEvent: JamEvent
+  outputs:
+    Dispense: Dispense
+    Print: Print
+    ReturnCard: ReturnCard
+    LockoutEngaged: LockoutEngaged
+  variables:
+    pin_retries: bit<2> = 0
+    cash_amt: bit<6> = 0
+    card_present: bool = false
+    authorized: bool = false
+  transitions: 16
+  properties:
+    no_cash_unauthorized: always (output_has(Dispense) -> (authorized == true)) - monitored
+    lockout_after_n: always ((state == Lockout) -> (pin_retries >= 3)) - monitored
+    card_returned_on_exit: always ((state == Idle) -> (card_present == false)) - monitored
+  assumptions: (none)
+

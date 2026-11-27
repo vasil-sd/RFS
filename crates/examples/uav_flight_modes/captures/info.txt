@@ -1,0 +1,31 @@
+module uav_flight_modes
+  initial state: Disarmed
+  enums:
+    State: Disarmed, ArmedIdle, Takeoff, Hover, Mission, Rtl, Landing, Failsafe
+  events:
+    GpsUpdate: G(s: bit<3>)
+    Arm: Arm
+    Launch: Launch
+    TakeoffDone: TakeoffDone
+    MissionStart: MissionStart
+    MissionDone: MissionDone
+    SignalLost: SignalLost
+    GeoBreach: GeoBreach
+    Battery: B(l: bit<5>)
+    HomeReached: HomeReached
+    LandDone: LandDone
+  outputs:
+    ArmCmd: ArmCmd
+    RtlCmd: RtlCmd
+    FailsafeCmd: FailsafeCmd
+    LandCmd: LandCmd
+  variables:
+    gps_sats: bit<3> = 0
+    batt: bit<5> = 31
+  transitions: 29
+  properties:
+    no_arm_unready: always (output_has(ArmCmd) -> (gps_sats >= 5)) - monitored
+    geofence_held: always (input_is(GeoBreach) -> (state == Rtl) || (state == Failsafe)) - monitored
+    low_batt_failsafe: always ((batt <= 5) -> (state == Failsafe) || (state == Disarmed) || (state == Landing)) - monitored
+  assumptions: (none)
+

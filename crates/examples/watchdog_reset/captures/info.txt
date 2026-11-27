@@ -1,0 +1,22 @@
+module watchdog_reset
+  initial state: Running
+  enums:
+    State: Running, WindowViolation, Reset
+  events:
+    Feed: Feed
+    Tick: Tick
+    Brownout: B(v: bit<6>)
+    Restore: R(v: bit<6>)
+  outputs:
+    AssertReset: AssertReset
+    WindowFault: WindowFault
+  variables:
+    remaining: bit<8> = 8
+    vdd: bit<6> = 33
+    last_feed_rem: bit<8> = 8
+  transitions: 11
+  properties:
+    no_spurious_reset: always (output_has(AssertReset) -> (remaining == 1) || (vdd < 28)) - monitored
+    window_enforced: always (input_is(Feed) && (last_feed_rem > 5) -> (state == WindowViolation)) - monitored
+  assumptions: (none)
+

@@ -1,0 +1,14 @@
+FAIL
+model-check summary: status=fail states=5 transitions=8 max_depth=3 reason=property-violation label=no_cash_unauthorized step=3
+  unexpected terminations: 145
+  first unexpected: config 0 input index 1
+  monitor size: 0 bits
+  memory estimate: 170 bytes
+property violation: no_cash_unauthorized
+  violation step: 3
+  vars at violation step: Vars { pin_retries: 0, cash_amt: 1, card_present: true, authorized: false }
+counterexample trace:
+  initial state=State::Idle vars=Vars { pin_retries: 0, cash_amt: 0, card_present: false, authorized: false }
+  step 0 input=Input::InsertCard outputs=[] from=State::Idle to=State::CardRead vars=Vars { pin_retries: 0, cash_amt: 0, card_present: true, authorized: false }
+  step 1 input=Input::Pin_P { p: 0 } outputs=[] from=State::CardRead to=State::PinEntry vars=Vars { pin_retries: 0, cash_amt: 0, card_present: true, authorized: false }
+  step 2 input=Input::DispenseReq_D { amt: 1 } outputs=[Output::Dispense] from=State::PinEntry to=State::Dispensing vars=Vars { pin_retries: 0, cash_amt: 1, card_present: true, authorized: false }

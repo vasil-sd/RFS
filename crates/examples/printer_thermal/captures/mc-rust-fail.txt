@@ -1,0 +1,16 @@
+FAIL
+model-check summary: status=fail states=75 transitions=1006 max_depth=5 reason=property-violation label=runaway_aborts step=5
+  unexpected terminations: 586
+  first unexpected: config 0 input index 1
+  monitor size: 1 bits
+  memory estimate: 2550 bytes
+property violation: runaway_aborts
+  violation step: 5
+  vars at violation step: Vars { nozzle_t: 30, print_pos: 1, pos_at_pause: 0 }
+counterexample trace:
+  initial state=State::Idle vars=Vars { nozzle_t: 10, print_pos: 0, pos_at_pause: 0 }
+  step 0 input=Input::StartPrint outputs=[Output::HeaterOn] from=State::Idle to=State::Heating vars=Vars { nozzle_t: 10, print_pos: 0, pos_at_pause: 0 }
+  step 1 input=Input::Temp_T { n: 24 } outputs=[] from=State::Heating to=State::Heating vars=Vars { nozzle_t: 24, print_pos: 0, pos_at_pause: 0 }
+  step 2 input=Input::Heated outputs=[] from=State::Heating to=State::Leveling vars=Vars { nozzle_t: 24, print_pos: 0, pos_at_pause: 0 }
+  step 3 input=Input::LevelDone outputs=[Output::MotionCmd] from=State::Leveling to=State::Printing vars=Vars { nozzle_t: 24, print_pos: 0, pos_at_pause: 0 }
+  step 4 input=Input::Temp_T { n: 30 } outputs=[] from=State::Printing to=State::Printing vars=Vars { nozzle_t: 30, print_pos: 1, pos_at_pause: 0 }

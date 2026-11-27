@@ -1,0 +1,29 @@
+module plc_conveyor_seq
+  initial state: Idle
+  enums:
+    State: Idle, Running
+  events:
+    LoadAtA: LoadAtA
+    ADone: ADone
+    BReady: BReady
+    BDone: BDone
+    CReady: CReady
+    CDone: CDone
+    LineClear: LineClear
+  outputs:
+    AProcessCmd: AProcessCmd
+    BProcessCmd: BProcessCmd
+    CProcessCmd: CProcessCmd
+    UnloadCmd: UnloadCmd
+  variables:
+    a_mode: bit<2> = 0
+    b_mode: bit<2> = 0
+    c_mode: bit<2> = 0
+    loads_in: bit<3> = 0
+  transitions: 8
+  properties:
+    a_interlock: always (output_has(AProcessCmd) -> (b_mode == 0)) - monitored
+    b_interlock: always (output_has(BProcessCmd) -> (c_mode == 0)) - monitored
+    none_lost: always ((state == Idle) -> (loads_in == 0)) - monitored
+  assumptions: (none)
+

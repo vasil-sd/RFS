@@ -1,0 +1,15 @@
+FAIL
+model-check summary: status=fail states=518 transitions=8829 max_depth=3 reason=property-violation label=one_tool_engaged step=4
+  unexpected terminations: 3691
+  first unexpected: config 0 input index 8
+  monitor size: 0 bits
+  memory estimate: 17612 bytes
+property violation: one_tool_engaged
+  violation step: 4
+  vars at violation step: Vars { tool_count: 2, pending_tool: 0, axis_x: 0 }
+counterexample trace:
+  initial state=State::Home vars=Vars { tool_count: 0, pending_tool: 0, axis_x: 0 }
+  step 0 input=Input::M06_M { t: 0 } outputs=[Output::TurretMove] from=State::Home to=State::MoveTo vars=Vars { tool_count: 0, pending_tool: 0, axis_x: 0 }
+  step 1 input=Input::MoveDone outputs=[] from=State::MoveTo to=State::Engage vars=Vars { tool_count: 0, pending_tool: 0, axis_x: 0 }
+  step 2 input=Input::EngageCmd outputs=[Output::SpindleOn] from=State::Engage to=State::Operate vars=Vars { tool_count: 1, pending_tool: 0, axis_x: 0 }
+  step 3 input=Input::EngageCmd outputs=[Output::SpindleOn] from=State::Operate to=State::Operate vars=Vars { tool_count: 2, pending_tool: 0, axis_x: 0 }

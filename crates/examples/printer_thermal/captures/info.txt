@@ -1,0 +1,30 @@
+module printer_thermal
+  initial state: Idle
+  enums:
+    State: Idle, Heating, Leveling, Printing, Paused, Cooling, Done, Runaway
+  events:
+    StartPrint: StartPrint
+    Temp: T(n: bit<5>)
+    Heated: Heated
+    LevelDone: LevelDone
+    Pause: Pause
+    Resume: Resume
+    PrintDone: PrintDone
+    Cooled: Cooled
+    Reset: Reset
+  outputs:
+    HeaterOn: HeaterOn
+    HeaterOff: HeaterOff
+    MotionCmd: MotionCmd
+    AbortPrint: AbortPrint
+  variables:
+    nozzle_t: bit<5> = 10
+    print_pos: bit<3> = 0
+    pos_at_pause: bit<3> = 0
+  transitions: 15
+  properties:
+    runaway_aborts: always ((nozzle_t >= 30) -> (state == Runaway)) - monitored
+    no_motion_overheated: always (output_has(MotionCmd) -> (nozzle_t < 30)) - monitored
+    pause_preserves_pos: always (input_is(Temp(T(n))) && (state == Paused) -> next ((print_pos == pos_at_pause))) - monitored
+  assumptions: (none)
+

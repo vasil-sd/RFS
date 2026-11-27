@@ -1,0 +1,59 @@
+# rfs 1.0
+# atm_transaction - FAILING VARIANT (Phase 18 B10): the authorization gate is
+# bypassed - a DispenseReq during PIN entry (before any PinOk) is honored and cash
+# is dispensed without authorization. The original spec is pass.rfs.
+module atm_transaction {
+  enum State { Idle, CardRead, PinEntry, Session, Dispensing, Printing, Lockout, Jam }
+  initial Idle
+
+  event InsertCard
+  event Pin(P(p: bit<8>))
+  event PinOk
+  event PinBad
+  event Timeout
+  event DispenseReq(D(amt: bit<6>))
+  event DispenseDone
+  event PrintReceipt
+  event Done
+  event JamEvent
+
+  output Dispense
+  output Print
+  output ReturnCard
+  output LockoutEngaged
+
+  var pin_retries: bit<2> init 0
+  var cash_amt: bit<6> init 0
+  var card_present: bool init false
+  var authorized: bool init false
+
+  # Safety: no cash is dispensed without authorization.
+  prop no_cash_unauthorized : always (output_has(Dispense) -> authorized == true) ;
+  # Counter invariant: lockout engages only after N (3) bad PINs.
+  prop lockout_after_n : always (state == Lockout -> pin_retries >= 3) ;
+  # No swallowed card: every return to IDLE has returned the card.
+  prop card_returned_on_exit : always (state == Idle -> card_present == false) ;
+
+  transition Idle on InsertCard { next CardRead; set card_present = true; }
+  transition Idle on Timeout { next Idle; }
+  transition CardRead on Pin(P(p)) { next PinEntry; }
+  transition CardRead on Timeout { next Idle; emit ReturnCard; set card_present = false; }
+  transition PinEntry on PinOk { next Session; set authorized = true; set pin_retries = 0; }
+  transition PinEntry on PinBad where pin_retries < 3 { priority 1; next PinEntry; set pin_retries = pin_retries + 1; }
+  transition PinEntry on PinBad where pin_retries >= 3 { priority 2; next Lockout; emit LockoutEngaged; }
+  transition PinEntry on Timeout { next Idle; emit ReturnCard; set card_present = false; }
+  // DEFECT: the authorization gate is bypassed - a DispenseReq during PIN entry
+  // (before any PinOk) is honored and cash leaves without authorization.
+  transition PinEntry on DispenseReq(D(amt)) where amt > 0 { next Dispensing; emit Dispense; set cash_amt = amt; }
+  # The authorization gate: dispense only from an authorized session.
+  transition Session on DispenseReq(D(amt)) where amt > 0 { next Dispensing; emit Dispense; set cash_amt = amt; }
+  transition Session on PrintReceipt { next Printing; emit Print; }
+  transition Session on Timeout { next Idle; emit ReturnCard; set card_present = false; set authorized = false; }
+  transition Dispensing on DispenseDone { next Printing; }
+  # A jam returns the card (no swallowed card) and waits for a timeout.
+  transition Dispensing on JamEvent { next Jam; emit ReturnCard; set card_present = false; }
+  transition Printing on Done { next Idle; emit ReturnCard; set card_present = false; set authorized = false; }
+  # Lockout releases after a timeout - the card is returned on the way out.
+  transition Lockout on Timeout { next Idle; emit ReturnCard; set card_present = false; }
+  transition Jam on Timeout { next Idle; emit ReturnCard; set card_present = false; }
+}

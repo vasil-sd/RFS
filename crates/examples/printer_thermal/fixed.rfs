@@ -1,0 +1,63 @@
+# rfs 1.0
+# printer_thermal (Phase 18 B13): a 3D-printer print & thermal state machine - idle ->
+# heating -> leveling -> printing -> paused -> cooling -> done, with a thermal-runaway
+# fault mode. The nozzle temperature is scaled to bit<5> (target 24-29 = "heated",
+# runaway at >= 30; the full-resolution thermistor space would blow the state budget,
+# noted simplification), the print position is bit<3>, and pos_at_pause witnesses the
+# position frozen at pause. The RUNAWAY GUARD is the safety core: a temperature update
+# at or above the abort threshold takes the printer to Runaway from EVERY active mode -
+# heating, printing and even paused - no motion or dwell survives an overheat.
+# Rationale: temperature-threshold guards + a hard-abort invariant.
+module printer_thermal {
+  enum State { Idle, Heating, Leveling, Printing, Paused, Cooling, Done, Runaway }
+  initial Idle
+
+  event StartPrint
+  event Temp(T(n: bit<5>))
+  event Heated
+  event LevelDone
+  event Pause
+  event Resume
+  event PrintDone
+  event Cooled
+  event Reset
+
+  output HeaterOn
+  output HeaterOff
+  output MotionCmd
+  output AbortPrint
+
+  var nozzle_t: bit<5> init 10
+  var print_pos: bit<3> init 0
+  var pos_at_pause: bit<3> init 0
+
+  # Safety: once the nozzle reaches the abort threshold, the printer is in Runaway.
+  prop runaway_aborts : always (nozzle_t >= 30 -> state == Runaway) ;
+  # Interlock: no motion command is issued while overheated.
+  prop no_motion_overheated : always (output_has(MotionCmd) -> nozzle_t < 30) ;
+  # Pause preserves the print position: a temperature update consumed while paused
+  # leaves the position exactly where the pause froze it (checked one sample on, so a
+  # resume or further update in between cannot move the head).
+  prop pause_preserves_pos : always (input_is(Temp(T(n))) && state == Paused -> next (print_pos == pos_at_pause)) ;
+
+  transition Idle on StartPrint { next Heating; emit HeaterOn; }
+  # The runaway guard: a reading at or above the abort threshold leaves no active mode.
+  transition Heating on Temp(T(n)) where n < 30 { priority 1; next Heating; set nozzle_t = n; }
+  transition Heating on Temp(T(n)) where n >= 30 { priority 2; next Runaway; emit AbortPrint; set nozzle_t = n; }
+  # "Heated" means the target band (24-29) is reached - below the runaway threshold.
+  transition Heating on Heated where nozzle_t >= 24 { next Leveling; }
+  transition Leveling on LevelDone { next Printing; emit MotionCmd; }
+  transition Printing on Temp(T(n)) where n < 30 { priority 1; next Printing; set nozzle_t = n; set print_pos = print_pos + 1; }
+  # The runaway guard in the motion state: an overheat aborts before any more motion.
+  transition Printing on Temp(T(n)) where n >= 30 { priority 2; next Runaway; emit AbortPrint; set nozzle_t = n; }
+  transition Printing on Pause { next Paused; set pos_at_pause = print_pos; }
+  transition Printing on PrintDone { next Cooling; emit HeaterOff; }
+  # Even paused, an overheat aborts (the heater is still live); a normal reading just
+  # updates the temperature - the head does not move.
+  transition Paused on Temp(T(n)) where n < 30 { priority 1; next Paused; set nozzle_t = n; }
+  transition Paused on Temp(T(n)) where n >= 30 { priority 2; next Runaway; emit AbortPrint; set nozzle_t = n; }
+  transition Paused on Resume { next Printing; }
+  transition Cooling on Cooled { next Done; }
+  transition Runaway on Reset { next Idle; emit HeaterOff; set nozzle_t = 10; }
+  transition Done on Reset { next Idle; set print_pos = 0; set pos_at_pause = 0; }
+}

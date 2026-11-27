@@ -2024,3 +2024,320 @@ fn washing_machine_safe_unlock_and_the_drained_check_defect() {
         "c production compile proof missing:\n{out}"
     );
 }
+
+#[test]
+fn vehicle_power_modes_no_high_load_in_sleep_and_the_load_gate_defect() {
+    if !common::toolchain::available_named("gcc")
+        || !(common::toolchain::available_named("rustc") || project_local_rustc_exists())
+    {
+        eprintln!("note: gcc/rustc not available - vehicle_power_modes check skipped");
+        return;
+    }
+    let dir = repo_root().join("crates/examples/vehicle_power_modes");
+    let (code, out) = run_script(&dir, "run.sh");
+    assert_eq!(code, 0, "run.sh failed:\n{out}");
+    // The passing spec: PASS complete with the pinned state count.
+    assert!(
+        out.contains("status=pass-complete states=1696 transitions=468096 max_depth=9"),
+        "pinned PASS summary missing:\n{out}"
+    );
+    // The failing variant: the SLEEP load gate is removed, rails carried into sleep.
+    assert!(
+        out.contains("reason=property-violation label=no_high_load_in_sleep step=3"),
+        "pinned FAIL summary missing:\n{out}"
+    );
+    assert!(
+        out.contains("from=State::Run to=State::Sleep vars=Vars { wake_src: 0, shed_stage: 1, rails_on: true }"),
+        "pinned CE defect step missing:\n{out}"
+    );
+    assert!(
+        out.contains("\"label\":\"no_high_load_in_sleep\""),
+        "pinned JSON label missing:\n{out}"
+    );
+    // The fix re-runs to PASS; both generated backends agree (byte-identical reports).
+    assert!(
+        out.matches("status=pass-complete states=1696").count() >= 3,
+        "expected pass + both-backend parity (3x states=1696), got:\n{out}"
+    );
+    // Production codegen compiles in both backends.
+    assert!(
+        out.contains("rust production: compiles clean"),
+        "rust production compile proof missing:\n{out}"
+    );
+    assert!(
+        out.contains("c production: compiles warning-free"),
+        "c production compile proof missing:\n{out}"
+    );
+}
+
+#[test]
+fn atm_transaction_no_cash_unauthorized_and_the_auth_gate_defect() {
+    if !common::toolchain::available_named("gcc")
+        || !(common::toolchain::available_named("rustc") || project_local_rustc_exists())
+    {
+        eprintln!("note: gcc/rustc not available - atm_transaction check skipped");
+        return;
+    }
+    let dir = repo_root().join("crates/examples/atm_transaction");
+    let (code, out) = run_script(&dir, "run.sh");
+    assert_eq!(code, 0, "run.sh failed:\n{out}");
+    // The passing spec: PASS complete with the pinned state count.
+    assert!(
+        out.contains("status=pass-complete states=1905 transitions=8096 max_depth=13"),
+        "pinned PASS summary missing:\n{out}"
+    );
+    // The failing variant: the authorization gate is bypassed, dispense during PIN entry.
+    assert!(
+        out.contains("reason=property-violation label=no_cash_unauthorized step=3"),
+        "pinned FAIL summary missing:\n{out}"
+    );
+    assert!(
+        out.contains("from=State::PinEntry to=State::Dispensing vars=Vars { pin_retries: 0, cash_amt: 1, card_present: true, authorized: false }"),
+        "pinned CE defect step missing:\n{out}"
+    );
+    assert!(
+        out.contains("\"label\":\"no_cash_unauthorized\""),
+        "pinned JSON label missing:\n{out}"
+    );
+    // The fix re-runs to PASS; both generated backends agree (byte-identical reports).
+    assert!(
+        out.matches("status=pass-complete states=1905").count() >= 3,
+        "expected pass + both-backend parity (3x states=1905), got:\n{out}"
+    );
+    // Production codegen compiles in both backends.
+    assert!(
+        out.contains("rust production: compiles clean"),
+        "rust production compile proof missing:\n{out}"
+    );
+    assert!(
+        out.contains("c production: compiles warning-free"),
+        "c production compile proof missing:\n{out}"
+    );
+}
+
+#[test]
+fn uav_flight_modes_no_arm_unready_and_the_lowered_arm_guard_defect() {
+    if !common::toolchain::available_named("gcc")
+        || !(common::toolchain::available_named("rustc") || project_local_rustc_exists())
+    {
+        eprintln!("note: gcc/rustc not available - uav_flight_modes check skipped");
+        return;
+    }
+    let dir = repo_root().join("crates/examples/uav_flight_modes");
+    let (code, out) = run_script(&dir, "run.sh");
+    assert_eq!(code, 0, "run.sh failed:\n{out}");
+    // The passing spec: PASS complete with the pinned state count.
+    assert!(
+        out.contains("status=pass-complete states=1688 transitions=48862 max_depth=7"),
+        "pinned PASS summary missing:\n{out}"
+    );
+    // The failing variant: the arm guard is lowered to 1 satellite, arming without GPS ready.
+    assert!(
+        out.contains("reason=property-violation label=no_arm_unready step=2"),
+        "pinned FAIL summary missing:\n{out}"
+    );
+    assert!(
+        out.contains(
+            "from=State::Disarmed to=State::ArmedIdle vars=Vars { gps_sats: 1, batt: 31 }"
+        ),
+        "pinned CE defect step missing:\n{out}"
+    );
+    assert!(
+        out.contains("\"label\":\"no_arm_unready\""),
+        "pinned JSON label missing:\n{out}"
+    );
+    // The fix re-runs to PASS; both generated backends agree (byte-identical reports).
+    assert!(
+        out.matches("status=pass-complete states=1688").count() >= 3,
+        "expected pass + both-backend parity (3x states=1688), got:\n{out}"
+    );
+    // Production codegen compiles in both backends.
+    assert!(
+        out.contains("rust production: compiles clean"),
+        "rust production compile proof missing:\n{out}"
+    );
+    assert!(
+        out.contains("c production: compiles warning-free"),
+        "c production compile proof missing:\n{out}"
+    );
+}
+
+#[test]
+fn cnc_tool_change_one_tool_engaged_and_the_single_tool_guard_defect() {
+    if !common::toolchain::available_named("gcc")
+        || !(common::toolchain::available_named("rustc") || project_local_rustc_exists())
+    {
+        eprintln!("note: gcc/rustc not available - cnc_tool_change check skipped");
+        return;
+    }
+    let dir = repo_root().join("crates/examples/cnc_tool_change");
+    let (code, out) = run_script(&dir, "run.sh");
+    assert_eq!(code, 0, "run.sh failed:\n{out}");
+    // The passing spec: PASS complete with the pinned state count.
+    assert!(
+        out.contains("status=pass-complete states=1440 transitions=46320 max_depth=7"),
+        "pinned PASS summary missing:\n{out}"
+    );
+    // The failing variant: the single-tool guard is removed, a second tool engages.
+    assert!(
+        out.contains("reason=property-violation label=one_tool_engaged step=4"),
+        "pinned FAIL summary missing:\n{out}"
+    );
+    assert!(
+        out.contains("from=State::Operate to=State::Operate vars=Vars { tool_count: 2, pending_tool: 0, axis_x: 0 }"),
+        "pinned CE defect step missing:\n{out}"
+    );
+    assert!(
+        out.contains("\"label\":\"one_tool_engaged\""),
+        "pinned JSON label missing:\n{out}"
+    );
+    // The fix re-runs to PASS; both generated backends agree (byte-identical reports).
+    assert!(
+        out.matches("status=pass-complete states=1440").count() >= 3,
+        "expected pass + both-backend parity (3x states=1440), got:\n{out}"
+    );
+    // Production codegen compiles in both backends.
+    assert!(
+        out.contains("rust production: compiles clean"),
+        "rust production compile proof missing:\n{out}"
+    );
+    assert!(
+        out.contains("c production: compiles warning-free"),
+        "c production compile proof missing:\n{out}"
+    );
+}
+
+#[test]
+fn printer_thermal_runaway_aborts_and_the_removed_runaway_guard_defect() {
+    if !common::toolchain::available_named("gcc")
+        || !(common::toolchain::available_named("rustc") || project_local_rustc_exists())
+    {
+        eprintln!("note: gcc/rustc not available - printer_thermal check skipped");
+        return;
+    }
+    let dir = repo_root().join("crates/examples/printer_thermal");
+    let (code, out) = run_script(&dir, "run.sh");
+    assert_eq!(code, 0, "run.sh failed:\n{out}");
+    // The passing spec: PASS complete with the pinned state count.
+    assert!(
+        out.contains("status=pass-complete states=8765 transitions=147389 max_depth=25"),
+        "pinned PASS summary missing:\n{out}"
+    );
+    // The failing variant: the runaway guard is removed from the motion state, overheat ignored.
+    assert!(
+        out.contains("reason=property-violation label=runaway_aborts step=5"),
+        "pinned FAIL summary missing:\n{out}"
+    );
+    assert!(
+        out.contains("from=State::Printing to=State::Printing vars=Vars { nozzle_t: 30, print_pos: 1, pos_at_pause: 0 }"),
+        "pinned CE defect step missing:\n{out}"
+    );
+    assert!(
+        out.contains("\"label\":\"runaway_aborts\""),
+        "pinned JSON label missing:\n{out}"
+    );
+    // The fix re-runs to PASS; both generated backends agree (byte-identical reports).
+    assert!(
+        out.matches("status=pass-complete states=8765").count() >= 3,
+        "expected pass + both-backend parity (3x states=8765), got:\n{out}"
+    );
+    // Production codegen compiles in both backends.
+    assert!(
+        out.contains("rust production: compiles clean"),
+        "rust production compile proof missing:\n{out}"
+    );
+    assert!(
+        out.contains("c production: compiles warning-free"),
+        "c production compile proof missing:\n{out}"
+    );
+}
+
+#[test]
+fn plc_conveyor_seq_a_interlock_and_the_downstream_clear_defect() {
+    if !common::toolchain::available_named("gcc")
+        || !(common::toolchain::available_named("rustc") || project_local_rustc_exists())
+    {
+        eprintln!("note: gcc/rustc not available - plc_conveyor_seq check skipped");
+        return;
+    }
+    let dir = repo_root().join("crates/examples/plc_conveyor_seq");
+    let (code, out) = run_script(&dir, "run.sh");
+    assert_eq!(code, 0, "run.sh failed:\n{out}");
+    // The passing spec: PASS complete with the pinned state count.
+    assert!(
+        out.contains("status=pass-complete states=11 transitions=16 max_depth=7"),
+        "pinned PASS summary missing:\n{out}"
+    );
+    // The failing variant: the downstream-clear check is removed, A processes into occupied B.
+    assert!(
+        out.contains("reason=property-violation label=a_interlock step=3"),
+        "pinned FAIL summary missing:\n{out}"
+    );
+    assert!(
+        out.contains("from=State::Running to=State::Running vars=Vars { a_mode: 2, b_mode: 1, c_mode: 0, loads_in: 2 }"),
+        "pinned CE defect step missing:\n{out}"
+    );
+    assert!(
+        out.contains("\"label\":\"a_interlock\""),
+        "pinned JSON label missing:\n{out}"
+    );
+    // The fix re-runs to PASS; both generated backends agree (byte-identical reports).
+    assert!(
+        out.matches("status=pass-complete states=11").count() >= 3,
+        "expected pass + both-backend parity (3x states=11), got:\n{out}"
+    );
+    // Production codegen compiles in both backends.
+    assert!(
+        out.contains("rust production: compiles clean"),
+        "rust production compile proof missing:\n{out}"
+    );
+    assert!(
+        out.contains("c production: compiles warning-free"),
+        "c production compile proof missing:\n{out}"
+    );
+}
+
+#[test]
+fn watchdog_reset_window_enforced_and_the_widened_window_defect() {
+    if !common::toolchain::available_named("gcc")
+        || !(common::toolchain::available_named("rustc") || project_local_rustc_exists())
+    {
+        eprintln!("note: gcc/rustc not available - watchdog_reset check skipped");
+        return;
+    }
+    let dir = repo_root().join("crates/examples/watchdog_reset");
+    let (code, out) = run_script(&dir, "run.sh");
+    assert_eq!(code, 0, "run.sh failed:\n{out}");
+    // The passing spec: PASS complete with the pinned state count.
+    assert!(
+        out.contains("status=pass-complete states=5140 transitions=228456 max_depth=18"),
+        "pinned PASS summary missing:\n{out}"
+    );
+    // The failing variant: the window guard is widened, an out-of-window feed is accepted.
+    assert!(
+        out.contains("reason=property-violation label=window_enforced step=2"),
+        "pinned FAIL summary missing:\n{out}"
+    );
+    assert!(
+        out.contains("from=State::Running to=State::Running vars=Vars { remaining: 8, vdd: 33, last_feed_rem: 7 }"),
+        "pinned CE defect step missing:\n{out}"
+    );
+    assert!(
+        out.contains("\"label\":\"window_enforced\""),
+        "pinned JSON label missing:\n{out}"
+    );
+    // The fix re-runs to PASS; both generated backends agree (byte-identical reports).
+    assert!(
+        out.matches("status=pass-complete states=5140").count() >= 3,
+        "expected pass + both-backend parity (3x states=5140), got:\n{out}"
+    );
+    // Production codegen compiles in both backends.
+    assert!(
+        out.contains("rust production: compiles clean"),
+        "rust production compile proof missing:\n{out}"
+    );
+    assert!(
+        out.contains("c production: compiles warning-free"),
+        "c production compile proof missing:\n{out}"
+    );
+}

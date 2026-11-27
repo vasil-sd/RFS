@@ -1,0 +1,23 @@
+module vehicle_power_modes
+  initial state: Accessory
+  enums:
+    State: Accessory, On, Run, Sleep, Hibernate
+  events:
+    Ignition: Ign(l: bit<2>)
+    Wake: W(src: bit<4>)
+    Brownout: B(v: bit<8>)
+  outputs:
+    EnableRails: EnableRails
+    ShedLoads: ShedLoads
+    HibernateCmd: HibernateCmd
+  variables:
+    wake_src: bit<4> = 0
+    shed_stage: bit<2> = 0
+    rails_on: bool = false
+  transitions: 21
+  properties:
+    no_high_load_in_sleep: always ((rails_on == true) -> (state == Run)) - monitored
+    wake_returns_consistent: always ((state == Sleep) -> bounded_eventually[8] ((state == On) || (state == Hibernate))) - monitored
+  assumptions:
+    env_wake: always (bounded_eventually[8] (input_is(Wake(W(src))))) - monitored
+

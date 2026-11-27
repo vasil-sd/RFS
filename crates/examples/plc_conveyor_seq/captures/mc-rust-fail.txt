@@ -1,0 +1,14 @@
+FAIL
+model-check summary: status=fail states=3 transitions=3 max_depth=2 reason=property-violation label=a_interlock step=3
+  unexpected terminations: 12
+  first unexpected: config 0 input index 1
+  monitor size: 0 bits
+  memory estimate: 102 bytes
+property violation: a_interlock
+  violation step: 3
+  vars at violation step: Vars { a_mode: 2, b_mode: 1, c_mode: 0, loads_in: 2 }
+counterexample trace:
+  initial state=State::Idle vars=Vars { a_mode: 0, b_mode: 0, c_mode: 0, loads_in: 0 }
+  step 0 input=Input::LoadAtA outputs=[Output::AProcessCmd] from=State::Idle to=State::Running vars=Vars { a_mode: 2, b_mode: 0, c_mode: 0, loads_in: 1 }
+  step 1 input=Input::ADone outputs=[] from=State::Running to=State::Running vars=Vars { a_mode: 0, b_mode: 1, c_mode: 0, loads_in: 1 }
+  step 2 input=Input::LoadAtA outputs=[Output::AProcessCmd] from=State::Running to=State::Running vars=Vars { a_mode: 2, b_mode: 1, c_mode: 0, loads_in: 2 }

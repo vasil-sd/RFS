@@ -1,0 +1,13 @@
+FAIL
+model-check summary: status=fail states=67 transitions=69 max_depth=2 reason=property-violation label=window_enforced step=2
+  unexpected terminations: 192
+  first unexpected: config 0 input index 66
+  monitor size: 0 bits
+  memory estimate: 2345 bytes
+property violation: window_enforced
+  violation step: 2
+  vars at violation step: Vars { remaining: 8, vdd: 33, last_feed_rem: 7 }
+counterexample trace:
+  initial state=State::Running vars=Vars { remaining: 8, vdd: 33, last_feed_rem: 8 }
+  step 0 input=Input::Tick outputs=[] from=State::Running to=State::Running vars=Vars { remaining: 7, vdd: 33, last_feed_rem: 8 }
+  step 1 input=Input::Feed outputs=[] from=State::Running to=State::Running vars=Vars { remaining: 8, vdd: 33, last_feed_rem: 7 }

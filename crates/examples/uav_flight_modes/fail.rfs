@@ -1,0 +1,76 @@
+# rfs 1.0
+# uav_flight_modes - FAILING VARIANT (Phase 18 B11): the arm guard is lowered from
+# "at least 5 GPS satellites" to "at least 1" - the drone arms with an unlocked
+# position estimate. The original spec is pass.rfs.
+module uav_flight_modes {
+  enum State { Disarmed, ArmedIdle, Takeoff, Hover, Mission, Rtl, Landing, Failsafe }
+  initial Disarmed
+
+  event GpsUpdate(G(s: bit<3>))
+  event Arm
+  event Launch
+  event TakeoffDone
+  event MissionStart
+  event MissionDone
+  event SignalLost
+  event GeoBreach
+  event Battery(B(l: bit<5>))
+  event HomeReached
+  event LandDone
+
+  output ArmCmd
+  output RtlCmd
+  output FailsafeCmd
+  output LandCmd
+
+  var gps_sats: bit<3> init 0
+  var batt: bit<5> init 31
+
+  # Safety: no arming without GPS ready (at least 5 satellites).
+  prop no_arm_unready : always (output_has(ArmCmd) -> gps_sats >= 5) ;
+  # Bounded reaction: a geofence breach (detected by the environment, raised as an
+  # event) lands the aircraft in RTL or failsafe at the very sample it is consumed.
+  prop geofence_held : always (input_is(GeoBreach) -> state == Rtl || state == Failsafe) ;
+  # Safety: a brown-out battery (<= 5) leaves the aircraft only in failsafe or on the
+  # ground (disarmed / landing).
+  prop low_batt_failsafe : always (batt <= 5 -> state == Failsafe || state == Disarmed || state == Landing) ;
+
+  transition Disarmed on GpsUpdate(G(s)) { next Disarmed; set gps_sats = s; }
+  # The arm guard: arming requires a locked position estimate AND battery margin
+  # beyond the failsafe threshold (a dead-battery arm would violate low_batt_failsafe).
+  // DEFECT: the arm guard is lowered - arming needs only 1 satellite, not 5.
+  transition Disarmed on Arm where gps_sats >= 1 && batt > 5 { next ArmedIdle; emit ArmCmd; }
+  transition Disarmed on Battery(B(l)) { next Disarmed; set batt = l; }
+  transition ArmedIdle on GpsUpdate(G(s)) { next ArmedIdle; set gps_sats = s; }
+  # Launch needs battery margin beyond the failsafe threshold.
+  transition ArmedIdle on Launch where batt > 10 { next Takeoff; }
+  transition ArmedIdle on Battery(B(l)) where l <= 5 { priority 1; next Disarmed; set batt = l; }
+  transition ArmedIdle on Battery(B(l)) where l > 5 { priority 2; next ArmedIdle; set batt = l; }
+  transition Takeoff on TakeoffDone { next Hover; }
+  # Bounded reaction: signal loss, geofence breach and low battery all leave the
+  # mission states for RTL or failsafe at the next sample.
+  transition Takeoff on SignalLost { next Rtl; emit RtlCmd; }
+  transition Takeoff on GeoBreach { next Rtl; emit RtlCmd; }
+  transition Takeoff on Battery(B(l)) where l <= 5 { next Failsafe; emit FailsafeCmd; set batt = l; }
+  transition Hover on MissionStart { next Mission; }
+  transition Hover on SignalLost { next Rtl; emit RtlCmd; }
+  transition Hover on GeoBreach { next Rtl; emit RtlCmd; }
+  transition Hover on Battery(B(l)) where l <= 5 { next Failsafe; emit FailsafeCmd; set batt = l; }
+  transition Hover on GpsUpdate(G(s)) { next Hover; set gps_sats = s; }
+  transition Mission on MissionDone { next Hover; }
+  transition Mission on SignalLost { next Rtl; emit RtlCmd; }
+  transition Mission on GeoBreach { next Rtl; emit RtlCmd; }
+  transition Mission on Battery(B(l)) where l <= 5 { next Failsafe; emit FailsafeCmd; set batt = l; }
+  # RTL: return home, then land. A repeated breach or loss while already returning is
+  # absorbed (the aircraft is already on the safe path).
+  transition Rtl on HomeReached { next Landing; emit LandCmd; }
+  transition Rtl on GeoBreach { next Rtl; }
+  transition Rtl on SignalLost { next Rtl; }
+  transition Rtl on Battery(B(l)) where l <= 5 { priority 1; next Failsafe; emit FailsafeCmd; set batt = l; }
+  transition Rtl on Battery(B(l)) where l > 5 { priority 2; next Rtl; set batt = l; }
+  transition Landing on LandDone { next Disarmed; set gps_sats = 0; }
+  transition Landing on Battery(B(l)) { next Landing; set batt = l; }
+  # Failsafe: autonomous landing, then disarm.
+  transition Failsafe on LandDone { next Disarmed; set gps_sats = 0; }
+  transition Failsafe on Battery(B(l)) { next Failsafe; set batt = l; }
+}

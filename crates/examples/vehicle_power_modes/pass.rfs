@@ -1,0 +1,62 @@
+# rfs 1.0
+# vehicle_power_modes (Phase 18 B9): an automotive electrical power-mode FSM -
+# ACCESSORY -> ON -> RUN -> SLEEP -> HIBERNATE, with multiple wake sources and
+# load-shedding on brown-out. The ignition level is a bit<2> payload (0=off,
+# 1=accessory, 2=on, 3=run), the pending wake-source bitmask is bit<4>, and the
+# battery voltage arrives in 0.1V units (bit<8>, nominal 125 = 12.5V). The
+# HIGH-LOAD RAIL GATE is the safety core: the infotainment/drive rails are enabled
+# only in RUN and are cleared on every exit from RUN - a brown-out that drops the
+# vehicle to SLEEP must shed them, never carry them across. Rationale: automotive
+# power-management interlocks - no high-load rail may be live while the vehicle
+# sleeps.
+module vehicle_power_modes {
+  enum State { Accessory, On, Run, Sleep, Hibernate }
+  initial Accessory
+
+  event Ignition(Ign(l: bit<2>))
+  event Wake(W(src: bit<4>))
+  event Brownout(B(v: bit<8>))
+
+  output EnableRails
+  output ShedLoads
+  output HibernateCmd
+
+  var wake_src: bit<4> init 0
+  var shed_stage: bit<2> init 0
+  var rails_on: bool init false
+
+  # Safety: no high-load rail is live outside RUN (covers SLEEP and HIBERNATE).
+  prop no_high_load_in_sleep : always (rails_on == true -> state == Run) ;
+  # Bounded liveness: a sleeping vehicle returns to a consistent mode - any wake
+  # source (or a deep brown-out into hibernate) leaves SLEEP within 8 samples.
+  prop wake_returns_consistent : always (state == Sleep -> bounded_eventually[8] (state == On || state == Hibernate)) ;
+  # The environment keeps waking: a Wake request arrives within every 8 samples.
+  assume env_wake : always (bounded_eventually[8] (input_is(Wake(W(src))))) ;
+
+  transition Accessory on Ignition(Ign(l)) where l >= 2 { priority 1; next On; }
+  transition Accessory on Ignition(Ign(l)) where l < 2 { priority 2; next Accessory; }
+  transition Accessory on Wake(W(src)) { next Accessory; set wake_src = src; }
+  transition Accessory on Brownout(B(v)) { next Accessory; }
+  transition On on Ignition(Ign(l)) where l == 3 { priority 1; next Run; set rails_on = true; emit EnableRails; }
+  transition On on Ignition(Ign(l)) where l < 3 { priority 2; next Accessory; }
+  transition On on Wake(W(src)) { next On; set wake_src = src; }
+  # A brown-out below 11.0V sheds loads and sleeps (the rails are already off in ON).
+  transition On on Brownout(B(v)) where v < 110 { priority 1; next Sleep; emit ShedLoads; set shed_stage = 1; }
+  transition On on Brownout(B(v)) where v >= 110 { priority 2; next On; }
+  transition Run on Ignition(Ign(l)) where l <= 2 { priority 1; next On; set rails_on = false; }
+  transition Run on Ignition(Ign(l)) where l == 3 { priority 2; next Run; }
+  transition Run on Wake(W(src)) { next Run; set wake_src = src; }
+  # The load gate: a brown-out below 11.0V drops the vehicle to SLEEP and CLEARS
+  # the high-load rails - they must never be carried into sleep.
+  transition Run on Brownout(B(v)) where v < 110 { priority 1; next Sleep; set rails_on = false; emit ShedLoads; set shed_stage = 1; }
+  transition Run on Brownout(B(v)) where v >= 110 { priority 2; next Run; }
+  # Any wake source (or an ignition command) returns the vehicle to a consistent ON.
+  transition Sleep on Ignition(Ign(l)) { next On; }
+  transition Sleep on Wake(W(src)) { next On; set wake_src = src; }
+  # A deep brown-out below 10.0V hibernates; a mild sag stays asleep.
+  transition Sleep on Brownout(B(v)) where v < 100 { priority 1; next Hibernate; emit HibernateCmd; set shed_stage = 2; }
+  transition Sleep on Brownout(B(v)) where v >= 100 { priority 2; next Sleep; }
+  transition Hibernate on Ignition(Ign(l)) { next On; }
+  transition Hibernate on Wake(W(src)) { next On; set wake_src = src; }
+  transition Hibernate on Brownout(B(v)) { next Hibernate; }
+}

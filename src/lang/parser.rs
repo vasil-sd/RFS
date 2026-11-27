@@ -94,6 +94,19 @@ pub fn parse_source(source: &str) -> Result<Ir, ParseError> {
             "expected '(' after 'eventually' (the body must be a parenthesized formula)",
         ));
     }
+    // Dedicated diagnostic: an anonymous event/output payload - a field
+    // declaration directly under the group name with no variant constructor,
+    // e.g. `event E(x: bit<8>)`. That shape can never parse (the top-level
+    // recovery would otherwise swallow it into "trailing input"), so when the
+    // file fails AND contains the pattern, report it specifically with its
+    // exact position. Mirrors `find_eventually_missing_paren`.
+    if let Some((kw, off)) = find_anonymous_payload(clean.as_str()) {
+        let msg = match kw {
+            "event" => "anonymous event payloads are not supported - name the variant: event E(E(x: bit<8>))",
+            _ => "anonymous output payloads are not supported - name the variant: output O(O(v: bit<8>))",
+        };
+        return Err(err_at(&clean, &clean[off..], source, msg));
+    }
     Err(failure.unwrap())
 }
 
@@ -198,6 +211,105 @@ fn find_eventually_missing_paren(clean: &str) -> Option<usize> {
         i += 1;
     }
     None
+}
+
+/// Byte offset of the field identifier in the first anonymous event/output
+/// payload - an `event <Name>(<ident> :` or `output <Name>(<ident> :` shape,
+/// i.e. a field declaration sitting directly under the group name with no
+/// variant constructor. Such a file can never parse: `constructor_variant`
+/// reads `<ident>` as a unit-variant name, the following `:` breaks the `)`
+/// expectation in `opt_constructor_payload`, and top-level recovery swallows
+/// the failure into "trailing input after RFS source". Only consulted after a
+/// parse failure (see `parse_source`), mirroring `find_eventually_missing_paren`.
+/// Returns the declaration keyword ("event" or "output") and the offset of the
+/// field identifier.
+fn find_anonymous_payload(clean: &str) -> Option<(&'static str, usize)> {
+    let bytes = clean.as_bytes();
+    let mut in_string = false;
+    let mut i = 0usize;
+    while i < bytes.len() {
+        if !in_string && bytes[i] == b'"' {
+            in_string = true;
+            i += 1;
+            continue;
+        }
+        if in_string {
+            if bytes[i] == b'"' {
+                in_string = false;
+            }
+            i += 1;
+            continue;
+        }
+        let (kw_len, kw_name) = if whole_word_at(bytes, i, b"event") {
+            (5usize, "event")
+        } else if whole_word_at(bytes, i, b"output") {
+            (6usize, "output")
+        } else {
+            i += 1;
+            continue;
+        };
+        if let Some(field_off) = anonymous_field_offset(bytes, i + kw_len) {
+            return Some((kw_name, field_off));
+        }
+        i += 1;
+    }
+    None
+}
+
+/// True when `bytes[i..]` begins the whole word `kw` (not embedded in a longer
+/// identifier, so e.g. `myevent` never matches `event`).
+fn whole_word_at(bytes: &[u8], i: usize, kw: &[u8]) -> bool {
+    if i + kw.len() > bytes.len() || &bytes[i..i + kw.len()] != kw {
+        return false;
+    }
+    let before_ok = i == 0 || !is_ident_byte(bytes[i - 1]);
+    let after = i + kw.len();
+    let after_ok = after >= bytes.len() || !is_ident_byte(bytes[after]);
+    before_ok && after_ok
+}
+
+/// Given the position just past an `event`/`output` keyword, check for the
+/// anonymous-payload shape `<Name>(<ident> :` and return the offset of the
+/// field identifier. A valid declaration never reaches the `:` - a unit variant
+/// is followed by `)` and a struct variant by `(` - so this only fires on the
+/// malformed form.
+fn anonymous_field_offset(bytes: &[u8], mut j: usize) -> Option<usize> {
+    // group-name identifier
+    j = skip_ws_bytes(bytes, j);
+    if !matches!(bytes.get(j), Some(c) if c.is_ascii_alphabetic() || *c == b'_') {
+        return None;
+    }
+    while matches!(bytes.get(j), Some(c) if c.is_ascii_alphanumeric() || *c == b'_') {
+        j += 1;
+    }
+    // opening paren of the group payload
+    j = skip_ws_bytes(bytes, j);
+    if bytes.get(j) != Some(&b'(') {
+        return None;
+    }
+    j += 1;
+    // would-be variant / field identifier
+    j = skip_ws_bytes(bytes, j);
+    if !matches!(bytes.get(j), Some(c) if c.is_ascii_alphabetic() || *c == b'_') {
+        return None;
+    }
+    let field_off = j;
+    while matches!(bytes.get(j), Some(c) if c.is_ascii_alphanumeric() || *c == b'_') {
+        j += 1;
+    }
+    // a colon here means a field declaration in variant position => anonymous payload
+    j = skip_ws_bytes(bytes, j);
+    (bytes.get(j) == Some(&b':')).then_some(field_off)
+}
+
+fn skip_ws_bytes(bytes: &[u8], mut j: usize) -> usize {
+    while matches!(
+        bytes.get(j),
+        Some(b' ') | Some(b'\t') | Some(b'\n') | Some(b'\r')
+    ) {
+        j += 1;
+    }
+    j
 }
 
 fn is_ident_byte(c: u8) -> bool {
@@ -2029,6 +2141,48 @@ mod tests {
                    var eventually: bool init false\n\
                    transition A on E where eventually { next A; }\n}\n";
         assert!(parse_source(src).is_ok());
+    }
+
+    #[test]
+    fn anonymous_event_payload_reports_dedicated_diagnostic() {
+        // `event E(x: bit<8>)` puts a field declaration directly under the group
+        // name with no variant constructor. The parser misreads `x` as a unit
+        // variant, the `:` breaks the `)` expectation, and top-level recovery
+        // would otherwise swallow it into "trailing input" - so the dedicated
+        // scan reports the real cause at the field identifier's position.
+        let src = "module m {\n  enum State { A, B }\n  initial A\n\
+                   event E(x: bit<8>)\n  transition A on E { next B; }\n}\n";
+        let err = parse_source(src).unwrap_err();
+        assert_eq!(
+            err.message,
+            "anonymous event payloads are not supported - name the variant: event E(E(x: bit<8>))"
+        );
+        // The span points at the field identifier `x`, not at offset 0.
+        assert_eq!(err.span.start, src.find("x:").unwrap());
+    }
+
+    #[test]
+    fn anonymous_output_payload_reports_dedicated_diagnostic() {
+        let src = "module m {\n  enum State { A, B }\n  initial A\n  event E\n\
+                   output O(v: bit<8>)\n  transition A on E { next B; emit O(1); }\n}\n";
+        let err = parse_source(src).unwrap_err();
+        assert_eq!(
+            err.message,
+            "anonymous output payloads are not supported - name the variant: output O(O(v: bit<8>))"
+        );
+        assert_eq!(err.span.start, src.find("v:").unwrap());
+    }
+
+    #[test]
+    fn named_variant_payload_still_parses() {
+        // Negative control: naming the variant is the fix the diagnostic points
+        // to, and it must keep parsing. Both event and output forms.
+        let ev = "module m {\n  enum State { A, B }\n  initial A\n\
+                  event E(E(x: bit<8>))\n  transition A on E(E(1)) { next B; }\n}\n";
+        assert!(parse_source(ev).is_ok());
+        let out = "module m {\n  enum State { A, B }\n  initial A\n  event E\n\
+                   output O(O(v: bit<8>))\n  transition A on E { next B; emit O(O(1)); }\n}\n";
+        assert!(parse_source(out).is_ok());
     }
 
     #[test]

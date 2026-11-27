@@ -1,4 +1,4 @@
-<!-- llm-budget: 1504 -->
+<!-- llm-budget: 1507 -->
 # RFS Test Structure - function and type inventory
 
 Complete, dependency-annotated inventory of every function and every data
@@ -794,6 +794,9 @@ has its own inventory: `SRC_STRUCTURE.md`.
 | src/lang/parser.rs::tests::cast_operand_is_exactly_one_primary |  | Inline unit tests, Parser | behavior pinning | bit<2>(5 + 1) is a cast of a parenthesized sum; bit<2> 5 + 1 groups as (cast 5) + 1 - the operand is exactly one primary (task 3L) |  |
 | src/lang/parser.rs::tests::cast_rejects_unary_operand_without_parens |  | Inline unit tests, Parser | behavior pinning | bit<4> -a does not parse (unary minus is not a primary); bit<4> (-a) parses (task 3L) |  |
 | src/lang/parser.rs::tests::cast_roundtrips_through_printer |  | Inline unit tests, Parser | behavior pinning | parse -> print -> parse is structurally stable for cast expressions (round-trip fidelity, task 3L) |  |
+| src/lang/parser.rs::tests::anonymous_event_payload_reports_dedicated_diagnostic | src/lang/parser.rs::parse_source, src/lang/error.rs::ParseError | Inline unit tests, Parser | behavior pinning | event E(x: bit<8>) reports the anonymous-payload message with the span at the field identifier, not offset 0. |  |
+| src/lang/parser.rs::tests::anonymous_output_payload_reports_dedicated_diagnostic | src/lang/parser.rs::parse_source, src/lang/error.rs::ParseError | Inline unit tests, Parser | behavior pinning | output O(v: bit<8>) reports the anonymous-output-payload message with the span at the field identifier. |  |
+| src/lang/parser.rs::tests::named_variant_payload_still_parses | src/lang/parser.rs::parse_source | Inline unit tests, Parser | behavior pinning | naming the variant (event E(E(x: bit<8>)) / output O(O(v: bit<8>))) is the fix the diagnostic points to and must keep parsing - negative control. |  |
 | src/lang/validator.rs::tests::module_from | src/lang/parser.rs::parse_source, src/lang/ir.rs::Ir, src/lang/ir.rs::Module | Inline unit tests, Validator | behavior pinning | helper: parses a single-module source and returns the module. |  |
 | src/lang/validator.rs::tests::version_header_is_parsed_into_module | src/lang/validator.rs::tests::module_from, src/lang/ir.rs::Module | Inline unit tests, Validator | behavior pinning | the version header lands in Module.version as parsed by the parser. |  |
 | src/lang/validator.rs::tests::version_header_format_check | src/lang/validator.rs::tests::module_from, src/lang/validator.rs::validate_module, src/lang/validator.rs::ValidationError, src/lang/ir.rs::Module | Inline unit tests, Validator | behavior pinning | X.Y / X.Y.Z and an absent header validate; malformed versions (1.x, 1, 1.2.3.4, 1..2) are semantic errors with the pinned message. |  |
